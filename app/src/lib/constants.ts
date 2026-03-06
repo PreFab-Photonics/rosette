@@ -27,3 +27,20 @@ export const NICE_NUMBERS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000] as const;
 
 // Zoom tool padding (percentage of bounds added as margin)
 export const ZOOM_PADDING_PERCENT = 0.1;
+
+// Text tool configuration
+/** Default text height in nanometers (visual cap-height of characters). */
+export const TEXT_DEFAULT_HEIGHT = 100;
+/** Font family used for text rendering. */
+export const TEXT_FONT_FAMILY = "monospace";
+/** Cursor blink interval in milliseconds. */
+export const TEXT_CURSOR_BLINK_MS = 530;
+/**
+ * Ratio of CSS em-size to visual cap-height for monospace fonts.
+ *
+ * CSS `font-size` sets the em square, but the visible character height
+ * (cap-height) is shorter. For standard monospace fonts this ratio is
+ * ~0.72. To make a character visually H nanometers tall, set
+ * `font-size = H / TEXT_CAP_HEIGHT_RATIO`.
+ */
+export const TEXT_CAP_HEIGHT_RATIO = 0.72;

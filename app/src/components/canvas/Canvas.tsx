@@ -18,6 +18,7 @@ import { useRectangle } from "@/hooks/use-rectangle";
 import { usePolygon } from "@/hooks/use-polygon";
 import { useSelection } from "@/hooks/use-selection";
 import { useMove } from "@/hooks/use-move";
+import { useText } from "@/hooks/use-text";
 
 import { useLibrary } from "@/hooks/use-library";
 import { useLayerStore } from "@/stores/layer";
@@ -31,6 +32,7 @@ import { MarqueeBox } from "@/components/canvas/MarqueeBox";
 import { PolygonPreview } from "@/components/canvas/PolygonPreview";
 import { RulerOverlay } from "@/components/canvas/RulerOverlay";
 import { InstanceLabels } from "@/components/canvas/InstanceLabels";
+import { TextOverlay } from "@/components/canvas/TextOverlay";
 import { ContextMenu } from "@/components/ui/ContextMenu";
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 
@@ -146,6 +148,14 @@ export function Canvas() {
     isMovingRuler,
     hoveredRulerId,
   } = useRuler(screenToWorld, library, renderer, zoom, offset);
+
+  // Text tool integration
+  const {
+    handleMouseDown: handleTextMouseDown,
+    handleMouseMove: handleTextMouseMove,
+    cancelEditing: cancelTextEditing,
+    isEditing: isEditingText,
+  } = useText(screenToWorld, library, renderer);
 
   // Handle resize and signal when canvas is ready
   useEffect(() => {
@@ -338,6 +348,12 @@ export function Canvas() {
         return;
       }
 
+      // Handle text tool
+      if (activeTool === "text" && e.button === 0) {
+        handleTextMouseDown(e);
+        return;
+      }
+
       // Middle button always pans, left button pans when pan tool active
       if (e.button === 1 || (e.button === 0 && activeTool === "pan")) {
         setIsDragging(true);
@@ -353,6 +369,7 @@ export function Canvas() {
       handleMoveMouseDown,
       handlePolyMouseDown,
       handleRulerMouseDown,
+      handleTextMouseDown,
     ],
   );
 
@@ -397,6 +414,11 @@ export function Canvas() {
         handleRulerMouseMove(e);
       }
 
+      // Handle text tool movement
+      if (activeTool === "text") {
+        handleTextMouseMove(e);
+      }
+
       // Update world cursor position
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
@@ -435,6 +457,7 @@ export function Canvas() {
       handleMoveMouseMove,
       handlePolyMouseMove,
       handleRulerMouseMove,
+      handleTextMouseMove,
     ],
   );
 
@@ -471,12 +494,13 @@ export function Canvas() {
     handleRulerMouseUp,
   ]);
 
-  // Mouse leave - stop dragging, cancel rectangle, cancel polygon, cancel ruler, clear hover, cancel move, and clear cursor
+  // Mouse leave - stop dragging, cancel rectangle, cancel polygon, cancel ruler, cancel text, clear hover, cancel move, and clear cursor
   const handleMouseLeave = useCallback(() => {
     setIsDragging(false);
     cancelRectDrawing();
     cancelPolyDrawing();
     cancelRulerDrawing();
+    cancelTextEditing();
     handleSelectMouseLeave();
     handleMoveMouseLeave();
     setCursorWorld(null);
@@ -485,6 +509,7 @@ export function Canvas() {
     cancelRectDrawing,
     cancelPolyDrawing,
     cancelRulerDrawing,
+    cancelTextEditing,
     handleSelectMouseLeave,
     handleMoveMouseLeave,
   ]);
@@ -714,6 +739,7 @@ export function Canvas() {
     if (isLaserActive) return "cursor-none";
     if (isZoomActive) return "cursor-crosshair";
     if (activeTool === "rectangle" || activeTool === "polygon") return "cursor-crosshair";
+    if (activeTool === "text") return isEditingText ? "cursor-text" : "cursor-crosshair";
     if (activeTool === "ruler") {
       if (isDraggingRulerEndpoint) return "cursor-grabbing";
       if (isCreatingRuler) return "cursor-crosshair";
@@ -763,6 +789,7 @@ export function Canvas() {
         </div>
       )}
       <InstanceLabels />
+      <TextOverlay />
       <RulerOverlay />
       <ContextMenu library={library} renderer={renderer} canvasRef={canvasRef} />
     </div>

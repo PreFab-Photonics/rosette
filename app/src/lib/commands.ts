@@ -11,11 +11,13 @@ import {
   useClipboardStore,
   type ClipboardSnapshot,
   type ElementSnapshot,
+  type TextSnapshot,
 } from "@/stores/clipboard";
 import { useRulerStore, type Ruler, type Point, type RulerEndpoint } from "@/stores/ruler";
 import { useLayerStore, hexToRgba, type Layer } from "@/stores/layer";
 import { useExplorerStore } from "@/stores/explorer";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
+import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 
 /**
@@ -154,6 +156,30 @@ export function snapshotElements(
       continue;
     }
 
+    // Text element — check before polygon since get_element_info returns
+    // synthetic bounding-rect vertices for text (which we don't want to
+    // snapshot as a polygon).
+    const textInfo = library.get_text_element_info(id) as {
+      text: string;
+      x: number;
+      y: number;
+      height: number;
+      layer: number;
+      datatype: number;
+    } | null;
+    if (textInfo) {
+      snapshots.push({
+        type: "text",
+        text: textInfo.text,
+        x: textInfo.x,
+        y: textInfo.y,
+        height: textInfo.height,
+        layer: textInfo.layer,
+        datatype: textInfo.datatype,
+      });
+      continue;
+    }
+
     // Polygon element
     const info = library.get_element_info(id);
     if (info) {
@@ -186,6 +212,18 @@ function restoreSnapshots(
       const id = library.add_cell_ref_with_transform(
         snapshot.cellName,
         snapshot.transform,
+      );
+      if (id) {
+        newIds.push(id);
+      }
+    } else if (snapshot.type === "text") {
+      const id = library.add_text(
+        snapshot.text,
+        snapshot.x,
+        snapshot.y,
+        snapshot.height,
+        snapshot.layer,
+        snapshot.datatype,
       );
       if (id) {
         newIds.push(id);
@@ -287,6 +325,9 @@ export class PasteElementsCommand implements Command {
           cellName: e.cellName,
           transform: new Float64Array(e.transform),
         };
+      }
+      if (e.type === "text") {
+        return { ...e };
       }
       return {
         type: "polygon",
@@ -800,8 +841,8 @@ export class ChangeElementLayerCommand implements Command {
   readonly type = "change-element-layer";
   readonly description: string;
 
-  /** Original snapshots keyed by original ID. */
-  private originals: { id: string; snapshot: ElementSnapshot }[] = [];
+  /** Original snapshots — polygon or text — keyed by original ID. */
+  private originals: { id: string; snapshot: ElementSnapshot | TextSnapshot }[] = [];
 
   /** New IDs created during execute (for undo). */
   private newIds: string[] = [];
@@ -819,6 +860,32 @@ export class ChangeElementLayerCommand implements Command {
     // Snapshot originals on first execute
     if (this.originals.length === 0) {
       for (const id of this.elementIds) {
+        // Check for text elements first — get_element_info returns synthetic
+        // bounding-rect vertices for text, which would destroy the text data.
+        const textInfo = ctx.library.get_text_element_info(id) as {
+          text: string;
+          x: number;
+          y: number;
+          height: number;
+          layer: number;
+          datatype: number;
+        } | null;
+        if (textInfo) {
+          this.originals.push({
+            id,
+            snapshot: {
+              type: "text",
+              text: textInfo.text,
+              x: textInfo.x,
+              y: textInfo.y,
+              height: textInfo.height,
+              layer: textInfo.layer,
+              datatype: textInfo.datatype,
+            },
+          });
+          continue;
+        }
+
         const info = ctx.library.get_element_info(id);
         if (info) {
           this.originals.push({
@@ -838,10 +905,20 @@ export class ChangeElementLayerCommand implements Command {
     const idsToRemove = this.newIds.length > 0 ? this.newIds : this.elementIds;
     ctx.library.remove_elements(idsToRemove);
 
-    // Re-add with new layer/datatype
+    // Re-add with new layer/datatype, preserving element type
     const createdIds: string[] = [];
     for (const { snapshot } of this.originals) {
-      const id = ctx.library.add_polygon(snapshot.vertices, this.newLayer, this.newDatatype);
+      let id: string | undefined;
+      if ("type" in snapshot && snapshot.type === "text") {
+        id = ctx.library.add_text(
+          snapshot.text, snapshot.x, snapshot.y,
+          snapshot.height, this.newLayer, this.newDatatype,
+        );
+      } else {
+        id = ctx.library.add_polygon(
+          (snapshot as ElementSnapshot).vertices, this.newLayer, this.newDatatype,
+        );
+      }
       if (id) createdIds.push(id);
     }
 
@@ -859,10 +936,20 @@ export class ChangeElementLayerCommand implements Command {
     // Remove the new elements
     ctx.library.remove_elements(this.newIds);
 
-    // Restore originals with their original layer/datatype
+    // Restore originals with their original layer/datatype, preserving element type
     const restoredIds: string[] = [];
     for (const { snapshot } of this.originals) {
-      const id = ctx.library.add_polygon(snapshot.vertices, snapshot.layer, snapshot.datatype);
+      let id: string | undefined;
+      if ("type" in snapshot && snapshot.type === "text") {
+        id = ctx.library.add_text(
+          snapshot.text, snapshot.x, snapshot.y,
+          snapshot.height, snapshot.layer, snapshot.datatype,
+        );
+      } else {
+        id = ctx.library.add_polygon(
+          (snapshot as ElementSnapshot).vertices, snapshot.layer, snapshot.datatype,
+        );
+      }
       if (id) restoredIds.push(id);
     }
 
@@ -1477,4 +1564,174 @@ export function placePolygonInViewport(
 
   const command = new CreatePolygonCommand(points, layerNumber, datatype);
   useHistoryStore.getState().execute(command, { library, renderer });
+}
+
+/**
+ * Place a text label centered in the current viewport.
+ *
+ * Used by both the keyboard shortcut (T → Enter) and the command palette.
+ */
+export function placeTextInViewport(
+  library: WasmLibrary,
+  renderer: WasmRenderer,
+  canvas: HTMLElement,
+): void {
+  const { centerX, centerY, halfH } = viewportPlacement(canvas);
+  // Size the text height to ~10 % of the visible vertical extent (matching rect/polygon sizing)
+  const height = Math.max(snapToGrid(halfH), GRID_SIZE);
+
+  const { layerNumber, datatype } = getActiveLayerSpec();
+
+  const command = new CreateTextCommand(
+    "Text",
+    snapToGrid(centerX),
+    snapToGrid(centerY),
+    height,
+    layerNumber,
+    datatype,
+  );
+  useHistoryStore.getState().execute(command, { library, renderer });
+  useWasmContextStore.getState().bumpSyncGeneration();
+}
+
+// ---------------------------------------------------------------------------
+// Text
+// ---------------------------------------------------------------------------
+
+/**
+ * Command to create a text label element.
+ */
+export class CreateTextCommand implements Command {
+  readonly type = "create-text";
+  readonly description: string;
+
+  /** Created element ID (populated after execute). */
+  private elementId: string | null = null;
+
+  constructor(
+    private readonly text: string,
+    private readonly x: number,
+    private readonly y: number,
+    private readonly height: number,
+    private readonly layer: number,
+    private readonly datatype: number = 0,
+  ) {
+    this.description = `Create text "${text.slice(0, 20)}" at (${x}, ${y})`;
+  }
+
+  execute(ctx: CommandContext): void {
+    const id = ctx.library.add_text(
+      this.text,
+      this.x,
+      this.y,
+      this.height,
+      this.layer,
+      this.datatype,
+    );
+
+    if (id) {
+      this.elementId = id;
+      ctx.renderer.sync_from_library(ctx.library);
+      ctx.renderer.mark_dirty();
+      useSelectionStore.getState().select(id);
+    }
+  }
+
+  undo(ctx: CommandContext): void {
+    if (this.elementId) {
+      ctx.library.remove_element(this.elementId);
+      ctx.renderer.sync_from_library(ctx.library);
+      ctx.renderer.mark_dirty();
+
+      const { selectedIds, removeFromSelection } = useSelectionStore.getState();
+      if (selectedIds.has(this.elementId)) {
+        removeFromSelection(this.elementId);
+      }
+    }
+  }
+
+  /** Get the created element ID (available after execute). */
+  getElementId(): string | null {
+    return this.elementId;
+  }
+}
+
+/**
+ * Command to update a text element's content.
+ */
+export class UpdateTextContentCommand implements Command {
+  readonly type = "update-text-content";
+  readonly description = "Update text content";
+
+  constructor(
+    private readonly elementId: string,
+    private readonly oldText: string,
+    private readonly newText: string,
+  ) {}
+
+  execute(ctx: CommandContext): void {
+    ctx.library.update_text(this.elementId, this.newText);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+
+  undo(ctx: CommandContext): void {
+    ctx.library.update_text(this.elementId, this.oldText);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+}
+
+/**
+ * Command to move a text element to a new position.
+ */
+export class MoveTextCommand implements Command {
+  readonly type = "move-text";
+  readonly description = "Move text";
+
+  constructor(
+    private readonly elementId: string,
+    private readonly oldX: number,
+    private readonly oldY: number,
+    private readonly newX: number,
+    private readonly newY: number,
+  ) {}
+
+  execute(ctx: CommandContext): void {
+    ctx.library.set_text_position(this.elementId, this.newX, this.newY);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+
+  undo(ctx: CommandContext): void {
+    ctx.library.set_text_position(this.elementId, this.oldX, this.oldY);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+}
+
+/**
+ * Command to change a text element's height.
+ */
+export class SetTextHeightCommand implements Command {
+  readonly type = "set-text-height";
+  readonly description = "Set text height";
+
+  constructor(
+    private readonly elementId: string,
+    private readonly oldHeight: number,
+    private readonly newHeight: number,
+  ) {}
+
+  execute(ctx: CommandContext): void {
+    ctx.library.set_text_height(this.elementId, this.newHeight);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+
+  undo(ctx: CommandContext): void {
+    ctx.library.set_text_height(this.elementId, this.oldHeight);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
 }

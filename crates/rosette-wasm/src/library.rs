@@ -133,6 +133,34 @@ fn layer_key(layer: u16, datatype: u16) -> u32 {
     ((layer as u32) << 16) | (datatype as u32)
 }
 
+/// Ratio of CSS em-size to visual cap-height for monospace fonts.
+///
+/// The stored `height` represents the visual character height (cap-height).
+/// CSS `font-size` sets the em square which is larger. This factor converts
+/// cap-height → em-size so bounding boxes match what is rendered on screen.
+const TEXT_CAP_HEIGHT_RATIO: f64 = 0.72;
+
+/// Compute a bounding box for a text element.
+///
+/// The stored `height` is the visual cap-height. We convert to em-size
+/// (height / CAP_RATIO) to match the CSS font-size used for rendering,
+/// then derive character width (0.6 × em) and line height (1.2 × em).
+///
+/// `position` is the **bottom-left** anchor of the text in world
+/// coordinates (Y-down). The bbox extends rightward (+X) and upward
+/// (−Y, toward the top of the screen).
+fn text_bbox(text: &str, position: &Point, height: f64) -> BBox {
+    let em_size = height / TEXT_CAP_HEIGHT_RATIO;
+    let lines: Vec<&str> = text.split('\n').collect();
+    let max_chars = lines.iter().map(|l| l.len()).max().unwrap_or(1).max(1);
+    let width = em_size * 0.6 * max_chars as f64;
+    let total_height = em_size * 1.2 * lines.len() as f64;
+    BBox::new(
+        Point::new(position.x, position.y - total_height),
+        Point::new(position.x + width, position.y),
+    )
+}
+
 /// Parse a synthetic ref UUID and return (cellref_element_index, polygon_index).
 /// Format: "ref:{elem_idx}:{poly_idx}"
 fn parse_ref_uuid(uuid: &str) -> Option<(usize, usize)> {
@@ -364,6 +392,246 @@ impl WasmLibrary {
 
         self.dirty = true;
         Some(uuid)
+    }
+
+    /// Add a text label to the active cell.
+    ///
+    /// Returns the element's UUID, or None if no active cell.
+    pub fn add_text(
+        &mut self,
+        text: &str,
+        x: f64,
+        y: f64,
+        height: f64,
+        layer: u16,
+        datatype: u16,
+    ) -> Option<String> {
+        let cell_name = self.active_cell.as_ref()?;
+        let cell = self.library.cell_mut(cell_name)?;
+
+        let position = Point::new(x, y);
+        let layer_spec = Layer::new(layer, datatype);
+
+        cell.add_text_with_height(text, position, layer_spec, height);
+
+        let element_index = cell.elements().len() - 1;
+        let uuid = Uuid::new_v4().to_string();
+
+        self.element_refs.insert(
+            uuid.clone(),
+            ElementRef {
+                cell_name: cell_name.clone(),
+                element_index,
+            },
+        );
+
+        self.dirty = true;
+        Some(uuid)
+    }
+
+    /// Get all text labels in the active cell as a JS array.
+    ///
+    /// Each entry is `{ id, text, x, y, height, layer, datatype }`.
+    pub fn get_text_labels(&self) -> JsValue {
+        let result = js_sys::Array::new();
+
+        let cell_name = match &self.active_cell {
+            Some(name) => name,
+            None => return result.into(),
+        };
+        let cell = match self.library.cell(cell_name) {
+            Some(c) => c,
+            None => return result.into(),
+        };
+
+        for (elem_idx, element) in cell.elements().iter().enumerate() {
+            if let Element::Text {
+                text,
+                position,
+                layer,
+                height,
+            } = element
+            {
+                // Find the UUID for this element
+                let uuid = self
+                    .element_refs
+                    .iter()
+                    .find(|(_, er)| er.cell_name == *cell_name && er.element_index == elem_idx)
+                    .map(|(uuid, _)| uuid.as_str());
+
+                let id = match uuid {
+                    Some(id) => id,
+                    None => continue,
+                };
+
+                let obj = js_sys::Object::new();
+                js_sys::Reflect::set(&obj, &"id".into(), &JsValue::from_str(id)).ok();
+                js_sys::Reflect::set(&obj, &"text".into(), &JsValue::from_str(text)).ok();
+                js_sys::Reflect::set(&obj, &"x".into(), &JsValue::from_f64(position.x)).ok();
+                js_sys::Reflect::set(&obj, &"y".into(), &JsValue::from_f64(position.y)).ok();
+                js_sys::Reflect::set(&obj, &"height".into(), &JsValue::from_f64(*height)).ok();
+                js_sys::Reflect::set(
+                    &obj,
+                    &"layer".into(),
+                    &JsValue::from_f64(layer.number as f64),
+                )
+                .ok();
+                js_sys::Reflect::set(
+                    &obj,
+                    &"datatype".into(),
+                    &JsValue::from_f64(layer.datatype as f64),
+                )
+                .ok();
+                result.push(&obj);
+            }
+        }
+
+        result.into()
+    }
+
+    /// Update the text content of an existing text element.
+    ///
+    /// Returns true if the element was found and updated.
+    pub fn update_text(&mut self, id: &str, new_text: &str) -> bool {
+        let elem_ref = match self.element_refs.get(id) {
+            Some(r) => r.clone(),
+            None => return false,
+        };
+
+        let cell = match self.library.cell_mut(&elem_ref.cell_name) {
+            Some(c) => c,
+            None => return false,
+        };
+
+        let elements = cell.elements_mut();
+        if elem_ref.element_index >= elements.len() {
+            return false;
+        }
+
+        if let Element::Text { text, .. } = &mut elements[elem_ref.element_index] {
+            *text = new_text.to_string();
+            self.dirty = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get text-specific information for a given element UUID.
+    ///
+    /// Returns a JS object `{ text, x, y, height, layer, datatype }` or null
+    /// if the element is not a text element.
+    pub fn get_text_element_info(&self, id: &str) -> JsValue {
+        let elem_ref = match self.element_refs.get(id) {
+            Some(r) => r,
+            None => return JsValue::NULL,
+        };
+
+        let cell = match self.library.cell(&elem_ref.cell_name) {
+            Some(c) => c,
+            None => return JsValue::NULL,
+        };
+
+        if let Some(Element::Text {
+            text,
+            position,
+            layer,
+            height,
+        }) = cell.elements().get(elem_ref.element_index)
+        {
+            let obj = js_sys::Object::new();
+            js_sys::Reflect::set(&obj, &"text".into(), &JsValue::from_str(text)).ok();
+            js_sys::Reflect::set(&obj, &"x".into(), &JsValue::from_f64(position.x)).ok();
+            js_sys::Reflect::set(&obj, &"y".into(), &JsValue::from_f64(position.y)).ok();
+            js_sys::Reflect::set(&obj, &"height".into(), &JsValue::from_f64(*height)).ok();
+            js_sys::Reflect::set(
+                &obj,
+                &"layer".into(),
+                &JsValue::from_f64(layer.number as f64),
+            )
+            .ok();
+            js_sys::Reflect::set(
+                &obj,
+                &"datatype".into(),
+                &JsValue::from_f64(layer.datatype as f64),
+            )
+            .ok();
+            obj.into()
+        } else {
+            JsValue::NULL
+        }
+    }
+
+    /// Update the position of a text element.
+    ///
+    /// Returns true if the element was found and updated.
+    pub fn set_text_position(&mut self, id: &str, x: f64, y: f64) -> bool {
+        let elem_ref = match self.element_refs.get(id) {
+            Some(r) => r.clone(),
+            None => return false,
+        };
+
+        let cell = match self.library.cell_mut(&elem_ref.cell_name) {
+            Some(c) => c,
+            None => return false,
+        };
+
+        let elements = cell.elements_mut();
+        if elem_ref.element_index >= elements.len() {
+            return false;
+        }
+
+        if let Element::Text { position, .. } = &mut elements[elem_ref.element_index] {
+            *position = Point::new(x, y);
+            self.dirty = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Update the height of a text element.
+    ///
+    /// Returns true if the element was found and updated.
+    pub fn set_text_height(&mut self, id: &str, new_height: f64) -> bool {
+        let elem_ref = match self.element_refs.get(id) {
+            Some(r) => r.clone(),
+            None => return false,
+        };
+
+        let cell = match self.library.cell_mut(&elem_ref.cell_name) {
+            Some(c) => c,
+            None => return false,
+        };
+
+        let elements = cell.elements_mut();
+        if elem_ref.element_index >= elements.len() {
+            return false;
+        }
+
+        if let Element::Text { height, .. } = &mut elements[elem_ref.element_index] {
+            *height = new_height;
+            self.dirty = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Check if an element is a text element.
+    pub fn is_text_element(&self, id: &str) -> bool {
+        let elem_ref = match self.element_refs.get(id) {
+            Some(r) => r,
+            None => return false,
+        };
+        let cell = match self.library.cell(&elem_ref.cell_name) {
+            Some(c) => c,
+            None => return false,
+        };
+        matches!(
+            cell.elements().get(elem_ref.element_index),
+            Some(Element::Text { .. })
+        )
     }
 
     /// Remove an element by its UUID.
@@ -645,25 +913,46 @@ impl WasmLibrary {
                 continue;
             }
 
-            if let Some(Element::Polygon { polygon, layer }) =
-                cell.elements().get(elem_ref.element_index)
-            {
-                // Skip hidden layers (alpha == 0)
-                let key = layer_key(layer.number, layer.datatype);
-                if let Some(color) = self.layer_colors.get(&key)
-                    && color[3] <= 0.0
-                {
-                    continue;
-                }
+            match cell.elements().get(elem_ref.element_index) {
+                Some(Element::Polygon { polygon, layer }) => {
+                    // Skip hidden layers (alpha == 0)
+                    let key = layer_key(layer.number, layer.datatype);
+                    if let Some(color) = self.layer_colors.get(&key)
+                        && color[3] <= 0.0
+                    {
+                        continue;
+                    }
 
-                let bbox = polygon.bbox();
-                if !bbox.contains(point) {
-                    continue;
-                }
+                    let bbox = polygon.bbox();
+                    if !bbox.contains(point) {
+                        continue;
+                    }
 
-                if polygon.contains(point) {
-                    hits.push((uuid.clone(), polygon.area()));
+                    if polygon.contains(point) {
+                        hits.push((uuid.clone(), polygon.area()));
+                    }
                 }
+                Some(Element::Text {
+                    text,
+                    position,
+                    layer,
+                    height,
+                }) => {
+                    let key = layer_key(layer.number, layer.datatype);
+                    if let Some(color) = self.layer_colors.get(&key)
+                        && color[3] <= 0.0
+                    {
+                        continue;
+                    }
+
+                    let bbox = text_bbox(text, position, *height);
+                    if bbox.contains(point) {
+                        let area =
+                            (bbox.max().x - bbox.min().x) * (bbox.max().y - bbox.min().y);
+                        hits.push((uuid.clone(), area));
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -712,20 +1001,39 @@ impl WasmLibrary {
                 continue;
             }
 
-            if let Some(Element::Polygon { polygon, layer }) =
-                cell.elements().get(elem_ref.element_index)
-            {
-                let key = layer_key(layer.number, layer.datatype);
-                if let Some(color) = self.layer_colors.get(&key)
-                    && color[3] <= 0.0
-                {
-                    continue;
-                }
+            match cell.elements().get(elem_ref.element_index) {
+                Some(Element::Polygon { polygon, layer }) => {
+                    let key = layer_key(layer.number, layer.datatype);
+                    if let Some(color) = self.layer_colors.get(&key)
+                        && color[3] <= 0.0
+                    {
+                        continue;
+                    }
 
-                let bbox = polygon.bbox();
-                if bbox.overlaps(&query_bbox) {
-                    hits.push(uuid.clone());
+                    let bbox = polygon.bbox();
+                    if bbox.overlaps(&query_bbox) {
+                        hits.push(uuid.clone());
+                    }
                 }
+                Some(Element::Text {
+                    text,
+                    position,
+                    layer,
+                    height,
+                }) => {
+                    let key = layer_key(layer.number, layer.datatype);
+                    if let Some(color) = self.layer_colors.get(&key)
+                        && color[3] <= 0.0
+                    {
+                        continue;
+                    }
+
+                    let bbox = text_bbox(text, position, *height);
+                    if bbox.overlaps(&query_bbox) {
+                        hits.push(uuid.clone());
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -936,7 +1244,7 @@ impl WasmLibrary {
                 continue;
             }
 
-            // Regular polygon UUID
+            // Regular element UUID (polygon or text)
             let elem_ref = match self.element_refs.get(id.as_str()) {
                 Some(r) => r,
                 None => continue,
@@ -946,10 +1254,18 @@ impl WasmLibrary {
                 continue;
             }
 
-            if let Some(Element::Polygon { polygon, .. }) =
-                cell.elements().get(elem_ref.element_index)
-            {
-                let bbox = polygon.bbox();
+            let bbox = match cell.elements().get(elem_ref.element_index) {
+                Some(Element::Polygon { polygon, .. }) => Some(polygon.bbox()),
+                Some(Element::Text {
+                    text,
+                    position,
+                    height,
+                    ..
+                }) => Some(text_bbox(text, position, *height)),
+                _ => None,
+            };
+
+            if let Some(bbox) = bbox {
                 combined_bbox = Some(match combined_bbox {
                     Some(existing) => existing.merge(&bbox),
                     None => bbox,
@@ -978,16 +1294,35 @@ impl WasmLibrary {
         let elem_ref = self.element_refs.get(id)?;
         let cell = self.library.cell(&elem_ref.cell_name)?;
 
-        if let Some(Element::Polygon { polygon, .. }) = cell.elements().get(elem_ref.element_index)
-        {
-            let vertices: Vec<f64> = polygon
-                .vertices()
-                .iter()
-                .flat_map(|p| vec![p.x, p.y])
-                .collect();
-            Some(vertices)
-        } else {
-            None
+        match cell.elements().get(elem_ref.element_index) {
+            Some(Element::Polygon { polygon, .. }) => {
+                let vertices: Vec<f64> = polygon
+                    .vertices()
+                    .iter()
+                    .flat_map(|p| vec![p.x, p.y])
+                    .collect();
+                Some(vertices)
+            }
+            Some(Element::Text {
+                text,
+                position,
+                height,
+                ..
+            }) => {
+                // Return bounding rectangle corners for selection outline rendering
+                let bbox = text_bbox(text, position, *height);
+                Some(vec![
+                    bbox.min().x,
+                    bbox.min().y,
+                    bbox.max().x,
+                    bbox.min().y,
+                    bbox.max().x,
+                    bbox.max().y,
+                    bbox.min().x,
+                    bbox.max().y,
+                ])
+            }
+            _ => None,
         }
     }
 
@@ -1013,22 +1348,45 @@ impl WasmLibrary {
         let elem_ref = self.element_refs.get(id)?;
         let cell = self.library.cell(&elem_ref.cell_name)?;
 
-        if let Some(Element::Polygon { polygon, layer }) =
-            cell.elements().get(elem_ref.element_index)
-        {
-            let vertices: Vec<f64> = polygon
-                .vertices()
-                .iter()
-                .flat_map(|p| vec![p.x, p.y])
-                .collect();
+        match cell.elements().get(elem_ref.element_index) {
+            Some(Element::Polygon { polygon, layer }) => {
+                let vertices: Vec<f64> = polygon
+                    .vertices()
+                    .iter()
+                    .flat_map(|p| vec![p.x, p.y])
+                    .collect();
 
-            Some(ElementInfo {
-                vertices,
-                layer: layer.number,
-                datatype: layer.datatype,
-            })
-        } else {
-            None
+                Some(ElementInfo {
+                    vertices,
+                    layer: layer.number,
+                    datatype: layer.datatype,
+                })
+            }
+            Some(Element::Text {
+                text,
+                position,
+                layer,
+                height,
+            }) => {
+                // Return bounding rectangle as vertices so selection outlines work
+                let bbox = text_bbox(text, position, *height);
+                let vertices = vec![
+                    bbox.min().x,
+                    bbox.min().y,
+                    bbox.max().x,
+                    bbox.min().y,
+                    bbox.max().x,
+                    bbox.max().y,
+                    bbox.min().x,
+                    bbox.max().y,
+                ];
+                Some(ElementInfo {
+                    vertices,
+                    layer: layer.number,
+                    datatype: layer.datatype,
+                })
+            }
+            _ => None,
         }
     }
 
@@ -1139,13 +1497,19 @@ impl WasmLibrary {
         };
 
         let elements = cell.elements_mut();
-        if let Some(Element::Polygon { polygon, .. }) = elements.get_mut(elem_ref.element_index) {
-            let translation = Vector2::new(dx, dy);
-            *polygon = polygon.translate(translation);
-            self.dirty = true;
-            true
-        } else {
-            false
+        match elements.get_mut(elem_ref.element_index) {
+            Some(Element::Polygon { polygon, .. }) => {
+                let translation = Vector2::new(dx, dy);
+                *polygon = polygon.translate(translation);
+                self.dirty = true;
+                true
+            }
+            Some(Element::Text { position, .. }) => {
+                *position = Point::new(position.x + dx, position.y + dy);
+                self.dirty = true;
+                true
+            }
+            _ => false,
         }
     }
 

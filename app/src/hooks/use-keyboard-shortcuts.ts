@@ -21,11 +21,13 @@ import {
   DuplicateElementsCommand,
   placeRectangleInViewport,
   placePolygonInViewport,
+  placeTextInViewport,
   snapshotElements,
 } from "@/lib/commands";
 import { useCommandPaletteStore } from "@/stores/command-palette";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useUIStore } from "@/stores/ui";
+import { useTextStore } from "@/stores/text";
 import { centerViewOnSelection } from "@/lib/utils";
 
 /** Keys tracked for continuous panning. */
@@ -128,6 +130,12 @@ export function useKeyboardShortcuts(
       // Cmd+K is already handled above; everything else (typing, Cmd+Z undo,
       // Cmd+A select-all, Cmd+C copy, arrows, delete, etc.) belongs to the input.
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      // Skip all shortcuts while inline text editing is active.
+      // The text tool's own keydown handler captures keystrokes separately.
+      if (useTextStore.getState().isEditingText) {
         return;
       }
 
@@ -308,7 +316,8 @@ export function useKeyboardShortcuts(
       if (
         e.key === "Enter" &&
         (useToolStore.getState().activeTool === "rectangle" ||
-          useToolStore.getState().activeTool === "polygon")
+          useToolStore.getState().activeTool === "polygon" ||
+          useToolStore.getState().activeTool === "text")
       ) {
         const elapsed = Date.now() - useToolStore.getState().toolSetAt;
         if (elapsed > 2000) return; // Only within 2 s of activating the tool
@@ -317,8 +326,10 @@ export function useKeyboardShortcuts(
           const tool = useToolStore.getState().activeTool;
           if (tool === "rectangle") {
             placeRectangleInViewport(library, renderer, canvas);
-          } else {
+          } else if (tool === "polygon") {
             placePolygonInViewport(library, renderer, canvas);
+          } else {
+            placeTextInViewport(library, renderer, canvas);
           }
         }
         return;
@@ -378,6 +389,10 @@ export function useKeyboardShortcuts(
         case "G":
           e.preventDefault();
           setTool("polygon");
+          break;
+        case "t":
+          e.preventDefault();
+          setTool("text");
           break;
         case "u":
         case "U":

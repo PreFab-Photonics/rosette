@@ -9,6 +9,7 @@ import {
   Ruler,
   SlashSquare,
   PlusSquare,
+  Text,
 } from "iconoir-react";
 import { useToolStore, type ToolType } from "@/stores/tool";
 import { useUIStore } from "@/stores/ui";
@@ -41,6 +42,7 @@ const BASE_TOOLS: ToolDef[] = [
 const SHAPE_TOOLS: ToolDef[] = [
   { id: "rectangle", icon: Square3dCornerToCorner, label: "Rectangle", shortcut: "R" },
   { id: "polygon", icon: Pentagon, label: "Polygon", shortcut: "G" },
+  { id: "text", icon: Text, label: "Text", shortcut: "T" },
 ];
 
 /**

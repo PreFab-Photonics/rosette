@@ -25,6 +25,25 @@ export interface CellRefSnapshot {
 }
 
 /**
+ * Snapshot of a text label element for clipboard operations.
+ */
+export interface TextSnapshot {
+  type: "text";
+  /** Text content. */
+  text: string;
+  /** World X position. */
+  x: number;
+  /** World Y position. */
+  y: number;
+  /** Text height (visual cap-height) in world units. */
+  height: number;
+  /** Layer number. */
+  layer: number;
+  /** Datatype number. */
+  datatype: number;
+}
+
+/**
  * Polygon-only element snapshot.
  *
  * Used by commands that only operate on polygons (layer changes, resize, etc.).
@@ -40,7 +59,7 @@ export interface ElementSnapshot {
 }
 
 /** Any element snapshot that can live on the clipboard. */
-export type ClipboardSnapshot = PolygonSnapshot | CellRefSnapshot;
+export type ClipboardSnapshot = PolygonSnapshot | CellRefSnapshot | TextSnapshot;
 
 /**
  * Clipboard state for copy/paste operations.

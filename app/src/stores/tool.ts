@@ -11,7 +11,8 @@ export type ToolType =
   | "rectangle"
   | "move"
   | "polygon"
-  | "ruler";
+  | "ruler"
+  | "text";
 
 /**
  * Tool state for managing the active drawing/interaction tool.

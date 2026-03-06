@@ -15,6 +15,9 @@ import {
   RenameCellCommand,
   SetInstanceTransformCommand,
   SetInstanceArrayCommand,
+  UpdateTextContentCommand,
+  MoveTextCommand,
+  SetTextHeightCommand,
   type ArrayParams,
 } from "@/lib/commands";
 import { useExplorerStore } from "@/stores/explorer";
@@ -303,6 +306,120 @@ function TextField({
           tabIndex={0}
         >
           {value}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Multi-line text area field.
+ *
+ * Click to edit, Escape to cancel, blur to confirm. Shift+Enter inserts
+ * newlines, plain Enter confirms (matching the inline canvas behaviour).
+ */
+function TextAreaField({
+  label,
+  value,
+  isDark,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  isDark: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const cancelledRef = useRef(false);
+
+  useEffect(() => {
+    if (!editing) {
+      setEditValue(value);
+    }
+  }, [value, editing]);
+
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.select();
+    }
+  }, [editing]);
+
+  const handleBlur = useCallback(() => {
+    if (cancelledRef.current) {
+      cancelledRef.current = false;
+      setEditing(false);
+      return;
+    }
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== value) {
+      onChange(trimmed);
+    }
+    setEditing(false);
+  }, [editValue, value, onChange]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        textareaRef.current?.blur();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelledRef.current = true;
+        setEditValue(value);
+        textareaRef.current?.blur();
+      }
+    },
+    [value],
+  );
+
+  // Preview: show up to 2 lines, truncate the rest
+  const previewLines = value.split("\n");
+  const preview =
+    previewLines.length > 2
+      ? `${previewLines.slice(0, 2).join("\n")}...`
+      : value;
+
+  return (
+    <div className="px-3 py-1" data-field={label}>
+      <div className="flex items-center justify-between gap-2 pb-1">
+        <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
+          {label}
+        </span>
+      </div>
+      {editing ? (
+        <textarea
+          ref={textareaRef}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          onClick={(e) => e.stopPropagation()}
+          rows={Math.min(6, Math.max(2, editValue.split("\n").length))}
+          className={cn(
+            "w-full resize-none rounded border px-1.5 py-1 font-mono text-xs leading-relaxed outline-none",
+            isDark
+              ? "border-white/10 bg-white/5 text-white/90"
+              : "border-black/10 bg-black/5 text-black/90",
+          )}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          onFocus={() => setEditing(true)}
+          className={cn(
+            "w-full whitespace-pre-wrap rounded border border-transparent px-1.5 py-1 text-left font-mono text-xs leading-relaxed outline-none transition-colors",
+            isDark
+              ? "cursor-text text-white/90 hover:bg-white/5"
+              : "cursor-text text-black/90 hover:bg-black/5",
+          )}
+          tabIndex={0}
+        >
+          {preview || <span className={isDark ? "text-white/30" : "text-black/30"}>Empty</span>}
         </button>
       )}
     </div>
@@ -1501,6 +1618,135 @@ export function InspectorPanel() {
         />
       </div>
     );
+  }
+
+  // Text inspector (single text element selected)
+  if (isSingle && library && library.is_text_element(first.id)) {
+    const textInfo = library.get_text_element_info(first.id) as {
+      text: string;
+      x: number;
+      y: number;
+      height: number;
+      layer: number;
+      datatype: number;
+    } | null;
+
+    if (textInfo) {
+      const textX = formatCoordinate(textInfo.x / GRID_SIZE, unitInfo);
+      const textY = formatCoordinate(-textInfo.y / GRID_SIZE, unitInfo);
+      const textHeight = formatCoordinate(textInfo.height / GRID_SIZE, unitInfo);
+
+      const handleTextPositionChange = (axis: "x" | "y", displayValue: number) => {
+        if (!renderer) return;
+        const valueInNm = displayValue * unitInfo.scale;
+        const worldValue = axis === "y" ? -valueInNm * GRID_SIZE : valueInNm * GRID_SIZE;
+        const cmd = new MoveTextCommand(
+          first.id,
+          textInfo.x,
+          textInfo.y,
+          axis === "x" ? worldValue : textInfo.x,
+          axis === "y" ? worldValue : textInfo.y,
+        );
+        useHistoryStore.getState().execute(cmd, { library, renderer });
+      };
+
+      const handleTextContentChange = (newContent: string) => {
+        if (!renderer || newContent === textInfo.text) return;
+        const cmd = new UpdateTextContentCommand(first.id, textInfo.text, newContent);
+        useHistoryStore.getState().execute(cmd, { library, renderer });
+        useWasmContextStore.getState().bumpSyncGeneration();
+      };
+
+      const handleTextHeightChange = (displayValue: number) => {
+        if (!renderer) return;
+        const valueInNm = displayValue * unitInfo.scale;
+        const worldValue = valueInNm * GRID_SIZE;
+        if (worldValue <= 0) return;
+        const cmd = new SetTextHeightCommand(first.id, textInfo.height, worldValue);
+        useHistoryStore.getState().execute(cmd, { library, renderer });
+        useWasmContextStore.getState().bumpSyncGeneration();
+      };
+
+      const handleTextLayerChange = (newLayer: number, newDatatype: number) => {
+        if (!renderer) return;
+        const cmd = new ChangeElementLayerCommand([first.id], newLayer, newDatatype);
+        useHistoryStore.getState().execute(cmd, { library, renderer });
+        useWasmContextStore.getState().bumpSyncGeneration();
+      };
+
+      return (
+        <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
+          {/* Text header */}
+          <div className="px-3 pt-2 pb-1">
+            <span
+              className={cn(
+                "text-xs font-medium select-none",
+                isDark ? "text-white/70" : "text-black/70",
+              )}
+            >
+              Text
+            </span>
+          </div>
+
+          {/* Divider */}
+          <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+          {/* Layer */}
+          <SectionHeader label="Layer" isDark={isDark} />
+          <LayerSelector
+            currentLayer={textInfo.layer}
+            currentDatatype={textInfo.datatype}
+            isDark={isDark}
+            onChange={handleTextLayerChange}
+          />
+
+          {/* Divider */}
+          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+          {/* Content */}
+          <SectionHeader label="Content" isDark={isDark} />
+          <TextAreaField
+            label="Text"
+            value={textInfo.text}
+            isDark={isDark}
+            onChange={handleTextContentChange}
+          />
+
+          {/* Divider */}
+          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+          {/* Position */}
+          <SectionHeader label="Position" isDark={isDark} />
+          <NumberField
+            label="X"
+            value={textX}
+            unit={unitInfo.unit}
+            isDark={isDark}
+            onChange={(v) => handleTextPositionChange("x", v)}
+          />
+          <NumberField
+            label="Y"
+            value={textY}
+            unit={unitInfo.unit}
+            isDark={isDark}
+            onChange={(v) => handleTextPositionChange("y", v)}
+          />
+
+          {/* Divider */}
+          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+          {/* Text size */}
+          <SectionHeader label="Size" isDark={isDark} />
+          <NumberField
+            label="Size"
+            value={textHeight}
+            unit={unitInfo.unit}
+            isDark={isDark}
+            onChange={handleTextHeightChange}
+          />
+        </div>
+      );
+    }
   }
 
   // Format bounds for display.

@@ -27,6 +27,7 @@ import {
   DeleteCellCommand,
   placeRectangleInViewport,
   placePolygonInViewport,
+  placeTextInViewport,
   snapshotElements,
 } from "@/lib/commands";
 import { useExplorerStore } from "@/stores/explorer";
@@ -345,6 +346,17 @@ export function getCommands(): CommandItem[] {
       },
       searchableText: "Tool polygon shape draw",
     },
+    {
+      id: "tool-text",
+      type: "tool",
+      name: "Tool: Text",
+      shortcut: { key: "T" },
+      action: () => {
+        setTool("text");
+        close();
+      },
+      searchableText: "Tool text label annotation",
+    },
 
     // =========================================================================
     // Add commands
@@ -378,6 +390,21 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Add polygon create shape triangle place",
+    },
+    {
+      id: "add-text",
+      type: "command",
+      name: "Add: Text",
+      shortcut: { key: "T", then: "↵" },
+      action: () => {
+        const { library, renderer } = useWasmContextStore.getState();
+        const canvas = document.getElementById("rosette-canvas");
+        if (library && renderer && canvas) {
+          placeTextInViewport(library, renderer, canvas);
+        }
+        close();
+      },
+      searchableText: "Add text create label annotation place",
     },
 
     // =========================================================================
