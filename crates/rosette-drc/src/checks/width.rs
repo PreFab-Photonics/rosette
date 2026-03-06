@@ -263,19 +263,19 @@ mod tests {
             "L-shape with 0.5 width should fail min_width=0.6"
         );
 
-        if let Some(v) = result {
-            if let RuleType::MinWidth { actual, .. } = v.rule_type {
-                assert!(
-                    actual < 0.6,
-                    "Measured width {} should be less than 0.6",
-                    actual
-                );
-                assert!(
-                    actual > 0.3,
-                    "Measured width {} should be reasonable (> 0.3)",
-                    actual
-                );
-            }
+        if let Some(v) = result
+            && let RuleType::MinWidth { actual, .. } = v.rule_type
+        {
+            assert!(
+                actual < 0.6,
+                "Measured width {} should be less than 0.6",
+                actual
+            );
+            assert!(
+                actual > 0.3,
+                "Measured width {} should be reasonable (> 0.3)",
+                actual
+            );
         }
     }
 

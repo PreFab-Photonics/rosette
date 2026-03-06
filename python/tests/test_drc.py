@@ -414,7 +414,7 @@ inner = "11/0"
         config_file = tmp_path / "rosette.toml"
         config_file.write_text(toml_content)
 
-        with pytest.raises(ValueError, match="missing required fields.*outer.*min_enclosure"):
+        with pytest.raises(ValueError, match=r"missing required fields.*outer.*min_enclosure"):
             load_drc_rules(config_file)
 
     def test_load_empty_drc_section(self, tmp_path):

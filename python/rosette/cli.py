@@ -583,7 +583,7 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
             if components_dir.exists():
                 watch_paths.append(components_dir)
 
-            for changes in watch(*watch_paths):
+            for _changes in watch(*watch_paths):
                 try:
                     # Clear module cache for all project files
                     project_dir = str(Path.cwd())

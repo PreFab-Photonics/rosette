@@ -155,9 +155,10 @@ mod tests {
         assert_eq!(calculate_skip_factor(1.0), 1_u64);
         assert_eq!(calculate_skip_factor(2.0), 1_u64);
 
-        // zoom < 1 but >= 0.2 -> skip 1
+        // zoom < 1 but > 0.2 -> skip 1
         assert_eq!(calculate_skip_factor(0.5), 1_u64);
-        assert_eq!(calculate_skip_factor(0.2), 1_u64);
+        // zoom = 0.2 (exactly 1/5) is the boundary -> skip 5
+        assert_eq!(calculate_skip_factor(0.2), 5_u64);
 
         // zoom < 0.2 (1/5) -> skip 5
         assert_eq!(calculate_skip_factor(0.19), 5_u64);
@@ -213,7 +214,7 @@ mod tests {
         let mut count = 0;
         let mut x = start;
         while x <= end {
-            if x >= -10000.0 && x <= 10000.0 {
+            if (-10000.0..=10000.0).contains(&x) {
                 count += 1;
             }
             x += spacing;

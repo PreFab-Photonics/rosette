@@ -7,6 +7,7 @@ Ports: "in" (at origin, facing -X), "out" (at bend endpoint)
 
 import math
 
+from components._curves import euler_bend_point, euler_bend_tangent
 from rosette import (
     Cell,
     Layer,
@@ -15,8 +16,6 @@ from rosette import (
     Port,
     Vector2,
 )
-
-from components._curves import euler_bend_point, euler_bend_tangent
 
 __all__ = ["bend"]
 

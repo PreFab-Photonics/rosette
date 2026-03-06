@@ -10,7 +10,7 @@
 //! - Skips text elements (not rendered in viewer)
 
 use crate::cell::Element;
-use crate::geometry::{offset_polygon, Point, Polygon, Transform};
+use crate::geometry::{Point, Polygon, Transform, offset_polygon};
 use crate::layer::Layer;
 use crate::{Cell, Library};
 

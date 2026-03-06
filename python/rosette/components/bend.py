@@ -15,7 +15,6 @@ from rosette import (
     Port,
     Vector2,
 )
-
 from rosette.components._curves import euler_bend_point, euler_bend_tangent
 
 __all__ = ["bend"]

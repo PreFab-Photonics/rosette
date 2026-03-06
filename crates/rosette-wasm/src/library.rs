@@ -4,11 +4,14 @@
 //! methods to JavaScript for creating and manipulating photonic layouts.
 
 use rosette_core::cell::Element;
-use rosette_core::geometry::{offset_polygon, BBox, Vector2};
+use rosette_core::geometry::{BBox, Vector2, offset_polygon};
 use rosette_core::{Cell, CellRef, Layer, Library, Point, Polygon, Repetition, Transform};
 use std::collections::HashMap;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
+
+/// A rendered polygon: (uuid, vertices, color).
+type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4]);
 
 /// Iterate over all array copy transforms for a CellRef.
 ///
@@ -502,11 +505,11 @@ impl WasmLibrary {
             self.element_refs.remove(&id);
 
             // Remove from cell
-            if let Some(cell) = self.library.cell_mut(&cell_name) {
-                if cell.remove_element(element_index).is_some() {
-                    indices_removed_in_cell.push(element_index);
-                    removed_count += 1;
-                }
+            if let Some(cell) = self.library.cell_mut(&cell_name)
+                && cell.remove_element(element_index).is_some()
+            {
+                indices_removed_in_cell.push(element_index);
+                removed_count += 1;
             }
         }
 
@@ -561,11 +564,11 @@ impl WasmLibrary {
             .iter()
             .filter(|(_, elem_ref)| {
                 elem_ref.cell_name == *cell_name
-                    && cell
+                    && (cell
                         .elements()
                         .get(elem_ref.element_index)
                         .and_then(|e| e.layer())
-                        .map_or(false, |l| l == target)
+                        == Some(target))
             })
             .map(|(uuid, _)| uuid.clone())
             .collect()
@@ -647,10 +650,10 @@ impl WasmLibrary {
             {
                 // Skip hidden layers (alpha == 0)
                 let key = layer_key(layer.number, layer.datatype);
-                if let Some(color) = self.layer_colors.get(&key) {
-                    if color[3] <= 0.0 {
-                        continue;
-                    }
+                if let Some(color) = self.layer_colors.get(&key)
+                    && color[3] <= 0.0
+                {
+                    continue;
                 }
 
                 let bbox = polygon.bbox();
@@ -713,10 +716,10 @@ impl WasmLibrary {
                 cell.elements().get(elem_ref.element_index)
             {
                 let key = layer_key(layer.number, layer.datatype);
-                if let Some(color) = self.layer_colors.get(&key) {
-                    if color[3] <= 0.0 {
-                        continue;
-                    }
+                if let Some(color) = self.layer_colors.get(&key)
+                    && color[3] <= 0.0
+                {
+                    continue;
                 }
 
                 let bbox = polygon.bbox();
@@ -754,10 +757,10 @@ impl WasmLibrary {
         }
 
         // Check pre-flattened group membership (design mode)
-        if let Some(group_id) = self.uuid_to_group.get(uuid) {
-            if let Some(ids) = self.group_map.get(group_id) {
-                return ids.clone();
-            }
+        if let Some(group_id) = self.uuid_to_group.get(uuid)
+            && let Some(ids) = self.group_map.get(group_id)
+        {
+            return ids.clone();
         }
         // Ungrouped — return just this element
         vec![uuid.to_string()]
@@ -1170,16 +1173,14 @@ impl WasmLibrary {
             if let Some(elem_idx) = parse_ref_uuid_element_index(id) {
                 if translated_ref_elements.insert(elem_idx) {
                     // Translate the CellRef element's transform
-                    if let Some(cell) = self.library.cell_mut(&active_cell_name) {
-                        if let Some(Element::CellRef(cell_ref)) =
+                    if let Some(cell) = self.library.cell_mut(&active_cell_name)
+                        && let Some(Element::CellRef(cell_ref)) =
                             cell.elements_mut().get_mut(elem_idx)
-                        {
-                            // Compose: new_transform = translate(dx,dy) * old_transform
-                            cell_ref.transform =
-                                Transform::translate(dx, dy).then(&cell_ref.transform);
-                            count += 1;
-                            self.dirty = true;
-                        }
+                    {
+                        // Compose: new_transform = translate(dx,dy) * old_transform
+                        cell_ref.transform = Transform::translate(dx, dy).then(&cell_ref.transform);
+                        count += 1;
+                        self.dirty = true;
                     }
                 }
                 continue;
@@ -1212,19 +1213,19 @@ impl WasmLibrary {
             Some(name) => name.clone(),
             None => return false,
         };
-        if let Some(cell) = self.library.cell_mut(&active_cell_name) {
-            if let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx) {
-                cell_ref.transform = Transform::new(
-                    transform[0],
-                    transform[1],
-                    transform[2],
-                    transform[3],
-                    transform[4],
-                    transform[5],
-                );
-                self.dirty = true;
-                return true;
-            }
+        if let Some(cell) = self.library.cell_mut(&active_cell_name)
+            && let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx)
+        {
+            cell_ref.transform = Transform::new(
+                transform[0],
+                transform[1],
+                transform[2],
+                transform[3],
+                transform[4],
+                transform[5],
+            );
+            self.dirty = true;
+            return true;
         }
         false
     }
@@ -1237,15 +1238,15 @@ impl WasmLibrary {
         let elem_idx = parse_ref_uuid_element_index(id)?;
         let cell_name = self.active_cell.as_ref()?;
         let cell = self.library.cell(cell_name)?;
-        if let Some(Element::CellRef(cell_ref)) = cell.elements().get(elem_idx) {
-            if let Some(rep) = &cell_ref.repetition {
-                return Some(vec![
-                    rep.columns as f64,
-                    rep.rows as f64,
-                    rep.col_spacing,
-                    rep.row_spacing,
-                ]);
-            }
+        if let Some(Element::CellRef(cell_ref)) = cell.elements().get(elem_idx)
+            && let Some(rep) = &cell_ref.repetition
+        {
+            return Some(vec![
+                rep.columns as f64,
+                rep.rows as f64,
+                rep.col_spacing,
+                rep.row_spacing,
+            ]);
         }
         None
     }
@@ -1273,17 +1274,17 @@ impl WasmLibrary {
             Some(name) => name.clone(),
             None => return false,
         };
-        if let Some(cell) = self.library.cell_mut(&active_cell_name) {
-            if let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx) {
-                if columns <= 1 && rows <= 1 {
-                    cell_ref.repetition = None;
-                } else {
-                    cell_ref.repetition =
-                        Some(Repetition::new(columns, rows, col_spacing, row_spacing));
-                }
-                self.dirty = true;
-                return true;
+        if let Some(cell) = self.library.cell_mut(&active_cell_name)
+            && let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx)
+        {
+            if columns <= 1 && rows <= 1 {
+                cell_ref.repetition = None;
+            } else {
+                cell_ref.repetition =
+                    Some(Repetition::new(columns, rows, col_spacing, row_spacing));
             }
+            self.dirty = true;
+            return true;
         }
         false
     }
@@ -1562,7 +1563,7 @@ impl WasmLibrary {
             .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
 
         // Create a new library with a flattened cell
-        let mut wasm_lib = WasmLibrary::new(&library.name());
+        let mut wasm_lib = WasmLibrary::new(library.name());
         wasm_lib.add_cell("flattened");
         wasm_lib.set_active_cell("flattened");
 
@@ -1680,7 +1681,7 @@ impl WasmLibrary {
         cellref_elem_idx: usize,
         poly_counter: &mut usize,
         default_color: &[f32; 4],
-        result: &mut Vec<(String, Vec<[f64; 2]>, [f32; 4])>,
+        result: &mut Vec<RenderPolygon>,
     ) {
         for element in cell.elements() {
             match element {
@@ -1868,21 +1869,16 @@ impl WasmLibrary {
             Some(e) => e,
             None => return Vec::new(),
         };
-        if let Element::CellRef(cell_ref) = element {
-            if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
-                let mut uuids = Vec::new();
-                let mut counter: usize = 0;
-                let copy_count = cell_ref.repetition.as_ref().map_or(1, |r| r.count());
-                for _ in 0..copy_count {
-                    self.count_polygons_recursive(
-                        ref_cell,
-                        cellref_elem_idx,
-                        &mut counter,
-                        &mut uuids,
-                    );
-                }
-                return uuids;
+        if let Element::CellRef(cell_ref) = element
+            && let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
+        {
+            let mut uuids = Vec::new();
+            let mut counter: usize = 0;
+            let copy_count = cell_ref.repetition.as_ref().map_or(1, |r| r.count());
+            for _ in 0..copy_count {
+                self.count_polygons_recursive(ref_cell, cellref_elem_idx, &mut counter, &mut uuids);
             }
+            return uuids;
         }
         Vec::new()
     }
@@ -1929,18 +1925,18 @@ impl WasmLibrary {
         let cell = self.library.cell(cell_name)?;
         let element = cell.elements().get(cellref_elem_idx)?;
 
-        if let Element::CellRef(cell_ref) = element {
-            if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
-                let mut counter: usize = 0;
-                for copy_transform in array_transforms(cell_ref) {
-                    if let Some(result) = self.find_polygon_recursive(
-                        ref_cell,
-                        &copy_transform,
-                        target_poly_idx,
-                        &mut counter,
-                    ) {
-                        return Some(result);
-                    }
+        if let Element::CellRef(cell_ref) = element
+            && let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
+        {
+            let mut counter: usize = 0;
+            for copy_transform in array_transforms(cell_ref) {
+                if let Some(result) = self.find_polygon_recursive(
+                    ref_cell,
+                    &copy_transform,
+                    target_poly_idx,
+                    &mut counter,
+                ) {
+                    return Some(result);
                 }
             }
         }
@@ -2232,7 +2228,7 @@ impl WasmLibrary {
     /// The UUID allows selection to work correctly.
     /// CellRef elements are resolved on-the-fly with synthetic UUIDs,
     /// so changes to referenced cells are always reflected.
-    pub(crate) fn get_render_polygons_internal(&self) -> Vec<(String, Vec<[f64; 2]>, [f32; 4])> {
+    pub(crate) fn get_render_polygons_internal(&self) -> Vec<RenderPolygon> {
         let mut result = Vec::new();
 
         let default_color = [0.5, 0.5, 0.5, 0.7];
@@ -2272,19 +2268,19 @@ impl WasmLibrary {
 
         // Resolve CellRef elements on-the-fly with synthetic UUIDs
         for (elem_idx, element) in cell.elements().iter().enumerate() {
-            if let Element::CellRef(cell_ref) = element {
-                if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
-                    let mut poly_counter: usize = 0;
-                    for copy_transform in array_transforms(cell_ref) {
-                        self.collect_render_polygons_recursive(
-                            ref_cell,
-                            &copy_transform,
-                            elem_idx,
-                            &mut poly_counter,
-                            &default_color,
-                            &mut result,
-                        );
-                    }
+            if let Element::CellRef(cell_ref) = element
+                && let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
+            {
+                let mut poly_counter: usize = 0;
+                for copy_transform in array_transforms(cell_ref) {
+                    self.collect_render_polygons_recursive(
+                        ref_cell,
+                        &copy_transform,
+                        elem_idx,
+                        &mut poly_counter,
+                        &default_color,
+                        &mut result,
+                    );
                 }
             }
         }
@@ -2301,6 +2297,7 @@ impl WasmLibrary {
     ///
     /// Returns `(element_index, [minX, minY, maxX, maxY])` for each instance.
     /// Used by the renderer to generate outline segments on selection/hover.
+    #[allow(dead_code)]
     pub(crate) fn get_instance_bboxes(&self) -> Vec<(usize, [f64; 4])> {
         let mut result = Vec::new();
 

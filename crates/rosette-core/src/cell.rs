@@ -528,10 +528,10 @@ impl Library {
             }
             // Update CellRef elements that reference the old name
             for element in &mut cell.elements {
-                if let Element::CellRef(cell_ref) = element {
-                    if cell_ref.cell_name == old_name {
-                        cell_ref.cell_name = new_name.to_string();
-                    }
+                if let Element::CellRef(cell_ref) = element
+                    && cell_ref.cell_name == old_name
+                {
+                    cell_ref.cell_name = new_name.to_string();
                 }
             }
         }
