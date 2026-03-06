@@ -77,6 +77,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_run_drc, m)?)?;
 
     // I/O functions
+    m.add_function(wrap_pyfunction!(io::read_gds, m)?)?;
     m.add_function(wrap_pyfunction!(io::write_gds, m)?)?;
     m.add_function(wrap_pyfunction!(io::to_json, m)?)?;
     m.add_function(wrap_pyfunction!(io::to_flat_json, m)?)?;

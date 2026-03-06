@@ -13,7 +13,7 @@ use thiserror::Error;
 use rosette_core::cell::{CellRef, Element, PathEndType};
 use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform};
 
-/// Errors that can occur during GDS writing.
+/// Errors that can occur during GDS reading or writing.
 #[derive(Error, Debug)]
 pub enum GdsError {
     #[error("I/O error: {0}")]
@@ -33,6 +33,12 @@ pub enum GdsError {
 
     #[error("Text string too long: {0} (max 512 characters)")]
     TextTooLong(usize),
+
+    #[error("Unexpected end of file")]
+    UnexpectedEof,
+
+    #[error("Invalid record at offset {offset}: {message}")]
+    InvalidRecord { offset: usize, message: String },
 }
 
 /// Write a single cell to a GDS file.
@@ -94,16 +100,16 @@ const USER_UNIT_M: f64 = 1e-6;
 /// Conversion factor: user units to database units.
 const UNITS_PER_UM: f64 = 1000.0;
 
-struct GdsWriter<W: Write> {
+pub(crate) struct GdsWriter<W: Write> {
     writer: W,
 }
 
 impl<W: Write> GdsWriter<W> {
-    fn new(writer: W) -> Self {
+    pub(crate) fn new(writer: W) -> Self {
         Self { writer }
     }
 
-    fn write_library(&mut self, library: &Library) -> Result<(), GdsError> {
+    pub(crate) fn write_library(&mut self, library: &Library) -> Result<(), GdsError> {
         self.write_header()?;
         self.write_bgnlib()?;
         self.write_libname(library.name())?;
@@ -576,58 +582,62 @@ impl<W: Write> GdsWriter<W> {
         (t.a * t.a + t.c * t.c).sqrt()
     }
 
-    /// Convert f64 to GDS REAL8 format.
-    ///
-    /// GDS uses an unusual 8-byte floating point format:
-    /// - Bit 0: sign
-    /// - Bits 1-7: exponent (excess-64, base 16)
-    /// - Bits 8-63: mantissa
     fn f64_to_gds_real(value: f64) -> [u8; 8] {
-        if value == 0.0 {
-            return [0u8; 8];
-        }
-
-        let negative = value < 0.0;
-        let mut val = value.abs();
-
-        // Find exponent such that 1/16 <= mantissa < 1
-        let mut exp: i32 = 64;
-
-        if val >= 1.0 {
-            while val >= 1.0 {
-                val /= 16.0;
-                exp += 1;
-            }
-        } else {
-            while val < 1.0 / 16.0 {
-                val *= 16.0;
-                exp -= 1;
-            }
-        }
-
-        // Clamp exponent
-        if exp < 0 {
-            return [0u8; 8];
-        }
-        if exp > 127 {
-            exp = 127;
-        }
-
-        // Convert mantissa to 56-bit integer
-        let mantissa = (val * (1u64 << 56) as f64) as u64;
-
-        let mut result = [0u8; 8];
-        result[0] = (if negative { 0x80 } else { 0x00 }) | (exp as u8);
-        result[1] = ((mantissa >> 48) & 0xFF) as u8;
-        result[2] = ((mantissa >> 40) & 0xFF) as u8;
-        result[3] = ((mantissa >> 32) & 0xFF) as u8;
-        result[4] = ((mantissa >> 24) & 0xFF) as u8;
-        result[5] = ((mantissa >> 16) & 0xFF) as u8;
-        result[6] = ((mantissa >> 8) & 0xFF) as u8;
-        result[7] = (mantissa & 0xFF) as u8;
-
-        result
+        f64_to_gds_real(value)
     }
+}
+
+/// Convert f64 to GDS REAL8 format.
+///
+/// GDS uses an unusual 8-byte floating point format:
+/// - Bit 0: sign
+/// - Bits 1-7: exponent (excess-64, base 16)
+/// - Bits 8-63: mantissa
+pub(crate) fn f64_to_gds_real(value: f64) -> [u8; 8] {
+    if value == 0.0 {
+        return [0u8; 8];
+    }
+
+    let negative = value < 0.0;
+    let mut val = value.abs();
+
+    // Find exponent such that 1/16 <= mantissa < 1
+    let mut exp: i32 = 64;
+
+    if val >= 1.0 {
+        while val >= 1.0 {
+            val /= 16.0;
+            exp += 1;
+        }
+    } else {
+        while val < 1.0 / 16.0 {
+            val *= 16.0;
+            exp -= 1;
+        }
+    }
+
+    // Clamp exponent
+    if exp < 0 {
+        return [0u8; 8];
+    }
+    if exp > 127 {
+        exp = 127;
+    }
+
+    // Convert mantissa to 56-bit integer
+    let mantissa = (val * (1u64 << 56) as f64) as u64;
+
+    let mut result = [0u8; 8];
+    result[0] = (if negative { 0x80 } else { 0x00 }) | (exp as u8);
+    result[1] = ((mantissa >> 48) & 0xFF) as u8;
+    result[2] = ((mantissa >> 40) & 0xFF) as u8;
+    result[3] = ((mantissa >> 32) & 0xFF) as u8;
+    result[4] = ((mantissa >> 24) & 0xFF) as u8;
+    result[5] = ((mantissa >> 16) & 0xFF) as u8;
+    result[6] = ((mantissa >> 8) & 0xFF) as u8;
+    result[7] = (mantissa & 0xFF) as u8;
+
+    result
 }
 
 #[cfg(test)]

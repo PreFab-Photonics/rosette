@@ -133,6 +133,25 @@ impl BuildSummary {
     }
 }
 
+/// Read a GDS file and return a Library.
+///
+/// Args:
+///     path: Path to the GDS file
+///
+/// Returns:
+///     A Library containing all cells from the GDS file
+///
+/// Example:
+///     >>> lib = read_gds("input.gds")
+///     >>> for cell in lib.cells():
+///     ...     print(cell.name)
+#[pyfunction]
+pub fn read_gds(path: &str) -> PyResult<PyLibrary> {
+    let lib = gds::read(path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to read GDS: {}", e)))?;
+    Ok(PyLibrary(lib))
+}
+
 /// Write a cell or library to a GDS file.
 ///
 /// Args:

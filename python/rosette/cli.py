@@ -139,12 +139,22 @@ def main():
         "design",
         nargs="?",
         default=None,
-        help="Design file (path or path:target). If omitted, opens empty canvas.",
+        help="Design file (.py). If omitted, opens empty canvas.",
     )
     serve_parser.add_argument(
         "-p", "--port", type=int, default=5173, help="Server port (default: 5173)"
     )
     serve_parser.add_argument(
+        "--no-open", action="store_true", help="Don't open browser automatically"
+    )
+
+    # run command
+    run_parser = subparsers.add_parser("run", help="View a GDS file in the browser")
+    run_parser.add_argument("file", help="GDS file to view (.gds)")
+    run_parser.add_argument(
+        "-p", "--port", type=int, default=5173, help="Server port (default: 5173)"
+    )
+    run_parser.add_argument(
         "--no-open", action="store_true", help="Don't open browser automatically"
     )
 
@@ -158,6 +168,8 @@ def main():
         build_design(args.design, args.output, args.verbose)
     elif args.command == "serve":
         serve_design(args.design, args.port, args.no_open)
+    elif args.command == "run":
+        run_gds(args.file, args.port, args.no_open)
 
 
 def init_project(name: str | None, template: str = "blank"):
@@ -526,24 +538,48 @@ def _prepare_design(cell):
     return json_str, cell_tree, child_cells_list
 
 
-def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
-    """Start development server with live preview.
+def _prepare_design_from_library(library):
+    """Flatten a Library (e.g. from read_gds) for the viewer.
 
-    Args:
-        design: Path to design file (optional). If None, opens empty canvas.
-        port: Server port (default: 5173)
-        no_open: Don't open browser automatically
+    The Library already contains the full cell hierarchy, so we serialize
+    it directly rather than collecting child cells from Python wrappers.
+
+    Returns:
+        Tuple of (cell, json_str, cell_tree, child_cells_list)
     """
+    from rosette import Library as LibWrapper
+    from rosette._core import to_flat_json
+
+    # Wrap into Python types
+    if not isinstance(library, LibWrapper):
+        library = LibWrapper._from_inner(library)
+
+    top = library.top_cell()
+    if top is None:
+        raise ValueError("GDS file contains no cells")
+
+    all_cells = library.cells()
+    child_cells_list = [c for c in all_cells if c.name != top.name]
+
+    # Flatten the whole library (preserves hierarchy for rendering)
+    json_str = to_flat_json(library._inner)
+
+    # Build hierarchy tree
+    cell_tree = _build_cell_tree(top, child_cells_list)
+
+    return top, json_str, cell_tree, child_cells_list
+
+
+def _start_server(port: int):
+    """Start the web viewer server. Returns (server, url)."""
     from rosette._server import RosetteServer
 
-    # Locate bundled web app
     webapp_dir = Path(__file__).parent / "_webapp"
     if not webapp_dir.exists():
         print("Error: Web app not bundled. Run 'scripts/bundle_webapp.py' first.")
         print(f"Expected at: {webapp_dir}")
         sys.exit(1)
 
-    # Start server
     server = RosetteServer(webapp_dir, port)
     try:
         _, actual_port = server.start_background()
@@ -554,20 +590,26 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
     if actual_port != port:
         print(f"Port {port} in use, using {actual_port}")
 
-    url = f"http://localhost:{actual_port}"
+    return server, f"http://localhost:{actual_port}"
+
+
+def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
+    """Start development server with live preview for Python designs.
+
+    Args:
+        design: Path to design file (.py, optional). If None, opens empty canvas.
+        port: Server port (default: 5173)
+        no_open: Don't open browser automatically
+    """
+    server, url = _start_server(port)
 
     if design:
-        # Load and serialize design
         cell, file_path, _ = load_design(design)
-
         json_str, cell_tree, child_cells_list = _prepare_design(cell)
 
         server.set_design_json(json_str, cells=cell_tree)
-
-        # Store design data for cell navigation requests
         server.set_design_cells(cell, child_cells_list)
 
-        # Open browser with design mode
         if not no_open:
             webbrowser.open(f"{url}?design=true")
 
@@ -577,7 +619,6 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
         try:
             from watchfiles import watch
 
-            # Watch design file and components directory
             watch_paths = [file_path]
             components_dir = Path.cwd() / "components"
             if components_dir.exists():
@@ -597,9 +638,7 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
                     for name in stale:
                         del sys.modules[name]
 
-                    # Reload design
                     cell, _, _ = load_design(design)
-
                     json_str, cell_tree, child_cells_list = _prepare_design(cell)
 
                     server.set_design_json(json_str, cells=cell_tree)
@@ -608,32 +647,83 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
                     print(f"error: {e}")
 
         except ImportError:
-            # No watchfiles - just wait
-            try:
-                while True:
-                    import time
-
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                pass
+            _wait_forever()
         except KeyboardInterrupt:
             pass
 
     else:
-        # No design - just open empty canvas
         if not no_open:
             webbrowser.open(url)
-
         print(f"{url}  |  Ctrl+C to stop")
-        try:
-            while True:
-                import time
-
-                time.sleep(1)
-        except KeyboardInterrupt:
-            pass
+        _wait_forever()
 
     print()
+
+
+def run_gds(file: str, port: int = 5173, no_open: bool = False):
+    """View a GDS file in the browser.
+
+    Args:
+        file: Path to GDS file
+        port: Server port (default: 5173)
+        no_open: Don't open browser automatically
+    """
+    from rosette._core import read_gds
+
+    file_path = Path(file)
+    if not file_path.exists():
+        print(f"Error: GDS file not found: {file_path}")
+        sys.exit(1)
+
+    if file_path.suffix.lower() not in (".gds", ".gdsii"):
+        print(f"Error: Expected a .gds file, got {file_path.suffix}")
+        sys.exit(1)
+
+    server, url = _start_server(port)
+
+    inner_lib = read_gds(str(file_path))
+    cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(inner_lib)
+
+    server.set_design_json(json_str, cells=cell_tree)
+    server.set_design_cells(cell, child_cells_list)
+
+    if not no_open:
+        webbrowser.open(f"{url}?design=true")
+
+    print(f"{url}  |  {file_path}  |  Ctrl+C to stop")
+
+    # Watch for changes to the GDS file
+    try:
+        from watchfiles import watch
+
+        for _changes in watch(file_path):
+            try:
+                inner_lib = read_gds(str(file_path))
+                cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(
+                    inner_lib
+                )
+                server.set_design_json(json_str, cells=cell_tree)
+                server.set_design_cells(cell, child_cells_list)
+            except Exception as e:
+                print(f"error: {e}")
+
+    except ImportError:
+        _wait_forever()
+    except KeyboardInterrupt:
+        pass
+
+    print()
+
+
+def _wait_forever():
+    """Block until Ctrl+C."""
+    import time
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

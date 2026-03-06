@@ -60,6 +60,7 @@ from rosette._core import Cell as _Cell
 from rosette._core import CellRef as _CellRef
 from rosette._core import Library as _Library
 from rosette._core import Route as _Route
+from rosette._core import read_gds as _read_gds
 from rosette._core import run_drc as _run_drc
 from rosette._core import write_gds as _write_gds
 
@@ -729,6 +730,13 @@ class Library:
         """Create a new library."""
         self._inner = _Library(name)
 
+    @classmethod
+    def _from_inner(cls, inner: _Library) -> Library:
+        """Create a Library wrapper from a Rust Library object."""
+        lib = object.__new__(cls)
+        lib._inner = inner
+        return lib
+
     @property
     def name(self) -> str:
         """Library name."""
@@ -963,6 +971,24 @@ def run_drc(
     return _run_drc(inner_cell, rules, inner_library)
 
 
+def read_gds(path: str | Path) -> Library:
+    """Read a GDS file and return a Library.
+
+    Args:
+        path: Path to the GDS file
+
+    Returns:
+        A Library containing all cells from the GDS file
+
+    Example:
+        >>> lib = read_gds("input.gds")
+        >>> for cell in lib.cells():
+        ...     print(cell.name)
+    """
+    inner_lib = _read_gds(str(path))
+    return Library._from_inner(inner_lib)
+
+
 def write_gds(
     path: str | Path,
     design: Cell | Library,
@@ -1053,6 +1079,7 @@ __all__ = [
     "offset_polygon",
     "offset_polygon_varying",
     "path_length",
+    "read_gds",
     "run_drc",
     "write_gds",
 ]

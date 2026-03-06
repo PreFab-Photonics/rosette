@@ -516,6 +516,17 @@ class Route:
 # I/O Functions
 # =============================================================================
 
+def read_gds(path: str) -> Library:
+    """Read a GDS file and return a Library.
+
+    Args:
+        path: Path to the GDS file
+
+    Returns:
+        A Library containing all cells from the GDS file
+    """
+    ...
+
 def write_gds(
     path: str,
     design: Cell | Library,

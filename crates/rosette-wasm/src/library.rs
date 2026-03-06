@@ -1940,10 +1940,13 @@ impl WasmLibrary {
         wasm_lib.add_cell("flattened");
         wasm_lib.set_active_cell("flattened");
 
-        // Scale factor: SDK uses micrometers, web app uses nanometers
-        // 1 μm = 1000 nm
+        // Scale factor: SDK uses micrometers, app world units = nm * GRID_SIZE
+        // 1 μm = 1000 nm, and 1 nm = GRID_SIZE world units.
+        // Y is negated: GDS/SDK use math convention (Y-up), renderer uses screen (Y-down).
         const UM_TO_NM: f64 = 1000.0;
-        let scale_transform = Transform::scale(UM_TO_NM, UM_TO_NM);
+        const GRID_SIZE: f64 = 50.0;
+        let s = UM_TO_NM * GRID_SIZE;
+        let scale_transform = Transform::scale(s, -s);
 
         // Flatten all cells into the single "flattened" cell
         if let Some(top_cell) = library.top_cell() {
@@ -1985,11 +1988,23 @@ impl WasmLibrary {
         wasm_lib.add_cell("flattened");
         wasm_lib.set_active_cell("flattened");
 
-        // Add all polygons directly (already flattened and scaled)
+        // The flat JSON contains coordinates in nanometers (from to_flat_json's UM_TO_NM
+        // scaling). The app's internal world coordinate system uses GRID_SIZE world units
+        // per nanometer (1 nm = GRID_SIZE world units), so we must scale up to match.
+        // Y is also negated: GDS/SDK use math convention (Y-up) while the app's
+        // renderer uses screen convention (Y-down).
+        const GRID_SIZE: f64 = 50.0;
+
+        // Add all polygons, scaling from nm to world units (with Y flip),
         // and build group maps for instance-based selection
         for poly in flat.polygons {
             if poly.vertices.len() >= 6 {
-                let uuid = wasm_lib.add_polygon(&poly.vertices, poly.layer, poly.datatype);
+                let scaled: Vec<f64> = poly
+                    .vertices
+                    .chunks(2)
+                    .flat_map(|xy| [xy[0] * GRID_SIZE, -xy[1] * GRID_SIZE])
+                    .collect();
+                let uuid = wasm_lib.add_polygon(&scaled, poly.layer, poly.datatype);
 
                 // Track group membership
                 if let (Some(uuid), Some(group_id)) = (&uuid, poly.group) {
@@ -2345,7 +2360,7 @@ impl WasmLibrary {
         }
         combined.unwrap_or_else(|| {
             // Empty cell: use a small placeholder centered at the placement point.
-            // 500 units = 500 nm half-size → 1 μm × 1 μm placeholder.
+            // 500 world units half-size → 10 nm → 20 nm × 20 nm placeholder.
             const HALF: f64 = 500.0;
             let (tx, ty) = cell_ref.transform.translation();
             BBox::new(
