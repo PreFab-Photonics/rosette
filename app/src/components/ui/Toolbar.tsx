@@ -147,11 +147,11 @@ export function Toolbar() {
         />
       ))}
 
-      {/* Instance tool */}
-      <InstanceButton isDark={isDark} />
-
       {/* Shape operations (boolean + alignment) */}
       <ShapeOpsButton isDark={isDark} />
+
+      {/* Instance tool */}
+      <InstanceButton isDark={isDark} />
 
       <Separator isDark={isDark} />
 
