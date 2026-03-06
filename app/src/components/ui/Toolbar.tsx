@@ -10,13 +10,17 @@ import {
   CompAlignTop,
   Drag,
   EaseIn,
+  Exclude,
+  Intersect,
   Pentagon,
   PlusSquare,
   PositionAlign,
   Ruler,
   SlashSquare,
   Square3dCornerToCorner,
+  Substract,
   Text,
+  Union,
   ZoomIn,
 } from "iconoir-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -27,8 +31,9 @@ import { useSelectionStore } from "@/stores/selection";
 import { useCommandPaletteStore } from "@/stores/command-palette";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
-import { AlignElementsCommand } from "@/lib/commands";
+import { AlignElementsCommand, BooleanOperationCommand } from "@/lib/commands";
 import type { AlignType } from "@/lib/align";
+import type { BooleanOpType } from "@/lib/commands";
 import { keys } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { cn } from "@/lib/utils";
@@ -145,8 +150,8 @@ export function Toolbar() {
       {/* Instance tool */}
       <InstanceButton isDark={isDark} />
 
-      {/* Alignment operations */}
-      <AlignButton isDark={isDark} />
+      {/* Shape operations (boolean + alignment) */}
+      <ShapeOpsButton isDark={isDark} />
 
       <Separator isDark={isDark} />
 
@@ -157,56 +162,73 @@ export function Toolbar() {
 }
 
 // =============================================================================
-// Alignment operations
+// Shape operations (boolean + alignment)
 // =============================================================================
 
-/** Delay (ms) before long-press opens the alignment menu. */
+/** Delay (ms) before long-press opens the shape ops menu. */
 const PRESS_DELAY = 300;
 
-/** Alignment operation definition. */
-interface AlignOp {
-  id: AlignType;
+/** A shape operation entry (boolean or alignment). */
+interface ShapeOp {
+  id: string;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
+  kind: "boolean" | "align";
 }
 
-/** All alignment operations, laid out in a 4-column grid. */
-const ALIGN_OPS: AlignOp[] = [
-  { id: "align-left", icon: CompAlignLeft, label: "Align Left" },
-  { id: "align-center-h", icon: AlignHorizontalCenters, label: "Align Center H" },
-  { id: "align-right", icon: CompAlignRight, label: "Align Right" },
-  { id: "center-align", icon: CenterAlign, label: "Center Align" },
-  { id: "align-top", icon: CompAlignTop, label: "Align Top" },
-  { id: "align-center-v", icon: AlignVerticalCenters, label: "Align Center V" },
-  { id: "align-bottom", icon: CompAlignBottom, label: "Align Bottom" },
-  { id: "origin-align", icon: PositionAlign, label: "Origin Align" },
+/** All shape operations in a 4-column grid layout. */
+const SHAPE_OPS: ShapeOp[] = [
+  // Row 1: Boolean operations
+  { id: "union", icon: Union, label: "Union", kind: "boolean" },
+  { id: "subtract", icon: Substract, label: "Subtract", kind: "boolean" },
+  { id: "intersect", icon: Intersect, label: "Intersect", kind: "boolean" },
+  { id: "xor", icon: Exclude, label: "Exclude", kind: "boolean" },
+  // Row 2: Horizontal alignment
+  { id: "align-left", icon: CompAlignLeft, label: "Align Left", kind: "align" },
+  { id: "align-center-h", icon: AlignHorizontalCenters, label: "Align Center H", kind: "align" },
+  { id: "align-right", icon: CompAlignRight, label: "Align Right", kind: "align" },
+  { id: "center-align", icon: CenterAlign, label: "Center Align", kind: "align" },
+  // Row 3: Vertical alignment
+  { id: "align-top", icon: CompAlignTop, label: "Align Top", kind: "align" },
+  { id: "align-center-v", icon: AlignVerticalCenters, label: "Align Center V", kind: "align" },
+  { id: "align-bottom", icon: CompAlignBottom, label: "Align Bottom", kind: "align" },
+  { id: "origin-align", icon: PositionAlign, label: "Origin Align", kind: "align" },
 ];
 
 /**
- * Execute an alignment operation on the current selection.
+ * Execute a shape operation (boolean or alignment) on the current selection.
  */
-function executeAlign(alignType: AlignType): void {
+function executeShapeOp(op: ShapeOp): void {
   const { library, renderer } = useWasmContextStore.getState();
   if (!library || !renderer) return;
 
   const { selectedIds, lastSelectedId } = useSelectionStore.getState();
   if (selectedIds.size === 0) return;
 
-  // origin-align works with 1+ elements, others need 2+
-  if (alignType !== "origin-align" && selectedIds.size < 2) return;
-
-  const cmd = new AlignElementsCommand(new Set(selectedIds), lastSelectedId, alignType);
-  useHistoryStore.getState().execute(cmd, { library, renderer });
+  if (op.kind === "boolean") {
+    if (selectedIds.size < 2) return;
+    const ids = [...selectedIds];
+    const baseId = lastSelectedId ?? ids[0];
+    const cmd = new BooleanOperationCommand(ids, op.id as BooleanOpType, baseId);
+    useHistoryStore.getState().execute(cmd, { library, renderer });
+  } else {
+    // Alignment
+    const alignType = op.id as AlignType;
+    if (alignType !== "origin-align" && selectedIds.size < 2) return;
+    const cmd = new AlignElementsCommand(new Set(selectedIds), lastSelectedId, alignType);
+    useHistoryStore.getState().execute(cmd, { library, renderer });
+  }
 }
 
 /**
- * Alignment button with long-press / right-click dropdown.
+ * Combined shape operations button with long-press / right-click dropdown.
  *
- * Click executes the last-used alignment operation on the current selection.
- * Long-press or right-click opens a grid of all alignment operations.
+ * Click executes the last-used operation on the current selection.
+ * Long-press or right-click opens a 4x3 grid with boolean ops (row 1)
+ * and alignment ops (rows 2-3), matching rosette-web's Toolbar layout.
  */
-function AlignButton({ isDark }: { isDark: boolean }) {
-  const [lastOp, setLastOp] = useState<AlignOp>(ALIGN_OPS[0]);
+function ShapeOpsButton({ isDark }: { isDark: boolean }) {
+  const [lastOp, setLastOp] = useState<ShapeOp>(SHAPE_OPS[0]);
   const [menuOpen, setMenuOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -242,9 +264,9 @@ function AlignButton({ isDark }: { isDark: boolean }) {
 
   const handleClick = useCallback(() => {
     if (!menuOpen) {
-      executeAlign(lastOp.id);
+      executeShapeOp(lastOp);
     }
-  }, [lastOp.id, menuOpen]);
+  }, [lastOp, menuOpen]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -270,16 +292,15 @@ function AlignButton({ isDark }: { isDark: boolean }) {
     }
   }, []);
 
-  const handleOpClick = useCallback((op: AlignOp) => {
+  const handleOpClick = useCallback((op: ShapeOp) => {
     setLastOp(op);
     setMenuOpen(false);
-    // Execute after state update
-    setTimeout(() => executeAlign(op.id), 0);
+    setTimeout(() => executeShapeOp(op), 0);
   }, []);
 
   return (
     <>
-      <Tooltip label={lastOp.label}>
+      <Tooltip label={lastOp.label} className={menuOpen ? "[&>div:last-child]:hidden" : undefined}>
         <button
           ref={buttonRef}
           onClick={handleClick}
@@ -303,7 +324,7 @@ function AlignButton({ isDark }: { isDark: boolean }) {
           <div
             ref={menuRef}
             className={cn(
-              "fixed z-[9999] rounded-xl border p-2 shadow-sm backdrop-blur-xl",
+              "fixed z-[9999] rounded-xl border p-2 backdrop-blur-xl",
               isDark
                 ? "border-white/10 bg-[rgb(29,29,29)]"
                 : "border-black/10 bg-[rgb(241,241,241)]",
@@ -314,7 +335,7 @@ function AlignButton({ isDark }: { isDark: boolean }) {
             }}
           >
             <div className="grid grid-cols-4 gap-1">
-              {ALIGN_OPS.map((op) => (
+              {SHAPE_OPS.map((op) => (
                 <Tooltip key={op.id} label={op.label}>
                   <button
                     onClick={() => handleOpClick(op)}

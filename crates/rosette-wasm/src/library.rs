@@ -126,6 +126,11 @@ pub struct WasmLibrary {
     group_map: HashMap<u32, Vec<String>>,
     /// Maps element UUID → group ID it belongs to (reverse lookup).
     uuid_to_group: HashMap<String, u32>,
+    /// Maps element UUIDs to hole start indices for polygons with cutouts.
+    ///
+    /// Produced by `boolean_operation` when the result has interior rings.
+    /// Consumed by the renderer to pass hole data to `earcutr::earcut`.
+    hole_indices_map: HashMap<String, Vec<usize>>,
 }
 
 /// Pack layer number and datatype into a single u32 key.
@@ -191,6 +196,7 @@ impl WasmLibrary {
             dirty: false,
             group_map: HashMap::new(),
             uuid_to_group: HashMap::new(),
+            hole_indices_map: HashMap::new(),
         }
     }
 
@@ -674,6 +680,9 @@ impl WasmLibrary {
             return false;
         }
 
+        // Clean up hole indices
+        self.hole_indices_map.remove(&resolved_id);
+
         // Update all refs that point to elements after the removed one
         for ref_entry in self.element_refs.values_mut() {
             if ref_entry.cell_name == elem_ref.cell_name
@@ -769,8 +778,9 @@ impl WasmLibrary {
                 indices_removed_in_cell.clear();
             }
 
-            // Remove from refs map
+            // Remove from refs map and hole indices
             self.element_refs.remove(&id);
+            self.hole_indices_map.remove(&id);
 
             // Remove from cell
             if let Some(cell) = self.library.cell_mut(&cell_name)
@@ -947,8 +957,7 @@ impl WasmLibrary {
 
                     let bbox = text_bbox(text, position, *height);
                     if bbox.contains(point) {
-                        let area =
-                            (bbox.max().x - bbox.min().x) * (bbox.max().y - bbox.min().y);
+                        let area = (bbox.max().x - bbox.min().x) * (bbox.max().y - bbox.min().y);
                         hits.push((uuid.clone(), area));
                     }
                 }
@@ -2024,6 +2033,164 @@ impl WasmLibrary {
         serde_wasm_bindgen::to_value(&polygons)
             .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
     }
+
+    // =========================================================================
+    // Boolean / CSG Operations
+    // =========================================================================
+
+    /// Perform a boolean operation on polygon elements.
+    ///
+    /// Supported operations: `"union"`, `"subtract"`, `"intersect"`, `"xor"`.
+    ///
+    /// For `"subtract"`, the element identified by `base_id` is the shape
+    /// from which all others are subtracted. For other operations, `base_id`
+    /// is ignored and all shapes are combined.
+    ///
+    /// Only polygon elements are supported — text labels and cell references
+    /// are silently skipped. The input polygons are removed and replaced with
+    /// the result polygon(s).
+    ///
+    /// Returns the UUIDs of the newly created result polygons, or an empty
+    /// array if the operation cannot be performed.
+    pub fn boolean_operation(
+        &mut self,
+        ids: Vec<String>,
+        operation: &str,
+        base_id: &str,
+    ) -> Vec<String> {
+        use geo::algorithm::bool_ops::BooleanOps;
+        use geo::{Coord, LineString, MultiPolygon, Polygon as GeoPolygon};
+
+        // Gather polygon data: (uuid, geo_polygon, layer, datatype)
+        let mut polys: Vec<(String, GeoPolygon<f64>, u16, u16)> = Vec::new();
+
+        for id in &ids {
+            // Skip synthetic ref UUIDs (cell instances)
+            if id.starts_with(REF_UUID_PREFIX) {
+                continue;
+            }
+            let elem_ref = match self.element_refs.get(id) {
+                Some(r) => r.clone(),
+                None => continue,
+            };
+            let cell = match self.library.cell(&elem_ref.cell_name) {
+                Some(c) => c,
+                None => continue,
+            };
+            match cell.elements().get(elem_ref.element_index) {
+                Some(Element::Polygon { polygon, layer }) => {
+                    let coords: Vec<Coord<f64>> = polygon
+                        .vertices()
+                        .iter()
+                        .map(|p| Coord { x: p.x, y: p.y })
+                        .collect();
+                    let geo_poly = GeoPolygon::new(LineString::new(coords), vec![]);
+                    polys.push((id.clone(), geo_poly, layer.number, layer.datatype));
+                }
+                _ => continue, // Skip text, cell refs, paths
+            }
+        }
+
+        if polys.len() < 2 {
+            return Vec::new();
+        }
+
+        // Use the layer from the base element (for subtract) or first element
+        let result_layer;
+        let result_datatype;
+
+        // Order polygons: for subtract, base_id goes first
+        if operation == "subtract" {
+            if let Some(pos) = polys.iter().position(|(id, _, _, _)| id == base_id) {
+                polys.swap(0, pos);
+            }
+            result_layer = polys[0].2;
+            result_datatype = polys[0].3;
+        } else {
+            result_layer = polys[0].2;
+            result_datatype = polys[0].3;
+        }
+
+        // Perform the boolean operation by pairwise reduction
+        let mut result: MultiPolygon<f64> = MultiPolygon::new(vec![polys[0].1.clone()]);
+
+        for (_id, geo_poly, _layer, _dt) in polys.iter().skip(1) {
+            let next = MultiPolygon::new(vec![geo_poly.clone()]);
+            result = match operation {
+                "union" => result.union(&next),
+                "subtract" => result.difference(&next),
+                "intersect" => result.intersection(&next),
+                "xor" => result.xor(&next),
+                _ => return Vec::new(),
+            };
+        }
+
+        // Remove input elements
+        let input_ids: Vec<String> = polys.iter().map(|(id, _, _, _)| id.clone()).collect();
+        self.remove_elements(input_ids);
+
+        // Convert result MultiPolygon back to rosette polygons and add them
+        let mut new_ids: Vec<String> = Vec::new();
+
+        for geo_poly in result.iter() {
+            let exterior_coords: Vec<[f64; 2]> =
+                geo_poly.exterior().coords().map(|c| [c.x, c.y]).collect();
+
+            // Strip closing point if present (geo closes polygons, rosette doesn't)
+            let exterior =
+                if exterior_coords.len() > 1 && exterior_coords.first() == exterior_coords.last() {
+                    &exterior_coords[..exterior_coords.len() - 1]
+                } else {
+                    &exterior_coords[..]
+                };
+
+            if exterior.len() < 3 {
+                continue;
+            }
+
+            let holes: Vec<Vec<[f64; 2]>> = geo_poly
+                .interiors()
+                .iter()
+                .map(|ring| {
+                    let mut coords: Vec<[f64; 2]> = ring.coords().map(|c| [c.x, c.y]).collect();
+                    // Strip closing point
+                    if coords.len() > 1 && coords.first() == coords.last() {
+                        coords.pop();
+                    }
+                    coords
+                })
+                .filter(|h| h.len() >= 3)
+                .collect();
+
+            // Build final vertex list: exterior + hole rings concatenated
+            let mut all_points: Vec<[f64; 2]> = exterior.to_vec();
+            let mut hole_start_indices: Vec<usize> = Vec::new();
+
+            for hole in &holes {
+                hole_start_indices.push(all_points.len());
+                all_points.extend_from_slice(hole);
+            }
+
+            if all_points.len() < 3 {
+                continue;
+            }
+
+            // Convert to flat f64 array and add as a polygon
+            // (rosette_core::Polygon stores all points — exterior + holes —
+            //  as a single vertex list; the renderer uses hole_indices to
+            //  tell earcutr where each hole ring begins.)
+            let flat: Vec<f64> = all_points.iter().flat_map(|p| vec![p[0], p[1]]).collect();
+            if let Some(uuid) = self.add_polygon(&flat, result_layer, result_datatype) {
+                if !hole_start_indices.is_empty() {
+                    self.hole_indices_map
+                        .insert(uuid.clone(), hole_start_indices);
+                }
+                new_ids.push(uuid);
+            }
+        }
+
+        new_ids
+    }
 }
 
 // Non-wasm_bindgen methods for internal use
@@ -2592,6 +2759,12 @@ impl WasmLibrary {
     /// The UUID allows selection to work correctly.
     /// CellRef elements are resolved on-the-fly with synthetic UUIDs,
     /// so changes to referenced cells are always reflected.
+    /// Get the hole indices map for polygons with cutouts.
+    #[allow(dead_code)] // Used by renderer.rs
+    pub(crate) fn hole_indices_map(&self) -> &HashMap<String, Vec<usize>> {
+        &self.hole_indices_map
+    }
+
     pub(crate) fn get_render_polygons_internal(&self) -> Vec<RenderPolygon> {
         let mut result = Vec::new();
 

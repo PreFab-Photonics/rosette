@@ -26,12 +26,14 @@ import {
   AddCellRefCommand,
   DeleteCellCommand,
   AlignElementsCommand,
+  BooleanOperationCommand,
   placeRectangleInViewport,
   placePolygonInViewport,
   placeTextInViewport,
   snapshotElements,
 } from "@/lib/commands";
 import type { AlignType } from "@/lib/align";
+import type { BooleanOpType } from "@/lib/commands";
 import { useExplorerStore } from "@/stores/explorer";
 import { keys } from "@/lib/utils";
 
@@ -766,6 +768,11 @@ export function getCommands(): CommandItem[] {
       ),
 
     // =========================================================================
+    // Boolean operations
+    // =========================================================================
+    ...makeBooleanCommands(close),
+
+    // =========================================================================
     // Alignment commands
     // =========================================================================
     ...makeAlignCommands(close),
@@ -793,6 +800,49 @@ const ALIGN_DEFS: { id: AlignType; name: string; search: string }[] = [
   { id: "center-align", name: "Center Align", search: "Center align both axes" },
   { id: "origin-align", name: "Align to Origin", search: "Origin align center zero" },
 ];
+
+// =============================================================================
+// Boolean operation command helpers
+// =============================================================================
+
+/** Boolean operation definitions. */
+const BOOLEAN_DEFS: { id: BooleanOpType; name: string; search: string }[] = [
+  { id: "union", name: "Union", search: "Boolean union merge combine" },
+  { id: "subtract", name: "Subtract", search: "Boolean subtract difference cut" },
+  { id: "intersect", name: "Intersect", search: "Boolean intersect overlap common" },
+  { id: "xor", name: "Exclude (XOR)", search: "Boolean exclude xor symmetric difference" },
+];
+
+/**
+ * Generate command palette entries for boolean operations.
+ */
+function makeBooleanCommands(close: () => void): CommandItem[] {
+  return BOOLEAN_DEFS.map(
+    (def): CommandItem => ({
+      id: `boolean-${def.id}`,
+      type: "command",
+      name: `Boolean: ${def.name}`,
+      action: () => {
+        const { library, renderer } = useWasmContextStore.getState();
+        if (!library || !renderer) {
+          close();
+          return;
+        }
+        const { selectedIds, lastSelectedId } = useSelectionStore.getState();
+        if (selectedIds.size < 2) {
+          close();
+          return;
+        }
+        const ids = [...selectedIds];
+        const baseId = lastSelectedId ?? ids[0];
+        const cmd = new BooleanOperationCommand(ids, def.id, baseId);
+        useHistoryStore.getState().execute(cmd, { library, renderer });
+        close();
+      },
+      searchableText: def.search,
+    }),
+  );
+}
 
 /**
  * Generate command palette entries for all alignment operations.

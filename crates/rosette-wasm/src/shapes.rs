@@ -13,12 +13,22 @@ use geo::{Coord, LineString, Polygon as GeoPolygon};
 #[derive(Debug, Clone)]
 pub struct Shape {
     /// World coordinates of the shape vertices.
+    ///
+    /// For polygons with holes, the exterior ring comes first, followed by
+    /// the vertices of each hole ring. The `hole_indices` field records
+    /// where each hole ring starts.
     pub points: Vec<[f64; 2]>,
     /// RGBA color (0.0-1.0 range).
     pub color: [f32; 4],
     /// Axis-aligned bounding box: [min_x, min_y, max_x, max_y].
     /// Used for view frustum culling.
     pub bbox: [f64; 4],
+    /// Start indices of hole rings within `points`.
+    ///
+    /// Empty for simple polygons. For a polygon with one hole, this
+    /// contains a single entry pointing to where the hole vertices begin.
+    /// Used by `earcutr::earcut` for correct triangulation of cutouts.
+    pub hole_indices: Vec<usize>,
 }
 
 /// Compute axis-aligned bounding box from points.
@@ -199,7 +209,7 @@ fn is_self_intersecting(points: &[[f64; 2]]) -> bool {
 }
 
 /// Convert our point array to a geo Polygon.
-fn points_to_geo_polygon(points: &[[f64; 2]]) -> GeoPolygon<f64> {
+pub(crate) fn points_to_geo_polygon(points: &[[f64; 2]]) -> GeoPolygon<f64> {
     let coords: Vec<Coord<f64>> = points.iter().map(|p| Coord { x: p[0], y: p[1] }).collect();
     let line_string = LineString::new(coords);
     GeoPolygon::new(line_string, vec![])
@@ -510,14 +520,36 @@ impl ShapeManager {
             shape.color[3], // Keep same alpha
         ];
 
-        let n = shape.points.len();
+        if shape.hole_indices.is_empty() {
+            // Simple polygon: one closed ring
+            Self::add_ring_border_segments(&shape.points, border_color, segments);
+        } else {
+            // Polygon with holes: draw each ring (exterior + holes) separately
+            // to avoid connecting the last exterior vertex to the first hole vertex.
+            let mut ring_starts: Vec<usize> = vec![0];
+            ring_starts.extend_from_slice(&shape.hole_indices);
+            ring_starts.push(shape.points.len());
+
+            for w in ring_starts.windows(2) {
+                let ring = &shape.points[w[0]..w[1]];
+                Self::add_ring_border_segments(ring, border_color, segments);
+            }
+        }
+    }
+
+    /// Draw border segments for a single closed ring of points.
+    fn add_ring_border_segments(
+        points: &[[f64; 2]],
+        color: [f32; 4],
+        segments: &mut Vec<ColoredSegment>,
+    ) {
+        let n = points.len();
         for i in 0..n {
             let j = (i + 1) % n;
-            // Store world coordinates directly - shader will transform to screen
             segments.push(ColoredSegment {
-                p0: [shape.points[i][0] as f32, shape.points[i][1] as f32],
-                p1: [shape.points[j][0] as f32, shape.points[j][1] as f32],
-                color: border_color,
+                p0: [points[i][0] as f32, points[i][1] as f32],
+                p1: [points[j][0] as f32, points[j][1] as f32],
+                color,
             });
         }
     }
@@ -540,6 +572,7 @@ impl ShapeManager {
                     points,
                     color,
                     bbox,
+                    hole_indices: vec![],
                 },
             );
             self.order.push(id);
@@ -579,18 +612,24 @@ impl ShapeManager {
     ///
     /// This replaces all existing shapes with the provided data.
     /// Used to sync from WasmLibrary.
-    pub fn sync_from_polygons(&mut self, polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4])>) {
+    pub fn sync_from_polygons(
+        &mut self,
+        polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4])>,
+        hole_map: &HashMap<String, Vec<usize>>,
+    ) {
         self.shapes.clear();
         self.order.clear();
 
         for (id, points, color) in polygons.into_iter() {
             let bbox = compute_bbox(&points);
+            let hole_indices = hole_map.get(&id).cloned().unwrap_or_default();
             self.shapes.insert(
                 id.clone(),
                 Shape {
                     points,
                     color,
                     bbox,
+                    hole_indices,
                 },
             );
             self.order.push(id);
@@ -610,6 +649,7 @@ impl ShapeManager {
             points,
             color,
             bbox,
+            hole_indices: vec![],
         });
         self.dirty = true;
         self.outlines_dirty = true; // Preview border needs regeneration
@@ -751,6 +791,12 @@ impl ShapeManager {
             return;
         }
 
+        // Polygon with holes: use earcutr's native hole support
+        if !shape.hole_indices.is_empty() {
+            self.triangulate_polygon_with_holes(shape, vertices, indices);
+            return;
+        }
+
         // Check if polygon is self-intersecting
         if is_self_intersecting(&shape.points) {
             // Decompose into simple polygons using evenodd fill rule
@@ -763,6 +809,35 @@ impl ShapeManager {
         } else {
             // Simple polygon - triangulate directly
             self.triangulate_simple_polygon(&shape.points, shape.color, vertices, indices);
+        }
+    }
+
+    /// Triangulate a polygon with holes using earcutr's native hole support.
+    fn triangulate_polygon_with_holes(
+        &self,
+        shape: &Shape,
+        vertices: &mut Vec<PolygonVertex>,
+        indices: &mut Vec<u32>,
+    ) {
+        let base_index = vertices.len() as u32;
+
+        // Add all vertices (exterior + holes)
+        for point in &shape.points {
+            vertices.push(PolygonVertex {
+                position: [point[0] as f32, point[1] as f32],
+                color: shape.color,
+            });
+        }
+
+        // Flat coordinates for earcutr
+        let flat_coords: Vec<f64> = shape.points.iter().flat_map(|p| vec![p[0], p[1]]).collect();
+
+        // earcutr expects hole indices as indices into the flat coordinate
+        // array (i.e. vertex index, not byte offset)
+        let tri_indices = earcutr::earcut(&flat_coords, &shape.hole_indices, 2).unwrap_or_default();
+
+        for idx in tri_indices {
+            indices.push(base_index + idx as u32);
         }
     }
 

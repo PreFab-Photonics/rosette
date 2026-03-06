@@ -1792,3 +1792,97 @@ export class AlignElementsCommand implements Command {
     ctx.renderer.mark_dirty();
   }
 }
+
+// =============================================================================
+// Boolean Operation Commands
+// =============================================================================
+
+/** Supported boolean operation types. */
+export type BooleanOpType = "union" | "subtract" | "intersect" | "xor";
+
+/**
+ * Command to perform a boolean/CSG operation on polygon elements.
+ *
+ * Supported operations: union, subtract, intersect, xor (exclude).
+ * Only works on polygon elements — text and cell instances are skipped.
+ *
+ * For subtract, `baseId` identifies the shape from which others are
+ * subtracted. For other operations it is ignored.
+ *
+ * Input polygons are removed and replaced with the result polygon(s).
+ */
+export class BooleanOperationCommand implements Command {
+  readonly type = "boolean-operation";
+  readonly description: string;
+
+  /** Snapshots of original elements for undo restoration. */
+  private snapshots: ClipboardSnapshot[] = [];
+  /** Current IDs of the input elements (updated on undo when elements get new UUIDs). */
+  private currentIds: string[];
+  /** Current base ID (updated on undo when elements get new UUIDs). */
+  private currentBaseId: string;
+  /** IDs of result polygons created by the operation. */
+  private resultIds: string[] = [];
+
+  constructor(
+    inputIds: string[],
+    private readonly operation: BooleanOpType,
+    baseId: string,
+  ) {
+    this.description = `Boolean ${operation}`;
+    this.currentIds = [...inputIds];
+    this.currentBaseId = baseId;
+  }
+
+  execute(ctx: CommandContext): void {
+    // Snapshot originals on first execution only
+    if (this.snapshots.length === 0) {
+      this.snapshots = snapshotElements(ctx.library, this.currentIds);
+    }
+
+    // Run the WASM boolean operation (removes inputs, creates results)
+    this.resultIds = ctx.library.boolean_operation(
+      this.currentIds,
+      this.operation,
+      this.currentBaseId,
+    );
+
+    // Select the result polygons
+    if (this.resultIds.length > 0) {
+      useSelectionStore.getState().selectAll(this.resultIds);
+    } else {
+      useSelectionStore.getState().clearSelection();
+    }
+
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+
+  undo(ctx: CommandContext): void {
+    // Remove result polygons
+    if (this.resultIds.length > 0) {
+      ctx.library.remove_elements(this.resultIds);
+    }
+
+    // Restore original elements from snapshots (they get new UUIDs)
+    const restoredIds = restoreSnapshots(ctx.library, this.snapshots);
+
+    // Map the old base ID to the new one. The snapshots are created
+    // in the same order as currentIds (polygon-only), so we can find
+    // the base by its position.
+    const oldBaseIdx = this.currentIds.indexOf(this.currentBaseId);
+
+    // Update currentIds for the next redo
+    this.currentIds = restoredIds;
+    if (oldBaseIdx >= 0 && oldBaseIdx < restoredIds.length) {
+      this.currentBaseId = restoredIds[oldBaseIdx];
+    }
+    this.resultIds = [];
+
+    // Restore selection
+    useSelectionStore.getState().selectAll(restoredIds);
+
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+}
