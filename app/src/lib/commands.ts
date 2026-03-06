@@ -19,6 +19,7 @@ import { useExplorerStore } from "@/stores/explorer";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
+import { computeAlignmentDeltas, type AlignType, type AlignmentDelta } from "@/lib/align";
 
 /**
  * Context passed to commands for executing operations.
@@ -116,10 +117,7 @@ export class CreateRectangleCommand implements Command {
  * Handles both regular polygon UUIDs and synthetic ref UUIDs (from CellRef instances).
  * Deduplicates synthetic ref UUIDs so each CellRef instance is snapshotted once.
  */
-export function snapshotElements(
-  library: WasmLibrary,
-  ids: Iterable<string>,
-): ClipboardSnapshot[] {
+export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): ClipboardSnapshot[] {
   const snapshots: ClipboardSnapshot[] = [];
   // Track which CellRef element indices we've already snapshotted
   // (multiple synthetic ref UUIDs map to the same CellRef)
@@ -201,18 +199,12 @@ export function snapshotElements(
  *
  * Returns the IDs of the newly created elements.
  */
-function restoreSnapshots(
-  library: WasmLibrary,
-  snapshots: ClipboardSnapshot[],
-): string[] {
+function restoreSnapshots(library: WasmLibrary, snapshots: ClipboardSnapshot[]): string[] {
   const newIds: string[] = [];
 
   for (const snapshot of snapshots) {
     if (snapshot.type === "cell-ref") {
-      const id = library.add_cell_ref_with_transform(
-        snapshot.cellName,
-        snapshot.transform,
-      );
+      const id = library.add_cell_ref_with_transform(snapshot.cellName, snapshot.transform);
       if (id) {
         newIds.push(id);
       }
@@ -229,11 +221,7 @@ function restoreSnapshots(
         newIds.push(id);
       }
     } else {
-      const id = library.add_polygon(
-        snapshot.vertices,
-        snapshot.layer,
-        snapshot.datatype,
-      );
+      const id = library.add_polygon(snapshot.vertices, snapshot.layer, snapshot.datatype);
       if (id) {
         newIds.push(id);
       }
@@ -911,12 +899,18 @@ export class ChangeElementLayerCommand implements Command {
       let id: string | undefined;
       if ("type" in snapshot && snapshot.type === "text") {
         id = ctx.library.add_text(
-          snapshot.text, snapshot.x, snapshot.y,
-          snapshot.height, this.newLayer, this.newDatatype,
+          snapshot.text,
+          snapshot.x,
+          snapshot.y,
+          snapshot.height,
+          this.newLayer,
+          this.newDatatype,
         );
       } else {
         id = ctx.library.add_polygon(
-          (snapshot as ElementSnapshot).vertices, this.newLayer, this.newDatatype,
+          (snapshot as ElementSnapshot).vertices,
+          this.newLayer,
+          this.newDatatype,
         );
       }
       if (id) createdIds.push(id);
@@ -942,12 +936,18 @@ export class ChangeElementLayerCommand implements Command {
       let id: string | undefined;
       if ("type" in snapshot && snapshot.type === "text") {
         id = ctx.library.add_text(
-          snapshot.text, snapshot.x, snapshot.y,
-          snapshot.height, snapshot.layer, snapshot.datatype,
+          snapshot.text,
+          snapshot.x,
+          snapshot.y,
+          snapshot.height,
+          snapshot.layer,
+          snapshot.datatype,
         );
       } else {
         id = ctx.library.add_polygon(
-          (snapshot as ElementSnapshot).vertices, snapshot.layer, snapshot.datatype,
+          (snapshot as ElementSnapshot).vertices,
+          snapshot.layer,
+          snapshot.datatype,
         );
       }
       if (id) restoredIds.push(id);
@@ -1731,6 +1731,63 @@ export class SetTextHeightCommand implements Command {
 
   undo(ctx: CommandContext): void {
     ctx.library.set_text_height(this.elementId, this.oldHeight);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+}
+
+// =============================================================================
+// Alignment Commands
+// =============================================================================
+
+/**
+ * Command to align selected elements.
+ *
+ * Computes per-group translation deltas based on the alignment type and
+ * a reference element (the last selected element). Supports polygons,
+ * text labels, and cell instances (treated as groups of synthetic ref UUIDs).
+ */
+export class AlignElementsCommand implements Command {
+  readonly type = "align-elements";
+  readonly description: string;
+
+  /** Computed deltas, populated on first execute. */
+  private deltas: AlignmentDelta[] = [];
+
+  constructor(
+    private readonly selectedIds: Set<string>,
+    private readonly referenceId: string | null,
+    private readonly alignType: AlignType,
+  ) {
+    this.description = `Align elements (${alignType})`;
+  }
+
+  execute(ctx: CommandContext): void {
+    // Compute deltas on first execution (they stay the same for redo)
+    if (this.deltas.length === 0) {
+      this.deltas = computeAlignmentDeltas(
+        ctx.library,
+        this.selectedIds,
+        this.referenceId,
+        this.alignType,
+      );
+    }
+
+    for (const delta of this.deltas) {
+      ctx.library.translate_elements(delta.ids, delta.dx, delta.dy);
+    }
+
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+
+  undo(ctx: CommandContext): void {
+    // Apply inverse translations in reverse order
+    for (let i = this.deltas.length - 1; i >= 0; i--) {
+      const delta = this.deltas[i];
+      ctx.library.translate_elements(delta.ids, -delta.dx, -delta.dy);
+    }
+
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }

@@ -25,11 +25,13 @@ import {
   AddCellCommand,
   AddCellRefCommand,
   DeleteCellCommand,
+  AlignElementsCommand,
   placeRectangleInViewport,
   placePolygonInViewport,
   placeTextInViewport,
   snapshotElements,
 } from "@/lib/commands";
+import type { AlignType } from "@/lib/align";
 import { useExplorerStore } from "@/stores/explorer";
 import { keys } from "@/lib/utils";
 
@@ -762,7 +764,65 @@ export function getCommands(): CommandItem[] {
           searchableText: `Cell add instance ${cellName} place ref reference`,
         }),
       ),
+
+    // =========================================================================
+    // Alignment commands
+    // =========================================================================
+    ...makeAlignCommands(close),
   ];
 
   return commands;
+}
+
+// =============================================================================
+// Alignment command helpers
+// =============================================================================
+
+/** Map of align types to display names and search aliases. */
+const ALIGN_DEFS: { id: AlignType; name: string; search: string }[] = [
+  { id: "align-left", name: "Align Left", search: "Align left edges" },
+  {
+    id: "align-center-h",
+    name: "Align Center Horizontally",
+    search: "Align center horizontal middle",
+  },
+  { id: "align-right", name: "Align Right", search: "Align right edges" },
+  { id: "align-top", name: "Align Top", search: "Align top edges" },
+  { id: "align-center-v", name: "Align Center Vertically", search: "Align center vertical middle" },
+  { id: "align-bottom", name: "Align Bottom", search: "Align bottom edges" },
+  { id: "center-align", name: "Center Align", search: "Center align both axes" },
+  { id: "origin-align", name: "Align to Origin", search: "Origin align center zero" },
+];
+
+/**
+ * Generate command palette entries for all alignment operations.
+ */
+function makeAlignCommands(close: () => void): CommandItem[] {
+  return ALIGN_DEFS.map(
+    (def): CommandItem => ({
+      id: `align-${def.id}`,
+      type: "command",
+      name: `Align: ${def.name}`,
+      action: () => {
+        const { library, renderer } = useWasmContextStore.getState();
+        if (!library || !renderer) {
+          close();
+          return;
+        }
+        const { selectedIds, lastSelectedId } = useSelectionStore.getState();
+        if (selectedIds.size === 0) {
+          close();
+          return;
+        }
+        if (def.id !== "origin-align" && selectedIds.size < 2) {
+          close();
+          return;
+        }
+        const cmd = new AlignElementsCommand(new Set(selectedIds), lastSelectedId, def.id);
+        useHistoryStore.getState().execute(cmd, { library, renderer });
+        close();
+      },
+      searchableText: def.search,
+    }),
+  );
 }
