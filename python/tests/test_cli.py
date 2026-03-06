@@ -174,17 +174,14 @@ class TestRosetteBuild:
         """rosette build respects output directory argument."""
         monkeypatch.chdir(tmp_path)
 
-        # Create a minimal design that uses ROSETTE_OUTPUT
+        # Create a minimal design that follows the 'design' convention
         designs_dir = tmp_path / "designs"
         designs_dir.mkdir()
         (designs_dir / "env_output.py").write_text("""
-import os
-from rosette import Cell, Layer, Polygon, Point, write_gds
+from rosette import Cell, Layer, Polygon, Point
 
-cell = Cell("test")
-cell.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
-output = os.environ.get("ROSETTE_OUTPUT", "output/test.gds")
-write_gds(output, cell)
+design = Cell("test")
+design.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
 """)
 
         custom_output = tmp_path / "custom_output"
@@ -233,7 +230,7 @@ class TestRosetteUpdate:
         assert "not" in captured.out.lower()
 
     def test_update_refreshes_files(self, tmp_path: Path, monkeypatch):
-        """rosette update refreshes AGENTS.md and source files."""
+        """rosette update refreshes AGENTS.md and managed .rosette/ files."""
         monkeypatch.chdir(tmp_path)
 
         # Initialize project (creates test/ subdirectory)
@@ -247,16 +244,16 @@ class TestRosetteUpdate:
         original_content = agents_md.read_text()
         agents_md.write_text("modified content")
 
-        # Delete a source file
-        src_file = project_dir / ".rosette" / "src" / "core" / "lib.rs"
-        if src_file.exists():
-            src_file.unlink()
+        # Delete a managed file from .rosette/
+        patterns_file = project_dir / ".rosette" / "patterns.md"
+        assert patterns_file.exists()
+        patterns_file.unlink()
 
         # Update should restore everything
         update_project()
 
         assert agents_md.read_text() == original_content
-        assert src_file.exists()
+        assert patterns_file.exists()
 
 
 class TestCliHelp:
