@@ -1,0 +1,8 @@
+.rosette/
+output/*.gds
+__pycache__/
+*.py[cod]
+.env
+venv/
+.venv/
+uv.lock

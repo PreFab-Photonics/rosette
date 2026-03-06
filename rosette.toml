@@ -1,0 +1,153 @@
+[project]
+name = "librosette"
+version = "0.1.0"
+
+[build]
+output_dir = "output"
+
+# =============================================================================
+# Design Rule Check (DRC) Constraints
+# =============================================================================
+#
+# Layer format: "layer/datatype" (e.g., "1/0" for Layer(1, 0))
+# All dimensions in micrometers (um)
+#
+# Supported per-layer rules:
+#   min_width    - Minimum feature width
+#   min_spacing  - Minimum spacing between features on same layer
+#   min_area     - Minimum polygon area
+#   angles       - Allowed edge angles in degrees (e.g., [0, 45, 90, 135])
+#
+# Supported inter-layer rules (in [drc.rules] section):
+#   enclosure    - Inner layer must be enclosed by outer layer
+#   spacing      - Minimum spacing between different layers
+#   require_overlap - Two layers must overlap
+#   forbid_overlap  - Two layers must not overlap
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Layer 1/0 - Waveguide Core (Silicon)
+# -----------------------------------------------------------------------------
+[drc.layers."1/0"]
+min_width = 0.12      # Minimum waveguide width
+min_spacing = 0.13    # Minimum spacing between waveguides
+min_area = 0.01       # Minimum polygon area
+angles = [0, 90]      # Manhattan geometry only (0° and 90° edges)
+
+# -----------------------------------------------------------------------------
+# Layer 2/0 - Slab / Partial Etch
+# -----------------------------------------------------------------------------
+[drc.layers."2/0"]
+min_width = 0.18      # Wider minimum for partial etch
+min_spacing = 0.20    # Larger spacing requirement
+min_area = 0.05       # Minimum slab area
+
+# -----------------------------------------------------------------------------
+# Layer 3/0 - Deep Etch / Trenches
+# -----------------------------------------------------------------------------
+[drc.layers."3/0"]
+min_width = 0.25      # Minimum trench width
+min_spacing = 0.30    # Trench-to-trench spacing
+min_area = 0.10       # Minimum trench area
+
+# -----------------------------------------------------------------------------
+# Layer 10/0 - Metal 1 (Heaters / Contacts)
+# -----------------------------------------------------------------------------
+[drc.layers."10/0"]
+min_width = 0.50      # Minimum metal width
+min_spacing = 0.50    # Metal-to-metal spacing
+min_area = 0.25       # Minimum metal area
+angles = [0, 45, 90, 135]  # Allow 45-degree routing
+
+# -----------------------------------------------------------------------------
+# Layer 11/0 - Via Layer
+# -----------------------------------------------------------------------------
+[drc.layers."11/0"]
+min_width = 0.40      # Via dimension
+min_spacing = 0.60    # Via-to-via spacing
+min_area = 0.16       # Minimum via area (0.4 x 0.4)
+angles = [0, 90]      # Manhattan only
+
+# -----------------------------------------------------------------------------
+# Layer 12/0 - Metal 2 (Top Metal / Pads)
+# -----------------------------------------------------------------------------
+[drc.layers."12/0"]
+min_width = 1.0       # Wider top metal
+min_spacing = 1.0     # Top metal spacing
+min_area = 1.0        # Minimum pad area
+
+# -----------------------------------------------------------------------------
+# Layer 20/0 - Doping P+
+# -----------------------------------------------------------------------------
+[drc.layers."20/0"]
+min_width = 0.30      # Minimum doping width
+min_spacing = 0.40    # Doping region spacing
+min_area = 0.10       # Minimum doping area
+
+# -----------------------------------------------------------------------------
+# Layer 21/0 - Doping N+
+# -----------------------------------------------------------------------------
+[drc.layers."21/0"]
+min_width = 0.30      # Minimum doping width
+min_spacing = 0.40    # Doping region spacing
+min_area = 0.10       # Minimum doping area
+
+# -----------------------------------------------------------------------------
+# Layer 100/0 - Exclusion Zone / Keep-out
+# -----------------------------------------------------------------------------
+[drc.layers."100/0"]
+min_width = 5.0       # Large exclusion zones
+min_spacing = 10.0    # Keep exclusion zones apart
+min_area = 25.0       # Minimum exclusion area
+
+# =============================================================================
+# Inter-Layer Rules
+# =============================================================================
+# These define relationships between different layers
+
+[[drc.rules]]
+type = "enclosure"
+inner = "11/0"        # Via layer
+outer = "10/0"        # Metal 1 must enclose vias
+min_enclosure = 0.10  # 100nm enclosure on all sides
+name = "VIA_M1_ENC"
+
+[[drc.rules]]
+type = "enclosure"
+inner = "11/0"        # Via layer
+outer = "12/0"        # Metal 2 must enclose vias
+min_enclosure = 0.10
+name = "VIA_M2_ENC"
+
+[[drc.rules]]
+type = "spacing"
+layer1 = "1/0"        # Waveguide
+layer2 = "10/0"       # Metal 1
+min_spacing = 1.0     # Keep metal away from waveguides
+name = "WG_M1_SPC"
+
+[[drc.rules]]
+type = "spacing"
+layer1 = "20/0"       # P+ doping
+layer2 = "21/0"       # N+ doping
+min_spacing = 0.50    # Doping separation
+name = "PN_SPC"
+
+[[drc.rules]]
+type = "forbid_overlap"
+layer1 = "20/0"       # P+ doping
+layer2 = "21/0"       # N+ doping
+name = "PN_NOOVLP"    # P and N doping cannot overlap
+
+[[drc.rules]]
+type = "require_overlap"
+layer1 = "11/0"       # Via
+layer2 = "10/0"       # Metal 1
+name = "VIA_M1_OVLP"  # Vias must land on Metal 1
+
+[[drc.rules]]
+type = "require_overlap"
+layer1 = "11/0"       # Via
+layer2 = "12/0"       # Metal 2
+name = "VIA_M2_OVLP"  # Vias must connect to Metal 2

@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+:root {
+  font-family:
+    "Geist Sans",
+    "Geist",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #0d0d0d;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Keyboard shortcuts - use system UI font for better symbol rendering (⌘ ⇧ ⌥ ⌫) */
+kbd {
+  font-family:
+    system-ui,
+    -apple-system,
+    "SF Pro Text",
+    "Segoe UI",
+    sans-serif;
+}
+
+/* Ensure crisp SVG icon rendering on non-retina displays */
+svg {
+  shape-rendering: geometricPrecision;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+}

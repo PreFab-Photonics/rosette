@@ -1,0 +1,13 @@
+[package]
+name = "rosette-core"
+version.workspace = true
+edition.workspace = true
+description = "Core geometry types for photonic layout"
+
+[dependencies]
+thiserror.workspace = true
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+default = []
+serde = ["dep:serde"]

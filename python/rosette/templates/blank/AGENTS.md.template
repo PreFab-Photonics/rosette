@@ -1,0 +1,136 @@
+# {{name}}
+
+Rosette photonic design project. Create designs in `designs/*.py`, build with `rosette build designs/<name>.py`.
+
+## Architecture
+
+Components are Python functions in `components/` that you own and can customize. Core types (Cell, Route, Layer, etc.) come from `rosette`.
+
+## Example
+
+```python
+import os
+from rosette import Cell, CellRef, Layer, Route, write_gds
+
+# Import components from local components/ directory
+from components import waveguide, bend, grating_coupler, mmi_1x2
+
+layer = Layer(1, 0)
+
+# Components are functions that return Cells
+wg_cell = waveguide(length=10.0, width=0.5, layer=layer)
+gc_cell = grating_coupler(waveguide_width=0.5, layer=layer)
+
+# Route creates waveguide paths with automatic bends and tapers
+route = Route(layer, width=0.5, bend_radius=5.0)
+route.start_at(0, 0)
+route.to(50, 0)
+route.to(50, 30)  # Auto-bend at corner
+route.to(100, 30, width=1.0)  # Auto-taper to new width
+route.end_at(100, 30)
+route_cell = route.to_cell("my_route")
+
+# Assemble hierarchical design
+top = Cell("top")
+top.add_ref(CellRef(route_cell.name))
+
+# Place GC at route input port
+gc_opt = gc_cell.port("opt")
+top.add_ref(top.place_at_port(CellRef(gc_cell.name), gc_opt, route_cell.port("in")))
+
+# Write output with child cells
+write_gds(os.environ.get("ROSETTE_OUTPUT", "output.gds"), top, [route_cell, gc_cell])
+```
+
+## API
+
+```python
+# Components (from local components/ directory)
+from components import (
+    waveguide,    # waveguide(length, width, layer) -> Cell
+    bend,         # bend(radius, angle, width, layer, euler=False) -> Cell
+    taper,        # taper(length, width_in, width_out, layer) -> Cell
+    sbend,        # sbend(length, offset, width, layer) -> Cell
+    mmi_1x2,      # mmi_1x2(layer) -> Cell with ports: in, out1, out2
+    mmi_2x1,      # mmi_2x1(layer) -> Cell with ports: in1, in2, out
+    mmi_2x2,      # mmi_2x2(layer) -> Cell with ports: in1, in2, out1, out2
+    directional_coupler,  # -> Cell with ports: in1, in2, out1, out2
+    ybranch,      # ybranch(width, layer) -> Cell with ports: in, out1, out2
+    ring,         # ring(radius, width, layer, coupling="allpass") -> Cell
+    spiral,       # spiral(width, layer, turns=3) -> Cell
+    crossing,     # crossing(width, layer) -> Cell
+    grating_coupler,  # -> Cell with port: opt
+)
+
+# Routing (recommended for waveguide connections)
+Route(layer, width=0.5, bend_radius=5.0)
+  .start_at(x, y, angle=0) / .start_at_port(port)
+  .to(x, y, width=None, bend_radius=None)
+  .end_at(x, y, angle=0) / .end_at_port(port)
+  .to_cell(name) -> Cell
+  .path_length -> float
+  .warnings -> list[str]
+
+# Geometry (use for pads, markers, custom shapes)
+Point(x, y), Point.origin()
+Polygon.rect(origin, w, h)
+Polygon.rect_centered(center, w, h)
+Polygon.regular(center, radius, n_sides)
+
+# Layout
+Layer(number, datatype=0)
+Cell(name)
+  .add_polygon(poly, layer)
+  .add_ref(CellRef(cell_name).at(x, y))
+  .port(name) -> Port
+  .ports() -> list[Port]
+  .place_at_port(cell_ref, cell_port, target_port) -> CellRef
+write_gds(path, cell, child_cells=[])
+
+# Design Rule Checking (rules defined in rosette.toml)
+load_drc_rules() -> DrcRules  # Load from rosette.toml
+run_drc(cell, rules) -> DrcResult
+  .passed -> bool
+  .violations -> list[DrcViolation]
+
+# Manual DrcRules builder (for custom checks)
+DrcRules()
+  .min_width(layer, min_um, name=None)
+  .min_spacing(layer1, layer2, min_um, name=None)
+  .min_area(layer, min_um2, name=None)
+  .allowed_angles(layer, [0, 45, 90, ...], name=None)
+  .forbid_overlap(layer1, layer2, name=None)
+  .require_overlap(layer1, layer2, name=None)
+  .require_enclosure(inner, outer, margin, name=None)
+```
+
+## Component Port Names
+
+| Component | Ports |
+|-----------|-------|
+| Route | `in`, `out` |
+| waveguide, bend, taper, sbend | `in`, `out` |
+| mmi_1x2, ybranch | `in`, `out1`, `out2` |
+| mmi_2x1 | `in1`, `in2`, `out` |
+| mmi_2x2, directional_coupler | `in1`, `in2`, `out1`, `out2` |
+| ring (allpass) | `in`, `out` |
+| ring (adddrop) | `in`, `through`, `add`, `drop` |
+| crossing | `in1`, `out1`, `in2`, `out2` |
+| grating_coupler | `opt` (not "out") |
+| spiral | `in` (outer), `out` (center) |
+
+## Troubleshooting
+
+**ModuleNotFoundError: No module named 'components'**: Run from project root directory, or ensure `rosette init` was run.
+
+**Bend radius reduced warning**: Check `route.warnings` - Route auto-reduces radius when space is tight.
+
+**Invalid port name**: Check port names in table above for component type.
+
+**write_gds type error**: Pass Cell to `write_gds()`. Components are functions that return Cells directly.
+
+## Reference
+
+- `.rosette/api.pyi` - Full Python API with types (start here)
+- `.rosette/patterns.md` - Copy-paste recipes for common structures
+- `components/` - Editable component implementations (customize these!)

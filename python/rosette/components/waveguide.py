@@ -1,0 +1,71 @@
+"""Straight waveguide component.
+
+A waveguide is a straight optical waveguide with configurable length and width.
+
+Ports: "in" (at origin, facing -X), "out" (at end, facing +X)
+"""
+
+from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+
+__all__ = ["waveguide"]
+
+
+def waveguide(
+    layer: Layer,
+    waveguide_width: float = 0.5,
+    length: float = 10.0,
+) -> Cell:
+    """Create a straight waveguide section.
+
+    The waveguide is oriented along the positive X axis, with:
+    - Input port ("in") at the origin, pointing in -X direction
+    - Output port ("out") at (length, 0), pointing in +X direction
+
+    Args:
+        layer: GDS layer for the waveguide geometry
+        waveguide_width: Width of the waveguide in microns
+        length: Length of the waveguide in microns
+
+    Returns:
+        Cell with ports "in" and "out"
+
+    Raises:
+        ValueError: If length or width is not positive
+
+    Example:
+        >>> from rosette import Layer
+        >>> from rosette.components import waveguide
+        >>> # Or in user projects: from components import waveguide
+        >>> wg = waveguide(Layer(1, 0), waveguide_width=0.5, length=10.0)
+        >>> wg.port("in").position.x
+        0.0
+        >>> wg.port("out").position.x
+        10.0
+    """
+    if length <= 0:
+        raise ValueError("Waveguide length must be positive")
+    if waveguide_width <= 0:
+        raise ValueError("Waveguide width must be positive")
+
+    cell = Cell(f"wg_l{length:.2f}_w{waveguide_width:.3f}")
+
+    # Create rectangle polygon centered on Y axis
+    half_width = waveguide_width / 2.0
+    poly = Polygon(
+        [
+            Point(0.0, -half_width),
+            Point(length, -half_width),
+            Point(length, half_width),
+            Point(0.0, half_width),
+        ]
+    )
+    cell.add_polygon(poly, layer)
+
+    # Add ports
+    cell.add_port(Port("in", Point(0.0, 0.0), -Vector2.unit_x(), waveguide_width))
+    cell.add_port(Port("out", Point(length, 0.0), Vector2.unit_x(), waveguide_width))
+
+    # Set path length metadata
+    cell.path_length = length
+
+    return cell

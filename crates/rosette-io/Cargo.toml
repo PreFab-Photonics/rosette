@@ -1,0 +1,12 @@
+[package]
+name = "rosette-io"
+version.workspace = true
+edition.workspace = true
+description = "File I/O for photonic layout (GDS, etc.)"
+
+[dependencies]
+rosette-core = { workspace = true, features = ["serde"] }
+thiserror.workspace = true
+byteorder.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

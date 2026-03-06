@@ -1,0 +1,65 @@
+[project]
+name = "{{name}}"
+version = "0.1.0"
+
+[build]
+output_dir = "output"
+
+# =============================================================================
+# Design Rule Check (DRC) Constraints
+# =============================================================================
+#
+# Layer format: "layer/datatype" (e.g., "1/0" for Layer(1, 0))
+# All dimensions in micrometers (um)
+#
+# Replace these example values with your foundry's design rules.
+
+# -----------------------------------------------------------------------------
+# Per-Layer Rules
+# -----------------------------------------------------------------------------
+
+[drc.layers."1/0"]  # Example: Waveguide layer
+min_width = 0.12    # Minimum feature width
+min_spacing = 0.13  # Minimum spacing between features
+min_area = 0.01     # Minimum polygon area
+# angles = [0, 90]  # Restrict to Manhattan geometry (optional)
+
+# [drc.layers."10/0"]  # Example: Metal layer
+# min_width = 0.5
+# min_spacing = 0.5
+# angles = [0, 45, 90, 135]  # Allow 45-degree routing
+
+# -----------------------------------------------------------------------------
+# Inter-Layer Rules (optional)
+# -----------------------------------------------------------------------------
+# Use [[drc.rules]] for rules between different layers.
+
+# # Minimum spacing between different layers
+# [[drc.rules]]
+# type = "spacing"
+# layer1 = "1/0"
+# layer2 = "10/0"
+# min_spacing = 1.0
+# name = "WG_METAL_SPC"  # Optional rule name
+
+# # Inner layer must be enclosed by outer layer
+# [[drc.rules]]
+# type = "enclosure"
+# inner = "11/0"   # e.g., via
+# outer = "10/0"   # e.g., metal
+# min_enclosure = 0.1
+# name = "VIA_ENC"
+
+# # Two layers must overlap
+# [[drc.rules]]
+# type = "require_overlap"
+# layer1 = "11/0"
+# layer2 = "10/0"
+# name = "VIA_METAL_OVLP"
+
+# # Two layers must NOT overlap
+# [[drc.rules]]
+# type = "forbid_overlap"
+# layer1 = "20/0"
+# layer2 = "21/0"
+# name = "PN_NOOVLP"

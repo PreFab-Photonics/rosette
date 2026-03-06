@@ -1,0 +1,859 @@
+"""Type stubs for rosette._core (Rust extension module)."""
+
+# =============================================================================
+# Geometry Types
+# =============================================================================
+
+class Point:
+    x: float
+    y: float
+    def __init__(self, x: float = 0.0, y: float = 0.0) -> None: ...
+    @staticmethod
+    def origin() -> Point: ...
+    def distance_to(self, other: Point) -> float: ...
+    def translate(self, v: Vector2) -> Point: ...
+    def rotate(self, angle_deg: float) -> Point: ...
+    def rotate_around(self, center: Point, angle_deg: float) -> Point: ...
+    def __add__(self, other: Vector2) -> Point: ...
+    def __sub__(self, other: Point) -> Vector2: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class Vector2:
+    x: float
+    y: float
+    def __init__(self, x: float = 0.0, y: float = 0.0) -> None: ...
+    @staticmethod
+    def unit_x() -> Vector2: ...
+    @staticmethod
+    def unit_y() -> Vector2: ...
+    @staticmethod
+    def from_angle(angle_deg: float) -> Vector2: ...
+    def length(self) -> float: ...
+    def normalize(self) -> Vector2: ...
+    def dot(self, other: Vector2) -> float: ...
+    def perpendicular(self) -> Vector2: ...
+    def rotate(self, angle_deg: float) -> Vector2: ...
+    def __add__(self, other: Vector2) -> Vector2: ...
+    def __sub__(self, other: Vector2) -> Vector2: ...
+    def __mul__(self, scalar: float) -> Vector2: ...
+    def __rmul__(self, scalar: float) -> Vector2: ...
+    def __neg__(self) -> Vector2: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class Polygon:
+    def __init__(self, vertices: list[Point]) -> None: ...
+    @staticmethod
+    def rect(origin: Point, width: float, height: float) -> Polygon: ...
+    @staticmethod
+    def rect_centered(center: Point, width: float, height: float) -> Polygon: ...
+    @staticmethod
+    def regular(center: Point, radius: float, sides: int) -> Polygon: ...
+    def vertices(self) -> list[Point]: ...
+    def __len__(self) -> int: ...
+    def area(self) -> float: ...
+    def centroid(self) -> Point: ...
+    def bbox(self) -> BBox: ...
+    def translate(self, v: Vector2) -> Polygon: ...
+    def rotate(self, angle_deg: float) -> Polygon: ...
+    def rotate_around(self, center: Point, angle_deg: float) -> Polygon: ...
+    def scale(self, sx: float, sy: float) -> Polygon: ...
+    def mirror_x(self) -> Polygon: ...
+    def mirror_y(self) -> Polygon: ...
+    def __iter__(self) -> PolygonIterator: ...
+    def __repr__(self) -> str: ...
+
+class PolygonIterator:
+    """Iterator over polygon vertices."""
+
+    def __iter__(self) -> PolygonIterator: ...
+    def __next__(self) -> Point: ...
+
+class Transform:
+    def __init__(self) -> None: ...
+    @staticmethod
+    def identity() -> Transform: ...
+    @staticmethod
+    def translate(tx: float, ty: float) -> Transform: ...
+    @staticmethod
+    def rotate(angle_deg: float) -> Transform: ...
+    @staticmethod
+    def scale_uniform(s: float) -> Transform: ...
+    @staticmethod
+    def scale(sx: float, sy: float) -> Transform: ...
+    def apply(self, p: Point) -> Point: ...
+    def then(self, other: Transform) -> Transform: ...
+    def __repr__(self) -> str: ...
+
+class BBox:
+    min: Point
+    max: Point
+    def __init__(self, min: Point, max: Point) -> None: ...
+    def width(self) -> float: ...
+    def height(self) -> float: ...
+    def center(self) -> Point: ...
+    def area(self) -> float: ...
+    def contains(self, p: Point) -> bool: ...
+    def merge(self, other: BBox) -> BBox: ...
+    def __repr__(self) -> str: ...
+
+# =============================================================================
+# Instance: A positioned cell with transform
+# =============================================================================
+
+class Instance:
+    """A cell placed at a specific position with optional transformations.
+
+    Instance provides an ergonomic API for positioning cells and querying
+    their transformed ports without redundant cell references.
+
+    Created with `cell.at(x, y)`. Supports transform chaining.
+
+    Example:
+        gc_cell = grating_coupler(layer=layer)
+        gc_in = gc_cell.at(0, 0)              # Position at origin
+        gc_out = gc_cell.at(0, 127).rotate(180)  # Position and rotate
+
+        # Get ports directly - no need to pass cell again
+        port_in = gc_in.port("opt")
+        port_out = gc_out.port("opt")
+
+        # Add to design
+        top.add_ref(gc_in)
+        top.add_ref(gc_out)
+    """
+
+    @property
+    def cell(self) -> Cell:
+        """The underlying cell definition."""
+        ...
+    @property
+    def cell_name(self) -> str:
+        """Name of the referenced cell."""
+        ...
+    def at(self, x: float, y: float) -> Instance:
+        """Set the position (translation).
+
+        Args:
+            x: X coordinate
+            y: Y coordinate
+
+        Returns:
+            A new Instance with updated transform
+        """
+        ...
+    def rotate(self, angle_deg: float) -> Instance:
+        """Rotate by angle (in degrees).
+
+        Args:
+            angle_deg: Rotation angle in degrees (counter-clockwise)
+
+        Returns:
+            A new Instance with updated transform
+        """
+        ...
+    def mirror_x(self) -> Instance:
+        """Mirror across X axis (flips Y coordinates).
+
+        Returns:
+            A new Instance with updated transform
+        """
+        ...
+    def mirror_y(self) -> Instance:
+        """Mirror across Y axis (flips X coordinates).
+
+        Returns:
+            A new Instance with updated transform
+        """
+        ...
+    def scale(self, s: float) -> Instance:
+        """Scale uniformly.
+
+        Args:
+            s: Scale factor
+
+        Returns:
+            A new Instance with updated transform
+        """
+        ...
+    def port(self, name: str) -> Port:
+        """Get a transformed port from this instance.
+
+        Unlike CellRef.port(), this doesn't require passing the Cell again
+        since the Instance already knows its cell definition.
+
+        Args:
+            name: Name of the port to retrieve
+
+        Returns:
+            The port with position and direction transformed
+
+        Raises:
+            KeyError: If the port is not found in the cell
+
+        Example:
+            gc = gc_cell.at(100, 50).rotate(180)
+            opt_port = gc.port("opt")  # Transformed port position
+        """
+        ...
+    def __repr__(self) -> str: ...
+
+# =============================================================================
+# Layout Types
+# =============================================================================
+
+class PathEndType:
+    """GDS path end type."""
+
+    FLUSH: PathEndType
+    """Flush (square) ends at path endpoints."""
+    ROUND: PathEndType
+    """Round ends."""
+    HALF_WIDTH_EXTENSION: PathEndType
+    """Square ends extending half-width past endpoints."""
+    def __repr__(self) -> str: ...
+
+class Layer:
+    number: int
+    datatype: int
+    def __init__(self, number: int, datatype: int = 0) -> None: ...
+    def __repr__(self) -> str: ...
+    def __hash__(self) -> int: ...
+    def __eq__(self, other: object) -> bool: ...
+
+class Port:
+    name: str
+    position: Point
+    direction: Vector2
+    width: float | None
+    def __init__(
+        self,
+        name: str,
+        position: Point,
+        direction: Vector2,
+        width: float | None = None,
+    ) -> None: ...
+    def angle(self) -> float: ...
+    def __repr__(self) -> str: ...
+
+class CellRef:
+    cell_name: str
+    def __init__(self, cell_or_name: Cell | str) -> None:
+        """Create a new cell reference.
+
+        Args:
+            cell_or_name: Either a Cell object or a cell name string.
+
+        Example:
+            ref1 = CellRef("my_cell")      # From string
+            ref2 = CellRef(waveguide_cell) # From Cell object
+        """
+        ...
+    def at(self, x: float, y: float) -> CellRef: ...
+    def rotate(self, angle_deg: float) -> CellRef: ...
+    def mirror_x(self) -> CellRef: ...
+    def mirror_y(self) -> CellRef: ...
+    def scale(self, s: float) -> CellRef: ...
+    def port(self, name: str, cell: Cell) -> Port:
+        """Get a transformed port from this cell reference.
+
+        Returns the named port from the source cell, transformed by this
+        CellRef's transform (position, rotation, mirror, etc.).
+
+        Args:
+            name: Name of the port to retrieve
+            cell: The source Cell object containing the port definition
+
+        Returns:
+            The port with position and direction transformed
+
+        Raises:
+            KeyError: If the port is not found in the cell
+
+        Example:
+            gc_cell = grating_coupler(layer=layer)
+            gc_ref = CellRef(gc_cell).at(100, 50).rotate(180)
+
+            # Get the transformed port
+            opt_port = gc_ref.port("opt", gc_cell)
+
+            # Use in routing
+            route = Route.through(opt_port, ..., layer=layer)
+        """
+        ...
+    def __repr__(self) -> str: ...
+
+class Cell:
+    name: str
+    path_length: float | None
+    def __init__(self, name: str) -> None: ...
+    def add_polygon(self, polygon: Polygon, layer: Layer | int | tuple[int, int]) -> None: ...
+    def add_path(
+        self,
+        points: list[Point],
+        width: float,
+        layer: Layer | int | tuple[int, int],
+        end_type: PathEndType | None = None,
+    ) -> None:
+        """Add a path (centerline with width) to the cell.
+
+        Paths are an alternative to polygons for representing waveguides and
+        similar structures. They store a centerline and width, which can be
+        more compact than storing the full polygon outline.
+
+        Args:
+            points: List of Point objects along the path centerline
+            width: Width of the path
+            layer: Layer number or Layer object
+            end_type: Path end type (default: PathEndType.FLUSH)
+
+        Example:
+            cell.add_path(
+                [Point(0, 0), Point(100, 0), Point(100, 50)],
+                width=0.5,
+                layer=1,
+                end_type=PathEndType.ROUND
+            )
+        """
+        ...
+    def add_text(
+        self,
+        text: str,
+        position: Point,
+        layer: Layer | int | tuple[int, int],
+        height: float = 1.0,
+    ) -> None:
+        """Add a text label to the cell.
+
+        Text labels are useful for debugging and documentation but are
+        typically not fabricated.
+
+        Args:
+            text: The text string
+            position: Position of the text
+            layer: Layer number or Layer object
+            height: Text height in user units (default: 1.0)
+
+        Example:
+            cell.add_text("Input", Point(0, 5), layer=10)
+            cell.add_text("Big Label", Point(0, 10), layer=10, height=5.0)
+        """
+        ...
+    def add_port(self, port: Port) -> None: ...
+    def port(self, name: str) -> Port: ...
+    def ports(self) -> list[Port]: ...
+    def polygon_count(self) -> int: ...
+    def path_count(self) -> int: ...
+    def text_count(self) -> int: ...
+    def ref_count(self) -> int: ...
+    def cell_ref_names(self) -> list[str]:
+        """Get the unique names of all cells referenced by this cell.
+
+        Returns:
+            Sorted list of unique cell names that this cell references (direct children only).
+        """
+        ...
+    def bbox(self) -> BBox | None: ...
+    def at(self, x: float, y: float) -> Instance:
+        """Create a positioned instance of this cell.
+
+        This is the recommended way to place cells in a design. The returned
+        Instance tracks the cell reference, allowing port queries without
+        redundantly passing the cell.
+
+        Args:
+            x: X coordinate
+            y: Y coordinate
+
+        Returns:
+            An Instance positioned at (x, y)
+
+        Example:
+            gc_cell = grating_coupler(layer=layer)
+            gc_in = gc_cell.at(0, 0)
+            gc_out = gc_cell.at(0, 127)
+
+            # Get ports directly from instances
+            port_in = gc_in.port("opt")
+            port_out = gc_out.port("opt")
+        """
+        ...
+    def add_ref(self, ref: Cell | CellRef | Instance) -> None:
+        """Add a cell, cell reference, or instance.
+
+        When adding a Cell or Instance, the child cell is automatically
+        tracked for write_gds().
+
+        Args:
+            ref: A Cell (placed at origin), Instance, or CellRef to add
+
+        Example:
+            top.add_ref(gc_cell.at(0, 0))        # Instance at position
+            top.add_ref(route.to_cell("wg"))     # Cell at origin
+        """
+        ...
+    def place_at_port(self, cell_ref: CellRef, cell_port: Port, target_port: Port) -> CellRef:
+        """Place a cell reference by aligning its port to a target port.
+
+        Returns a transformed CellRef that can be added with add_ref().
+        """
+        ...
+    def __repr__(self) -> str: ...
+
+class Library:
+    name: str
+    def __init__(self, name: str) -> None: ...
+    def add_cell(self, cell: Cell) -> None:
+        """Add a cell to the library.
+
+        If a cell with the same name already exists, this is a no-op.
+        """
+        ...
+    def add_cell_recursive(self, cell: Cell, available_cells: list[Cell]) -> None:
+        """Add a cell and all its referenced cells recursively.
+
+        This method automatically adds all cells that are referenced by the
+        given cell, resolving the entire hierarchy. You must provide a list
+        of all available cells that may be referenced.
+
+        Cells that already exist in the library (by name) are skipped.
+
+        Args:
+            cell: The cell to add (typically the top-level cell)
+            available_cells: List of all cells that may be referenced
+        """
+        ...
+    def cell(self, name: str) -> Cell | None: ...
+    def cells(self) -> list[Cell]: ...
+    def top_cell(self) -> Cell | None: ...
+    def __repr__(self) -> str: ...
+
+# =============================================================================
+# Route
+# =============================================================================
+
+class Route:
+    """Path-based waveguide route.
+
+    Routes generate continuous waveguide geometry from a series of waypoints,
+    automatically inserting bends at corners and tapers for width transitions.
+
+    Example:
+        route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
+        route.start_at(0, 0, angle=0)
+        route.to(50, 0)
+        route.to(50, 30)
+        route.end_at(100, 30, angle=0)
+        cell = route.to_cell("my_route")
+    """
+
+    def __init__(
+        self,
+        layer: Layer | int | tuple[int, int],
+        width: float = 0.5,
+        bend_radius: float = 5.0,
+        auto_taper: bool = True,
+        taper_length: float = 10.0,
+    ) -> None: ...
+    def start_at(self, x: float, y: float, angle: float = 0.0) -> None:
+        """Start the route at a specific position and angle (degrees)."""
+        ...
+    def start_at_port(self, port: Port) -> None:
+        """Start the route at a port."""
+        ...
+    def to(
+        self,
+        x: float,
+        y: float,
+        width: float | None = None,
+        bend_radius: float | None = None,
+    ) -> None:
+        """Add a waypoint to the route."""
+        ...
+    def end_at(self, x: float, y: float, angle: float = 0.0) -> None:
+        """End the route at a specific position and angle (degrees)."""
+        ...
+    def end_at_port(self, port: Port) -> None:
+        """End the route at a port."""
+        ...
+    def to_cell(self, name: str) -> Cell:
+        """Convert the route to a Cell."""
+        ...
+    @property
+    def path_length(self) -> float:
+        """Total optical path length."""
+        ...
+    @property
+    def warnings(self) -> list[str]:
+        """Warnings from route generation (e.g., reduced bend radii)."""
+        ...
+    @staticmethod
+    def through(
+        *waypoints: Port | Point | tuple[float, float] | tuple[float, float, float],
+        layer: Layer | int | tuple[int, int],
+        width: float = 0.5,
+        bend_radius: float = 5.0,
+    ) -> Route:
+        """Create a route through a series of waypoints.
+
+        Args:
+            *waypoints: Sequence of waypoints. Each can be:
+                - Port: uses position, angle, and width
+                - Point: uses position only
+                - (x, y) tuple: position only
+                - (x, y, angle) tuple: position and angle (for first/last waypoint)
+            layer: The layer for the route
+            width: Default waveguide width
+            bend_radius: Default bend radius
+
+        Example:
+            route = Route.through(port_a, (50, 0), (50, 30), port_b, layer=Layer(1, 0))
+        """
+        ...
+
+# =============================================================================
+# I/O Functions
+# =============================================================================
+
+def write_gds(
+    path: str,
+    design: Cell | Library,
+    cells: list[Cell] | None = None,
+    quiet: bool = False,
+    verbose: bool = False,
+) -> None:
+    """Write a Cell or Library to a GDS file.
+
+    A build summary is printed to stderr by default, providing feedback about
+    the design. Use quiet=True to suppress, verbose=True for details.
+
+    Args:
+        path: Output file path
+        design: Cell or Library to write
+        cells: Child cells (only valid when design is a Cell with references)
+        quiet: If True, suppress the build summary
+        verbose: If True, print detailed build info
+    """
+    ...
+
+def to_flat_json(
+    design: Cell | Library,
+    cells: list[Cell] | None = None,
+) -> str:
+    """Serialize a Cell or Library to flattened JSON for the web viewer.
+
+    Flattens the design hierarchy into a simple list of polygons:
+    - Expands all cell references with their transforms applied
+    - Converts path elements to polygon ribbons
+    - Scales coordinates from micrometers to nanometers (x1000)
+    - Skips text elements
+
+    This is used internally by `rosette serve` for fast live preview.
+
+    Args:
+        design: Cell or Library to serialize
+        cells: Child cells (only valid when design is a Cell with references)
+
+    Returns:
+        JSON string with format: {"polygons": [{"v": [...], "l": 1, "d": 0}, ...]}
+    """
+    ...
+
+def to_flat_json_cell(
+    cell_name: str,
+    top_cell: Cell,
+    child_cells: list[Cell],
+) -> str | None:
+    """Flatten a specific cell (by name) from a hierarchy to JSON.
+
+    Used by `rosette serve` to support navigating into nested cells.
+    Builds a library from the top cell and children, then flattens
+    only the requested cell.
+
+    Args:
+        cell_name: Name of the cell to flatten
+        top_cell: The top-level cell (used to build the library)
+        child_cells: All child cells referenced by the hierarchy
+
+    Returns:
+        JSON string with flattened polygon data, or None if cell not found.
+    """
+    ...
+
+# =============================================================================
+# Connection Helpers
+# =============================================================================
+
+def connect_transform(component_port: Port, target_port: Port) -> Transform:
+    """Calculate the transform to connect one port to another.
+
+    This aligns a component so that `component_port` matches the position
+    of `target_port` with opposite directions (so they face each other).
+
+    Args:
+        component_port: The port on the component to be placed
+        target_port: The port to connect to
+
+    Returns:
+        A Transform that, when applied to the component, aligns the ports.
+    """
+    ...
+
+# =============================================================================
+# Geometry Utility Functions
+# =============================================================================
+
+def arc_points(
+    center: Point,
+    radius: float,
+    start_angle: float,
+    end_angle: float,
+    num_points: int = 64,
+) -> list[Point]:
+    """Generate points along a circular arc.
+
+    Args:
+        center: Center point of the arc
+        radius: Radius of the arc
+        start_angle: Starting angle in degrees (0 = +X direction)
+        end_angle: Ending angle in degrees
+        num_points: Number of points to generate (default: 64)
+
+    Returns:
+        List of points along the arc
+    """
+    ...
+
+def offset_polygon(centerline: list[Point], width: float) -> Polygon:
+    """Create a polygon from a centerline and uniform width.
+
+    The polygon is created by offsetting the centerline perpendicular to the
+    path direction at each point, forming a "ribbon" shape.
+
+    Args:
+        centerline: List of points defining the centerline path (minimum 2 points)
+        width: Width of the polygon
+
+    Returns:
+        A closed polygon
+
+    Raises:
+        ValueError: If centerline has fewer than 2 points
+    """
+    ...
+
+def offset_polygon_varying(centerline: list[Point], widths: list[float]) -> Polygon:
+    """Create a polygon from a centerline with varying width.
+
+    Similar to offset_polygon, but allows specifying a different width at each
+    centerline point for tapered or variable-width shapes.
+
+    Args:
+        centerline: List of points defining the centerline path
+        widths: Width at each centerline point (must have same length as centerline)
+
+    Returns:
+        A closed polygon
+
+    Raises:
+        ValueError: If inputs are invalid
+    """
+    ...
+
+def path_length(points: list[Point]) -> float:
+    """Calculate the total length of a polyline path.
+
+    Args:
+        points: List of points defining the path
+
+    Returns:
+        Sum of distances between consecutive points
+    """
+    ...
+
+def fresnel_c(t: float) -> float:
+    """Fresnel cosine integral C(t).
+
+    The Fresnel cosine integral is defined as:
+    C(t) = integral from 0 to t of cos(pi/2 * u^2) du
+
+    Used for generating Euler (clothoid) spiral bends.
+
+    Args:
+        t: Upper limit of integration
+
+    Returns:
+        The value of C(t)
+    """
+    ...
+
+def fresnel_s(t: float) -> float:
+    """Fresnel sine integral S(t).
+
+    The Fresnel sine integral is defined as:
+    S(t) = integral from 0 to t of sin(pi/2 * u^2) du
+
+    Used for generating Euler (clothoid) spiral bends.
+
+    Args:
+        t: Upper limit of integration
+
+    Returns:
+        The value of S(t)
+    """
+    ...
+
+# =============================================================================
+# DRC (Design Rule Checking)
+# =============================================================================
+
+class DrcRules:
+    """Builder for DRC rule sets.
+
+    Example:
+        rules = (
+            DrcRules()
+            .min_width(Layer(1), 0.1, name="M1.W.1")
+            .min_spacing(Layer(1), Layer(1), 0.15)
+            .min_area(Layer(1), 0.01)
+        )
+    """
+
+    def __init__(self) -> None: ...
+    def min_width(
+        self,
+        layer: Layer | int | tuple[int, int],
+        width: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add minimum width rule for a layer."""
+        ...
+    def min_spacing(
+        self,
+        layer1: Layer | int | tuple[int, int],
+        layer2: Layer | int | tuple[int, int],
+        spacing: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add minimum spacing rule between two layers."""
+        ...
+    def min_area(
+        self,
+        layer: Layer | int | tuple[int, int],
+        area: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add minimum area rule for a layer."""
+        ...
+    def min_enclosure(
+        self,
+        inner: Layer | int | tuple[int, int],
+        outer: Layer | int | tuple[int, int],
+        enclosure: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add enclosure rule (inner must be enclosed by outer)."""
+        ...
+    def require_overlap(
+        self,
+        layer1: Layer | int | tuple[int, int],
+        layer2: Layer | int | tuple[int, int],
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add rule requiring overlap between two layers."""
+        ...
+    def forbid_overlap(
+        self,
+        layer1: Layer | int | tuple[int, int],
+        layer2: Layer | int | tuple[int, int],
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add rule forbidding overlap between two layers."""
+        ...
+    def allowed_angles(
+        self,
+        layer: Layer | int | tuple[int, int],
+        angles: list[float],
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add rule restricting edge angles to specified values (degrees)."""
+        ...
+    def __repr__(self) -> str: ...
+
+class DrcViolation:
+    """A single DRC violation."""
+
+    rule_name: str | None
+    message: str
+    severity: str  # "error" or "warning"
+    rule_type: str
+    layer: tuple[int, int]
+    layer2: tuple[int, int] | None
+    bbox: tuple[tuple[float, float], tuple[float, float]]
+    def __repr__(self) -> str: ...
+
+class DrcResult:
+    """Result of running DRC."""
+
+    violations: list[DrcViolation]
+    passed: bool
+    polygons_checked: int
+    rules_checked: int
+    elapsed_ms: float
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+def load_drc_rules(config_path: str | None = None) -> DrcRules:
+    """Load DRC rules from rosette.toml.
+
+    Searches for rosette.toml in the current directory and parent directories.
+    Rules are defined per-layer in the [drc.layers] section.
+
+    Args:
+        config_path: Optional explicit path to rosette.toml. If None, searches
+                     from current directory upward.
+
+    Returns:
+        DrcRules built from the configuration
+
+    Raises:
+        FileNotFoundError: If rosette.toml is not found
+        ValueError: If the config has invalid DRC settings
+
+    Example:
+        # In rosette.toml:
+        # [drc.layers."1/0"]
+        # min_width = 0.12
+        # min_spacing = 0.13
+
+        rules = load_drc_rules()
+        result = run_drc(cell, rules)
+    """
+    ...
+
+def run_drc(
+    cell: Cell,
+    rules: DrcRules,
+    library: Library | None = None,
+) -> DrcResult:
+    """Run DRC on a cell.
+
+    Args:
+        cell: The cell to check
+        rules: DRC rules to apply
+        library: Library containing referenced cells (required if cell has refs)
+
+    Returns:
+        DrcResult with violations and statistics
+
+    Example:
+        rules = load_drc_rules()  # Load from rosette.toml
+        result = run_drc(cell, rules)
+        if result.passed:
+            print("DRC passed!")
+        else:
+            for v in result.violations:
+                print(f"  {v.message}")
+    """
+    ...

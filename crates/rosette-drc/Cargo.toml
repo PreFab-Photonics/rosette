@@ -1,0 +1,11 @@
+[package]
+name = "rosette-drc"
+version.workspace = true
+edition.workspace = true
+description = "Design Rule Checking for rosette photonic layouts"
+
+[dependencies]
+rosette-core.workspace = true
+thiserror.workspace = true
+geo = { version = "0.29", default-features = false }
+rstar = "0.12"

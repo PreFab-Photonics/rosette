@@ -1,0 +1,34 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rosette-core",
+    "crates/rosette-drc",
+    "crates/rosette-io",
+    "crates/rosette-python",
+    "crates/rosette-wasm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+rosette-core = { path = "crates/rosette-core" }
+rosette-drc = { path = "crates/rosette-drc" }
+rosette-io = { path = "crates/rosette-io" }
+thiserror = "1.0"
+byteorder = "1.5"
+pyo3 = "0.27"
+
+# WASM dependencies
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = "0.3"
+wgpu = "23"
+bytemuck = { version = "1.14", features = ["derive"] }
+log = "0.4"
+console_log = "1.0"
+console_error_panic_hook = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

@@ -1,0 +1,76 @@
+[project]
+name = "{{name}}"
+version = "0.1.0"
+
+[build]
+output_dir = "output"
+
+# =============================================================================
+# Design Rule Check (DRC) Constraints
+# =============================================================================
+#
+# Generic silicon photonics design rules. Adjust values for your foundry.
+#
+# Layer format: "layer/datatype" (e.g., "1/0" for Layer(1, 0))
+# All dimensions in micrometers (um)
+
+# -----------------------------------------------------------------------------
+# Waveguide Layer (full etch)
+# -----------------------------------------------------------------------------
+[drc.layers."1/0"]
+min_width = 0.15      # Minimum waveguide width
+min_spacing = 0.15    # Minimum gap between waveguides
+min_area = 0.02       # Minimum polygon area
+
+# -----------------------------------------------------------------------------
+# Slab Layer (partial etch, for rib waveguides)
+# -----------------------------------------------------------------------------
+[drc.layers."2/0"]
+min_width = 0.20
+min_spacing = 0.20
+min_area = 0.05
+
+# -----------------------------------------------------------------------------
+# Metal Layer (heaters, contacts)
+# -----------------------------------------------------------------------------
+[drc.layers."10/0"]
+min_width = 0.50
+min_spacing = 0.50
+min_area = 0.25
+angles = [0, 45, 90, 135]  # Allow 45-degree routing
+
+# -----------------------------------------------------------------------------
+# Via Layer
+# -----------------------------------------------------------------------------
+[drc.layers."11/0"]
+min_width = 0.40
+min_spacing = 0.60
+min_area = 0.16
+angles = [0, 90]  # Manhattan only
+
+# -----------------------------------------------------------------------------
+# Inter-Layer Rules
+# -----------------------------------------------------------------------------
+
+# Metal must enclose vias
+[[drc.rules]]
+type = "enclosure"
+inner = "11/0"
+outer = "10/0"
+min_enclosure = 0.10
+name = "VIA_METAL_ENC"
+
+# Vias must land on metal
+[[drc.rules]]
+type = "require_overlap"
+layer1 = "11/0"
+layer2 = "10/0"
+name = "VIA_METAL_OVLP"
+
+# Keep metal away from waveguides
+[[drc.rules]]
+type = "spacing"
+layer1 = "1/0"
+layer2 = "10/0"
+min_spacing = 2.0
+name = "WG_METAL_SPC"

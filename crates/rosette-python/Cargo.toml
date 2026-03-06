@@ -1,0 +1,16 @@
+[package]
+name = "rosette-python"
+version.workspace = true
+edition.workspace = true
+description = "Python bindings for rosette photonic layout library"
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+rosette-core.workspace = true
+rosette-drc.workspace = true
+rosette-io.workspace = true
+pyo3 = { workspace = true, features = ["extension-module"] }
+serde_json.workspace = true
