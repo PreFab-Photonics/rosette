@@ -287,7 +287,14 @@ class CellRef:
 class Cell:
     name: str
     path_length: float | None
-    def __init__(self, name: str) -> None: ...
+    def __init__(self, name: str) -> None:
+        """Create a new empty cell.
+
+        Raises:
+            ValueError: If the name is empty, longer than 32 characters,
+                or contains non-printable ASCII characters (spaces, Unicode, etc.)
+        """
+        ...
     def add_polygon(self, polygon: Polygon, layer: Layer | int | tuple[int, int]) -> None: ...
     def add_path(
         self,
@@ -407,7 +414,9 @@ class Library:
     def add_cell(self, cell: Cell) -> None:
         """Add a cell to the library.
 
-        If a cell with the same name already exists, this is a no-op.
+        Raises:
+            ValueError: If the cell name is invalid or a cell with the
+                same name already exists.
         """
         ...
     def add_cell_recursive(self, cell: Cell, available_cells: list[Cell]) -> None:
@@ -422,6 +431,9 @@ class Library:
         Args:
             cell: The cell to add (typically the top-level cell)
             available_cells: List of all cells that may be referenced
+
+        Raises:
+            ValueError: If any cell name is invalid.
         """
         ...
     def cell(self, name: str) -> Cell | None: ...

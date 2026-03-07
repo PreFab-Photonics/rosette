@@ -51,7 +51,7 @@ mod tests {
         cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
 
         let mut library = Library::new("test_lib");
-        library.add_cell(cell);
+        library.add_cell(cell).unwrap();
 
         let json = to_string(&library).unwrap();
         assert!(json.contains("\"name\":"));
@@ -77,7 +77,7 @@ mod tests {
         ));
 
         let mut library = Library::new("test");
-        library.add_cell(cell);
+        library.add_cell(cell).unwrap();
 
         let json = to_string(&library).unwrap();
         assert!(json.contains("\"in\""));

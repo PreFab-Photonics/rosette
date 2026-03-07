@@ -54,7 +54,9 @@ def spiral(
     if spacing <= waveguide_width:
         raise ValueError("Spacing must be greater than width")
 
-    cell = Cell(f"spiral_{spiral_type}_t{turns:.1f}_r{min_radius:.1f}_w{waveguide_width:.3f}")
+    # Abbreviate type for GDS 32-char name limit: archimedean -> arch, fermat -> ferm
+    type_abbr = spiral_type[:4]
+    cell = Cell(f"sprl_{type_abbr}_t{turns:.1f}_r{min_radius:.1f}_w{waveguide_width:.3f}")
 
     # Generate centerline points
     num_points = int(turns * num_points_per_turn) + 1

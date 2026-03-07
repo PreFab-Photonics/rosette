@@ -213,20 +213,29 @@ impl WasmLibrary {
 
     /// Add a new cell to the library.
     ///
-    /// If a cell with this name already exists, this is a no-op.
-    pub fn add_cell(&mut self, name: &str) {
-        self.library.add_cell(Cell::new(name.to_string()));
+    /// Returns an error if the name is invalid or already exists.
+    pub fn add_cell(&mut self, name: &str) -> Result<(), JsValue> {
+        let cell = Cell::new(name.to_string());
+        self.library
+            .add_cell(cell)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         if self.active_cell.is_none() {
             self.active_cell = Some(name.to_string());
         }
+        Ok(())
     }
 
     /// Rename a cell in the library.
     ///
-    /// Returns false if old_name doesn't exist or new_name is already taken.
-    /// If the renamed cell is the active cell, the active cell is updated.
-    pub fn rename_cell(&mut self, old_name: &str, new_name: &str) -> bool {
-        if self.library.rename_cell(old_name, new_name) {
+    /// Returns false if old_name doesn't exist, or throws a JS error if
+    /// new_name is invalid or already taken.
+    pub fn rename_cell(&mut self, old_name: &str, new_name: &str) -> Result<bool, JsValue> {
+        let found = self
+            .library
+            .rename_cell(old_name, new_name)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        if found {
             // Update active cell reference if it was renamed
             if self.active_cell.as_deref() == Some(old_name) {
                 self.active_cell = Some(new_name.to_string());
@@ -238,10 +247,8 @@ impl WasmLibrary {
                 }
             }
             self.dirty = true;
-            true
-        } else {
-            false
         }
+        Ok(found)
     }
 
     /// Remove a cell from the library.
@@ -1969,7 +1976,7 @@ impl WasmLibrary {
 
         // Create a new library with a flattened cell
         let mut wasm_lib = WasmLibrary::new(library.name());
-        wasm_lib.add_cell("flattened");
+        wasm_lib.add_cell("flattened")?;
         wasm_lib.set_active_cell("flattened");
 
         // Scale factor: SDK uses micrometers, app world units = nm * GRID_SIZE
@@ -2017,7 +2024,7 @@ impl WasmLibrary {
 
         // Create a new library with a single cell
         let mut wasm_lib = WasmLibrary::new("design");
-        wasm_lib.add_cell("flattened");
+        wasm_lib.add_cell("flattened")?;
         wasm_lib.set_active_cell("flattened");
 
         // The flat JSON contains coordinates in nanometers (from to_flat_json's UM_TO_NM
@@ -2284,8 +2291,7 @@ impl WasmLibrary {
                         continue;
                     }
 
-                    let fill_pattern =
-                        self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
+                    let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
                     let vertices: Vec<[f64; 2]> =
                         transformed.vertices().iter().map(|p| [p.x, p.y]).collect();
 

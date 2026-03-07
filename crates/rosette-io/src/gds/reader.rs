@@ -198,7 +198,12 @@ impl<'a> GdsReader<'a> {
             match rec.record_type {
                 BGNSTR => {
                     let cell = self.read_cell()?;
-                    library.add_cell(cell);
+                    // Use add_cell_dedup: names from existing GDS files may
+                    // duplicate (re-defined structures) and we accept whatever
+                    // the file contains. Validation errors from exotic names
+                    // in third-party files are ignored — the name was valid
+                    // enough for the originating tool.
+                    let _ = library.add_cell_dedup(cell);
                 }
                 ENDLIB => break,
                 _ => {
@@ -746,7 +751,7 @@ mod tests {
         cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
 
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = roundtrip(&lib);
         assert_eq!(result.cells().len(), 1);
@@ -777,7 +782,7 @@ mod tests {
         );
 
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = roundtrip(&lib);
         let cell = &result.cells()[0];
@@ -796,7 +801,7 @@ mod tests {
         cell.add_text_with_height("Hello", Point::new(5.0, 10.0), Layer::new(10, 0), 2.5);
 
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = roundtrip(&lib);
         let cell = &result.cells()[0];
@@ -819,8 +824,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").at(10.0, 20.0));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let result = roundtrip(&lib);
         assert_eq!(result.cells().len(), 2);
@@ -845,8 +850,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").rotate(std::f64::consts::FRAC_PI_2));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let result = roundtrip(&lib);
         let top = result.cell("TOP").unwrap();
@@ -867,8 +872,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").mirror_x());
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let result = roundtrip(&lib);
         let top = result.cell("TOP").unwrap();
@@ -893,9 +898,9 @@ mod tests {
         top.add_ref(CellRef::new("MID").at(0.0, 10.0));
 
         let mut lib = Library::new("test");
-        lib.add_cell(leaf);
-        lib.add_cell(mid);
-        lib.add_cell(top);
+        lib.add_cell(leaf).unwrap();
+        lib.add_cell(mid).unwrap();
+        lib.add_cell(top).unwrap();
 
         let result = roundtrip(&lib);
         assert_eq!(result.cells().len(), 3);
@@ -918,7 +923,7 @@ mod tests {
         );
 
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = roundtrip(&lib);
         let cell = &result.cells()[0];
@@ -954,8 +959,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").at(20.0, 20.0));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let result = roundtrip(&lib);
         let top = result.cell("TOP").unwrap();

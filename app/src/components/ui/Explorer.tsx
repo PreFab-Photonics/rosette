@@ -871,12 +871,10 @@ export function Explorer() {
   );
 
   const handleRenameCell = useCallback((oldName: string, newName: string) => {
-    // Check for duplicate names
-    const { cells } = useExplorerStore.getState();
-    if (cells.includes(newName)) return;
-
     const { library, renderer } = useWasmContextStore.getState();
     if (library && renderer) {
+      // Validation (duplicate, invalid chars, length) is handled by the
+      // Rust core; the command shows a status bar message on failure.
       const command = new RenameCellCommand(oldName, newName);
       useHistoryStore.getState().execute(command, { library, renderer });
     } else {

@@ -227,7 +227,7 @@ mod tests {
         cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
 
         let mut library = Library::new("test_lib");
-        library.add_cell(cell);
+        library.add_cell(cell).unwrap();
 
         let flat = flatten_library(&library, 1.0);
         assert_eq!(flat.polygons.len(), 1);
@@ -243,7 +243,7 @@ mod tests {
         cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
 
         let mut library = Library::new("test_lib");
-        library.add_cell(cell);
+        library.add_cell(cell).unwrap();
 
         let flat = flatten_library(&library, 1000.0);
         assert_eq!(flat.polygons.len(), 1);
@@ -267,8 +267,8 @@ mod tests {
         top.add_ref(CellRef::new("child").at(10.0, 20.0));
 
         let mut library = Library::new("test_lib");
-        library.add_cell(child);
-        library.add_cell(top);
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
 
         let flat = flatten_library(&library, 1.0);
         assert_eq!(flat.polygons.len(), 1);

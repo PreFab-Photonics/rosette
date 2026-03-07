@@ -16,6 +16,7 @@
 
 pub mod cell;
 pub mod component;
+pub mod error;
 pub mod flatten;
 pub mod geometry;
 pub mod layer;
@@ -26,6 +27,7 @@ pub use cell::{Cell, CellMetadata, CellRef, Library, PathEndType, Repetition};
 pub use component::{
     Component, ComponentBuilder, Route, RouteResult, Waypoint, connect_transform, place_at_port,
 };
+pub use error::{CellNameError, validate_cell_name};
 pub use flatten::{FlatGeometry, FlatPolygon, flatten_cell, flatten_library};
 pub use geometry::{
     BBox,

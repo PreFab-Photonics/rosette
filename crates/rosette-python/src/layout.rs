@@ -258,9 +258,15 @@ pub struct PyCell(pub Cell);
 #[pymethods]
 impl PyCell {
     /// Create a new empty cell.
+    ///
+    /// Raises:
+    ///     ValueError: If the name is empty, longer than 32 characters,
+    ///         or contains non-printable ASCII characters (spaces, Unicode, etc.)
     #[new]
-    fn new(name: String) -> Self {
-        PyCell(Cell::new(name))
+    fn new(name: String) -> PyResult<Self> {
+        rosette_core::validate_cell_name(&name)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(PyCell(Cell::new(name)))
     }
 
     /// Cell name.
@@ -491,9 +497,13 @@ impl PyLibrary {
 
     /// Add a cell to the library.
     ///
-    /// If a cell with the same name already exists, this is a no-op.
-    fn add_cell(&mut self, cell: &PyCell) {
-        self.0.add_cell(cell.0.clone());
+    /// Raises:
+    ///     ValueError: If the cell name is invalid or a cell with the
+    ///         same name already exists.
+    fn add_cell(&mut self, cell: &PyCell) -> PyResult<()> {
+        self.0
+            .add_cell(cell.0.clone())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 
     /// Add a cell and all its referenced cells recursively.
@@ -514,9 +524,17 @@ impl PyLibrary {
     ///     all_cells = [mmi_cell, sbend_cell, waveguide_cell, top_cell]
     ///     lib.add_cell_recursive(top_cell, all_cells)
     ///     ```
-    fn add_cell_recursive(&mut self, cell: &PyCell, available_cells: Vec<PyCell>) {
+    fn add_cell_recursive(&mut self, cell: &PyCell, available_cells: Vec<PyCell>) -> PyResult<()> {
         let cells: Vec<Cell> = available_cells.into_iter().map(|c| c.0).collect();
+        // Validate all cell names before adding
+        for c in &cells {
+            rosette_core::validate_cell_name(c.name())
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        }
+        rosette_core::validate_cell_name(cell.0.name())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         self.0.add_cell_recursive(cell.0.clone(), &cells);
+        Ok(())
     }
 
     /// Get a cell by name.

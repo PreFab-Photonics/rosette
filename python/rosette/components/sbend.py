@@ -110,9 +110,9 @@ def sbend(
     # Combine into polygon
     vertices = outer_points + inner_points[::-1]
 
-    # Cell naming with type suffix
-    type_suffix = "" if bend_type == "cosine" else f"_{bend_type}"
-    cell = Cell(f"sbend{type_suffix}_l{length:.2f}_o{offset:.2f}_w{waveguide_width:.3f}")
+    # Cell naming with type suffix (abbreviated for GDS 32-char limit)
+    type_suffix = "" if bend_type == "cosine" else f"_{bend_type[:3]}"
+    cell = Cell(f"sb{type_suffix}_l{length:.2f}_o{offset:.2f}_w{waveguide_width:.3f}")
     cell.add_polygon(Polygon(vertices), layer)
 
     # Add ports

@@ -8,6 +8,7 @@
 import { create } from "zustand";
 import type { Command, CommandContext } from "@/lib/commands";
 import { useWasmContextStore } from "@/stores/wasm-context";
+import { useStatusMessageStore } from "@/stores/status-message";
 
 /** Maximum number of commands to keep in history. */
 const MAX_HISTORY_DEPTH = 100;
@@ -73,8 +74,15 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   canRedo: false,
 
   execute: (command, ctx) => {
-    // Execute the command
-    command.execute(ctx);
+    // Execute the command — if it throws (e.g., validation error from
+    // WASM), show the error in the status bar and skip adding to history.
+    try {
+      command.execute(ctx);
+    } catch (e) {
+      useStatusMessageStore.getState().show(String(e), "warn");
+      return;
+    }
+
     // Notify overlays (e.g., instance labels) that library state changed.
     useWasmContextStore.getState().bumpSyncGeneration();
 
@@ -101,8 +109,13 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     // Pop the last command
     const command = undoStack[undoStack.length - 1];
 
-    // Undo it
-    command.undo(ctx);
+    // Undo it — catch errors to avoid corrupting the stack.
+    try {
+      command.undo(ctx);
+    } catch (e) {
+      useStatusMessageStore.getState().show(String(e), "warn");
+      return;
+    }
     useWasmContextStore.getState().bumpSyncGeneration();
 
     set((state) => {
@@ -125,8 +138,13 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     // Pop the last undone command
     const command = redoStack[redoStack.length - 1];
 
-    // Re-execute it
-    command.execute(ctx);
+    // Re-execute it — catch errors to avoid corrupting the stack.
+    try {
+      command.execute(ctx);
+    } catch (e) {
+      useStatusMessageStore.getState().show(String(e), "warn");
+      return;
+    }
     useWasmContextStore.getState().bumpSyncGeneration();
 
     set((state) => {

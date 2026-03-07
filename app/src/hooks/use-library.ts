@@ -97,7 +97,11 @@ export function useLibrary(
 
     if (!libraryInstance) {
       const lib = new wasm.WasmLibrary("rosette");
-      lib.add_cell("top");
+      try {
+        lib.add_cell("top");
+      } catch {
+        // "top" is a valid cell name; this should never fail
+      }
       lib.set_active_cell("top");
       libraryInstance = lib;
     }

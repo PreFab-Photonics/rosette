@@ -60,7 +60,7 @@ mod tests {
         ));
 
         let mut library = Library::new("test_lib");
-        library.add_cell(cell);
+        library.add_cell(cell).unwrap();
 
         // Serialize
         let json = to_string(&library).unwrap();
@@ -95,7 +95,7 @@ mod tests {
         );
 
         let mut library = Library::new("test");
-        library.add_cell(cell);
+        library.add_cell(cell).unwrap();
 
         let json = to_string(&library).unwrap();
         let restored = from_string(&json).unwrap();
@@ -117,8 +117,8 @@ mod tests {
         parent.add_ref(CellRef::new("child").at(10.0, 20.0));
 
         let mut library = Library::new("test");
-        library.add_cell(child);
-        library.add_cell(parent);
+        library.add_cell(child).unwrap();
+        library.add_cell(parent).unwrap();
 
         let json = to_string(&library).unwrap();
         let restored = from_string(&json).unwrap();

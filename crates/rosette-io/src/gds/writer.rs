@@ -19,6 +19,9 @@ pub enum GdsError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("Invalid cell name: {0}")]
+    InvalidCellName(#[from] rosette_core::CellNameError),
+
     #[error("Cell name too long: {0} (max 32 characters)")]
     CellNameTooLong(String),
 
@@ -46,7 +49,7 @@ pub enum GdsError {
 /// The cell becomes the only structure in the library.
 pub fn write(path: impl AsRef<Path>, cell: &Cell) -> Result<(), GdsError> {
     let mut lib = Library::new("library");
-    lib.add_cell(cell.clone());
+    lib.add_cell(cell.clone())?;
     write_library(path, &lib)
 }
 
@@ -674,7 +677,7 @@ mod tests {
         {
             let mut writer = GdsWriter::new(&mut output);
             let mut lib = Library::new("test");
-            lib.add_cell(cell);
+            lib.add_cell(cell).unwrap();
             writer.write_library(&lib).unwrap();
         }
 
@@ -696,13 +699,11 @@ mod tests {
         let long_name = "a".repeat(33); // 33 chars, max is 32
         let cell = Cell::new(&long_name);
 
-        let mut output = Vec::new();
-        let mut writer = GdsWriter::new(&mut output);
+        // The name is now validated at add_cell time, not at write time
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
-
-        let result = writer.write_library(&lib);
-        assert!(matches!(result, Err(GdsError::CellNameTooLong(_))));
+        let result = lib.add_cell(cell);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too long"));
     }
 
     #[test]
@@ -714,7 +715,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -732,7 +733,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(matches!(result, Err(GdsError::TooManyVertices(_))));
@@ -755,7 +756,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -780,9 +781,9 @@ mod tests {
 
         let mut lib = Library::new("test");
         // Add in "wrong" order
-        lib.add_cell(cell_c);
-        lib.add_cell(cell_b);
-        lib.add_cell(cell_a);
+        lib.add_cell(cell_c).unwrap();
+        lib.add_cell(cell_b).unwrap();
+        lib.add_cell(cell_a).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -822,11 +823,11 @@ mod tests {
         top.add_ref(CellRef::new("L1"));
 
         let mut lib = Library::new("test");
-        lib.add_cell(top);
-        lib.add_cell(l1);
-        lib.add_cell(l2);
-        lib.add_cell(l3);
-        lib.add_cell(leaf);
+        lib.add_cell(top).unwrap();
+        lib.add_cell(l1).unwrap();
+        lib.add_cell(l2).unwrap();
+        lib.add_cell(l3).unwrap();
+        lib.add_cell(leaf).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -853,10 +854,10 @@ mod tests {
         top.add_ref(CellRef::new("B"));
 
         let mut lib = Library::new("test");
-        lib.add_cell(top);
-        lib.add_cell(cell_a);
-        lib.add_cell(cell_b);
-        lib.add_cell(shared);
+        lib.add_cell(top).unwrap();
+        lib.add_cell(cell_a).unwrap();
+        lib.add_cell(cell_b).unwrap();
+        lib.add_cell(shared).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -878,8 +879,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB"));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -895,8 +896,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").at(100.0, 200.0));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -912,8 +913,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").rotate(std::f64::consts::FRAC_PI_2));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -929,8 +930,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").rotate(std::f64::consts::PI));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -946,8 +947,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").rotate(3.0 * std::f64::consts::FRAC_PI_2));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -963,8 +964,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").mirror_x());
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -980,8 +981,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").mirror_y());
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -997,8 +998,8 @@ mod tests {
         top.add_ref(CellRef::new("SUB").scale(2.5));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1021,8 +1022,8 @@ mod tests {
         );
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(top);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1040,7 +1041,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1073,7 +1074,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1089,7 +1090,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1109,7 +1110,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1151,7 +1152,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1174,7 +1175,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1199,7 +1200,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1218,7 +1219,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1237,7 +1238,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1254,7 +1255,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(matches!(result, Err(GdsError::TooManyPathPoints(_))));
@@ -1268,7 +1269,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(matches!(result, Err(GdsError::TooFewPathPoints(0))));
@@ -1287,7 +1288,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(matches!(result, Err(GdsError::TooFewPathPoints(1))));
@@ -1304,7 +1305,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1322,7 +1323,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1337,7 +1338,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1353,7 +1354,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(matches!(result, Err(GdsError::TextTooLong(_))));
@@ -1369,7 +1370,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1390,7 +1391,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         // Should succeed because it's 512 characters (even though 1024 bytes)
         let result = writer.write_library(&lib);
@@ -1409,7 +1410,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(matches!(result, Err(GdsError::TextTooLong(513))));
@@ -1425,7 +1426,7 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
         let mut lib = Library::new("test");
-        lib.add_cell(cell);
+        lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
@@ -1459,8 +1460,8 @@ mod tests {
         cell.add_ref(CellRef::new("SUB").at(20.0, 20.0));
 
         let mut lib = Library::new("test");
-        lib.add_cell(sub);
-        lib.add_cell(cell);
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(cell).unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);

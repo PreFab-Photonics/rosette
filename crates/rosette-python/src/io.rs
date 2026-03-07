@@ -279,7 +279,8 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
             let cells_vec: Vec<_> = child_cells.iter().map(|c| c.0.clone()).collect();
             lib.add_cell_recursive(cell.0.clone(), &cells_vec);
         } else {
-            lib.add_cell(cell.0.clone());
+            lib.add_cell(cell.0.clone())
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         }
 
         return json::to_string(&lib).map_err(|e| {
@@ -347,7 +348,8 @@ pub fn to_flat_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> Py
             let cells_vec: Vec<_> = child_cells.iter().map(|c| c.0.clone()).collect();
             lib.add_cell_recursive(cell.0.clone(), &cells_vec);
         } else {
-            lib.add_cell(cell.0.clone());
+            lib.add_cell(cell.0.clone())
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         }
 
         let flat = flatten_library(&lib, UM_TO_NM);
