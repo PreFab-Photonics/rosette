@@ -238,6 +238,17 @@ export function Canvas() {
     }
   }, [library, renderer, activeCell]);
 
+  // Update hierarchy depth limit for CellRef rendering
+  const hierarchyLevelLimit = useExplorerStore((s) => s.hierarchyLevelLimit);
+  useEffect(() => {
+    if (!library || !renderer) return;
+    // Convert from UI semantics (Infinity = all) to WASM semantics (0 = unlimited)
+    const wasmLimit = hierarchyLevelLimit === Infinity ? 0 : hierarchyLevelLimit;
+    library.set_hierarchy_depth_limit(wasmLimit);
+    renderer.sync_from_library(library);
+    renderer.mark_dirty();
+  }, [library, renderer, hierarchyLevelLimit]);
+
   // Track if we've done the initial zoom-to-fit
   const hasInitialZoom = useRef(false);
   // Track the library instance to detect design mode reloads
@@ -676,13 +687,16 @@ export function Canvas() {
       renderer.mark_dirty();
 
       // Only place if the cursor is within the canvas bounds
-      const inCanvas =
-        mouseX >= 0 && mouseY >= 0 && mouseX <= rect.width && mouseY <= rect.height;
+      const inCanvas = mouseX >= 0 && mouseY >= 0 && mouseX <= rect.width && mouseY <= rect.height;
 
       if (worldPos && inCanvas) {
         // Validate: can we instance this cell in the active cell?
         const activeCell = library.active_cell_name();
-        if (activeCell && activeCell !== cellDragName && library.can_instance_cell(activeCell, cellDragName)) {
+        if (
+          activeCell &&
+          activeCell !== cellDragName &&
+          library.can_instance_cell(activeCell, cellDragName)
+        ) {
           const command = new AddCellRefCommand(cellDragName, worldPos.x, worldPos.y);
           useHistoryStore.getState().execute(command, { library, renderer });
         }
@@ -765,7 +779,6 @@ export function Canvas() {
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onContextMenu={handleContextMenu}
-
       />
       {isLaserActive && !isDragging && <LaserCursor />}
       {isDrawingZoom && zoomBox && <ZoomBox box={zoomBox} />}

@@ -819,6 +819,23 @@ export function Explorer() {
   const expandedCells = useExplorerStore((s) => s.expandedCells);
   const toggleExpanded = useExplorerStore((s) => s.toggleExpanded);
   const cellsLoaded = useExplorerStore((s) => s.cellsLoaded);
+  const hierarchyLevelLimit = useExplorerStore((s) => s.hierarchyLevelLimit);
+  const setHierarchyLevelLimit = useExplorerStore((s) => s.setHierarchyLevelLimit);
+  const maxTreeDepth = useExplorerStore((s) => s.maxTreeDepth);
+
+  // Local state for the level input (kept in sync with store, allows partial typing).
+  // When the limit is Infinity (all levels), display the max tree depth instead of empty.
+  const displayLimit = (limit: number, depth: number) =>
+    limit === Infinity ? (depth > 0 ? depth.toString() : "") : limit.toString();
+
+  const [levelInputValue, setLevelInputValue] = useState(
+    displayLimit(hierarchyLevelLimit, maxTreeDepth),
+  );
+
+  // Sync local input value when the store changes (e.g. "All levels" button, tree update)
+  useEffect(() => {
+    setLevelInputValue(displayLimit(hierarchyLevelLimit, maxTreeDepth));
+  }, [hierarchyLevelLimit, maxTreeDepth]);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(projectName);
@@ -941,7 +958,7 @@ export function Explorer() {
       {/* Cell tree / list */}
       <div
         className="flex flex-col gap-0.5 overflow-y-auto py-1"
-        style={{ maxHeight: "calc(100vh - 144px)" }} /* 120px base + 24px status bar */
+        style={{ maxHeight: "calc(100vh - 176px)" }}
         onWheel={(e) => e.stopPropagation()}
       >
         {cellTree
@@ -977,6 +994,79 @@ export function Explorer() {
                 canDrag={name !== activeCell}
               />
             ))}
+      </div>
+
+      {/* Hierarchy level footer — controls rendering depth on canvas */}
+      <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+      <div className="flex items-center justify-between pl-2 pr-[5.5px] py-1.5">
+        <span className={cn("text-xs", isDark ? "text-white/40" : "text-black/40")}>Level</span>
+        <div className="flex items-center gap-1">
+          <input
+            id="hierarchy-level-input"
+            type="number"
+            min="1"
+            max={maxTreeDepth}
+            value={levelInputValue}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setLevelInputValue(raw);
+              const num = parseInt(raw, 10);
+              if (!isNaN(num) && num >= 1) {
+                setHierarchyLevelLimit(num);
+              }
+            }}
+            onBlur={() => {
+              const num = parseInt(levelInputValue, 10) || maxTreeDepth;
+              const clamped = Math.max(1, Math.min(num, maxTreeDepth));
+              setHierarchyLevelLimit(clamped);
+              setLevelInputValue(clamped.toString());
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const num = parseInt(levelInputValue, 10) || maxTreeDepth;
+                const clamped = Math.max(1, Math.min(num, maxTreeDepth));
+                setHierarchyLevelLimit(clamped);
+                setLevelInputValue(clamped.toString());
+                e.currentTarget.blur();
+              } else if (e.key === "Escape") {
+                e.currentTarget.blur();
+              }
+            }}
+            className={cn(
+              "h-6 w-12 rounded-lg border px-2 text-xs tabular-nums outline-none",
+              isDark
+                ? "border-white/10 bg-white/5 text-white/90"
+                : "border-black/10 bg-black/5 text-black/90",
+            )}
+          />
+          {/* "All levels" button */}
+          <button
+            type="button"
+            title="All levels"
+            onClick={() => setHierarchyLevelLimit(Infinity)}
+            className={cn(
+              "flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg border transition-colors",
+              isDark
+                ? "border-white/10 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/90"
+                : "border-black/10 bg-black/5 text-black/40 hover:bg-black/10 hover:text-black/90",
+            )}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+              <polyline points="2 17 12 22 22 17" />
+              <polyline points="2 12 12 17 22 12" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );

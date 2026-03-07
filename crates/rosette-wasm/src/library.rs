@@ -135,6 +135,11 @@ pub struct WasmLibrary {
     /// Produced by `boolean_operation` when the result has interior rings.
     /// Consumed by the renderer to pass hole data to `earcutr::earcut`.
     hole_indices_map: HashMap<String, Vec<usize>>,
+    /// Maximum hierarchy depth for rendering CellRef instances.
+    /// 0 means unlimited (fully resolve all nested references).
+    /// 1 means only render direct elements of the active cell (instances shown as outlines only).
+    /// N means resolve up to N levels of nesting.
+    hierarchy_depth_limit: u32,
 }
 
 /// Pack layer number and datatype into a single u32 key.
@@ -202,6 +207,7 @@ impl WasmLibrary {
             group_map: HashMap::new(),
             uuid_to_group: HashMap::new(),
             hole_indices_map: HashMap::new(),
+            hierarchy_depth_limit: 0,
         }
     }
 
@@ -272,6 +278,17 @@ impl WasmLibrary {
     /// Get the active cell name, or None if no cell exists.
     pub fn active_cell_name(&self) -> Option<String> {
         self.active_cell.clone()
+    }
+
+    /// Set the maximum hierarchy depth for rendering CellRef instances.
+    ///
+    /// - `0` means unlimited (fully resolve all nested references).
+    /// - `1` means only render direct elements of the active cell; instances
+    ///   are not resolved (they still appear as bounding-box outlines).
+    /// - `N` means resolve up to N levels of nested CellRef elements.
+    pub fn set_hierarchy_depth_limit(&mut self, limit: u32) {
+        self.hierarchy_depth_limit = limit;
+        self.dirty = true;
     }
 
     /// Get the origin of the active cell as [x, y].
@@ -2235,6 +2252,11 @@ impl WasmLibrary {
     /// where `cellref_element_index` is the index of the CellRef in the active cell,
     /// and `poly_counter` is a monotonically increasing counter for each polygon.
     ///
+    /// `current_depth` tracks how many CellRef levels we've descended into.
+    /// `max_depth` is the limit (0 = unlimited). When `current_depth >= max_depth`,
+    /// nested CellRef elements are skipped (they still appear as bounding-box outlines
+    /// via `get_instance_bboxes`).
+    #[allow(clippy::too_many_arguments)]
     fn collect_render_polygons_recursive(
         &self,
         cell: &Cell,
@@ -2242,6 +2264,8 @@ impl WasmLibrary {
         cellref_elem_idx: usize,
         poly_counter: &mut usize,
         default_color: &[f32; 4],
+        current_depth: u32,
+        max_depth: u32,
         result: &mut Vec<RenderPolygon>,
     ) {
         for element in cell.elements() {
@@ -2300,6 +2324,10 @@ impl WasmLibrary {
                     *poly_counter += 1;
                 }
                 Element::CellRef(nested_ref) => {
+                    // Skip recursion if the next level would exceed the depth limit
+                    if max_depth > 0 && current_depth + 1 >= max_depth {
+                        continue;
+                    }
                     if let Some(ref_cell) = self.library.cell(&nested_ref.cell_name) {
                         for copy_transform in array_transforms(nested_ref) {
                             let combined = transform.then(&copy_transform);
@@ -2309,6 +2337,8 @@ impl WasmLibrary {
                                 cellref_elem_idx,
                                 poly_counter,
                                 default_color,
+                                current_depth + 1,
+                                max_depth,
                                 result,
                             );
                         }
@@ -2839,6 +2869,7 @@ impl WasmLibrary {
         }
 
         // Resolve CellRef elements on-the-fly with synthetic UUIDs
+        let max_depth = self.hierarchy_depth_limit;
         for (elem_idx, element) in cell.elements().iter().enumerate() {
             if let Element::CellRef(cell_ref) = element
                 && let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
@@ -2851,6 +2882,8 @@ impl WasmLibrary {
                         elem_idx,
                         &mut poly_counter,
                         &default_color,
+                        0,
+                        max_depth,
                         &mut result,
                     );
                 }

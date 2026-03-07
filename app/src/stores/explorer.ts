@@ -32,6 +32,10 @@ interface ExplorerState {
   editingCellName: string | null;
   /** True once `setCells` has been called at least once (WASM/design loaded). */
   cellsLoaded: boolean;
+  /** Maximum rendering depth for the hierarchy tree (1 = roots only). */
+  hierarchyLevelLimit: number;
+  /** Deepest nesting level in the current cellTree (0 when no tree). */
+  maxTreeDepth: number;
 
   /** Set the project name. */
   setProjectName: (name: string) => void;
@@ -41,6 +45,8 @@ interface ExplorerState {
   setCellTree: (roots: CellNode[]) => void;
   /** Toggle a tree node's expanded/collapsed state. */
   toggleExpanded: (name: string) => void;
+  /** Set the maximum hierarchy rendering depth. */
+  setHierarchyLevelLimit: (limit: number) => void;
   /** Select a cell by name. */
   setActiveCell: (name: string | null) => void;
   /** Set the cell name that should enter inline edit mode. */
@@ -89,6 +95,23 @@ function collectParentNames(node: CellNode): string[] {
   return names;
 }
 
+/** Compute the maximum nesting depth of a tree (1-indexed: a single root with no children = 1). */
+function computeMaxDepth(roots: CellNode[]): number {
+  function depth(node: CellNode): number {
+    if (node.children.length === 0) return 1;
+    let max = 0;
+    for (const child of node.children) {
+      max = Math.max(max, depth(child));
+    }
+    return 1 + max;
+  }
+  let max = 0;
+  for (const root of roots) {
+    max = Math.max(max, depth(root));
+  }
+  return max;
+}
+
 export const useExplorerStore = create<ExplorerState>()(
   persist(
     (set) => ({
@@ -99,6 +122,8 @@ export const useExplorerStore = create<ExplorerState>()(
       activeCell: null,
       editingCellName: null,
       cellsLoaded: false,
+      hierarchyLevelLimit: Infinity,
+      maxTreeDepth: 0,
 
       setProjectName: (name) => set({ projectName: name }),
       setCells: (cells) =>
@@ -113,6 +138,7 @@ export const useExplorerStore = create<ExplorerState>()(
       setCellTree: (roots) =>
         set((state) => {
           const cells = flattenRoots(roots);
+          const maxTreeDepth = computeMaxDepth(roots);
           // Auto-expand all parent nodes on first load
           const expandedCells =
             state.expandedCells.size === 0
@@ -122,7 +148,7 @@ export const useExplorerStore = create<ExplorerState>()(
             state.activeCell && cells.includes(state.activeCell)
               ? state.activeCell
               : (cells[0] ?? null);
-          return { cellTree: roots, cells, expandedCells, activeCell, cellsLoaded: true };
+          return { cellTree: roots, cells, expandedCells, activeCell, maxTreeDepth, cellsLoaded: true };
         }),
       toggleExpanded: (name) =>
         set((state) => {
@@ -134,6 +160,7 @@ export const useExplorerStore = create<ExplorerState>()(
           }
           return { expandedCells: next };
         }),
+      setHierarchyLevelLimit: (limit) => set({ hierarchyLevelLimit: limit }),
       setActiveCell: (name) => set({ activeCell: name }),
       setEditingCellName: (name) => set({ editingCellName: name }),
       renameCell: (oldName, newName) =>

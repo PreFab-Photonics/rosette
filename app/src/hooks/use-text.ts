@@ -6,10 +6,7 @@ import { useToolStore } from "@/stores/tool";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { GRID_SIZE } from "@/stores/viewport";
 import { CreateTextCommand } from "@/lib/commands";
-import {
-  handleTextEdit,
-  getSelectedText,
-} from "@/lib/text";
+import { handleTextEdit, getSelectedText } from "@/lib/text";
 import { TEXT_DEFAULT_HEIGHT, TEXT_CURSOR_BLINK_MS } from "@/lib/constants";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
@@ -54,9 +51,7 @@ export function useText(
       return;
     }
 
-    const activeLayer = useLayerStore.getState().layers.get(
-      useLayerStore.getState().activeLayerId,
-    );
+    const activeLayer = useLayerStore.getState().layers.get(useLayerStore.getState().activeLayerId);
     const layerNumber = activeLayer?.layerNumber ?? 1;
     const datatype = activeLayer?.datatype ?? 0;
 

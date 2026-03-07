@@ -780,6 +780,38 @@ export function getCommands(): CommandItem[] {
       ),
 
     // =========================================================================
+    // Hierarchy commands
+    // =========================================================================
+    {
+      id: "hierarchy-set-max-level",
+      type: "command",
+      name: "Hierarchy: Show All Levels",
+      action: () => {
+        const { setHierarchyLevelLimit } = useExplorerStore.getState();
+        setHierarchyLevelLimit(Infinity);
+        close();
+      },
+      searchableText: "Hierarchy show all levels max depth expand full",
+    },
+    {
+      id: "hierarchy-set-level",
+      type: "command",
+      name: "Hierarchy: Set Level",
+      action: () => {
+        close();
+        // Focus the level input after the palette closes
+        requestAnimationFrame(() => {
+          const input = document.getElementById("hierarchy-level-input") as HTMLInputElement | null;
+          if (input) {
+            input.focus();
+            input.select();
+          }
+        });
+      },
+      searchableText: "Hierarchy set level depth limit change",
+    },
+
+    // =========================================================================
     // Boolean operations
     // =========================================================================
     ...makeBooleanCommands(close),

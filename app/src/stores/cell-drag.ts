@@ -17,7 +17,11 @@ interface CellDragState {
   origin: { x: number; y: number };
 
   /** Begin a cell drag. Called from Explorer on mousedown. */
-  startDrag: (cellName: string, bounds: Float64Array | null, origin: { x: number; y: number }) => void;
+  startDrag: (
+    cellName: string,
+    bounds: Float64Array | null,
+    origin: { x: number; y: number },
+  ) => void;
   /** End the drag (drop or cancel). */
   endDrag: () => void;
 }

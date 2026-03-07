@@ -378,10 +378,7 @@ function TextAreaField({
 
   // Preview: show up to 2 lines, truncate the rest
   const previewLines = value.split("\n");
-  const preview =
-    previewLines.length > 2
-      ? `${previewLines.slice(0, 2).join("\n")}...`
-      : value;
+  const preview = previewLines.length > 2 ? `${previewLines.slice(0, 2).join("\n")}...` : value;
 
   return (
     <div className="px-3 py-1" data-field={label}>
