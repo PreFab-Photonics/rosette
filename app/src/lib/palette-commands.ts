@@ -587,6 +587,18 @@ export function getCommands(): CommandItem[] {
       searchableText: "Delete active layer remove",
     },
     {
+      id: "layer-edit",
+      type: "layer",
+      name: "Layer: Edit Active",
+      action: () => {
+        const { activeLayerId } = useLayerStore.getState();
+        useLayerStore.getState().setExpandedLayerId(activeLayerId);
+        useUIStore.getState().setSidebarTab("layers");
+        close();
+      },
+      searchableText: "Edit active layer color fill pattern properties",
+    },
+    {
       id: "layer-rename",
       type: "layer",
       name: "Layer: Rename Active",

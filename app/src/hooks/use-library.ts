@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { WasmLibrary } from "@/wasm/rosette_wasm";
 import { useExplorerStore } from "@/stores/explorer";
 import type { CellNode } from "@/stores/explorer";
-import { useLayerStore, hexToRgba } from "@/stores/layer";
+import { useLayerStore, hexToRgba, FILL_PATTERN_IDS } from "@/stores/layer";
 
 // Module-level singleton for library
 let libraryInstance: WasmLibrary | null = null;
@@ -231,14 +231,19 @@ export function useLibrary(
     };
   }, [wasm, isWasmReady, activeCell, cellTree]);
 
-  // Sync layer colors to library (hidden layers get alpha=0 so they don't render)
+  // Sync layer colors and fill patterns to library (hidden layers get alpha=0 so they don't render)
   useEffect(() => {
     if (!library) return;
 
     for (const layer of layers.values()) {
-      const alpha = layer.visible ? 0.7 : 0;
+      const alpha = layer.visible ? (layer.opacity ?? 0.7) : 0;
       const [r, g, b, a] = hexToRgba(layer.color, alpha);
       library.set_layer_color(layer.layerNumber, layer.datatype, r, g, b, a);
+      library.set_layer_fill_pattern(
+        layer.layerNumber,
+        layer.datatype,
+        FILL_PATTERN_IDS[layer.fillPattern ?? "solid"] ?? 0,
+      );
     }
   }, [library, layers]);
 

@@ -14,7 +14,7 @@ import {
   type TextSnapshot,
 } from "@/stores/clipboard";
 import { useRulerStore, type Ruler, type Point, type RulerEndpoint } from "@/stores/ruler";
-import { useLayerStore, hexToRgba, type Layer } from "@/stores/layer";
+import { useLayerStore, hexToRgba, FILL_PATTERN_IDS, type Layer } from "@/stores/layer";
 import { useExplorerStore } from "@/stores/explorer";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
@@ -793,10 +793,8 @@ export class DeleteLayerCommand implements Command {
     useLayerStore.getState().setLayer(this.snapshot);
     useLayerStore.getState().setActiveLayer(this.snapshot.id);
 
-    // Explicitly restore the layer color in WASM (matches the explicit removal in execute)
-    const alpha = this.snapshot.visible ? 0.7 : 0;
-    const [r, g, b, a] = hexToRgba(this.snapshot.color, alpha);
-    ctx.library.set_layer_color(this.snapshot.layerNumber, this.snapshot.datatype, r, g, b, a);
+    // Explicitly restore the layer color and fill pattern in WASM (matches the explicit removal in execute)
+    syncLayerToWasm(this.snapshot, ctx);
 
     // Restore all elements that were on this layer
     const newIds: string[] = [];
@@ -808,6 +806,81 @@ export class DeleteLayerCommand implements Command {
     }
 
     this.restoredElementIds = newIds;
+
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+}
+
+/**
+ * Sync a layer's color and fill pattern to the WASM library.
+ */
+function syncLayerToWasm(layer: Layer, ctx: CommandContext): void {
+  const alpha = layer.visible ? layer.opacity : 0;
+  const [r, g, b, a] = hexToRgba(layer.color, alpha);
+  ctx.library.set_layer_color(layer.layerNumber, layer.datatype, r, g, b, a);
+  ctx.library.set_layer_fill_pattern(
+    layer.layerNumber,
+    layer.datatype,
+    FILL_PATTERN_IDS[layer.fillPattern ?? "solid"] ?? 0,
+  );
+}
+
+/**
+ * Command to edit layer properties (name, color, numbers, fill, opacity).
+ *
+ * Stores the full before/after layer snapshot for clean undo/redo.
+ * When layer number or datatype changes, updates the WASM library's
+ * layer color mapping accordingly.
+ */
+export class EditLayerCommand implements Command {
+  readonly type = "edit-layer";
+  readonly description: string;
+
+  constructor(
+    private readonly oldLayer: Layer,
+    private readonly newLayer: Layer,
+  ) {
+    this.description = `Edit layer "${oldLayer.name}"`;
+  }
+
+  execute(ctx: CommandContext): void {
+    const store = useLayerStore.getState();
+
+    // If layer number or datatype changed, remove old WASM color mapping
+    if (
+      this.oldLayer.layerNumber !== this.newLayer.layerNumber ||
+      this.oldLayer.datatype !== this.newLayer.datatype
+    ) {
+      ctx.library.remove_layer_color(this.oldLayer.layerNumber, this.oldLayer.datatype);
+    }
+
+    // Apply the new layer to the store
+    store.setLayer(this.newLayer);
+
+    // Sync the new color and fill pattern to WASM
+    syncLayerToWasm(this.newLayer, ctx);
+
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+
+  undo(ctx: CommandContext): void {
+    const store = useLayerStore.getState();
+
+    // If layer number or datatype changed, remove the new WASM color mapping
+    if (
+      this.oldLayer.layerNumber !== this.newLayer.layerNumber ||
+      this.oldLayer.datatype !== this.newLayer.datatype
+    ) {
+      ctx.library.remove_layer_color(this.newLayer.layerNumber, this.newLayer.datatype);
+    }
+
+    // Restore the old layer
+    store.setLayer(this.oldLayer);
+
+    // Restore old color and fill pattern in WASM
+    syncLayerToWasm(this.oldLayer, ctx);
 
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();

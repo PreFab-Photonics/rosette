@@ -29,6 +29,8 @@ pub struct Shape {
     /// contains a single entry pointing to where the hole vertices begin.
     /// Used by `earcutr::earcut` for correct triangulation of cutouts.
     pub hole_indices: Vec<usize>,
+    /// Fill pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    pub fill_pattern: u32,
 }
 
 /// Compute axis-aligned bounding box from points.
@@ -65,6 +67,10 @@ pub struct PolygonVertex {
     pub position: [f32; 2],
     /// RGBA color.
     pub color: [f32; 4],
+    /// Fill pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    /// Stored as u32 (maps to WGSL u32). Padded to 8 bytes for alignment.
+    pub fill_pattern: u32,
+    pub _padding: u32,
 }
 
 /// GPU-compatible segment data for outline rendering.
@@ -573,6 +579,7 @@ impl ShapeManager {
                     color,
                     bbox,
                     hole_indices: vec![],
+                    fill_pattern: 0,
                 },
             );
             self.order.push(id);
@@ -608,19 +615,20 @@ impl ShapeManager {
         self.outlines_dirty = true; // Borders need regeneration
     }
 
-    /// Sync shapes from a list of (uuid, vertices, color) tuples.
+    /// Sync shapes from a list of (uuid, vertices, color, fill_pattern) tuples.
     ///
     /// This replaces all existing shapes with the provided data.
     /// Used to sync from WasmLibrary.
+    #[allow(clippy::type_complexity)]
     pub fn sync_from_polygons(
         &mut self,
-        polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4])>,
+        polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4], u32)>,
         hole_map: &HashMap<String, Vec<usize>>,
     ) {
         self.shapes.clear();
         self.order.clear();
 
-        for (id, points, color) in polygons.into_iter() {
+        for (id, points, color, fill_pattern) in polygons.into_iter() {
             let bbox = compute_bbox(&points);
             let hole_indices = hole_map.get(&id).cloned().unwrap_or_default();
             self.shapes.insert(
@@ -630,6 +638,7 @@ impl ShapeManager {
                     color,
                     bbox,
                     hole_indices,
+                    fill_pattern,
                 },
             );
             self.order.push(id);
@@ -650,6 +659,7 @@ impl ShapeManager {
             color,
             bbox,
             hole_indices: vec![],
+            fill_pattern: 0,
         });
         self.dirty = true;
         self.outlines_dirty = true; // Preview border needs regeneration
@@ -804,11 +814,23 @@ impl ShapeManager {
 
             // Triangulate each simple polygon
             for poly_points in simple_polygons {
-                self.triangulate_simple_polygon(&poly_points, shape.color, vertices, indices);
+                self.triangulate_simple_polygon(
+                    &poly_points,
+                    shape.color,
+                    shape.fill_pattern,
+                    vertices,
+                    indices,
+                );
             }
         } else {
             // Simple polygon - triangulate directly
-            self.triangulate_simple_polygon(&shape.points, shape.color, vertices, indices);
+            self.triangulate_simple_polygon(
+                &shape.points,
+                shape.color,
+                shape.fill_pattern,
+                vertices,
+                indices,
+            );
         }
     }
 
@@ -826,6 +848,8 @@ impl ShapeManager {
             vertices.push(PolygonVertex {
                 position: [point[0] as f32, point[1] as f32],
                 color: shape.color,
+                fill_pattern: shape.fill_pattern,
+                _padding: 0,
             });
         }
 
@@ -846,6 +870,7 @@ impl ShapeManager {
         &self,
         points: &[[f64; 2]],
         color: [f32; 4],
+        fill_pattern: u32,
         vertices: &mut Vec<PolygonVertex>,
         indices: &mut Vec<u32>,
     ) {
@@ -860,6 +885,8 @@ impl ShapeManager {
             vertices.push(PolygonVertex {
                 position: [point[0] as f32, point[1] as f32],
                 color,
+                fill_pattern,
+                _padding: 0,
             });
         }
 

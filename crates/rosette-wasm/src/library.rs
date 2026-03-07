@@ -10,8 +10,9 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
-/// A rendered polygon: (uuid, vertices, color).
-type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4]);
+/// A rendered polygon: (uuid, vertices, color, fill_pattern).
+/// fill_pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4], u32);
 
 /// Iterate over all array copy transforms for a CellRef.
 ///
@@ -119,6 +120,9 @@ pub struct WasmLibrary {
     element_refs: HashMap<String, ElementRef>,
     /// Layer colors for rendering (layer_key -> RGBA).
     layer_colors: HashMap<u32, [f32; 4]>,
+    /// Layer fill patterns (layer_key -> pattern id).
+    /// 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    layer_fill_patterns: HashMap<u32, u32>,
     /// Whether the library has changed since last sync.
     dirty: bool,
     /// Maps instance group ID → list of element UUIDs in that group.
@@ -193,6 +197,7 @@ impl WasmLibrary {
             active_cell: None,
             element_refs: HashMap::new(),
             layer_colors: HashMap::new(),
+            layer_fill_patterns: HashMap::new(),
             dirty: false,
             group_map: HashMap::new(),
             uuid_to_group: HashMap::new(),
@@ -316,6 +321,15 @@ impl WasmLibrary {
     pub fn set_layer_color(&mut self, layer: u16, datatype: u16, r: f32, g: f32, b: f32, a: f32) {
         let key = layer_key(layer, datatype);
         self.layer_colors.insert(key, [r, g, b, a]);
+        self.dirty = true;
+    }
+
+    /// Set the fill pattern for a layer.
+    ///
+    /// Pattern IDs: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    pub fn set_layer_fill_pattern(&mut self, layer: u16, datatype: u16, pattern: u32) {
+        let key = layer_key(layer, datatype);
+        self.layer_fill_patterns.insert(key, pattern);
         self.dirty = true;
     }
 
@@ -865,6 +879,7 @@ impl WasmLibrary {
     /// Call this after deleting a layer to clean up stale rendering state.
     pub fn remove_layer_color(&mut self, layer: u16, datatype: u16) {
         let key = layer_key(layer, datatype);
+        self.layer_fill_patterns.remove(&key);
         if self.layer_colors.remove(&key).is_some() {
             self.dirty = true;
         }
@@ -2245,12 +2260,14 @@ impl WasmLibrary {
                         continue;
                     }
 
+                    let fill_pattern =
+                        self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
                     let vertices: Vec<[f64; 2]> =
                         transformed.vertices().iter().map(|p| [p.x, p.y]).collect();
 
                     let uuid = format!("{REF_UUID_PREFIX}{cellref_elem_idx}:{poly_counter}");
                     *poly_counter += 1;
-                    result.push((uuid, vertices, color));
+                    result.push((uuid, vertices, color, fill_pattern));
                 }
                 Element::Path {
                     points,
@@ -2271,11 +2288,13 @@ impl WasmLibrary {
                             .unwrap_or(*default_color);
 
                         if color[3] > 0.0 {
+                            let fill_pattern =
+                                self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
                             let vertices: Vec<[f64; 2]> =
                                 ribbon.vertices().iter().map(|p| [p.x, p.y]).collect();
                             let uuid =
                                 format!("{REF_UUID_PREFIX}{cellref_elem_idx}:{poly_counter}");
-                            result.push((uuid, vertices, color));
+                            result.push((uuid, vertices, color, fill_pattern));
                         }
                     }
                     *poly_counter += 1;
@@ -2810,11 +2829,12 @@ impl WasmLibrary {
                     .get(&key)
                     .copied()
                     .unwrap_or(default_color);
+                let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
 
                 let vertices: Vec<[f64; 2]> =
                     polygon.vertices().iter().map(|p| [p.x, p.y]).collect();
 
-                result.push((uuid.clone(), vertices, color));
+                result.push((uuid.clone(), vertices, color, fill_pattern));
             }
         }
 

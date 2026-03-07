@@ -1,6 +1,19 @@
 import { create } from "zustand";
 
 /**
+ * Fill pattern for layer rendering.
+ */
+export type FillPattern = "solid" | "hatched" | "crosshatched" | "dotted";
+
+/** Maps fill pattern names to WASM renderer IDs. Single source of truth. */
+export const FILL_PATTERN_IDS: Record<FillPattern, number> = {
+  solid: 0,
+  hatched: 1,
+  crosshatched: 2,
+  dotted: 3,
+};
+
+/**
  * A layer for organizing shapes.
  *
  * Uses GDS layer number + datatype convention for proper foundry PDK compatibility.
@@ -18,14 +31,36 @@ export interface Layer {
   color: string;
   /** Whether the layer is visible. */
   visible: boolean;
+  /** Fill pattern for rendering (default "solid"). */
+  fillPattern: FillPattern;
+  /** Fill opacity 0.0-1.0 (default 0.7). */
+  opacity: number;
 }
 
 /**
  * Default layers matching common photonic PDKs.
  */
 const DEFAULT_LAYERS: Layer[] = [
-  { id: 1, layerNumber: 1, datatype: 0, name: "silicon", color: "#ff69b4", visible: true },
-  { id: 2, layerNumber: 2, datatype: 0, name: "text", color: "#78909c", visible: true },
+  {
+    id: 1,
+    layerNumber: 1,
+    datatype: 0,
+    name: "silicon",
+    color: "#ff69b4",
+    visible: true,
+    fillPattern: "solid",
+    opacity: 0.7,
+  },
+  {
+    id: 2,
+    layerNumber: 2,
+    datatype: 0,
+    name: "text",
+    color: "#78909c",
+    visible: true,
+    fillPattern: "solid",
+    opacity: 0.7,
+  },
 ];
 
 /**
@@ -38,6 +73,8 @@ interface LayerState {
   activeLayerId: number;
   /** Layer ID currently being edited (inline rename). Null when not editing. */
   editingLayerId: number | null;
+  /** Layer ID with expanded editor open. Null when none expanded. */
+  expandedLayerId: number | null;
 
   /** Get a layer by ID. */
   getLayer: (id: number) => Layer | undefined;
@@ -63,12 +100,15 @@ interface LayerState {
   layerExists: (layerNumber: number, datatype: number) => boolean;
   /** Set the layer being edited (for triggering inline rename from context menu). */
   setEditingLayerId: (id: number | null) => void;
+  /** Set the layer with expanded editor. */
+  setExpandedLayerId: (id: number | null) => void;
 }
 
 export const useLayerStore = create<LayerState>((set, get) => ({
   layers: new Map(DEFAULT_LAYERS.map((l) => [l.id, l])),
   activeLayerId: 1,
   editingLayerId: null,
+  expandedLayerId: null,
 
   getLayer: (id) => get().layers.get(id),
 
@@ -115,6 +155,8 @@ export const useLayerStore = create<LayerState>((set, get) => ({
       name: name ?? `layer${nextLayerNumber}`,
       color: newColor,
       visible: true,
+      fillPattern: "solid",
+      opacity: 0.7,
     };
 
     set((s) => {
@@ -184,6 +226,7 @@ export const useLayerStore = create<LayerState>((set, get) => ({
   },
 
   setEditingLayerId: (id) => set({ editingLayerId: id }),
+  setExpandedLayerId: (id) => set({ expandedLayerId: id }),
 }));
 
 /**

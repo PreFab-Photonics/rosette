@@ -274,7 +274,23 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
         close();
       };
 
+      const editLayer = (): void => {
+        if (layerId !== null) {
+          // Expand the layer editor and switch to layers tab
+          useLayerStore.getState().setExpandedLayerId(layerId);
+          useLayerStore.getState().setActiveLayer(layerId);
+          useUIStore.getState().setSidebarTab("layers");
+        }
+        close();
+      };
+
       return [
+        {
+          id: "editLayer",
+          label: "Edit Layer",
+          action: editLayer,
+          disabled: !targetLayer,
+        },
         {
           id: "addLayer",
           label: "Add Layer",

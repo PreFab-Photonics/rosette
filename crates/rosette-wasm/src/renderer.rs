@@ -679,6 +679,12 @@ impl WasmRenderer {
                     offset: 8,
                     shader_location: 1,
                 },
+                // fill_pattern: u32
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Uint32,
+                    offset: 24,
+                    shader_location: 2,
+                },
             ],
         };
 

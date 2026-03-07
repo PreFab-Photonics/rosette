@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useUIStore } from "@/stores/ui";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useMinimapStore } from "@/stores/minimap";
+import { useStatusMessageStore } from "@/stores/status-message";
 import { getDisplayUnit, formatCoordinate } from "@/lib/format";
 import { SCALE_BAR_TARGET_PIXELS, SCALE_BAR_MAX_WIDTH, NICE_NUMBERS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -73,6 +74,37 @@ function VersionBadge({ isDark }: { isDark: boolean }) {
 }
 
 /**
+ * Ephemeral status message displayed in the center of the status bar.
+ *
+ * Auto-dismisses after a timeout (managed by the store).
+ * Any part of the app can trigger a message via:
+ *   useStatusMessageStore.getState().show("message", "warn");
+ */
+function StatusMessage({ isDark }: { isDark: boolean }) {
+  const message = useStatusMessageStore((s) => s.message);
+  const level = useStatusMessageStore((s) => s.level);
+
+  if (!message) {
+    return <div className="flex-1" />;
+  }
+
+  return (
+    <div className="flex flex-1 items-center justify-center">
+      <span
+        className={cn(
+          "text-[11px] select-none",
+          level === "warn" && (isDark ? "text-yellow-400/80" : "text-yellow-600/80"),
+          level === "error" && (isDark ? "text-red-400/80" : "text-red-600/80"),
+          level === "info" && (isDark ? "text-white/50" : "text-black/50"),
+        )}
+      >
+        {message}
+      </span>
+    </div>
+  );
+}
+
+/**
  * Status bar at the bottom of the application.
  *
  * Shows version badge, cursor coordinates, scale bar, and minimap toggle.
@@ -130,8 +162,8 @@ export function StatusBar() {
         </span>
       </div>
 
-      {/* Center spacer */}
-      <div className="flex-1" />
+      {/* Center: status message or spacer */}
+      <StatusMessage isDark={isDark} />
 
       {/* Right: Scale bar + toggles */}
       <div className="flex items-center gap-2">
