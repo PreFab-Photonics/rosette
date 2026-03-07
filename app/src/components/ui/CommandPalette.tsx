@@ -148,7 +148,7 @@ export function CommandPalette() {
   return (
     <div className="fixed inset-0 z-[200]">
       <Command
-        className="fixed inset-0 flex items-start justify-center pt-[15vh]"
+        className="fixed inset-0 flex items-start justify-center px-4 pt-[min(15vh,120px)]"
         shouldFilter={false}
         loop={true}
         label="Command Menu"

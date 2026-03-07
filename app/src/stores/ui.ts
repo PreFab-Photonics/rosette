@@ -63,6 +63,10 @@ interface UIState {
   showGrid: boolean;
   /** Whether zen mode is active (hides Toolbar, Explorer, Sidebar). */
   zenMode: boolean;
+  /** Whether the Explorer panel is collapsed to an icon rail. */
+  explorerCollapsed: boolean;
+  /** Whether the Sidebar panel is collapsed to an icon rail. */
+  sidebarCollapsed: boolean;
 
   /** Set the theme preference. */
   setThemeSetting: (setting: ThemeSetting) => void;
@@ -88,6 +92,14 @@ interface UIState {
   toggleGrid: () => void;
   /** Toggle zen mode (hide/show Toolbar, Explorer, Sidebar). */
   toggleZenMode: () => void;
+  /** Toggle Explorer panel collapsed state. */
+  toggleExplorerCollapsed: () => void;
+  /** Toggle Sidebar panel collapsed state. */
+  toggleSidebarCollapsed: () => void;
+  /** Set Explorer collapsed state directly (used by auto-collapse on breakpoint change). */
+  setExplorerCollapsed: (collapsed: boolean) => void;
+  /** Set Sidebar collapsed state directly (used by auto-collapse on breakpoint change). */
+  setSidebarCollapsed: (collapsed: boolean) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -102,6 +114,8 @@ export const useUIStore = create<UIState>()(
       inspectorFocusField: null,
       showGrid: true,
       zenMode: false,
+      explorerCollapsed: false,
+      sidebarCollapsed: false,
 
       setThemeSetting: (setting) => set({ themeSetting: setting, theme: resolveTheme(setting) }),
       toggleTheme: () =>
@@ -127,6 +141,11 @@ export const useUIStore = create<UIState>()(
       clearInspectorFocus: () => set({ inspectorFocusRequested: false, inspectorFocusField: null }),
       toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
       toggleZenMode: () => set((state) => ({ zenMode: !state.zenMode })),
+      toggleExplorerCollapsed: () =>
+        set((state) => ({ explorerCollapsed: !state.explorerCollapsed })),
+      toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+      setExplorerCollapsed: (collapsed) => set({ explorerCollapsed: collapsed }),
+      setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
     }),
     {
       name: "rosette-ui",
@@ -134,6 +153,8 @@ export const useUIStore = create<UIState>()(
         themeSetting: state.themeSetting,
         showGrid: state.showGrid,
         zenMode: state.zenMode,
+        explorerCollapsed: state.explorerCollapsed,
+        sidebarCollapsed: state.sidebarCollapsed,
       }),
       onRehydrateStorage: () => (state) => {
         // Resolve theme on rehydration (in case system preference changed)

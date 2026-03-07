@@ -148,7 +148,14 @@ export const useExplorerStore = create<ExplorerState>()(
             state.activeCell && cells.includes(state.activeCell)
               ? state.activeCell
               : (cells[0] ?? null);
-          return { cellTree: roots, cells, expandedCells, activeCell, maxTreeDepth, cellsLoaded: true };
+          return {
+            cellTree: roots,
+            cells,
+            expandedCells,
+            activeCell,
+            maxTreeDepth,
+            cellsLoaded: true,
+          };
         }),
       toggleExpanded: (name) =>
         set((state) => {

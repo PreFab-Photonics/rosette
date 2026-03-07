@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Menu } from "iconoir-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { NavArrowLeft, NavArrowRight, Menu } from "iconoir-react";
 import { useExplorerStore } from "@/stores/explorer";
 import type { CellNode } from "@/stores/explorer";
 import { useContextMenuStore } from "@/stores/context-menu";
@@ -12,6 +12,7 @@ import { useViewportStore, type WorldBounds } from "@/stores/viewport";
 import { useRulerStore } from "@/stores/ruler";
 import { useCellDragStore } from "@/stores/cell-drag";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
 import {
   RenameCellCommand,
   PasteElementsCommand,
@@ -93,10 +94,25 @@ function FlyoutSubmenu({
   isDark: boolean;
   onAction: () => void;
 }) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [openLeft, setOpenLeft] = useState(false);
+
+  // Detect if flyout would overflow viewport right edge (useLayoutEffect to avoid flash)
+  useLayoutEffect(() => {
+    if (menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) {
+        setOpenLeft(true);
+      }
+    }
+  }, []);
+
   return (
     <div
+      ref={menuRef}
       className={cn(
-        "absolute -top-1 left-full z-50 ml-1 min-w-[170px] rounded-xl border py-1",
+        "absolute -top-1 z-50 ml-1 min-w-[170px] rounded-xl border py-1",
+        openLeft ? "right-full mr-1" : "left-full",
         isDark
           ? "border-white/10 bg-[rgb(29,29,29)] text-white/90"
           : "border-black/10 bg-[rgb(241,241,241)] text-black/90",
@@ -787,6 +803,49 @@ function CellTreeNode({
 }
 
 // =============================================================================
+// Collapsed Explorer (icon rail)
+// =============================================================================
+
+/**
+ * Collapsed explorer — narrow icon rail with app icon and expand button.
+ */
+function CollapsedExplorer({ isDark, onExpand }: { isDark: boolean; onExpand: () => void }) {
+  return (
+    <div
+      className={cn(
+        "fixed top-4 left-4 z-40 flex w-[38px] flex-col items-center gap-1 rounded-xl border pt-[4.5px] pb-[5px]",
+        isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
+      )}
+    >
+      {/* App icon */}
+      <div className="p-1">
+        <img
+          src="/icon.svg"
+          alt=""
+          draggable={false}
+          className={cn("h-5 w-5 rounded border", isDark ? "border-white/40" : "border-black/40")}
+        />
+      </div>
+
+      {/* Divider */}
+      <div className={cn("mx-1 h-px w-5", isDark ? "bg-white/10" : "bg-black/10")} />
+
+      {/* Expand button */}
+      <button
+        type="button"
+        onClick={onExpand}
+        className={cn(
+          "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
+          isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
+        )}
+      >
+        <NavArrowRight className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")} />
+      </button>
+    </div>
+  );
+}
+
+// =============================================================================
 // Main Component
 // =============================================================================
 
@@ -796,6 +855,11 @@ function CellTreeNode({
  * Floating panel positioned in the top-left corner, mirroring the
  * right sidebar's visual style. Shows a hierarchical tree of cell names
  * from the current design, with expand/collapse support.
+ *
+ * Responsive behavior:
+ * - Expanded (default on lg): Full w-72 panel with cell tree
+ * - Collapsed (on md/sm or manual toggle): Narrow icon rail (w-11)
+ * - On sm: expanding opens as an overlay drawer
  *
  * Features:
  * - Hierarchical tree view of cells (nested cell references)
@@ -808,6 +872,9 @@ function CellTreeNode({
 export function Explorer() {
   const theme = useUIStore((s) => s.theme);
   const isDark = theme === "dark";
+  const collapsed = useUIStore((s) => s.explorerCollapsed);
+  const toggleCollapsed = useUIStore((s) => s.toggleExplorerCollapsed);
+  const { isSm } = useBreakpoint();
 
   const projectName = useExplorerStore((s) => s.projectName);
   const setProjectName = useExplorerStore((s) => s.setProjectName);
@@ -823,8 +890,23 @@ export function Explorer() {
   const setHierarchyLevelLimit = useExplorerStore((s) => s.setHierarchyLevelLimit);
   const maxTreeDepth = useExplorerStore((s) => s.maxTreeDepth);
 
+  // On sm, the expanded Explorer is an overlay — track if it was manually opened
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
+
+  // Close drawer on outside click (sm overlay mode)
+  useEffect(() => {
+    if (!isSm || !drawerOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) {
+        setDrawerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [isSm, drawerOpen]);
+
   // Local state for the level input (kept in sync with store, allows partial typing).
-  // When the limit is Infinity (all levels), display the max tree depth instead of empty.
   const displayLimit = (limit: number, depth: number) =>
     limit === Infinity ? (depth > 0 ? depth.toString() : "") : limit.toString();
 
@@ -832,7 +914,7 @@ export function Explorer() {
     displayLimit(hierarchyLevelLimit, maxTreeDepth),
   );
 
-  // Sync local input value when the store changes (e.g. "All levels" button, tree update)
+  // Sync local input value when the store changes
   useEffect(() => {
     setLevelInputValue(displayLimit(hierarchyLevelLimit, maxTreeDepth));
   }, [hierarchyLevelLimit, maxTreeDepth]);
@@ -873,19 +955,15 @@ export function Explorer() {
   const handleRenameCell = useCallback((oldName: string, newName: string) => {
     const { library, renderer } = useWasmContextStore.getState();
     if (library && renderer) {
-      // Validation (duplicate, invalid chars, length) is handled by the
-      // Rust core; the command shows a status bar message on failure.
       const command = new RenameCellCommand(oldName, newName);
       useHistoryStore.getState().execute(command, { library, renderer });
     } else {
-      // Fallback: update store only (standalone without WASM)
       useExplorerStore.getState().renameCell(oldName, newName);
     }
   }, []);
 
   const handleSelectCell = useCallback(
     (name: string) => {
-      // Don't allow deselecting the only cell
       if (name === activeCell) {
         const totalCells = cells.length;
         if (totalCells <= 1) return;
@@ -895,177 +973,217 @@ export function Explorer() {
     [activeCell, cells.length, setActiveCell],
   );
 
+  const handleExpand = useCallback(() => {
+    if (isSm) {
+      // On mobile, open as overlay drawer
+      setDrawerOpen(true);
+    } else {
+      toggleCollapsed();
+    }
+  }, [isSm, toggleCollapsed]);
+
+  // Show collapsed rail when collapsed (and not in sm drawer-open state)
+  if (collapsed && !(isSm && drawerOpen)) {
+    return <CollapsedExplorer isDark={isDark} onExpand={handleExpand} />;
+  }
+
+  // On sm with drawer open, show as overlay
+  const isOverlay = isSm && drawerOpen;
+
   return (
-    <div
-      className={cn(
-        "fixed top-4 left-4 z-40 w-72 rounded-xl border transition-opacity duration-200",
-        cellsLoaded ? "opacity-100" : "pointer-events-none opacity-0",
-        isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
-      )}
-    >
-      {/* Header bar — editable project name, matches Sidebar tab bar height */}
-      <div className="flex items-center gap-1 px-1 pt-1 pb-[3px]">
-        {/* Icon — same size as Sidebar tab buttons */}
-        <div className="flex-shrink-0 p-1">
-          <img
-            src="/icon.svg"
-            alt=""
-            draggable={false}
-            className={cn("h-5 w-5 rounded border", isDark ? "border-white/40" : "border-black/40")}
-          />
-        </div>
-        <div className="relative h-5 min-w-0 flex-1">
-          {isEditing ? (
-            <input
-              ref={inputRef}
-              type="text"
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onBlur={handleSubmit}
-              onKeyDown={handleKeyDown}
-              onClick={(e) => e.stopPropagation()}
+    <>
+      {/* Backdrop for overlay mode */}
+      {isOverlay && <div className="fixed inset-0 z-39" />}
+      <div
+        ref={drawerRef}
+        className={cn(
+          "fixed top-4 left-4 z-40 w-72 rounded-xl border transition-opacity duration-200",
+          cellsLoaded ? "opacity-100" : "pointer-events-none opacity-0",
+          isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
+          isOverlay && "shadow-xl",
+        )}
+      >
+        {/* Header bar — editable project name, matches Sidebar tab bar height */}
+        <div className="flex items-center gap-1 px-1 pt-1 pb-[3px]">
+          {/* Icon — same size as Sidebar tab buttons */}
+          <div className="flex-shrink-0 p-1">
+            <img
+              src="/icon.svg"
+              alt=""
+              draggable={false}
               className={cn(
-                "absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-xs font-medium leading-5 outline-none focus:ring-0",
-                isDark ? "text-white/90" : "text-black/90",
+                "h-5 w-5 rounded border",
+                isDark ? "border-white/40" : "border-black/40",
               )}
             />
-          ) : (
+          </div>
+          <div className="relative h-5 min-w-0 flex-1">
+            {isEditing ? (
+              <input
+                ref={inputRef}
+                type="text"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onBlur={handleSubmit}
+                onKeyDown={handleKeyDown}
+                onClick={(e) => e.stopPropagation()}
+                className={cn(
+                  "absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-xs font-medium leading-5 outline-none focus:ring-0",
+                  isDark ? "text-white/90" : "text-black/90",
+                )}
+              />
+            ) : (
+              <button
+                type="button"
+                className={cn(
+                  "absolute inset-0 cursor-text truncate border-0 bg-transparent p-0 text-left text-xs font-medium leading-5 select-none focus:outline-none",
+                  isDark ? "text-white/60" : "text-black/60",
+                )}
+                onClick={() => {
+                  setEditValue(projectName);
+                  setIsEditing(true);
+                }}
+              >
+                {projectName}
+              </button>
+            )}
+          </div>
+
+          {/* Collapse button (not shown on sm — use drawer dismiss instead) */}
+          {!isSm && (
             <button
               type="button"
+              onClick={toggleCollapsed}
               className={cn(
-                "absolute inset-0 cursor-text truncate border-0 bg-transparent p-0 text-left text-xs font-medium leading-5 select-none focus:outline-none",
-                isDark ? "text-white/60" : "text-black/60",
+                "flex-shrink-0 cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
+                isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
               )}
-              onClick={() => {
-                setEditValue(projectName);
-                setIsEditing(true);
-              }}
             >
-              {projectName}
+              <NavArrowLeft className={cn("h-4 w-4", isDark ? "text-white/40" : "text-black/40")} />
             </button>
           )}
+
+          {/* Hamburger menu */}
+          <HamburgerMenu isDark={isDark} />
         </div>
 
-        {/* Hamburger menu */}
-        <HamburgerMenu isDark={isDark} />
-      </div>
+        {/* Divider */}
+        <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
 
-      {/* Divider */}
-      <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+        {/* Cell tree / list */}
+        <div
+          className="flex flex-col gap-0.5 overflow-y-auto py-1"
+          style={{ maxHeight: "calc(100vh - 176px)" }}
+          onWheel={(e) => e.stopPropagation()}
+        >
+          {cellTree
+            ? /* Hierarchical tree view */
+              cellTree.map((root) => (
+                <CellTreeNode
+                  key={root.name}
+                  node={root}
+                  depth={0}
+                  isDark={isDark}
+                  activeCell={activeCell}
+                  editingCellName={editingCellName}
+                  expandedCells={expandedCells}
+                  onSelect={handleSelectCell}
+                  onRename={handleRenameCell}
+                  onToggleExpand={toggleExpanded}
+                />
+              ))
+            : /* Standalone mode: flat list */
+              cells.map((name) => (
+                <CellRow
+                  key={name}
+                  name={name}
+                  isActive={name === activeCell}
+                  isDark={isDark}
+                  depth={0}
+                  hasChildren={false}
+                  isExpanded={false}
+                  onToggleExpand={() => {}}
+                  onSelect={() => handleSelectCell(name)}
+                  onRename={(newName) => handleRenameCell(name, newName)}
+                  startEditing={editingCellName === name}
+                  canDrag={name !== activeCell}
+                />
+              ))}
+        </div>
 
-      {/* Cell tree / list */}
-      <div
-        className="flex flex-col gap-0.5 overflow-y-auto py-1"
-        style={{ maxHeight: "calc(100vh - 176px)" }}
-        onWheel={(e) => e.stopPropagation()}
-      >
-        {cellTree
-          ? /* Hierarchical tree view */
-            cellTree.map((root) => (
-              <CellTreeNode
-                key={root.name}
-                node={root}
-                depth={0}
-                isDark={isDark}
-                activeCell={activeCell}
-                editingCellName={editingCellName}
-                expandedCells={expandedCells}
-                onSelect={handleSelectCell}
-                onRename={handleRenameCell}
-                onToggleExpand={toggleExpanded}
-              />
-            ))
-          : /* Standalone mode: flat list */
-            cells.map((name) => (
-              <CellRow
-                key={name}
-                name={name}
-                isActive={name === activeCell}
-                isDark={isDark}
-                depth={0}
-                hasChildren={false}
-                isExpanded={false}
-                onToggleExpand={() => {}}
-                onSelect={() => handleSelectCell(name)}
-                onRename={(newName) => handleRenameCell(name, newName)}
-                startEditing={editingCellName === name}
-                canDrag={name !== activeCell}
-              />
-            ))}
-      </div>
-
-      {/* Hierarchy level footer — controls rendering depth on canvas */}
-      <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
-      <div className="flex items-center justify-between pl-2 pr-[5.5px] py-1.5">
-        <span className={cn("text-xs", isDark ? "text-white/40" : "text-black/40")}>Level</span>
-        <div className="flex items-center gap-1">
-          <input
-            id="hierarchy-level-input"
-            type="number"
-            min="1"
-            max={maxTreeDepth}
-            value={levelInputValue}
-            onChange={(e) => {
-              const raw = e.target.value;
-              setLevelInputValue(raw);
-              const num = parseInt(raw, 10);
-              if (!isNaN(num) && num >= 1) {
-                setHierarchyLevelLimit(num);
-              }
-            }}
-            onBlur={() => {
-              const num = parseInt(levelInputValue, 10) || maxTreeDepth;
-              const clamped = Math.max(1, Math.min(num, maxTreeDepth));
-              setHierarchyLevelLimit(clamped);
-              setLevelInputValue(clamped.toString());
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
+        {/* Hierarchy level footer — controls rendering depth on canvas */}
+        <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+        <div className="flex items-center justify-between pl-2 pr-[5.5px] py-1.5">
+          <span className={cn("text-xs", isDark ? "text-white/40" : "text-black/40")}>Level</span>
+          <div className="flex items-center gap-1">
+            <input
+              id="hierarchy-level-input"
+              type="number"
+              min="1"
+              max={maxTreeDepth}
+              value={levelInputValue}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setLevelInputValue(raw);
+                const num = parseInt(raw, 10);
+                if (!isNaN(num) && num >= 1) {
+                  setHierarchyLevelLimit(num);
+                }
+              }}
+              onBlur={() => {
                 const num = parseInt(levelInputValue, 10) || maxTreeDepth;
                 const clamped = Math.max(1, Math.min(num, maxTreeDepth));
                 setHierarchyLevelLimit(clamped);
                 setLevelInputValue(clamped.toString());
-                e.currentTarget.blur();
-              } else if (e.key === "Escape") {
-                e.currentTarget.blur();
-              }
-            }}
-            className={cn(
-              "h-6 w-12 rounded-lg border px-2 text-xs tabular-nums outline-none",
-              isDark
-                ? "border-white/10 bg-white/5 text-white/90"
-                : "border-black/10 bg-black/5 text-black/90",
-            )}
-          />
-          {/* "All levels" button */}
-          <button
-            type="button"
-            title="All levels"
-            onClick={() => setHierarchyLevelLimit(Infinity)}
-            className={cn(
-              "flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg border transition-colors",
-              isDark
-                ? "border-white/10 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/90"
-                : "border-black/10 bg-black/5 text-black/40 hover:bg-black/10 hover:text-black/90",
-            )}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const num = parseInt(levelInputValue, 10) || maxTreeDepth;
+                  const clamped = Math.max(1, Math.min(num, maxTreeDepth));
+                  setHierarchyLevelLimit(clamped);
+                  setLevelInputValue(clamped.toString());
+                  e.currentTarget.blur();
+                } else if (e.key === "Escape") {
+                  e.currentTarget.blur();
+                }
+              }}
+              className={cn(
+                "h-6 w-12 rounded-lg border px-2 text-xs tabular-nums outline-none",
+                isDark
+                  ? "border-white/10 bg-white/5 text-white/90"
+                  : "border-black/10 bg-black/5 text-black/90",
+              )}
+            />
+            {/* "All levels" button */}
+            <button
+              type="button"
+              title="All levels"
+              onClick={() => setHierarchyLevelLimit(Infinity)}
+              className={cn(
+                "flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg border transition-colors",
+                isDark
+                  ? "border-white/10 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/90"
+                  : "border-black/10 bg-black/5 text-black/40 hover:bg-black/10 hover:text-black/90",
+              )}
             >
-              <polygon points="12 2 2 7 12 12 22 7 12 2" />
-              <polyline points="2 17 12 22 22 17" />
-              <polyline points="2 12 12 17 22 12" />
-            </svg>
-          </button>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                <polyline points="2 17 12 22 22 17" />
+                <polyline points="2 12 12 17 22 12" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
