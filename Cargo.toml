@@ -8,6 +8,15 @@ members = [
     "crates/rosette-wasm",
     "app/src-tauri",
 ]
+# Exclude Tauri desktop app from default builds — it requires platform-specific
+# system libraries (GTK, WebKit on Linux) that aren't available in CI.
+# Build explicitly with: cargo build -p rosette-desktop
+default-members = [
+    "crates/rosette-core",
+    "crates/rosette-drc",
+    "crates/rosette-io",
+    "crates/rosette-python",
+]
 
 [workspace.package]
 version = "0.1.0"
