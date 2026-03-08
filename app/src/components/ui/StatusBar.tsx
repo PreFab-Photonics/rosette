@@ -122,7 +122,7 @@ function ScaleBar({
         className={cn("h-px", isDark ? "bg-white/50" : "bg-black/50")}
         style={{ width: `${Math.max(widthInPixels, 20)}px` }}
       />
-      <span className={cn("text-[10px]", isDark ? "text-white/40" : "text-black/40")}>{label}</span>
+      <span className={cn("text-[10px] select-none pointer-events-none", isDark ? "text-white/40" : "text-black/40")}>{label}</span>
     </div>
   );
 }
@@ -180,7 +180,7 @@ export function StatusBar({
       {/* Status bar row */}
       <div
         className={cn(
-          "flex h-6 items-center overflow-hidden border-t px-3 font-mono text-[11px]",
+          "flex h-6 items-center border-t px-3 font-mono text-[11px]",
           isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
         )}
       >
@@ -198,27 +198,27 @@ export function StatusBar({
 
           {minimal ? (
             /* Minimal: combined X,Y */
-            <span className={cn("text-[10px]", isDark ? "text-white/70" : "text-black/70")}>
+            <span className={cn("text-[10px] select-none pointer-events-none", isDark ? "text-white/70" : "text-black/70")}>
               {formattedX}, {formattedY} {unitInfo.unit}
             </span>
           ) : (
             /* Default / compact: separate X and Y */
             <>
-              <span className={isDark ? "text-white/40" : "text-black/40"}>x:</span>
-              <span className={cn("w-18 text-right", isDark ? "text-white/70" : "text-black/70")}>
+              <span className={cn("select-none pointer-events-none", isDark ? "text-white/40" : "text-black/40")}>x:</span>
+              <span className={cn("w-18 text-right select-none pointer-events-none", isDark ? "text-white/70" : "text-black/70")}>
                 {formattedX}
               </span>
-              <span className={cn("text-[10px]", isDark ? "text-white/30" : "text-black/30")}>
+              <span className={cn("text-[10px] select-none pointer-events-none", isDark ? "text-white/30" : "text-black/30")}>
                 {unitInfo.unit}
               </span>
-              <span className={cn("mx-1", isDark ? "text-white/20" : "text-black/20")}>
+              <span className={cn("mx-1 select-none pointer-events-none", isDark ? "text-white/20" : "text-black/20")}>
                 &middot;
               </span>
-              <span className={isDark ? "text-white/40" : "text-black/40"}>y:</span>
-              <span className={cn("w-18 text-right", isDark ? "text-white/70" : "text-black/70")}>
+              <span className={cn("select-none pointer-events-none", isDark ? "text-white/40" : "text-black/40")}>y:</span>
+              <span className={cn("w-18 text-right select-none pointer-events-none", isDark ? "text-white/70" : "text-black/70")}>
                 {formattedY}
               </span>
-              <span className={cn("text-[10px]", isDark ? "text-white/30" : "text-black/30")}>
+              <span className={cn("text-[10px] select-none pointer-events-none", isDark ? "text-white/30" : "text-black/30")}>
                 {unitInfo.unit}
               </span>
             </>

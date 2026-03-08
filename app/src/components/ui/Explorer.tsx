@@ -1114,7 +1114,7 @@ export function Explorer() {
         {/* Hierarchy level footer — controls rendering depth on canvas */}
         <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
         <div className="flex items-center justify-between pl-2 pr-[5.5px] py-1.5">
-          <span className={cn("text-xs", isDark ? "text-white/40" : "text-black/40")}>Level</span>
+          <span className={cn("text-xs select-none pointer-events-none", isDark ? "text-white/40" : "text-black/40")}>Level</span>
           <div className="flex items-center gap-1">
             <input
               id="hierarchy-level-input"
