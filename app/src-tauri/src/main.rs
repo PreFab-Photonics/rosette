@@ -23,9 +23,7 @@ fn main() {
             // can retrieve it on mount via `get_pending_file`.
             let args: Vec<String> = std::env::args().collect();
             if let Some(path) = args.get(1)
-                && (path.ends_with(".gds")
-                    || path.ends_with(".gds2")
-                    || path.ends_with(".gdsii"))
+                && (path.ends_with(".gds") || path.ends_with(".gds2") || path.ends_with(".gdsii"))
             {
                 let state = app.state::<state::AppState>();
                 if let Ok(mut pending) = state.pending_file.lock() {
