@@ -3,6 +3,13 @@ import type { WasmLibrary } from "@/wasm/rosette_wasm";
 import { useExplorerStore } from "@/stores/explorer";
 import type { CellNode } from "@/stores/explorer";
 import { useLayerStore, hexToRgba, FILL_PATTERN_IDS } from "@/stores/layer";
+import {
+  isTauri,
+  openGds,
+  navigateCell as tauriNavigateCell,
+  listenTauri,
+  getPendingFile,
+} from "@/lib/tauri";
 
 // Module-level singleton for library
 let libraryInstance: WasmLibrary | null = null;
@@ -15,6 +22,13 @@ let libraryInstance: WasmLibrary | null = null;
 function isDesignMode(): boolean {
   const params = new URLSearchParams(window.location.search);
   return params.get("design") === "true";
+}
+
+/**
+ * Check if running in Tauri desktop mode.
+ */
+function isTauriMode(): boolean {
+  return isTauri && !isDesignMode();
 }
 
 /**
@@ -77,6 +91,8 @@ export function useLibrary(
   const wasmRef = useRef(wasm);
   // Track which cell the current library was loaded for (to avoid redundant navigations)
   const loadedCellRef = useRef<string | null>(null);
+  // Track whether a GDS file has been loaded from the Tauri backend
+  const tauriGdsLoadedRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => {
@@ -112,8 +128,67 @@ export function useLibrary(
     } else {
       useExplorerStore.getState().setCells(["top"]);
     }
+    // Mark the initial cell as loaded so the navigate effect doesn't fire
+    loadedCellRef.current = "top";
     setLibrary(libraryInstance);
     setIsReady(true);
+  }, [wasm, isWasmReady]);
+
+  // Tauri mode: listen for file-open events from native menu / drag-drop / CLI args
+  useEffect(() => {
+    if (!wasm || !isWasmReady || !isTauriMode()) return;
+
+    let cancelled = false;
+
+    const handleOpenFile = async (path: string) => {
+      if (cancelled) return;
+
+      try {
+        const data = await openGds(path);
+        if (cancelled || !data.json) return;
+
+        const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
+        syncLayerColors(newLibrary, layersRef.current);
+
+        if (libraryInstance) {
+          libraryInstance.free();
+        }
+
+        libraryInstance = newLibrary;
+        tauriGdsLoadedRef.current = true;
+        setLibrary(newLibrary);
+        setIsReady(true);
+
+        if (data.cells) {
+          loadedCellRef.current = data.cells.name;
+          useExplorerStore.getState().setCellTree([data.cells]);
+        }
+      } catch (err) {
+        console.error("Failed to open GDS file:", err);
+      }
+    };
+
+    // Check for a file passed via CLI args (e.g., double-clicking a .gds file)
+    getPendingFile().then((path) => {
+      if (path && !cancelled) {
+        handleOpenFile(path);
+      }
+    });
+
+    // Listen for open-file events (from native menu or drag-drop)
+    let unlisten: (() => void) | null = null;
+    listenTauri<string>("open-file", handleOpenFile).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, [wasm, isWasmReady]);
 
   // Design mode: SSE for live design updates from server
@@ -186,10 +261,17 @@ export function useLibrary(
   const cellTree = useExplorerStore((s) => s.cellTree);
 
   useEffect(() => {
-    if (!wasm || !isWasmReady || !isDesignMode() || !cellTree || !activeCell) return;
+    const inDesignMode = isDesignMode();
+    const inTauriMode = isTauriMode();
+
+    if (!wasm || !isWasmReady || (!inDesignMode && !inTauriMode) || !cellTree || !activeCell)
+      return;
 
     // Don't navigate if we haven't loaded the initial design yet
     if (!libraryInstance) return;
+
+    // In Tauri mode, don't navigate until a GDS file has been opened
+    if (inTauriMode && !tauriGdsLoadedRef.current) return;
 
     // Skip if the current library already has geometry for this cell
     // (e.g., SSE just loaded the top cell — no need to re-fetch it)
@@ -199,18 +281,29 @@ export function useLibrary(
 
     const navigateToCell = async () => {
       try {
-        const res = await fetch("/api/design/navigate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cell: activeCell }),
-        });
+        let json: string | null = null;
 
-        if (!res.ok || cancelled) return;
+        if (inTauriMode) {
+          // Tauri mode: use IPC command
+          json = await tauriNavigateCell(activeCell);
+        } else {
+          // Design mode: use HTTP API
+          const res = await fetch("/api/design/navigate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cell: activeCell }),
+          });
 
-        const data: NavigateResponse = await res.json();
-        if (cancelled || !data.json) return;
+          if (!res.ok || cancelled) return;
 
-        const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
+          const data: NavigateResponse = await res.json();
+          if (cancelled) return;
+          json = data.json;
+        }
+
+        if (cancelled || !json) return;
+
+        const newLibrary = wasm.WasmLibrary.from_flat_json(json);
         syncLayerColors(newLibrary, layersRef.current);
 
         // Free old library

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicksenger/tauri-v2-schema/main/tauri.conf.schema.json",
+  "productName": "Rosette",
+  "version": "0.1.0",
+  "identifier": "com.prefab-photonics.rosette",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Rosette",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "15.0"
+    },
+    "fileAssociations": [
+      {
+        "ext": ["gds", "gds2", "gdsii"],
+        "mimeType": "application/octet-stream",
+        "description": "GDS Layout File"
+      }
+    ]
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

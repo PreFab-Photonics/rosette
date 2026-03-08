@@ -6,6 +6,7 @@ members = [
     "crates/rosette-io",
     "crates/rosette-python",
     "crates/rosette-wasm",
+    "app/src-tauri",
 ]
 
 [workspace.package]
