@@ -169,6 +169,11 @@ pub struct WasmRenderer {
     border_bind_group: wgpu::BindGroup,
     border_segment_count: u32,
 
+    // Preview border rendering (separate from main borders to avoid O(n) regen on mouse move)
+    preview_border_segment_buffer: wgpu::Buffer,
+    preview_border_bind_group: wgpu::BindGroup,
+    preview_border_segment_count: u32,
+
     /// Cached instance bounding boxes in world coordinates.
     /// Maps CellRef element index → [minX, minY, maxX, maxY].
     /// Used to generate outline segments for selected/hovered instances.
@@ -998,6 +1003,35 @@ impl WasmRenderer {
             ],
         });
 
+        // Preview border buffer (small fixed-size buffer for preview shape borders)
+        // Max ~100 segments is more than enough for any preview shape.
+        const PREVIEW_BORDER_CAPACITY: usize = 128;
+        let preview_border_segment_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("preview-border-segments"),
+            size: (PREVIEW_BORDER_CAPACITY * std::mem::size_of::<ColoredSegment>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let preview_border_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("preview-border-bind-group"),
+            layout: &border_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: border_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: preview_border_segment_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         let border_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("border-shader"),
             source: wgpu::ShaderSource::Wgsl(shaders::BORDER_SHADER.into()),
@@ -1095,6 +1129,10 @@ impl WasmRenderer {
             border_segment_buffer,
             border_bind_group,
             border_segment_count: 0,
+            // Preview border rendering (separate to avoid O(n) regen on mouse move)
+            preview_border_segment_buffer,
+            preview_border_bind_group,
+            preview_border_segment_count: 0,
             instance_bboxes: Vec::new(),
             // Buffer capacity tracking for dynamic reallocation
             polygon_vertex_capacity,
@@ -1151,8 +1189,13 @@ impl WasmRenderer {
         if self.shape_manager.is_preview_dirty() {
             self.update_preview_buffers();
             self.shape_manager.mark_preview_clean();
-            // Preview border changes handled via outlines_dirty (already set by set_preview)
-            self.borders_dirty = true;
+        }
+
+        // Update preview border buffer separately (cheap — only preview shape borders).
+        // This avoids iterating all shapes when only the preview changed.
+        if self.shape_manager.preview_borders_dirty() {
+            self.update_preview_border_buffers();
+            self.shape_manager.mark_preview_borders_clean();
         }
 
         // Update default border buffers when shapes or selection/hover changes (not on pan/zoom!)
@@ -1264,6 +1307,13 @@ impl WasmRenderer {
                 render_pass.set_pipeline(&self.border_pipeline);
                 render_pass.set_bind_group(0, &self.border_bind_group, &[]);
                 render_pass.draw(0..4, 0..self.border_segment_count);
+            }
+
+            // Draw preview borders (separate buffer, avoids O(n) regen of main borders on mouse move)
+            if self.preview_border_segment_count > 0 {
+                render_pass.set_pipeline(&self.border_pipeline);
+                render_pass.set_bind_group(0, &self.preview_border_bind_group, &[]);
+                render_pass.draw(0..4, 0..self.preview_border_segment_count);
             }
 
             // Draw selection outlines (magenta, uses selection_bind_group)
@@ -1617,6 +1667,27 @@ impl WasmRenderer {
                 &self.border_segment_buffer,
                 0,
                 bytemuck::cast_slice(segments_to_write),
+            );
+        }
+    }
+
+    /// Update preview border segment buffer.
+    ///
+    /// Only processes the preview shape and origin cross — does NOT iterate
+    /// all main shapes. This makes preview border updates O(1) instead of O(n).
+    fn update_preview_border_buffers(&mut self) {
+        let segments = self.shape_manager.get_preview_border_segments();
+
+        // Preview border buffer has fixed capacity (128 segments).
+        const PREVIEW_BORDER_CAPACITY: usize = 128;
+        let count = segments.len().min(PREVIEW_BORDER_CAPACITY);
+
+        self.preview_border_segment_count = count as u32;
+        if count > 0 {
+            self.queue.write_buffer(
+                &self.preview_border_segment_buffer,
+                0,
+                bytemuck::cast_slice(&segments[..count]),
             );
         }
     }

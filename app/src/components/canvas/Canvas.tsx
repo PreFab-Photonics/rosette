@@ -103,7 +103,6 @@ export function Canvas() {
     handleMouseMove: handleRectMouseMove,
     finalizeRectangle,
     cancelDrawing: cancelRectDrawing,
-    isDrawing: isDrawingRect,
   } = useRectangle(screenToWorld, library, renderer);
 
   // Selection tool integration
@@ -401,11 +400,29 @@ export function Canvas() {
     ],
   );
 
+  // RAF handle for batching cursor position updates (status bar doesn't need 120Hz)
+  const cursorRafRef = useRef(0);
+  useEffect(() => {
+    return () => {
+      if (cursorRafRef.current) cancelAnimationFrame(cursorRafRef.current);
+    };
+  }, []);
+
   // Mouse move - pan, laser, zoom, rectangle, move, or update cursor position
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
+
+      // Compute screen coordinates ONCE per event (avoids duplicate
+      // getBoundingClientRect + subtraction in every tool handler).
+      const rect = canvas.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+
+      // Track whether an active drawing tool handled this event.
+      // If so, we'll render eagerly to minimize input-to-pixel latency.
+      let needsEagerRender = false;
 
       // Handle laser tool movement
       if (activeTool === "laser") {
@@ -417,9 +434,12 @@ export function Canvas() {
         handleZoomMouseMove(e);
       }
 
-      // Handle rectangle tool movement
+      // Handle rectangle tool movement (uses pre-computed screen coords).
+      // Returns true if preview was updated (signals need for eager render).
       if (activeTool === "rectangle") {
-        handleRectMouseMove(e);
+        if (handleRectMouseMove(screenX, screenY)) {
+          needsEagerRender = true;
+        }
       }
 
       // Handle select tool hover
@@ -447,21 +467,27 @@ export function Canvas() {
         handleTextMouseMove(e);
       }
 
-      // Update world cursor position
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      const worldPos = screenToWorld(mouseX, mouseY);
+      // Compute world position once (shared with cursor display + rectangle finalization)
+      const worldPos = screenToWorld(screenX, screenY);
 
       // Store current world position for rectangle finalization
       currentMouseWorld.current = worldPos;
 
-      if (worldPos) {
-        const gridX = Math.trunc(worldPos.x / GRID_SIZE);
-        const gridY = Math.trunc(worldPos.y / GRID_SIZE);
-        setCursorWorld({ x: gridX, y: -gridY });
-      } else {
-        setCursorWorld(null);
+      // Batch cursor position updates via RAF — the status bar doesn't need
+      // updates faster than the display refresh rate. During active drawing,
+      // this also avoids a Zustand write (and React re-render) on every event.
+      if (cursorRafRef.current === 0) {
+        cursorRafRef.current = requestAnimationFrame(() => {
+          cursorRafRef.current = 0;
+          const pos = currentMouseWorld.current;
+          if (pos) {
+            const gridX = Math.trunc(pos.x / GRID_SIZE);
+            const gridY = Math.trunc(pos.y / GRID_SIZE);
+            setCursorWorld({ x: gridX, y: -gridY });
+          } else {
+            setCursorWorld(null);
+          }
+        });
       }
 
       // Handle dragging
@@ -470,6 +496,14 @@ export function Canvas() {
         const dy = e.clientY - lastMousePos.current.y;
         lastMousePos.current = { x: e.clientX, y: e.clientY };
         pan(dx, dy);
+      }
+
+      // Eager render: paint immediately after tool dispatch during active drawing.
+      // This eliminates the worst-case wait (up to 16ms at 60Hz) for the next
+      // RAF tick in the render loop. The RAF loop will still run but find
+      // needs_render=false on most frames, so there's no double-paint.
+      if (needsEagerRender) {
+        render();
       }
     },
     [
@@ -486,6 +520,7 @@ export function Canvas() {
       handlePolyMouseMove,
       handleRulerMouseMove,
       handleTextMouseMove,
+      render,
     ],
   );
 
@@ -497,8 +532,9 @@ export function Canvas() {
     if (activeTool === "zoom") {
       handleZoomMouseUp();
     }
-    if (activeTool === "rectangle" && isDrawingRect && currentMouseWorld.current) {
-      // Finalize rectangle with current mouse position
+    if (activeTool === "rectangle" && currentMouseWorld.current) {
+      // Finalize rectangle with current mouse position.
+      // finalizeRectangle is a no-op if not currently drawing.
       finalizeRectangle(currentMouseWorld.current.x, currentMouseWorld.current.y);
     }
     if (activeTool === "select") {
@@ -515,7 +551,6 @@ export function Canvas() {
     activeTool,
     handleLaserMouseUp,
     handleZoomMouseUp,
-    isDrawingRect,
     finalizeRectangle,
     handleSelectMouseUp,
     handleMoveMouseUp,
@@ -531,6 +566,11 @@ export function Canvas() {
     cancelTextEditing();
     handleSelectMouseLeave();
     handleMoveMouseLeave();
+    // Cancel pending cursor RAF and clear immediately
+    if (cursorRafRef.current) {
+      cancelAnimationFrame(cursorRafRef.current);
+      cursorRafRef.current = 0;
+    }
     setCursorWorld(null);
   }, [
     setCursorWorld,

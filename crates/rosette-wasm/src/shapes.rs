@@ -305,6 +305,8 @@ pub struct ShapeManager {
     hovered_ids: HashSet<String>,
     /// Whether outline data needs update.
     outlines_dirty: bool,
+    /// Whether preview border segments need update (separate from main borders).
+    preview_borders_dirty: bool,
 }
 
 impl ShapeManager {
@@ -390,6 +392,16 @@ impl ShapeManager {
     /// Mark outlines as clean.
     pub fn mark_outlines_clean(&mut self) {
         self.outlines_dirty = false;
+    }
+
+    /// Check if preview border segments need update.
+    pub fn preview_borders_dirty(&self) -> bool {
+        self.preview_borders_dirty
+    }
+
+    /// Mark preview borders as clean.
+    pub fn mark_preview_borders_clean(&mut self) {
+        self.preview_borders_dirty = false;
     }
 
     // ==================== Outline Geometry ====================
@@ -491,7 +503,18 @@ impl ShapeManager {
             }
         }
 
-        // Add preview shape border (always visible when drawing).
+        segments
+    }
+
+    /// Get border segments for the preview shape and origin cross only.
+    ///
+    /// Separated from `get_default_border_segments()` so that preview border
+    /// updates (every mouse move during drawing) don't require iterating all
+    /// shapes. These are rendered into their own GPU buffer.
+    pub fn get_preview_border_segments(&self) -> Vec<ColoredSegment> {
+        let mut segments = Vec::new();
+
+        // Preview shape border (always visible when drawing).
         // Uses the shape's RGB at full opacity — the border renders even when
         // the fill alpha is zero (outline-only preview for cell drag).
         if let Some(preview) = &self.preview {
@@ -512,7 +535,7 @@ impl ShapeManager {
             }
         }
 
-        // Add preview origin cross (two perpendicular line segments).
+        // Preview origin cross (two perpendicular line segments).
         if let Some((origin, arm, color)) = &self.preview_origin {
             let color = *color;
             let ox = origin[0] as f32;
@@ -739,7 +762,7 @@ impl ShapeManager {
             known_simple: false,
         });
         self.preview_dirty = true;
-        self.outlines_dirty = true; // Preview border needs regeneration
+        self.preview_borders_dirty = true; // Only preview border needs regeneration
     }
 
     /// Set a preview origin cross (rendered as two perpendicular line segments).
@@ -750,7 +773,7 @@ impl ShapeManager {
     /// * `color` - RGBA color for the cross lines.
     pub fn set_preview_origin(&mut self, origin: [f64; 2], arm_size: f64, color: [f32; 4]) {
         self.preview_origin = Some((origin, arm_size, color));
-        self.outlines_dirty = true;
+        self.preview_borders_dirty = true;
     }
 
     /// Clear the preview shape and origin cross.
@@ -759,7 +782,7 @@ impl ShapeManager {
             self.preview = None;
             self.preview_origin = None;
             self.preview_dirty = true;
-            self.outlines_dirty = true;
+            self.preview_borders_dirty = true;
         }
     }
 
@@ -957,8 +980,6 @@ impl ShapeManager {
             );
         }
     }
-
-
 
     /// Triangulate a polygon with holes using earcutr's native hole support.
     fn triangulate_polygon_with_holes(

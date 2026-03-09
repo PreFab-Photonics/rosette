@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useLayerStore, hexToRgba } from "@/stores/layer";
 import { GRID_SIZE } from "@/stores/viewport";
 import { useHistoryStore } from "@/stores/history";
@@ -24,11 +24,21 @@ function snapToGrid(value: number): number {
   return Math.round(value / GRID_SIZE) * GRID_SIZE;
 }
 
+// Pre-allocated typed arrays to avoid GC pressure during drawing.
+// These are reused on every mouse move — safe because wasm-bindgen copies
+// the data into the WASM heap synchronously in set_preview_shape().
+const _previewPoints = new Float64Array(8);
+const _previewColor = new Float32Array(4);
+
 /**
  * Hook for rectangle drawing tool.
  *
  * Handles mouse interactions for drawing rectangles with grid snapping.
  * Uses WasmLibrary for shape storage and WasmRenderer for preview.
+ *
+ * Performance: uses refs instead of state for drawing state to avoid
+ * React re-renders (and callback recreation) during active drawing.
+ * Typed arrays are pre-allocated at module level to eliminate GC pressure.
  *
  * @param screenToWorld - Function to convert screen coordinates to world coordinates.
  * @param library - The WasmLibrary instance for storing shapes.
@@ -40,11 +50,14 @@ export function useRectangle(
   library: WasmLibrary | null,
   renderer: WasmRenderer | null,
 ) {
-  const [startPoint, setStartPoint] = useState<Point | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
+  // Use refs for drawing state to avoid React re-renders during active drawing.
+  // State changes would cause Canvas to recreate its handleMouseMove callback,
+  // adding unnecessary overhead on every draw start/stop.
+  const startPointRef = useRef<Point | null>(null);
+  const isDrawingRef = useRef(false);
 
-  const activeLayerId = useLayerStore((s) => s.activeLayerId);
-  const layers = useLayerStore((s) => s.layers);
+  // Cached layer color (RGBA), computed once on mouse-down instead of every mouse-move.
+  const cachedColorRef = useRef<[number, number, number, number]>([0.5, 0.5, 0.5, 0.5]);
 
   /**
    * Handle mouse down - start drawing.
@@ -65,76 +78,72 @@ export function useRectangle(
       const worldX = snapToGrid(world.x);
       const worldY = snapToGrid(world.y);
 
-      setStartPoint({ x: worldX, y: worldY });
-      setIsDrawing(true);
+      startPointRef.current = { x: worldX, y: worldY };
+      isDrawingRef.current = true;
+
+      // Cache the active layer color for the duration of this draw.
+      // Avoids Map lookup + hexToRgba parse on every mouse move.
+      const activeLayerId = useLayerStore.getState().activeLayerId;
+      const layers = useLayerStore.getState().layers;
+      const layer = layers.get(activeLayerId);
+      if (layer) {
+        const [r, g, b] = hexToRgba(layer.color, 0.5);
+        cachedColorRef.current = [r, g, b, 0.5];
+      } else {
+        cachedColorRef.current = [0.5, 0.5, 0.5, 0.5];
+      }
     },
     [screenToWorld],
   );
 
   /**
    * Handle mouse move - update preview.
+   *
+   * Accepts pre-computed screen coordinates from Canvas to avoid
+   * duplicate getBoundingClientRect() calls.
+   *
+   * @returns true if the preview was updated (caller should render eagerly).
    */
   const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isDrawing || !startPoint || !renderer) return;
-
-      const canvas = e.currentTarget as HTMLCanvasElement;
-      const rect = canvas.getBoundingClientRect();
-      const screenX = e.clientX - rect.left;
-      const screenY = e.clientY - rect.top;
+    (screenX: number, screenY: number): boolean => {
+      const start = startPointRef.current;
+      if (!isDrawingRef.current || !start || !renderer) return false;
 
       const world = screenToWorld(screenX, screenY);
-      if (!world) return;
+      if (!world) return false;
 
       const worldX = snapToGrid(world.x);
       const worldY = snapToGrid(world.y);
 
       // Calculate rectangle bounds
-      const minX = Math.min(startPoint.x, worldX);
-      const minY = Math.min(startPoint.y, worldY);
-      const maxX = Math.max(startPoint.x, worldX);
-      const maxY = Math.max(startPoint.y, worldY);
+      const minX = Math.min(start.x, worldX);
+      const minY = Math.min(start.y, worldY);
+      const maxX = Math.max(start.x, worldX);
+      const maxY = Math.max(start.y, worldY);
 
-      // Create rectangle points (counter-clockwise)
-      const points = new Float64Array([minX, minY, maxX, minY, maxX, maxY, minX, maxY]);
+      // Write into pre-allocated buffer (counter-clockwise)
+      _previewPoints[0] = minX;
+      _previewPoints[1] = minY;
+      _previewPoints[2] = maxX;
+      _previewPoints[3] = minY;
+      _previewPoints[4] = maxX;
+      _previewPoints[5] = maxY;
+      _previewPoints[6] = minX;
+      _previewPoints[7] = maxY;
 
-      // Get layer color for preview
-      const layer = layers.get(activeLayerId);
-      const [r, g, b] = layer ? hexToRgba(layer.color, 0.5) : [0.5, 0.5, 0.5, 0.5];
-      const color = new Float32Array([r, g, b, 0.5]);
+      // Write cached color into pre-allocated buffer
+      const c = cachedColorRef.current;
+      _previewColor[0] = c[0];
+      _previewColor[1] = c[1];
+      _previewColor[2] = c[2];
+      _previewColor[3] = c[3];
 
-      renderer.set_preview_shape(points, color);
+      renderer.set_preview_shape(_previewPoints, _previewColor);
       renderer.mark_dirty();
+      return true;
     },
-    [isDrawing, startPoint, screenToWorld, renderer, layers, activeLayerId],
+    [screenToWorld, renderer],
   );
-
-  /**
-   * Handle mouse up - finalize shape.
-   */
-  const handleMouseUp = useCallback(() => {
-    if (!isDrawing || !startPoint || !library || !renderer) {
-      setIsDrawing(false);
-      setStartPoint(null);
-      renderer?.clear_preview();
-      return;
-    }
-
-    // Get current mouse position from the last preview
-    // We need to recalculate the bounds
-    // For now, we use the preview shape if available
-
-    // Clear preview first
-    renderer.clear_preview();
-
-    // The preview was set in handleMouseMove, so we need the last known position
-    // Since we don't store currentPoint, we'll skip creating shape if no movement
-    // This is a simplification - in practice we should track currentPoint
-
-    // Reset state
-    setIsDrawing(false);
-    setStartPoint(null);
-  }, [isDrawing, startPoint, library, renderer]);
 
   /**
    * Finalize rectangle with specific end point.
@@ -142,20 +151,23 @@ export function useRectangle(
    */
   const finalizeRectangle = useCallback(
     (endX: number, endY: number) => {
-      if (!startPoint || !library || !renderer) return;
+      const start = startPointRef.current;
+      if (!start || !library || !renderer) return;
 
       const worldX = snapToGrid(endX);
       const worldY = snapToGrid(endY);
 
       // Calculate rectangle bounds
-      const minX = Math.min(startPoint.x, worldX);
-      const minY = Math.min(startPoint.y, worldY);
-      const width = Math.abs(worldX - startPoint.x);
-      const height = Math.abs(worldY - startPoint.y);
+      const minX = Math.min(start.x, worldX);
+      const minY = Math.min(start.y, worldY);
+      const width = Math.abs(worldX - start.x);
+      const height = Math.abs(worldY - start.y);
 
       // Only create if non-zero area
       if (width > 0 && height > 0) {
         // Get the active layer's GDS layer number and datatype
+        const activeLayerId = useLayerStore.getState().activeLayerId;
+        const layers = useLayerStore.getState().layers;
         const activeLayer = layers.get(activeLayerId);
         const layerNumber = activeLayer?.layerNumber ?? 1;
         const datatype = activeLayer?.datatype ?? 0;
@@ -176,27 +188,25 @@ export function useRectangle(
       renderer.clear_preview();
 
       // Reset state
-      setIsDrawing(false);
-      setStartPoint(null);
+      isDrawingRef.current = false;
+      startPointRef.current = null;
     },
-    [startPoint, library, renderer, activeLayerId, layers],
+    [library, renderer],
   );
 
   /**
    * Cancel drawing (e.g., on mouse leave).
    */
   const cancelDrawing = useCallback(() => {
-    setIsDrawing(false);
-    setStartPoint(null);
+    isDrawingRef.current = false;
+    startPointRef.current = null;
     renderer?.clear_preview();
   }, [renderer]);
 
   return {
     handleMouseDown,
     handleMouseMove,
-    handleMouseUp,
     finalizeRectangle,
     cancelDrawing,
-    isDrawing,
   };
 }
