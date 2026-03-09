@@ -22,6 +22,7 @@ import {
   snapshotElements,
 } from "@/lib/commands";
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
+import { isTauri } from "@/lib/tauri";
 import { cn, keys, centerViewOnSelection } from "@/lib/utils";
 
 // =============================================================================
@@ -141,7 +142,10 @@ function FlyoutSubmenu({
             disabled={entry.disabled}
             onClick={() => {
               if (!entry.disabled) {
-                entry.action();
+                // Some actions are async (File menu); catch unhandled rejections.
+                Promise.resolve(entry.action()).catch((err) =>
+                  console.error("Menu action failed:", err),
+                );
                 onAction();
               }
             }}
@@ -227,10 +231,38 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
       label: "File",
       buildItems: () => [
         {
-          id: "file-placeholder",
-          label: "No items",
-          action: () => {},
-          disabled: true,
+          id: "file-open",
+          label: "Open...",
+          shortcut: { modifiers: [keys.mod], key: "O" },
+          action: async () => {
+            const { pickGdsFile } = await import("@/lib/tauri");
+            const { emitOpenFile } = await import("@/lib/file-ops");
+            const path = await pickGdsFile();
+            if (path) {
+              await emitOpenFile(path);
+            }
+          },
+          disabled: !isTauri,
+        },
+        {
+          id: "file-save",
+          label: "Save",
+          shortcut: { modifiers: [keys.mod], key: "S" },
+          action: async () => {
+            const { handleSave } = await import("@/lib/file-ops");
+            await handleSave(false);
+          },
+          disabled: !isTauri,
+        },
+        {
+          id: "file-save-as",
+          label: "Save As...",
+          shortcut: { modifiers: [keys.mod, keys.shift], key: "S" },
+          action: async () => {
+            const { handleSave } = await import("@/lib/file-ops");
+            await handleSave(true);
+          },
+          disabled: !isTauri,
         },
       ],
     },

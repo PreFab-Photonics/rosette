@@ -103,10 +103,10 @@ export function getCommands(): CommandItem[] {
           action: async () => {
             close();
             const { pickGdsFile } = await import("@/lib/tauri");
+            const { emitOpenFile } = await import("@/lib/file-ops");
             const path = await pickGdsFile();
             if (path) {
-              const { emit } = await import("@tauri-apps/api/event");
-              await emit("open-file", path);
+              await emitOpenFile(path);
             }
           },
           searchableText: "File open gds load import",
@@ -118,7 +118,7 @@ export function getCommands(): CommandItem[] {
           shortcut: { modifiers: [keys.mod], key: "S" },
           action: async () => {
             close();
-            const { handleSave } = await import("@/App");
+            const { handleSave } = await import("@/lib/file-ops");
             await handleSave(false);
           },
           searchableText: "File save gds export write",
@@ -130,7 +130,7 @@ export function getCommands(): CommandItem[] {
           shortcut: { modifiers: [keys.mod, "⇧"], key: "S" },
           action: async () => {
             close();
-            const { handleSave } = await import("@/App");
+            const { handleSave } = await import("@/lib/file-ops");
             await handleSave(true);
           },
           searchableText: "File save as gds export write new",
