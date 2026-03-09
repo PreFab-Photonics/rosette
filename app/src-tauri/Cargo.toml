@@ -12,6 +12,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-window-state = "2"
 rosette-core = { path = "../../crates/rosette-core", features = ["serde"] }
 rosette-io = { path = "../../crates/rosette-io" }
 serde = { version = "1", features = ["derive"] }
