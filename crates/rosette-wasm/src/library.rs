@@ -6,7 +6,7 @@
 use rosette_core::cell::Element;
 use rosette_core::geometry::{BBox, Vector2, offset_polygon};
 use rosette_core::{Cell, CellRef, Layer, Library, Point, Polygon, Repetition, Transform};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
@@ -907,6 +907,29 @@ impl WasmLibrary {
         if self.layer_colors.remove(&key).is_some() {
             self.dirty = true;
         }
+    }
+
+    /// Get all unique (layer, datatype) pairs used across all cells.
+    ///
+    /// Returns a flat array: `[layer0, datatype0, layer1, datatype1, ...]`
+    /// sorted by layer number then datatype.
+    pub fn get_used_layers(&self) -> Vec<u32> {
+        let mut seen = HashSet::new();
+        for cell in self.library.cells() {
+            for element in cell.elements() {
+                if let Some(layer) = element.layer() {
+                    seen.insert((layer.number, layer.datatype));
+                }
+            }
+        }
+        let mut pairs: Vec<_> = seen.into_iter().collect();
+        pairs.sort();
+        let mut result = Vec::with_capacity(pairs.len() * 2);
+        for (num, dt) in pairs {
+            result.push(num as u32);
+            result.push(dt as u32);
+        }
+        result
     }
 
     /// Clear all elements from the active cell.

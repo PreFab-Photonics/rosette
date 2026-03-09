@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { WasmLibrary } from "@/wasm/rosette_wasm";
 import { useExplorerStore } from "@/stores/explorer";
 import type { CellNode } from "@/stores/explorer";
-import { useLayerStore, hexToRgba, FILL_PATTERN_IDS } from "@/stores/layer";
+import { useLayerStore, hexToRgba, FILL_PATTERN_IDS, type Layer } from "@/stores/layer";
 import {
   isTauri,
   readGdsBytes,
@@ -65,6 +65,61 @@ function syncLayerColors(
     const [r, g, b, a] = hexToRgba(layer.color, alpha);
     lib.set_layer_color(layer.layerNumber, layer.datatype, r, g, b, a);
   }
+}
+
+/** Color palette for auto-discovered layers (matches LayersPanel presets). */
+const LAYER_COLORS = [
+  "#f44336",
+  "#ff9800",
+  "#ffeb3b",
+  "#4caf50",
+  "#00bcd4",
+  "#2196f3",
+  "#9c27b0",
+  "#ff69b4",
+  "#795548",
+  "#607d8b",
+  "#3f51b5",
+  "#009688",
+  "#e6e6e6",
+  "#8d6e63",
+  "#ff6f00",
+  "#1a237e",
+];
+
+/**
+ * Discover layers used in a library and reset the layer store.
+ *
+ * Queries the WASM library for all unique (layer, datatype) pairs,
+ * builds Layer entries with auto-assigned colors and names, then
+ * replaces the layer store contents.
+ */
+function discoverLayers(lib: WasmLibrary): void {
+  const usedLayers = lib.get_used_layers();
+  if (usedLayers.length === 0) return;
+
+  const newLayers: Layer[] = [];
+  for (let i = 0; i < usedLayers.length; i += 2) {
+    const layerNumber = usedLayers[i];
+    const datatype = usedLayers[i + 1];
+    const id = i / 2 + 1;
+    const colorIndex = (id - 1) % LAYER_COLORS.length;
+    const name =
+      datatype === 0 ? `layer${layerNumber}` : `layer${layerNumber}/${datatype}`;
+
+    newLayers.push({
+      id,
+      layerNumber,
+      datatype,
+      name,
+      color: LAYER_COLORS[colorIndex],
+      visible: true,
+      fillPattern: "solid",
+      opacity: 0.7,
+    });
+  }
+
+  useLayerStore.getState().resetLayers(newLayers);
 }
 
 /**
@@ -149,7 +204,8 @@ export function useLibrary(
         if (cancelled) return;
 
         const newLibrary = wasm.WasmLibrary.from_gds_bytes(bytes);
-        syncLayerColors(newLibrary, layersRef.current);
+        discoverLayers(newLibrary);
+        syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
         if (libraryInstance) {
           libraryInstance.free();
@@ -218,8 +274,9 @@ export function useLibrary(
             // Create library from pre-flattened JSON (fast path)
             const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
 
-            // Sync layer colors (use ref to avoid effect dependency)
-            syncLayerColors(newLibrary, layersRef.current);
+            // Discover layers from the design and sync colors
+            discoverLayers(newLibrary);
+            syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
             // Free old library to prevent memory leak
             if (libraryInstance) {
@@ -292,7 +349,8 @@ export function useLibrary(
         if (cancelled || !data.json) return;
 
         const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
-        syncLayerColors(newLibrary, layersRef.current);
+        discoverLayers(newLibrary);
+        syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
         // Free old library
         if (libraryInstance) {
@@ -315,14 +373,6 @@ export function useLibrary(
       cancelled = true;
     };
   }, [wasm, isWasmReady, activeCell, cellTree]);
-
-  // Tauri mode: when activeCell changes, just switch the active cell in the WASM library
-  useEffect(() => {
-    if (!isTauriMode() || !library || !activeCell) return;
-    library.set_active_cell(activeCell);
-    // Mark dirty so the renderer picks up the change
-    library.mark_clean(); // Reset first to ensure dirty flag is meaningful
-  }, [library, activeCell]);
 
   // Sync layer colors and fill patterns to library (hidden layers get alpha=0 so they don't render)
   useEffect(() => {

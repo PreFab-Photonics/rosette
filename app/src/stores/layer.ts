@@ -98,6 +98,8 @@ interface LayerState {
   getAllLayers: () => Layer[];
   /** Check if a layer number + datatype combination exists. */
   layerExists: (layerNumber: number, datatype: number) => boolean;
+  /** Replace all layers with a new set (used when loading a GDS file). */
+  resetLayers: (newLayers: Layer[]) => void;
   /** Set the layer being edited (for triggering inline rename from context menu). */
   setEditingLayerId: (id: number | null) => void;
   /** Set the layer with expanded editor. */
@@ -224,6 +226,18 @@ export const useLayerStore = create<LayerState>((set, get) => ({
     }
     return false;
   },
+
+  resetLayers: (newLayers) =>
+    set(() => {
+      const layers = new Map(newLayers.map((l) => [l.id, l]));
+      const activeLayerId = newLayers[0]?.id ?? 1;
+      return {
+        layers,
+        activeLayerId,
+        editingLayerId: null,
+        expandedLayerId: null,
+      };
+    }),
 
   setEditingLayerId: (id) => set({ editingLayerId: id }),
   setExpandedLayerId: (id) => set({ expandedLayerId: id }),
