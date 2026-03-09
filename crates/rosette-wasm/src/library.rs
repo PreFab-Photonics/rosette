@@ -2188,7 +2188,9 @@ impl WasmLibrary {
                             rep.row_spacing *= -s;
                         }
                     }
-                    Element::Text { position, height, .. } => {
+                    Element::Text {
+                        position, height, ..
+                    } => {
                         *position = Point::new(position.x * s, -position.y * s);
                         *height *= s;
                     }
@@ -2279,15 +2281,16 @@ impl WasmLibrary {
                     }
                     Element::CellRef(cell_ref) => {
                         // Inverse conjugation: T_original = S^{-1} * T_stored * S
-                        cell_ref.transform =
-                            inv_flip.then(&cell_ref.transform).then(&flip);
+                        cell_ref.transform = inv_flip.then(&cell_ref.transform).then(&flip);
 
                         if let Some(ref mut rep) = cell_ref.repetition {
                             rep.col_spacing *= inv;
                             rep.row_spacing *= -inv;
                         }
                     }
-                    Element::Text { position, height, .. } => {
+                    Element::Text {
+                        position, height, ..
+                    } => {
                         *position = Point::new(position.x * inv, -position.y * inv);
                         *height *= inv;
                     }
@@ -2343,15 +2346,16 @@ impl WasmLibrary {
                     }
                     Element::CellRef(cell_ref) => {
                         // Inverse conjugation: T_original = S^{-1} * T_stored * S
-                        cell_ref.transform =
-                            inv_flip.then(&cell_ref.transform).then(&flip);
+                        cell_ref.transform = inv_flip.then(&cell_ref.transform).then(&flip);
 
                         if let Some(ref mut rep) = cell_ref.repetition {
                             rep.col_spacing *= inv;
                             rep.row_spacing *= -inv;
                         }
                     }
-                    Element::Text { position, height, .. } => {
+                    Element::Text {
+                        position, height, ..
+                    } => {
                         *position = Point::new(position.x * inv, -position.y * inv);
                         *height *= inv;
                     }

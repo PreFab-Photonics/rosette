@@ -22,6 +22,7 @@ fn main() {
             commands::open_gds,
             commands::read_gds_bytes,
             commands::save_gds,
+            commands::save_bytes,
             commands::get_pending_file,
             commands::get_current_file,
             commands::set_current_file,

@@ -139,6 +139,32 @@ export function getCommands(): CommandItem[] {
     })(),
 
     // =========================================================================
+    // Screenshot (works in both Tauri and browser)
+    // =========================================================================
+    {
+      id: "file-screenshot",
+      type: "command",
+      name: "File: Export Screenshot",
+      action: async () => {
+        close();
+        const { handleScreenshot } = await import("@/lib/file-ops");
+        await handleScreenshot();
+      },
+      searchableText: "File export screenshot image png capture canvas save picture",
+    },
+    {
+      id: "file-screenshot-clipboard",
+      type: "command",
+      name: "File: Copy Screenshot to Clipboard",
+      action: async () => {
+        close();
+        const { handleScreenshotToClipboard } = await import("@/lib/file-ops");
+        await handleScreenshotToClipboard();
+      },
+      searchableText: "File copy screenshot clipboard image png capture",
+    },
+
+    // =========================================================================
     // Theme commands
     // =========================================================================
     {

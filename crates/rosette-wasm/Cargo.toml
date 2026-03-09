@@ -22,6 +22,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde-wasm-bindgen = "0.6"
 thiserror.workspace = true
+futures-channel = "0.3"
 earcutr = "0.4"
 geo = "0.28"
 uuid = { version = "1.0", features = ["v4", "js"] }

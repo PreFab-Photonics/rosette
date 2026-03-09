@@ -45,6 +45,11 @@ export async function saveGds(path: string, bytes: Uint8Array): Promise<void> {
   return invoke<void>("save_gds", { path, bytes: Array.from(bytes) });
 }
 
+/** Save arbitrary bytes to a file without updating the current file path. */
+export async function saveBytes(path: string, bytes: Uint8Array): Promise<void> {
+  return invoke<void>("save_bytes", { path, bytes: Array.from(bytes) });
+}
+
 /** Get and clear the pending file path from CLI args. */
 export async function getPendingFile(): Promise<string | null> {
   return invoke<string | null>("get_pending_file");
@@ -95,6 +100,21 @@ export async function pickSaveFile(defaultPath?: string): Promise<string | null>
   });
 
   return result;
+}
+
+/** Open a native save dialog for PNG images. Returns the path or null. */
+export async function pickSaveImageFile(defaultPath?: string): Promise<string | null> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({
+    title: "Export Screenshot",
+    filters: [
+      {
+        name: "PNG Image",
+        extensions: ["png"],
+      },
+    ],
+    defaultPath,
+  });
 }
 
 /**

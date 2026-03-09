@@ -71,6 +71,16 @@ pub fn save_gds(path: String, bytes: Vec<u8>, state: State<'_, AppState>) -> Res
     Ok(())
 }
 
+/// Save arbitrary bytes to a file without updating the current file path.
+///
+/// Used for exports (screenshots, etc.) that shouldn't affect the
+/// project's save state.
+#[tauri::command]
+pub fn save_bytes(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    fs::write(&path, &bytes).map_err(|e| format!("Failed to write file: {e}"))?;
+    Ok(())
+}
+
 /// Get and clear the pending file path (from CLI args / file associations).
 /// The frontend calls this once on mount to check if a file was passed at launch.
 #[tauri::command]

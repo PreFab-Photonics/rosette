@@ -2378,6 +2378,294 @@ impl WasmRenderer {
         self.shape_manager.get_hover_ids()
     }
 
+    // ==================== Screenshot Capture ====================
+
+    /// Capture the current view as raw RGBA pixels.
+    ///
+    /// Renders the scene to an offscreen texture, copies the result to a
+    /// staging buffer, maps it, and returns the pixel data as a `Uint8Array`.
+    /// The first 8 bytes encode (width, height) as two little-endian u32s,
+    /// followed by `width * height * 4` bytes of RGBA pixel data.
+    ///
+    /// Returns a `Promise<Uint8Array>` to JS.
+    pub fn capture_screenshot(&mut self) -> js_sys::Promise {
+        let width = self.surface_config.width;
+        let height = self.surface_config.height;
+
+        if width == 0 || height == 0 {
+            return js_sys::Promise::reject(&JsValue::from_str("Canvas has zero size"));
+        }
+
+        // Ensure all buffers are up to date before rendering
+        self.needs_render = true;
+        self.grid_dirty = true;
+        self.outlines_viewport_dirty = true;
+
+        // Update viewport uniform
+        let viewport_uniform =
+            ViewportUniform::from_viewport(&self.viewport, self.crosshair_origin);
+        self.queue.write_buffer(
+            &self.viewport_buffer,
+            0,
+            bytemuck::bytes_of(&viewport_uniform),
+        );
+
+        // Update all dirty buffers
+        self.update_grid_points();
+        if self.shape_manager.is_dirty() {
+            self.update_polygon_buffers();
+            self.shape_manager.mark_clean();
+            self.borders_dirty = true;
+        }
+        if self.shape_manager.is_preview_dirty() {
+            self.update_preview_buffers();
+            self.shape_manager.mark_preview_clean();
+        }
+        if self.shape_manager.preview_borders_dirty() {
+            self.update_preview_border_buffers();
+            self.shape_manager.mark_preview_borders_clean();
+        }
+        if self.borders_dirty || self.shape_manager.outlines_dirty() {
+            self.update_border_buffers();
+            self.borders_dirty = false;
+        }
+        if self.shape_manager.outlines_dirty() || self.outlines_viewport_dirty {
+            self.update_selection_hover_buffers();
+            self.shape_manager.mark_outlines_clean();
+            self.outlines_viewport_dirty = false;
+        }
+
+        // Capture the surface format for BGRA detection in the async closure
+        let format = self.surface_config.format;
+
+        // Create offscreen texture for rendering
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("screenshot-texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.surface_config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Bytes per row must be aligned to 256 for WebGPU buffer copy
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let align = 256u32;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+        let buffer_size = (padded_bytes_per_row * height) as u64;
+
+        // Create staging buffer for readback
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("screenshot-staging"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("screenshot-encoder"),
+            });
+
+        // Run the same render passes as render(), but targeting the offscreen texture
+        {
+            let clear_color = if self.viewport.dark_theme {
+                wgpu::Color {
+                    r: 0.07,
+                    g: 0.07,
+                    b: 0.07,
+                    a: 1.0,
+                }
+            } else {
+                wgpu::Color {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 1.0,
+                    a: 1.0,
+                }
+            };
+
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("screenshot-render-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            // Grid
+            if self.grid_visible && self.grid_point_count > 0 {
+                render_pass.set_pipeline(&self.grid_pipeline);
+                render_pass.set_bind_group(0, &self.grid_bind_group, &[]);
+                render_pass.draw(0..4, 0..self.grid_point_count);
+            }
+
+            // Crosshair
+            render_pass.set_pipeline(&self.crosshair_pipeline);
+            render_pass.set_bind_group(0, &self.viewport_bind_group, &[]);
+            render_pass.draw(0..4, 0..2);
+
+            // Polygons
+            if self.polygon_index_count > 0 {
+                render_pass.set_pipeline(&self.polygon_pipeline);
+                render_pass.set_bind_group(0, &self.polygon_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.polygon_vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    self.polygon_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..self.polygon_index_count, 0, 0..1);
+            }
+
+            // Preview shape
+            if self.preview_index_count > 0 {
+                render_pass.set_pipeline(&self.polygon_pipeline);
+                render_pass.set_bind_group(0, &self.polygon_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.preview_vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    self.preview_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..self.preview_index_count, 0, 0..1);
+            }
+
+            // Default borders
+            if self.border_segment_count > 0 {
+                render_pass.set_pipeline(&self.border_pipeline);
+                render_pass.set_bind_group(0, &self.border_bind_group, &[]);
+                render_pass.draw(0..4, 0..self.border_segment_count);
+            }
+
+            // Preview borders
+            if self.preview_border_segment_count > 0 {
+                render_pass.set_pipeline(&self.border_pipeline);
+                render_pass.set_bind_group(0, &self.preview_border_bind_group, &[]);
+                render_pass.draw(0..4, 0..self.preview_border_segment_count);
+            }
+
+            // Selection outlines
+            if self.selection_segment_count > 0 {
+                render_pass.set_pipeline(&self.outline_pipeline);
+                render_pass.set_bind_group(0, &self.selection_bind_group, &[]);
+                render_pass.draw(0..4, 0..self.selection_segment_count);
+            }
+
+            // Hover outlines
+            if self.hover_segment_count > 0 {
+                render_pass.set_pipeline(&self.outline_pipeline);
+                render_pass.set_bind_group(0, &self.hover_bind_group, &[]);
+                render_pass.draw(0..4, 0..self.hover_segment_count);
+            }
+
+            // Laser
+            if self.laser_point_count > 1 && self.laser_uniform.opacity > 0.0 {
+                render_pass.set_pipeline(&self.laser_pipeline);
+                render_pass.set_bind_group(0, &self.laser_bind_group, &[]);
+                render_pass.draw(0..4, 0..(self.laser_point_count - 1));
+            }
+        }
+
+        // Copy offscreen texture to staging buffer
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &staging_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        // Map the staging buffer asynchronously.
+        // We share ownership of the buffer via Rc so `map_async` can borrow it
+        // before the future moves it for reading.
+        let staging_buffer = std::rc::Rc::new(staging_buffer);
+        let (sender, receiver) = futures_channel::oneshot::channel();
+        {
+            let slice = staging_buffer.slice(..);
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+        }
+
+        // wgpu-web automatically polls via the browser's microtask queue,
+        // so we don't need to call device.poll() on the web target.
+
+        // Detect BGRA formats that need R/B channel swap for RGBA output
+        let is_bgra = matches!(
+            format,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+        );
+
+        let buf = staging_buffer.clone();
+        wasm_bindgen_futures::future_to_promise(async move {
+            receiver
+                .await
+                .map_err(|_| JsValue::from_str("Buffer map channel closed"))?
+                .map_err(|e| JsValue::from_str(&format!("Buffer map failed: {:?}", e)))?;
+
+            // Read the mapped data, removing row padding
+            let mapped = buf.slice(..).get_mapped_range();
+            let pixel_count = (width * height * bytes_per_pixel) as usize;
+            let mut result = Vec::with_capacity(8 + pixel_count);
+
+            // Header: width and height as little-endian u32
+            result.extend_from_slice(&width.to_le_bytes());
+            result.extend_from_slice(&height.to_le_bytes());
+
+            // Copy pixel rows, stripping padding
+            for row in 0..height {
+                let start = (row * padded_bytes_per_row) as usize;
+                let end = start + unpadded_bytes_per_row as usize;
+                result.extend_from_slice(&mapped[start..end]);
+            }
+
+            // Swap B and R channels if the surface format is BGRA
+            if is_bgra {
+                let pixels = &mut result[8..];
+                for pixel in pixels.chunks_exact_mut(4) {
+                    pixel.swap(0, 2); // B <-> R
+                }
+            }
+
+            drop(mapped);
+            buf.unmap();
+
+            Ok(js_sys::Uint8Array::from(&result[..]).into())
+        })
+    }
+
     // ==================== Library Integration ====================
 
     /// Sync shapes from a WasmLibrary.

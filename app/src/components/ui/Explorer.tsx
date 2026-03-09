@@ -265,6 +265,25 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
           },
           disabled: !isTauri,
         },
+        { id: "sep-file-1", separator: true as const },
+        {
+          id: "file-screenshot",
+          label: "Export Screenshot",
+          action: async () => {
+            const { handleScreenshot } = await import("@/lib/file-ops");
+            await handleScreenshot();
+          },
+          disabled: false,
+        },
+        {
+          id: "file-screenshot-clipboard",
+          label: "Copy Screenshot",
+          action: async () => {
+            const { handleScreenshotToClipboard } = await import("@/lib/file-ops");
+            await handleScreenshotToClipboard();
+          },
+          disabled: false,
+        },
       ],
     },
     {
