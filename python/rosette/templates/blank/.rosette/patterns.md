@@ -2,46 +2,73 @@
 
 Copy-paste recipes for common photonic structures.
 
+## Layer Setup
+
+### Using Named Layers (Recommended)
+
+```python
+from rosette import load_layer_map
+
+# Load layer definitions from rosette.toml
+layers = load_layer_map()
+layer = layers.core.layer   # Layer(1, 0) - with color, fill, etc.
+clad = layers.clad.layer     # Layer(2, 0)
+
+# Layer properties are also accessible
+print(layers.core.color)     # "#4caf50"
+print(layers.core.number)    # 1
+```
+
+### Using Layer Numbers Directly (Fallback)
+
+```python
+from rosette import Layer
+
+layer = Layer(1, 0)  # Works but no name/color info
+```
+
 ## Basic Structures
 
 ### Straight Waveguide
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import waveguide
 
-layer = Layer(1, 0)
-wg_cell = waveguide(100.0, 0.5, layer)  # 100um long, 0.5um wide
+layers = load_layer_map()
+wg_cell = waveguide(100.0, 0.5, layers.core.layer)  # 100um long, 0.5um wide
 ```
 
 ### 90-Degree Bend
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import bend
 
-layer = Layer(1, 0)
-bend_cell = bend(5.0, 90, 0.5, layer)  # 5um radius, 90 degrees, 0.5um wide
+layers = load_layer_map()
+bend_cell = bend(5.0, 90, 0.5, layers.core.layer)  # 5um radius, 90 degrees
 ```
 
 ### S-Bend (Lateral Offset)
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import sbend
 
+layers = load_layer_map()
 # Offset waveguide by 10um laterally over 50um length
-sbend_cell = sbend(50.0, 10.0, 0.5, Layer(1, 0))  # length, offset, width
+sbend_cell = sbend(50.0, 10.0, 0.5, layers.core.layer)  # length, offset, width
 ```
 
 ### Linear Taper
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import taper
 
+layers = load_layer_map()
 # Expand from 0.5um to 1.0um over 10um
-taper_cell = taper(10.0, 0.5, 1.0, Layer(1, 0))  # length, width_in, width_out
+taper_cell = taper(10.0, 0.5, 1.0, layers.core.layer)  # length, width_in, width_out
 ```
 
 ## Connected Circuits with Route
@@ -49,9 +76,10 @@ taper_cell = taper(10.0, 0.5, 1.0, Layer(1, 0))  # length, width_in, width_out
 ### Waveguide with Bends
 
 ```python
-from rosette import Route, Layer
+from rosette import Route, load_layer_map
 
-layer = Layer(1, 0)
+layers = load_layer_map()
+layer = layers.core.layer
 
 # Route creates connected waveguide paths with automatic bends
 route = Route(layer, width=0.5, bend_radius=5.0)
@@ -68,9 +96,10 @@ print(f"Total path: {route.path_length:.1f}um")
 ### U-Turn (180-Degree)
 
 ```python
-from rosette import Route, Layer
+from rosette import Route, load_layer_map
 
-route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
+layers = load_layer_map()
+route = Route(layers.core.layer, width=0.5, bend_radius=5.0)
 route.start_at(0, 0)
 route.to(20, 0)
 route.to(20, 10)     # 90° up
@@ -82,9 +111,10 @@ cell = route.to_cell("u_turn")
 ### Width Transition
 
 ```python
-from rosette import Route, Layer
+from rosette import Route, load_layer_map
 
-route = Route(Layer(1, 0), width=0.4, bend_radius=5.0)
+layers = load_layer_map()
+route = Route(layers.core.layer, width=0.4, bend_radius=5.0)
 route.start_at(0, 0)
 route.to(10, 0)                  # Narrow input
 route.to(25, 0, width=1.0)       # Auto-taper to wide
@@ -99,10 +129,11 @@ cell = route.to_cell("tapered_section")
 ### 1x2 MMI Splitter
 
 ```python
-from rosette import Cell, Layer, Route, write_gds
+from rosette import Cell, Route, load_layer_map, write_gds
 from components import mmi_1x2
 
-layer = Layer(1, 0)
+layers = load_layer_map()
+layer = layers.core.layer
 mmi_cell = mmi_1x2(layer)
 mmi = mmi_cell.at(0, 0)
 
@@ -124,11 +155,11 @@ write_gds("output.gds", top)
 ### Y-Branch Splitter
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import ybranch
 
-layer = Layer(1, 0)
-yb_cell = ybranch(0.5, layer)  # 0.5um waveguide width
+layers = load_layer_map()
+yb_cell = ybranch(0.5, layers.core.layer)  # 0.5um waveguide width
 # Ports: in, out1, out2
 ```
 
@@ -137,11 +168,12 @@ yb_cell = ybranch(0.5, layer)  # 0.5um waveguide width
 ### Directional Coupler
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import directional_coupler
 
+layers = load_layer_map()
 dc_cell = directional_coupler(
-    Layer(1, 0),
+    layers.core.layer,
     coupling_length=20.0,
     gap=0.2,
     width=0.5
@@ -152,13 +184,14 @@ dc_cell = directional_coupler(
 ### Ring Resonator (All-Pass)
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import ring
 
+layers = load_layer_map()
 ring_cell = ring(
     radius=10.0,
     width=0.5,
-    layer=Layer(1, 0),
+    layer=layers.core.layer,
     gap=0.2,
     coupling="allpass"
 )
@@ -168,13 +201,14 @@ ring_cell = ring(
 ### Ring Resonator (Add-Drop)
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import ring
 
+layers = load_layer_map()
 ring_cell = ring(
     radius=10.0,
     width=0.5,
-    layer=Layer(1, 0),
+    layer=layers.core.layer,
     gap=0.2,
     coupling="adddrop"
 )
@@ -186,12 +220,13 @@ ring_cell = ring(
 ### Grating Coupler
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import grating_coupler
 
+layers = load_layer_map()
 gc_cell = grating_coupler(
     waveguide_width=0.5,
-    layer=Layer(1, 0),
+    layer=layers.core.layer,
     period=0.63,
     fill_factor=0.5,
     num_periods=20
@@ -202,10 +237,11 @@ gc_cell = grating_coupler(
 ### GC I/O Pattern
 
 ```python
-from rosette import Cell, Layer, Route, write_gds
+from rosette import Cell, Route, load_layer_map, write_gds
 from components import grating_coupler
 
-layer = Layer(1, 0)
+layers = load_layer_map()
+layer = layers.core.layer
 gc_cell = grating_coupler(waveguide_width=0.5, layer=layer)
 
 # Position GCs
@@ -228,12 +264,13 @@ write_gds("output.gds", top)
 ### Spiral Delay Line
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import spiral
 
+layers = load_layer_map()
 spiral_cell = spiral(
     width=0.5,
-    layer=Layer(1, 0),
+    layer=layers.core.layer,
     turns=5,
     min_radius=20.0,
     spacing=2.0
@@ -246,10 +283,11 @@ print(f"Path length: {spiral_cell.path_length:.1f}um")
 ### Basic Crossing
 
 ```python
-from rosette import Layer
+from rosette import load_layer_map
 from components import crossing
 
-crossing_cell = crossing(width=0.5, layer=Layer(1, 0))
+layers = load_layer_map()
+crossing_cell = crossing(width=0.5, layer=layers.core.layer)
 # Ports: in1, out1 (horizontal), in2, out2 (vertical)
 ```
 
@@ -258,9 +296,10 @@ crossing_cell = crossing(width=0.5, layer=Layer(1, 0))
 ### Path Length Matching
 
 ```python
-from rosette import Route, Layer
+from rosette import Route, load_layer_map
 
-layer = Layer(1, 0)
+layers = load_layer_map()
+layer = layers.core.layer
 
 # Arm 1: straight
 route1 = Route(layer, width=0.5, bend_radius=10.0)
@@ -324,15 +363,16 @@ min_spacing = 0.25
 ### Manual Rules (For Custom Checks)
 
 ```python
-from rosette import Layer, DrcRules
+from rosette import DrcRules, load_layer_map
 
-# Build rules programmatically when you need custom checks
+layers = load_layer_map()
+
+# Build rules programmatically using named layers
 rules = (
     DrcRules()
-    .min_width(Layer(1, 0), 0.12, name="WG.W.1")
-    .min_spacing(Layer(1, 0), Layer(1, 0), 0.13, name="WG.S.1")
-    .require_enclosure(Layer(1, 0), Layer(2, 0), 1.0, name="CLAD.E.1")
-    .forbid_overlap(Layer(1, 0), Layer(3, 0), name="WG.OVL.1")
+    .min_width(layers.core.layer, 0.12, name="WG.W.1")
+    .min_spacing(layers.core.layer, layers.core.layer, 0.13, name="WG.S.1")
+    .require_enclosure(layers.core.layer, layers.clad.layer, 1.0, name="CLAD.E.1")
 )
 ```
 

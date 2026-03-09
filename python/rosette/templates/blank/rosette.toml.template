@@ -6,6 +6,51 @@ version = "0.1.0"
 output_dir = "output"
 
 # =============================================================================
+# Layer Definitions
+# =============================================================================
+#
+# Named layers with GDS numbers and display properties.
+# Access in Python: layers = load_layer_map(); layers.core.layer
+#
+# Required: number (0-999)
+# Optional: datatype (default 0), color (hex), fill, opacity, description
+# Fill options: "solid", "hatched", "crosshatched", "dotted"
+
+[layers.core]
+number = 1
+datatype = 0
+color = "#ff69b4"
+description = "Waveguide core"
+
+[layers.clad]
+number = 2
+datatype = 0
+color = "#78909c"
+description = "Cladding"
+
+# [layers.slab]
+# number = 3
+# color = "#ff9800"
+# description = "Slab etch region"
+
+# [layers.metal]
+# number = 10
+# color = "#ffeb3b"
+# description = "Metal routing"
+
+# [layers.via]
+# number = 11
+# color = "#f44336"
+# fill = "crosshatched"
+# description = "Via layer"
+
+# [layers.text]
+# number = 100
+# color = "#607d8b"
+# fill = "dotted"
+# description = "Text annotations"
+
+# =============================================================================
 # Design Rule Check (DRC) Constraints
 # =============================================================================
 #

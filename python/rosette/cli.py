@@ -593,6 +593,19 @@ def _start_server(port: int):
     return server, f"http://localhost:{actual_port}"
 
 
+def _load_layer_map_safe() -> list[dict] | None:
+    """Try to load layer map from rosette.toml, return None on failure."""
+    try:
+        from rosette import load_layer_map
+
+        layer_map = load_layer_map()
+        if len(layer_map) > 0:
+            return layer_map.to_dict_list()
+    except (FileNotFoundError, ValueError):
+        pass
+    return None
+
+
 def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
     """Start development server with live preview for Python designs.
 
@@ -606,8 +619,9 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
     if design:
         cell, file_path, _ = load_design(design)
         json_str, cell_tree, child_cells_list = _prepare_design(cell)
+        layer_defs = _load_layer_map_safe()
 
-        server.set_design_json(json_str, cells=cell_tree)
+        server.set_design_json(json_str, cells=cell_tree, layers=layer_defs)
         server.set_design_cells(cell, child_cells_list)
 
         if not no_open:
@@ -623,6 +637,11 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
             components_dir = Path.cwd() / "components"
             if components_dir.exists():
                 watch_paths.append(components_dir)
+
+            # Also watch rosette.toml for layer changes
+            toml_path = Path.cwd() / "rosette.toml"
+            if toml_path.exists():
+                watch_paths.append(toml_path)
 
             for _changes in watch(*watch_paths):
                 try:
@@ -640,8 +659,9 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
 
                     cell, _, _ = load_design(design)
                     json_str, cell_tree, child_cells_list = _prepare_design(cell)
+                    layer_defs = _load_layer_map_safe()
 
-                    server.set_design_json(json_str, cells=cell_tree)
+                    server.set_design_json(json_str, cells=cell_tree, layers=layer_defs)
                     server.set_design_cells(cell, child_cells_list)
                 except Exception as e:
                     print(f"error: {e}")
@@ -683,8 +703,9 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False):
 
     inner_lib = read_gds(str(file_path))
     cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(inner_lib)
+    layer_defs = _load_layer_map_safe()
 
-    server.set_design_json(json_str, cells=cell_tree)
+    server.set_design_json(json_str, cells=cell_tree, layers=layer_defs)
     server.set_design_cells(cell, child_cells_list)
 
     if not no_open:
@@ -702,7 +723,8 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False):
                 cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(
                     inner_lib
                 )
-                server.set_design_json(json_str, cells=cell_tree)
+                layer_defs = _load_layer_map_safe()
+                server.set_design_json(json_str, cells=cell_tree, layers=layer_defs)
                 server.set_design_cells(cell, child_cells_list)
             except Exception as e:
                 print(f"error: {e}")

@@ -10,12 +10,14 @@ Components are Python functions in `components/` that you own and can customize.
 
 ```python
 import os
-from rosette import Cell, CellRef, Layer, Route, write_gds
+from rosette import Cell, CellRef, Layer, Route, load_layer_map, write_gds
 
 # Import components from local components/ directory
 from components import waveguide, bend, grating_coupler, mmi_1x2
 
-layer = Layer(1, 0)
+# Load named layers from rosette.toml (preferred over hardcoded numbers)
+layers = load_layer_map()
+layer = layers.core.layer  # Layer(1, 0)
 
 # Components are functions that return Cells
 wg_cell = waveguide(length=10.0, width=0.5, layer=layer)
@@ -77,8 +79,15 @@ Polygon.rect(origin, w, h)
 Polygon.rect_centered(center, w, h)
 Polygon.regular(center, radius, n_sides)
 
+# Layers (from rosette.toml)
+load_layer_map() -> LayerMap          # Load from rosette.toml
+  .core -> LayerInfo                  # Attribute access by name
+  .core.layer -> Layer(1, 0)          # Underlying Layer
+  .core.color -> "#4caf50"            # Hex color
+  .core.number, .core.datatype        # GDS numbers
+Layer(number, datatype=0)             # Direct layer (fallback)
+
 # Layout
-Layer(number, datatype=0)
 Cell(name)
   .add_polygon(poly, layer)
   .add_ref(CellRef(cell_name).at(x, y))

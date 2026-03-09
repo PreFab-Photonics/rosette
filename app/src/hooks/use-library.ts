@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { WasmLibrary } from "@/wasm/rosette_wasm";
 import { useExplorerStore } from "@/stores/explorer";
 import type { CellNode } from "@/stores/explorer";
-import { useLayerStore, hexToRgba, FILL_PATTERN_IDS, type Layer } from "@/stores/layer";
+import { useLayerStore, hexToRgba, FILL_PATTERN_IDS, LAYER_PALETTE, type Layer } from "@/stores/layer";
 import {
   isTauri,
   readGdsBytes,
@@ -31,6 +31,20 @@ function isTauriMode(): boolean {
 }
 
 /**
+ * Layer definition from rosette.toml (sent by the server).
+ */
+interface ServerLayerDef {
+  id: number;
+  layerNumber: number;
+  datatype: number;
+  name: string;
+  color: string;
+  visible: boolean;
+  fillPattern: string;
+  opacity: number;
+}
+
+/**
  * Response from the /api/design SSE endpoint.
  */
 interface DesignResponse {
@@ -38,6 +52,8 @@ interface DesignResponse {
   json: string | null;
   /** Cell hierarchy tree (design mode) or flat list (legacy). */
   cells: CellNode | string[] | null;
+  /** Layer definitions from rosette.toml (if available). */
+  layers: ServerLayerDef[] | null;
 }
 
 /**
@@ -57,35 +73,80 @@ function isCellTree(cells: CellNode | string[] | null): cells is CellNode {
  */
 function syncLayerColors(
   lib: WasmLibrary,
-  layers: Map<number, { color: string; layerNumber: number; datatype: number; visible?: boolean }>,
-  defaultAlpha = 0.7,
+  layers: Map<
+    number,
+    { color: string; layerNumber: number; datatype: number; visible?: boolean; opacity?: number }
+  >,
 ) {
   for (const layer of layers.values()) {
-    const alpha = layer.visible ? defaultAlpha : 0;
+    const alpha = layer.visible ? (layer.opacity ?? 0.7) : 0;
     const [r, g, b, a] = hexToRgba(layer.color, alpha);
     lib.set_layer_color(layer.layerNumber, layer.datatype, r, g, b, a);
   }
 }
 
-/** Color palette for auto-discovered layers (matches LayersPanel presets). */
-const LAYER_COLORS = [
-  "#f44336",
-  "#ff9800",
-  "#ffeb3b",
-  "#4caf50",
-  "#00bcd4",
-  "#2196f3",
-  "#9c27b0",
-  "#ff69b4",
-  "#795548",
-  "#607d8b",
-  "#3f51b5",
-  "#009688",
-  "#e6e6e6",
-  "#8d6e63",
-  "#ff6f00",
-  "#1a237e",
-];
+/** Color palette for auto-discovered layers (single source of truth in store). */
+const LAYER_COLORS = LAYER_PALETTE;
+
+/**
+ * Apply server-provided layer definitions from rosette.toml.
+ *
+ * Uses the layer names, colors, fill patterns, and opacity from the
+ * project's rosette.toml [layers] section. Any layers found in the
+ * WASM library but not defined in rosette.toml get auto-assigned
+ * colors from the palette.
+ *
+ * @returns true if server layers were applied, false if fallback needed
+ */
+function applyServerLayers(lib: WasmLibrary, serverLayers: ServerLayerDef[]): boolean {
+  if (serverLayers.length === 0) return false;
+
+  // Build a set of (layerNumber, datatype) pairs defined by the server
+  const defined = new Set(
+    serverLayers.map((l) => `${l.layerNumber}/${l.datatype}`),
+  );
+
+  // Start with server-defined layers
+  const newLayers: Layer[] = serverLayers.map((l) => ({
+    id: l.id,
+    layerNumber: l.layerNumber,
+    datatype: l.datatype,
+    name: l.name,
+    color: l.color,
+    visible: l.visible ?? true,
+    fillPattern: (l.fillPattern ?? "solid") as Layer["fillPattern"],
+    opacity: l.opacity ?? 0.7,
+  }));
+
+  // Discover any additional layers in the GDS that aren't in rosette.toml
+  const usedLayers = lib.get_used_layers();
+  let nextId = Math.max(0, ...newLayers.map((l) => l.id)) + 1;
+  let colorIdx = newLayers.length;
+
+  for (let i = 0; i < usedLayers.length; i += 2) {
+    const layerNumber = usedLayers[i];
+    const datatype = usedLayers[i + 1];
+    const key = `${layerNumber}/${datatype}`;
+
+    if (!defined.has(key)) {
+      // Layer exists in GDS but not in rosette.toml — auto-assign
+      newLayers.push({
+        id: nextId++,
+        layerNumber,
+        datatype,
+        name: datatype === 0 ? `layer${layerNumber}` : `layer${layerNumber}/${datatype}`,
+        color: LAYER_COLORS[colorIdx % LAYER_COLORS.length],
+        visible: true,
+        fillPattern: "solid",
+        opacity: 0.7,
+      });
+      colorIdx++;
+    }
+  }
+
+  useLayerStore.getState().resetLayers(newLayers);
+  return true;
+}
 
 /**
  * Discover layers used in a library and reset the layer store.
@@ -274,8 +335,12 @@ export function useLibrary(
             // Create library from pre-flattened JSON (fast path)
             const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
 
-            // Discover layers from the design and sync colors
-            discoverLayers(newLibrary);
+            // Apply server-provided layer definitions, or fall back to auto-discovery
+            if (data.layers && data.layers.length > 0) {
+              applyServerLayers(newLibrary, data.layers);
+            } else {
+              discoverLayers(newLibrary);
+            }
             syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
             // Free old library to prevent memory leak

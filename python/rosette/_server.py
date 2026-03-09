@@ -42,6 +42,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     webapp_dir: Path | None = None
     design_json: str | None = None
     design_cells: dict | None = None  # Hierarchy tree: {name, children}
+    design_layers: list[dict] | None = None  # Layer definitions from rosette.toml
     design_version: int = 0
     on_error: Callable[[str], None] | None = None
 
@@ -169,6 +170,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                 "version": last_version,
                 "json": self.__class__.design_json,
                 "cells": self.__class__.design_cells,
+                "layers": self.__class__.design_layers,
             },
         )
 
@@ -188,6 +190,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                             "version": current_version,
                             "json": self.__class__.design_json,
                             "cells": self.__class__.design_cells,
+                            "layers": self.__class__.design_layers,
                         },
                     )
                     last_version = current_version
@@ -212,6 +215,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             "version": self.__class__.design_version,
             "json": self.__class__.design_json,
             "cells": self.__class__.design_cells,
+            "layers": self.__class__.design_layers,
         }
 
         self.send_response(200)
@@ -295,15 +299,22 @@ class RosetteServer:
         self._httpd: socketserver.TCPServer | None = None
         self._thread: threading.Thread | None = None
 
-    def set_design_json(self, json_str: str, cells: dict | None = None) -> None:
+    def set_design_json(
+        self,
+        json_str: str,
+        cells: dict | None = None,
+        layers: list[dict] | None = None,
+    ) -> None:
         """Update the design JSON and increment version.
 
         Args:
             json_str: JSON string of the serialized library
             cells: Optional cell hierarchy tree: {name, children}
+            layers: Optional layer definitions from rosette.toml (LayerMap.to_dict_list())
         """
         RosetteHandler.design_json = json_str
         RosetteHandler.design_cells = cells
+        RosetteHandler.design_layers = layers
         RosetteHandler.design_version += 1
 
         # Notify all SSE connections of the change

@@ -14,6 +14,32 @@ export const FILL_PATTERN_IDS: Record<FillPattern, number> = {
 };
 
 /**
+ * Color palette for layers. Used when auto-assigning colors to new layers
+ * and as preset swatches in the color picker. Single source of truth.
+ */
+export const LAYER_PALETTE = [
+  "#f44336",
+  "#ff9800",
+  "#ffeb3b",
+  "#4caf50",
+  "#00bcd4",
+  "#2196f3",
+  "#9c27b0",
+  "#ff69b4",
+  "#795548",
+  "#607d8b",
+  "#3f51b5",
+  "#009688",
+  "#e6e6e6",
+  "#8d6e63",
+  "#ff6f00",
+  "#1a237e",
+];
+
+/** Maximum allowed value for GDS layer number and datatype. */
+export const MAX_LAYER_NUMBER = 999;
+
+/**
  * A layer for organizing shapes.
  *
  * Uses GDS layer number + datatype convention for proper foundry PDK compatibility.
@@ -38,14 +64,14 @@ export interface Layer {
 }
 
 /**
- * Default layers matching common photonic PDKs.
+ * Default layers matching the rosette.toml template.
  */
 const DEFAULT_LAYERS: Layer[] = [
   {
     id: 1,
     layerNumber: 1,
     datatype: 0,
-    name: "silicon",
+    name: "core",
     color: "#ff69b4",
     visible: true,
     fillPattern: "solid",
@@ -55,7 +81,7 @@ const DEFAULT_LAYERS: Layer[] = [
     id: 2,
     layerNumber: 2,
     datatype: 0,
-    name: "text",
+    name: "clad",
     color: "#78909c",
     visible: true,
     fillPattern: "solid",
@@ -132,23 +158,28 @@ export const useLayerStore = create<LayerState>((set, get) => ({
     const state = get();
     const existingLayers = Array.from(state.layers.values());
 
-    // Find next available layer number
+    // Find next available layer number (capped at MAX_LAYER_NUMBER)
     let nextLayerNumber = 1;
     const usedNumbers = new Set(existingLayers.map((l) => l.layerNumber));
-    while (usedNumbers.has(nextLayerNumber)) {
+    while (usedNumbers.has(nextLayerNumber) && nextLayerNumber <= MAX_LAYER_NUMBER) {
       nextLayerNumber++;
+    }
+    if (nextLayerNumber > MAX_LAYER_NUMBER) {
+      // All layer numbers 1..999 are in use — return a dummy to satisfy the type,
+      // but don't actually add it. Callers should check the store.
+      return existingLayers[0];
     }
 
     // Generate unique ID
     const maxId = Math.max(0, ...existingLayers.map((l) => l.id));
     const newId = maxId + 1;
 
-    // Generate random color if not provided
+    // Pick next color from palette (cycling), or use the provided color
+    const usedColors = new Set(existingLayers.map((l) => l.color));
     const newColor =
       color ??
-      `#${Math.floor(Math.random() * 16777215)
-        .toString(16)
-        .padStart(6, "0")}`;
+      LAYER_PALETTE.find((c) => !usedColors.has(c)) ??
+      LAYER_PALETTE[existingLayers.length % LAYER_PALETTE.length];
 
     const newLayer: Layer = {
       id: newId,

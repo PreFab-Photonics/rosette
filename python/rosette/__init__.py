@@ -27,6 +27,7 @@ For library development, import from rosette.components:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tomllib
 import warnings
@@ -1055,6 +1056,283 @@ def write_gds(
     _write_gds(str(path), inner_design, inner_cells, quiet, verbose)
 
 
+# =============================================================================
+# LayerMap: Named layer definitions with colors from layers.toml
+# =============================================================================
+
+# Valid fill pattern values (matches app/WASM renderer)
+_VALID_FILL_PATTERNS = {"solid", "hatched", "crosshatched", "dotted"}
+
+# Hex color regex: #RRGGBB
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+class LayerInfo:
+    """A single layer definition with metadata.
+
+    Combines the GDS layer identity (number, datatype) with display
+    properties (color, fill, opacity) and a human-readable description.
+
+    Use `info.layer` to get the underlying Layer for rosette APIs::
+
+        layers = load_layer_map()
+        cell.add_polygon(poly, layers.core.layer)
+
+    Attributes:
+        layer: The underlying Layer(number, datatype)
+        name: Semantic name (e.g., "core", "clad")
+        color: Hex color string (e.g., "#ff69b4")
+        fill: Fill pattern ("solid", "hatched", "crosshatched", "dotted")
+        opacity: Fill opacity 0.0-1.0
+        description: Human-readable description
+    """
+
+    __slots__ = ("color", "description", "fill", "layer", "name", "opacity")
+
+    def __init__(
+        self,
+        name: str,
+        layer: Layer,
+        color: str = "#808080",
+        fill: str = "solid",
+        opacity: float = 0.7,
+        description: str = "",
+    ) -> None:
+        self.name = name
+        self.layer = layer
+        self.color = color
+        self.fill = fill
+        self.opacity = opacity
+        self.description = description
+
+    @property
+    def number(self) -> int:
+        """GDS layer number."""
+        return self.layer.number
+
+    @property
+    def datatype(self) -> int:
+        """GDS datatype."""
+        return self.layer.datatype
+
+    def __repr__(self) -> str:
+        return (
+            f"LayerInfo('{self.name}', Layer({self.number}, {self.datatype}), color='{self.color}')"
+        )
+
+
+class LayerMap:
+    """Named layer definitions loaded from layers.toml.
+
+    Provides attribute-style access to layers by semantic name, so
+    components and designs can reference layers without hardcoded numbers.
+
+    Example:
+        layers = load_layer_map()
+        layers.core        # -> LayerInfo('core', Layer(1, 0), color='#ff69b4')
+        layers.core.layer  # -> Layer(1, 0)
+        layers.core.color  # -> '#ff69b4'
+
+        # Use directly in component calls and cell operations
+        wg = waveguide(layers.core.layer, width=0.5, length=10.0)
+        cell.add_polygon(poly, layers.core.layer)
+
+        # Iterate over all layers
+        for info in layers:
+            print(f"{info.name}: Layer({info.number}, {info.datatype})")
+
+        # Export as list of dicts (for app/viewer consumption)
+        layers.to_dict_list()
+    """
+
+    def __init__(self, layer_infos: list[LayerInfo] | None = None) -> None:
+        """Create a LayerMap from a list of LayerInfo objects.
+
+        Args:
+            layer_infos: List of layer definitions. If None, creates an empty map.
+        """
+        self._layers: dict[str, LayerInfo] = {}
+        if layer_infos:
+            for info in layer_infos:
+                self._layers[info.name] = info
+
+    def __getattr__(self, name: str) -> LayerInfo:
+        # Avoid infinite recursion for dunder/private attrs
+        if name.startswith("_"):
+            raise AttributeError(name)
+        try:
+            return self._layers[name]
+        except KeyError:
+            available = ", ".join(self._layers.keys()) if self._layers else "(none)"
+            raise AttributeError(
+                f"No layer named '{name}'. Available layers: {available}"
+            ) from None
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._layers
+
+    def __iter__(self):
+        return iter(self._layers.values())
+
+    def __len__(self) -> int:
+        return len(self._layers)
+
+    def get(self, name: str) -> LayerInfo | None:
+        """Get a layer by name, or None if not found."""
+        return self._layers.get(name)
+
+    def names(self) -> list[str]:
+        """Get all layer names."""
+        return list(self._layers.keys())
+
+    def to_dict_list(self) -> list[dict]:
+        """Export as a list of dicts for serialization.
+
+        Returns a list suitable for JSON serialization, with keys matching
+        the app's Layer interface.
+        """
+        result = []
+        for i, info in enumerate(self._layers.values(), start=1):
+            result.append(
+                {
+                    "id": i,
+                    "layerNumber": info.number,
+                    "datatype": info.datatype,
+                    "name": info.name,
+                    "color": info.color,
+                    "visible": True,
+                    "fillPattern": info.fill,
+                    "opacity": info.opacity,
+                }
+            )
+        return result
+
+    def __repr__(self) -> str:
+        names = ", ".join(self._layers.keys())
+        return f"LayerMap([{names}])"
+
+
+def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
+    """Load layer definitions from rosette.toml.
+
+    Reads the [layers] section of rosette.toml which maps semantic names
+    to GDS layer numbers with optional display properties (color, fill, opacity).
+
+    Args:
+        config_path: Optional explicit path to rosette.toml. If None, searches
+                     from current directory upward.
+
+    Returns:
+        LayerMap with named layer access
+
+    Raises:
+        FileNotFoundError: If rosette.toml is not found
+        ValueError: If the config has invalid layer definitions
+
+    Example:
+        In rosette.toml:
+
+            [layers.core]
+            number = 1
+            datatype = 0
+            color = "#ff69b4"
+            description = "Waveguide core"
+
+            [layers.clad]
+            number = 2
+            color = "#4caf50"
+
+        Usage:
+
+            layers = load_layer_map()
+            layers.core.layer   # Layer(1, 0)
+            layers.core.color   # "#ff69b4"
+            layers.clad.number  # 2
+    """
+    # Find config file
+    if config_path is not None:
+        toml_path = Path(config_path)
+        if not toml_path.exists():
+            raise FileNotFoundError(f"Config file not found: {toml_path}")
+    else:
+        toml_path = _find_rosette_toml()
+        if toml_path is None:
+            raise FileNotFoundError(
+                "rosette.toml not found. Run 'rosette init' to create a project, "
+                "or specify config_path explicitly."
+            )
+
+    # Parse TOML
+    with open(toml_path, "rb") as f:
+        config = tomllib.load(f)
+
+    layers_config = config.get("layers", {})
+    if not layers_config:
+        return LayerMap()
+
+    layer_infos = []
+    seen_pairs: dict[tuple[int, int], str] = {}
+
+    for name, props in layers_config.items():
+        if not isinstance(props, dict):
+            raise ValueError(f"Layer '{name}': expected a table, got {type(props).__name__}")
+
+        # Required: number
+        if "number" not in props:
+            raise ValueError(f"Layer '{name}': missing required field 'number'")
+
+        number = props["number"]
+        if not isinstance(number, int) or number < 0 or number > 999:
+            raise ValueError(f"Layer '{name}': 'number' must be an integer 0-999, got {number!r}")
+
+        datatype = props.get("datatype", 0)
+        if not isinstance(datatype, int) or datatype < 0 or datatype > 999:
+            raise ValueError(
+                f"Layer '{name}': 'datatype' must be an integer 0-999, got {datatype!r}"
+            )
+
+        # Check for duplicate (number, datatype) pairs
+        pair = (number, datatype)
+        if pair in seen_pairs:
+            raise ValueError(
+                f"Layer '{name}': layer ({number}, {datatype}) already defined "
+                f"as '{seen_pairs[pair]}'"
+            )
+        seen_pairs[pair] = name
+
+        # Optional display properties
+        color = props.get("color", "#808080")
+        if not isinstance(color, str) or not _HEX_COLOR_RE.match(color):
+            raise ValueError(
+                f"Layer '{name}': 'color' must be a hex string like '#ff0000', got {color!r}"
+            )
+
+        fill = props.get("fill", "solid")
+        if fill not in _VALID_FILL_PATTERNS:
+            raise ValueError(
+                f"Layer '{name}': 'fill' must be one of {_VALID_FILL_PATTERNS}, got {fill!r}"
+            )
+
+        opacity = props.get("opacity", 0.7)
+        if not isinstance(opacity, (int, float)) or opacity < 0.0 or opacity > 1.0:
+            raise ValueError(f"Layer '{name}': 'opacity' must be a number 0.0-1.0, got {opacity!r}")
+
+        description = props.get("description", "")
+
+        layer_infos.append(
+            LayerInfo(
+                name=name,
+                layer=Layer(number, datatype),
+                color=color,
+                fill=fill,
+                opacity=float(opacity),
+                description=description,
+            )
+        )
+
+    return LayerMap(layer_infos)
+
+
 __all__ = [
     "BBox",
     "Cell",
@@ -1064,6 +1342,8 @@ __all__ = [
     "DrcViolation",
     "Instance",
     "Layer",
+    "LayerInfo",
+    "LayerMap",
     "Library",
     "PathEndType",
     "Point",
@@ -1076,6 +1356,7 @@ __all__ = [
     "fresnel_c",
     "fresnel_s",
     "load_drc_rules",
+    "load_layer_map",
     "offset_polygon",
     "offset_polygon_varying",
     "path_length",

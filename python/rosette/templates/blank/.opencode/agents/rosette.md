@@ -16,12 +16,13 @@ You are designing photonic integrated circuits using rosette.
 
 | Need | Location |
 |------|----------|
+| **Layer definitions (names, numbers, colors)** | `rosette.toml` [layers] section |
 | **Design constraints (DRC rules)** | `rosette.toml` [drc.layers] section |
 | Existing design examples | `designs/*.py` |
 | Component API (parameters, ports) | `components/*.py` |
 | Copy-paste recipes | `.rosette/patterns.md` |
 
-**Always check `rosette.toml`** for design constraints before starting. The `[drc.layers]` section defines min_width, min_spacing, and allowed angles for each layer.
+**Always check `rosette.toml`** before starting. The `[layers]` section maps semantic names to GDS layer numbers (use `load_layer_map()` to access them). The `[drc.layers]` section defines min_width, min_spacing, and allowed angles.
 
 ## Running Designs
 
@@ -29,6 +30,26 @@ You are designing photonic integrated circuits using rosette.
 rosette build designs/<name>.py
 # or
 python designs/<name>.py
+```
+
+## Layer Definitions
+
+Layers are defined in `rosette.toml` and loaded with `load_layer_map()`. **Always use named layers** instead of hardcoded numbers:
+
+```python
+from rosette import load_layer_map
+
+layers = load_layer_map()
+layer = layers.core.layer   # Layer(1, 0) - semantic access
+```
+
+Check `rosette.toml` [layers] section to see available layer names and their GDS numbers. If you need a layer that doesn't exist, add it to `rosette.toml` first:
+
+```toml
+[layers.metal]
+number = 10
+color = "#ffeb3b"
+description = "Metal routing"
 ```
 
 ## Design Rule Checking

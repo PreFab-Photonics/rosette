@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLayerStore, type Layer, type FillPattern } from "@/stores/layer";
+import { useLayerStore, LAYER_PALETTE, MAX_LAYER_NUMBER, type Layer, type FillPattern } from "@/stores/layer";
 import { useContextMenuStore } from "@/stores/context-menu";
 import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
@@ -12,25 +12,8 @@ import { cn } from "@/lib/utils";
 // Constants
 // =============================================================================
 
-/** Preset color palette for the color picker. */
-const COLOR_PRESETS = [
-  "#f44336",
-  "#ff9800",
-  "#ffeb3b",
-  "#4caf50",
-  "#00bcd4",
-  "#2196f3",
-  "#9c27b0",
-  "#ff69b4",
-  "#795548",
-  "#607d8b",
-  "#3f51b5",
-  "#009688",
-  "#e6e6e6",
-  "#8d6e63",
-  "#ff6f00",
-  "#1a237e",
-];
+/** Preset color palette for the color picker (from store). */
+const COLOR_PRESETS = LAYER_PALETTE;
 
 /** Fill pattern options with labels and icons. */
 const FILL_PATTERNS: { id: FillPattern; label: string }[] = [
@@ -283,7 +266,7 @@ function LayerNumberField({
 
   const commit = useCallback(() => {
     const parsed = Number.parseInt(editValue, 10);
-    if (!Number.isNaN(parsed) && parsed >= 0 && parsed !== value) {
+    if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= MAX_LAYER_NUMBER && parsed !== value) {
       onChange(parsed);
     } else {
       setEditValue(String(value));
