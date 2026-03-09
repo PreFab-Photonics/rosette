@@ -26,6 +26,7 @@ import { useHistoryStore } from "@/stores/history";
 import { useWasm } from "@/hooks/use-wasm";
 import { useRuler } from "@/hooks/use-ruler";
 import { AddCellRefCommand } from "@/lib/commands";
+import { getEffectiveViewport } from "@/lib/utils";
 import { LaserCursor } from "@/components/canvas/LaserCursor";
 import { ZoomBox } from "@/components/canvas/ZoomBox";
 import { MarqueeBox } from "@/components/canvas/MarqueeBox";
@@ -235,6 +236,22 @@ export function Canvas() {
       library.set_active_cell(activeCell);
       renderer.sync_from_library(library);
       renderer.mark_dirty();
+
+      // Zoom to fit the new cell
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const boundsArray = library.get_all_bounds();
+        const vp = getEffectiveViewport(canvas);
+        if (boundsArray && vp.width > 0 && vp.height > 0) {
+          const bounds: WorldBounds = {
+            minX: boundsArray[0],
+            minY: boundsArray[1],
+            maxX: boundsArray[2],
+            maxY: boundsArray[3],
+          };
+          useViewportStore.getState().zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
+        }
+      }
     }
   }, [library, renderer, activeCell]);
 
@@ -269,14 +286,14 @@ export function Canvas() {
       maxY: boundsArray[3],
     };
 
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
+    const vp = getEffectiveViewport(canvas);
+    if (vp.width <= 0 || vp.height <= 0) return;
 
     const isDesignReload = lastLibraryRef.current !== null && lastLibraryRef.current !== library;
     const isInitialLoad = !hasInitialZoom.current;
 
     if (isInitialLoad || isDesignReload) {
-      useViewportStore.getState().zoomToFit(bounds, rect.width, rect.height);
+      useViewportStore.getState().zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
       hasInitialZoom.current = true;
     }
 

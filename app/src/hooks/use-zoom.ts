@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { useZoomStore } from "@/stores/zoom";
 import { useToolStore } from "@/stores/tool";
 import { useViewportStore } from "@/stores/viewport";
+import { getEffectiveViewport } from "@/lib/utils";
 
 /**
  * Hook to manage zoom tool marquee interactions.
@@ -84,11 +85,10 @@ export function useZoom(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
         maxY: worldMaxY,
       };
 
-      // Use CSS pixel dimensions (getBoundingClientRect), not canvas.width/height
-      // which are now physical pixels for HiDPI support
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        zoomToBounds(bounds, rect.width, rect.height);
+      // Use effective viewport to account for floating panels
+      const vp = getEffectiveViewport(canvas);
+      if (vp.width > 0 && vp.height > 0) {
+        zoomToBounds(bounds, vp.width, vp.height, vp.screenCenter);
       }
     }
 

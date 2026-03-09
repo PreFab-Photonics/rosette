@@ -28,7 +28,7 @@ import { useCommandPaletteStore } from "@/stores/command-palette";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useUIStore } from "@/stores/ui";
 import { useTextStore } from "@/stores/text";
-import { centerViewOnSelection } from "@/lib/utils";
+import { centerViewOnSelection, getEffectiveViewport } from "@/lib/utils";
 
 /** Keys tracked for continuous panning. */
 const PAN_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
@@ -417,9 +417,8 @@ export function useKeyboardShortcuts(
                   maxY: boundsArray[3],
                 }
               : null;
-            // Use CSS pixel dimensions for viewport calculations
-            const rect = canvas.getBoundingClientRect();
-            zoomToFit(bounds, rect.width, rect.height);
+            const vp = getEffectiveViewport(canvas);
+            zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
           }
           break;
         case "F":
@@ -437,9 +436,8 @@ export function useKeyboardShortcuts(
                     maxY: boundsArray[3],
                   }
                 : null;
-              // Use CSS pixel dimensions for viewport calculations
-              const rectF = canvas.getBoundingClientRect();
-              zoomToSelected(bounds, rectF.width, rectF.height);
+              const vpF = getEffectiveViewport(canvas);
+              zoomToSelected(bounds, vpF.width, vpF.height, vpF.screenCenter);
             }
           }
           break;

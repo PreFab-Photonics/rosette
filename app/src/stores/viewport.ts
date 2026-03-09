@@ -37,14 +37,36 @@ interface ViewportState {
   reset: (canvasWidth: number, canvasHeight: number) => void;
   /** Initialize offset to center origin on screen (only runs once). */
   initOffset: (canvasWidth: number, canvasHeight: number) => void;
-  /** Zoom to fit the given world bounds with padding. */
-  zoomToBounds: (bounds: WorldBounds, canvasWidth: number, canvasHeight: number) => void;
+  /** Zoom to fit the given world bounds with padding.
+   * Optional screenCenter overrides where the bounds are centered on screen
+   * (defaults to canvas center). Used to account for floating panels. */
+  zoomToBounds: (
+    bounds: WorldBounds,
+    canvasWidth: number,
+    canvasHeight: number,
+    screenCenter?: { x: number; y: number },
+  ) => void;
   /** Zoom to fit all objects, or reset to default if no bounds provided. */
-  zoomToFit: (bounds: WorldBounds | null, canvasWidth: number, canvasHeight: number) => void;
+  zoomToFit: (
+    bounds: WorldBounds | null,
+    canvasWidth: number,
+    canvasHeight: number,
+    screenCenter?: { x: number; y: number },
+  ) => void;
   /** Zoom to fit selected objects (no-op if no bounds provided). */
-  zoomToSelected: (bounds: WorldBounds | null, canvasWidth: number, canvasHeight: number) => void;
+  zoomToSelected: (
+    bounds: WorldBounds | null,
+    canvasWidth: number,
+    canvasHeight: number,
+    screenCenter?: { x: number; y: number },
+  ) => void;
   /** Center view on bounds without changing zoom level. */
-  centerOnBounds: (bounds: WorldBounds, canvasWidth: number, canvasHeight: number) => void;
+  centerOnBounds: (
+    bounds: WorldBounds,
+    canvasWidth: number,
+    canvasHeight: number,
+    screenCenter?: { x: number; y: number },
+  ) => void;
 }
 
 /**
@@ -120,7 +142,7 @@ export const useViewportStore = create<ViewportState>((set, get) => ({
     }
   },
 
-  zoomToBounds: (bounds, canvasWidth, canvasHeight) => {
+  zoomToBounds: (bounds, canvasWidth, canvasHeight, screenCenter?) => {
     // Calculate bounds dimensions
     const baseWidth = Math.abs(bounds.maxX - bounds.minX);
     const baseHeight = Math.abs(bounds.maxY - bounds.minY);
@@ -148,9 +170,11 @@ export const useViewportStore = create<ViewportState>((set, get) => ({
     // Calculate offset to center bounds on screen
     // screenPos = worldPos * zoom + offset
     // offset = screenCenter - worldCenter * zoom
+    const cx = screenCenter ? screenCenter.x : canvasWidth / 2;
+    const cy = screenCenter ? screenCenter.y : canvasHeight / 2;
     const newOffset = {
-      x: canvasWidth / 2 - centerX * newZoom,
-      y: canvasHeight / 2 - centerY * newZoom,
+      x: cx - centerX * newZoom,
+      y: cy - centerY * newZoom,
     };
 
     set({
@@ -159,24 +183,30 @@ export const useViewportStore = create<ViewportState>((set, get) => ({
     });
   },
 
-  zoomToFit: (bounds, canvasWidth, canvasHeight) => {
+  zoomToFit: (bounds, canvasWidth, canvasHeight, screenCenter?) => {
     if (bounds) {
-      get().zoomToBounds(bounds, canvasWidth, canvasHeight);
+      get().zoomToBounds(bounds, canvasWidth, canvasHeight, screenCenter);
     } else {
-      // No objects - reset to default view
-      get().reset(canvasWidth, canvasHeight);
+      // No objects - reset to default view, centering on visible area
+      const cx = screenCenter ? screenCenter.x : canvasWidth / 2;
+      const cy = screenCenter ? screenCenter.y : canvasHeight / 2;
+      set({
+        zoom: DEFAULT_ZOOM,
+        offset: { x: cx, y: cy },
+        initialized: true,
+      });
     }
   },
 
-  zoomToSelected: (bounds, canvasWidth, canvasHeight) => {
+  zoomToSelected: (bounds, canvasWidth, canvasHeight, screenCenter?) => {
     // Only zoom if we have bounds (i.e., there's a selection)
     if (bounds) {
-      get().zoomToBounds(bounds, canvasWidth, canvasHeight);
+      get().zoomToBounds(bounds, canvasWidth, canvasHeight, screenCenter);
     }
     // No-op if no selection
   },
 
-  centerOnBounds: (bounds, canvasWidth, canvasHeight) => {
+  centerOnBounds: (bounds, canvasWidth, canvasHeight, screenCenter?) => {
     const state = get();
 
     // Center of bounds in world coordinates
@@ -186,9 +216,11 @@ export const useViewportStore = create<ViewportState>((set, get) => ({
     // Calculate offset to center bounds on screen (keep current zoom)
     // screenPos = worldPos * zoom + offset
     // offset = screenCenter - worldCenter * zoom
+    const cx = screenCenter ? screenCenter.x : canvasWidth / 2;
+    const cy = screenCenter ? screenCenter.y : canvasHeight / 2;
     const newOffset = {
-      x: canvasWidth / 2 - centerX * state.zoom,
-      y: canvasHeight / 2 - centerY * state.zoom,
+      x: cx - centerX * state.zoom,
+      y: cy - centerY * state.zoom,
     };
 
     set({ offset: newOffset });

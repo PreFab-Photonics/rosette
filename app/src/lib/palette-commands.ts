@@ -35,7 +35,7 @@ import {
 import type { AlignType } from "@/lib/align";
 import type { BooleanOpType } from "@/lib/commands";
 import { useExplorerStore } from "@/stores/explorer";
-import { keys } from "@/lib/utils";
+import { keys, getEffectiveViewport } from "@/lib/utils";
 
 // =============================================================================
 // Types
@@ -273,8 +273,8 @@ export function getCommands(): CommandItem[] {
                 maxY: boundsArray[3],
               }
             : null;
-          const rect = canvas.getBoundingClientRect();
-          useViewportStore.getState().zoomToFit(bounds, rect.width, rect.height);
+          const vp = getEffectiveViewport(canvas);
+          useViewportStore.getState().zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
         }
         close();
       },
@@ -300,8 +300,8 @@ export function getCommands(): CommandItem[] {
                   maxY: boundsArray[3],
                 }
               : null;
-            const rect = canvas.getBoundingClientRect();
-            useViewportStore.getState().zoomToSelected(bounds, rect.width, rect.height);
+            const vp = getEffectiveViewport(canvas);
+            useViewportStore.getState().zoomToSelected(bounds, vp.width, vp.height, vp.screenCenter);
           }
         }
         close();

@@ -23,7 +23,7 @@ import {
 } from "@/lib/commands";
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 import { isTauri } from "@/lib/tauri";
-import { cn, keys, centerViewOnSelection } from "@/lib/utils";
+import { cn, keys, centerViewOnSelection, getEffectiveViewport } from "@/lib/utils";
 
 // =============================================================================
 // Types (shared by HamburgerMenu)
@@ -430,8 +430,8 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
                     maxY: boundsArray[3],
                   }
                 : null;
-              const rect = canvas.getBoundingClientRect();
-              useViewportStore.getState().zoomToFit(bounds, rect.width, rect.height);
+              const vp = getEffectiveViewport(canvas);
+              useViewportStore.getState().zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
             },
             disabled: false,
           },
@@ -453,8 +453,8 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
                     maxY: boundsArray[3],
                   }
                 : null;
-              const rect = canvas.getBoundingClientRect();
-              useViewportStore.getState().zoomToSelected(bounds, rect.width, rect.height);
+              const vp = getEffectiveViewport(canvas);
+              useViewportStore.getState().zoomToSelected(bounds, vp.width, vp.height, vp.screenCenter);
             },
             disabled: !hasSelection,
           },
