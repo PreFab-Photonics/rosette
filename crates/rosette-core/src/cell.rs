@@ -497,6 +497,11 @@ impl Library {
         &self.cells
     }
 
+    /// Get all cells mutably.
+    pub fn cells_mut(&mut self) -> &mut [Cell] {
+        &mut self.cells
+    }
+
     /// Add a cell to the library.
     ///
     /// # Errors

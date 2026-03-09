@@ -1,6 +1,7 @@
 use std::fs;
 
 use serde::Serialize;
+use tauri::ipc::Response;
 use tauri::State;
 
 use rosette_io::gds;
@@ -34,6 +35,24 @@ pub fn open_gds(path: String, state: State<'_, AppState>) -> Result<OpenGdsRespo
     }
 
     Ok(OpenGdsResponse { json })
+}
+
+/// Read raw GDS file bytes without parsing.
+///
+/// Returns the raw binary content via Tauri's binary IPC (no JSON encoding).
+/// The frontend passes these bytes directly to `WasmLibrary.from_gds_bytes()`,
+/// which parses the GDS in WASM — avoiding the JSON serialization round-trip
+/// that `open_gds` uses.
+#[tauri::command]
+pub fn read_gds_bytes(path: String, state: State<'_, AppState>) -> Result<Response, String> {
+    let bytes = fs::read(&path).map_err(|e| format!("Failed to read GDS file: {e}"))?;
+
+    // Track the current file path for Save
+    if let Ok(mut current) = state.current_file.lock() {
+        *current = Some(path);
+    }
+
+    Ok(Response::new(bytes))
 }
 
 /// Save GDS bytes to a file.

@@ -29,6 +29,17 @@ export async function openGds(path: string): Promise<OpenGdsResponse> {
   return invoke<OpenGdsResponse>("open_gds", { path });
 }
 
+/**
+ * Read raw GDS file bytes via the Tauri backend.
+ *
+ * Uses Tauri's binary IPC — the bytes are transferred as an ArrayBuffer,
+ * not JSON-encoded. The frontend passes these to `WasmLibrary.from_gds_bytes()`.
+ */
+export async function readGdsBytes(path: string): Promise<Uint8Array> {
+  const buffer = await invoke<ArrayBuffer>("read_gds_bytes", { path });
+  return new Uint8Array(buffer);
+}
+
 /** Save GDS bytes to a file via the Tauri backend. */
 export async function saveGds(path: string, bytes: Uint8Array): Promise<void> {
   return invoke<void>("save_gds", { path, bytes: Array.from(bytes) });

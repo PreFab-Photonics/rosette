@@ -140,6 +140,11 @@ pub struct WasmRenderer {
     polygon_index_count: u32,
     shape_manager: ShapeManager,
 
+    // Preview shape rendering (separate buffer to avoid retriangulating all shapes)
+    preview_vertex_buffer: wgpu::Buffer,
+    preview_index_buffer: wgpu::Buffer,
+    preview_index_count: u32,
+
     // Outline rendering (selection/hover)
     // Completely separate buffers and bind groups to avoid any buffer sharing issues
     outline_pipeline: wgpu::RenderPipeline,
@@ -650,6 +655,20 @@ impl WasmRenderer {
             }],
         });
 
+        // Preview buffers (small — typically a single rectangle or polygon being drawn)
+        let preview_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("preview-vertices"),
+            size: (1024 * std::mem::size_of::<PolygonVertex>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let preview_index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("preview-indices"),
+            size: (3072 * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let polygon_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("polygon-shader"),
             source: wgpu::ShaderSource::Wgsl(shaders::POLYGON_SHADER.into()),
@@ -1054,6 +1073,10 @@ impl WasmRenderer {
             polygon_bind_group,
             polygon_index_count: 0,
             shape_manager: ShapeManager::new(),
+            // Preview shape rendering (separate buffer)
+            preview_vertex_buffer,
+            preview_index_buffer,
+            preview_index_count: 0,
             // Outline rendering (completely separate buffers for selection vs hover)
             outline_pipeline,
             selection_uniform_buffer,
@@ -1116,11 +1139,19 @@ impl WasmRenderer {
             self.grid_dirty = false;
         }
 
-        // Update polygon buffers if shapes changed
+        // Update polygon buffers if main shapes changed
         if self.shape_manager.is_dirty() {
             self.update_polygon_buffers();
             self.shape_manager.mark_clean();
             // Borders also need regeneration when shapes change
+            self.borders_dirty = true;
+        }
+
+        // Update preview buffers separately (cheap — only one shape)
+        if self.shape_manager.is_preview_dirty() {
+            self.update_preview_buffers();
+            self.shape_manager.mark_preview_clean();
+            // Preview border changes handled via outlines_dirty (already set by set_preview)
             self.borders_dirty = true;
         }
 
@@ -1204,7 +1235,7 @@ impl WasmRenderer {
             render_pass.set_bind_group(0, &self.viewport_bind_group, &[]);
             render_pass.draw(0..4, 0..2);
 
-            // Draw polygons/shapes
+            // Draw polygons/shapes (main buffer)
             if self.polygon_index_count > 0 {
                 render_pass.set_pipeline(&self.polygon_pipeline);
                 render_pass.set_bind_group(0, &self.polygon_bind_group, &[]);
@@ -1214,6 +1245,18 @@ impl WasmRenderer {
                     wgpu::IndexFormat::Uint32,
                 );
                 render_pass.draw_indexed(0..self.polygon_index_count, 0, 0..1);
+            }
+
+            // Draw preview shape (separate buffer — same pipeline, avoids retriangulating main shapes)
+            if self.preview_index_count > 0 {
+                render_pass.set_pipeline(&self.polygon_pipeline);
+                render_pass.set_bind_group(0, &self.polygon_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.preview_vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    self.preview_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..self.preview_index_count, 0, 0..1);
             }
 
             // Draw default borders (darkened fill color, for non-selected/hovered shapes)
@@ -1491,6 +1534,49 @@ impl WasmRenderer {
         }
 
         self.polygon_index_count = indices_to_write.len() as u32;
+    }
+
+    /// Update preview vertex and index buffers from shape manager.
+    ///
+    /// OPTIMIZATION: The preview shape (rectangle/polygon being drawn) is
+    /// triangulated and uploaded to its own GPU buffer. This avoids
+    /// retriangulating all main shapes on every mouse-move during drawing.
+    fn update_preview_buffers(&mut self) {
+        let (vertices, indices) = self.shape_manager.triangulate_preview();
+
+        if vertices.is_empty() || indices.is_empty() {
+            self.preview_index_count = 0;
+            return;
+        }
+
+        // Preview buffer capacities (must match the sizes in the constructor)
+        const PREVIEW_VERTEX_CAPACITY: usize = 1024;
+        const PREVIEW_INDEX_CAPACITY: usize = 3072;
+
+        // Guard against overflow — preview shapes are normally small (4-100 vertices),
+        // but a complex polygon could exceed the fixed buffer. Truncate safely.
+        if vertices.len() > PREVIEW_VERTEX_CAPACITY || indices.len() > PREVIEW_INDEX_CAPACITY {
+            log::warn!(
+                "Preview shape too large ({} verts, {} indices), truncating to fit buffer",
+                vertices.len(),
+                indices.len(),
+            );
+            // Skip rendering rather than writing past buffer bounds
+            self.preview_index_count = 0;
+            return;
+        }
+
+        self.queue.write_buffer(
+            &self.preview_vertex_buffer,
+            0,
+            bytemuck::cast_slice(&vertices),
+        );
+        self.queue.write_buffer(
+            &self.preview_index_buffer,
+            0,
+            bytemuck::cast_slice(&indices),
+        );
+        self.preview_index_count = indices.len() as u32;
     }
 
     /// Update default border segment buffers from shape manager.

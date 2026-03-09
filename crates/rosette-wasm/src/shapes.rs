@@ -31,6 +31,21 @@ pub struct Shape {
     pub hole_indices: Vec<usize>,
     /// Fill pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
     pub fill_pattern: u32,
+    /// Whether this polygon is known to be non-self-intersecting.
+    /// GDS polygons and rectangles are always simple, so we skip the
+    /// expensive O(n^2) `is_self_intersecting()` check for them.
+    pub known_simple: bool,
+}
+
+/// Cached triangulation result for a single shape.
+///
+/// Indices are stored relative to vertex 0 of this shape (local indices).
+/// They are offset when assembling the final buffer.
+#[derive(Debug, Clone)]
+struct TriangulationCache {
+    vertices: Vec<PolygonVertex>,
+    /// Indices relative to this shape's first vertex (base_index = 0).
+    indices: Vec<u32>,
 }
 
 /// Compute axis-aligned bounding box from points.
@@ -268,12 +283,22 @@ pub struct ShapeManager {
     shapes: HashMap<String, Shape>,
     /// Insertion order for consistent rendering.
     order: Vec<String>,
+    /// Per-shape triangulation cache. Keyed by shape ID.
+    /// On `triangulate()`, only shapes in `dirty_ids` are re-triangulated;
+    /// all others reuse their cached result.
+    tri_cache: HashMap<String, TriangulationCache>,
+    /// Shape IDs that need re-triangulation on the next `triangulate()` call.
+    /// When empty, `triangulate()` can assemble the final buffer from cache alone.
+    dirty_ids: HashSet<String>,
     /// Optional preview shape (rendered on top).
     preview: Option<Shape>,
     /// Optional preview origin cross: (position, arm_size, color) in world coordinates.
     preview_origin: Option<([f64; 2], f64, [f32; 4])>,
-    /// Whether shapes have changed since last GPU update.
+    /// Whether main shapes have changed since last GPU update.
     dirty: bool,
+    /// Whether the preview shape has changed since last GPU update.
+    /// Separate from `dirty` so preview updates don't trigger full retriangulation.
+    preview_dirty: bool,
     /// Currently selected shape IDs.
     selected_ids: HashSet<String>,
     /// Currently hovered shape IDs (can be multiple for marquee preview).
@@ -580,10 +605,12 @@ impl ShapeManager {
                     bbox,
                     hole_indices: vec![],
                     fill_pattern: 0,
+                    known_simple: false,
                 },
             );
-            self.order.push(id);
+            self.order.push(id.clone());
         }
+        self.dirty_ids.insert(id);
         self.dirty = true;
         self.outlines_dirty = true; // Borders need regeneration
     }
@@ -593,6 +620,7 @@ impl ShapeManager {
         if let Some(shape) = self.shapes.get_mut(id) {
             shape.bbox = compute_bbox(&points);
             shape.points = points;
+            self.dirty_ids.insert(id.to_string());
             self.dirty = true;
             self.outlines_dirty = true; // Borders need regeneration
         }
@@ -602,6 +630,8 @@ impl ShapeManager {
     pub fn remove_shape(&mut self, id: &str) {
         if self.shapes.remove(id).is_some() {
             self.order.retain(|s| s != id);
+            self.tri_cache.remove(id);
+            self.dirty_ids.remove(id);
             self.dirty = true;
             self.outlines_dirty = true; // Borders need regeneration
         }
@@ -611,13 +641,16 @@ impl ShapeManager {
     pub fn clear(&mut self) {
         self.shapes.clear();
         self.order.clear();
+        self.tri_cache.clear();
+        self.dirty_ids.clear();
         self.dirty = true;
         self.outlines_dirty = true; // Borders need regeneration
     }
 
     /// Sync shapes from a list of (uuid, vertices, color, fill_pattern) tuples.
     ///
-    /// This replaces all existing shapes with the provided data.
+    /// Uses incremental diffing: only shapes that are new or changed get
+    /// re-triangulated. Unchanged shapes keep their cached triangulation.
     /// Used to sync from WasmLibrary.
     #[allow(clippy::type_complexity)]
     pub fn sync_from_polygons(
@@ -625,26 +658,66 @@ impl ShapeManager {
         polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4], u32)>,
         hole_map: &HashMap<String, Vec<usize>>,
     ) {
-        self.shapes.clear();
-        self.order.clear();
+        // Build set of incoming IDs for removal detection
+        let new_ids: HashSet<String> = polygons.iter().map(|(id, ..)| id.clone()).collect();
 
-        for (id, points, color, fill_pattern) in polygons.into_iter() {
-            let bbox = compute_bbox(&points);
-            let hole_indices = hole_map.get(&id).cloned().unwrap_or_default();
-            self.shapes.insert(
-                id.clone(),
-                Shape {
-                    points,
-                    color,
-                    bbox,
-                    hole_indices,
-                    fill_pattern,
-                },
-            );
-            self.order.push(id);
+        // Remove shapes that no longer exist
+        let removed: Vec<String> = self
+            .shapes
+            .keys()
+            .filter(|id| !new_ids.contains(*id))
+            .cloned()
+            .collect();
+        for id in &removed {
+            self.shapes.remove(id);
+            self.tri_cache.remove(id);
+            self.dirty_ids.remove(id);
         }
 
-        self.dirty = true;
+        let mut any_dirty = !removed.is_empty();
+
+        // Preserve incoming order and track changes
+        let new_order: Vec<String> = polygons.iter().map(|(id, ..)| id.clone()).collect();
+
+        // Add or update shapes
+        for (id, points, color, fill_pattern) in polygons.into_iter() {
+            let hole_indices = hole_map.get(&id).cloned().unwrap_or_default();
+            let is_new_or_changed = if let Some(existing) = self.shapes.get(&id) {
+                // Check if anything changed that affects triangulation
+                existing.points != points
+                    || existing.color != color
+                    || existing.fill_pattern != fill_pattern
+                    || existing.hole_indices != hole_indices
+            } else {
+                true
+            };
+
+            if is_new_or_changed {
+                let bbox = compute_bbox(&points);
+                self.shapes.insert(
+                    id.clone(),
+                    Shape {
+                        points,
+                        color,
+                        bbox,
+                        hole_indices,
+                        fill_pattern,
+                        // Polygons from the library (GDS) are known to be simple
+                        known_simple: true,
+                    },
+                );
+                self.dirty_ids.insert(id);
+                any_dirty = true;
+            }
+        }
+
+        // Always update order to match incoming polygon order
+        self.order = new_order;
+
+        if any_dirty {
+            self.dirty = true;
+        }
+
         // Clear selection/hover state for shapes that no longer exist
         self.selected_ids.retain(|id| self.shapes.contains_key(id));
         self.hovered_ids.retain(|id| self.shapes.contains_key(id));
@@ -652,6 +725,9 @@ impl ShapeManager {
     }
 
     /// Set a preview shape (rendered on top, not stored permanently).
+    ///
+    /// Only marks the preview as dirty, NOT the main shapes. This avoids
+    /// expensive retriangulation of all shapes when dragging a rectangle.
     pub fn set_preview(&mut self, points: Vec<[f64; 2]>, color: [f32; 4]) {
         let bbox = compute_bbox(&points);
         self.preview = Some(Shape {
@@ -660,8 +736,9 @@ impl ShapeManager {
             bbox,
             hole_indices: vec![],
             fill_pattern: 0,
+            known_simple: false,
         });
-        self.dirty = true;
+        self.preview_dirty = true;
         self.outlines_dirty = true; // Preview border needs regeneration
     }
 
@@ -681,14 +758,29 @@ impl ShapeManager {
         if self.preview.is_some() || self.preview_origin.is_some() {
             self.preview = None;
             self.preview_origin = None;
-            self.dirty = true;
+            self.preview_dirty = true;
             self.outlines_dirty = true;
         }
     }
 
-    /// Check if shapes have changed since last GPU update.
+    /// Check if main shapes have changed since last GPU update.
     pub fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// Number of shapes pending re-triangulation (for diagnostics).
+    pub fn dirty_count(&self) -> usize {
+        self.dirty_ids.len()
+    }
+
+    /// Check if preview shape has changed since last GPU update.
+    pub fn is_preview_dirty(&self) -> bool {
+        self.preview_dirty
+    }
+
+    /// Mark preview as clean (after GPU update).
+    pub fn mark_preview_clean(&mut self) {
+        self.preview_dirty = false;
     }
 
     /// Mark shapes as dirty (forces re-triangulation on next update).
@@ -710,25 +802,57 @@ impl ShapeManager {
         self.shapes.len()
     }
 
-    /// Triangulate all shapes and generate GPU vertex/index buffers.
+    /// Triangulate all main shapes (excluding preview) and generate GPU vertex/index buffers.
+    ///
+    /// Uses per-shape caching: only shapes in `dirty_ids` are re-triangulated.
+    /// Clean shapes reuse their cached vertices/indices.
     ///
     /// Returns (vertices, indices) ready for GPU upload.
-    ///
-    /// Note: For rendering, prefer `triangulate_visible()` which performs
-    /// view frustum culling for better performance with many shapes.
-    #[allow(dead_code)]
-    pub fn triangulate(&self) -> (Vec<PolygonVertex>, Vec<u32>) {
+    /// The preview shape is rendered in a separate buffer via `triangulate_preview()`.
+    pub fn triangulate(&mut self) -> (Vec<PolygonVertex>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
-        // Process shapes in order
+        // Re-triangulate only dirty shapes and update their cache
+        for dirty_id in &self.dirty_ids {
+            if let Some(shape) = self.shapes.get(dirty_id) {
+                let mut shape_verts = Vec::new();
+                let mut shape_idxs = Vec::new();
+                // Triangulate with base_index = 0 (local indices)
+                self.triangulate_shape(shape, &mut shape_verts, &mut shape_idxs);
+                self.tri_cache.insert(
+                    dirty_id.clone(),
+                    TriangulationCache {
+                        vertices: shape_verts,
+                        indices: shape_idxs,
+                    },
+                );
+            }
+        }
+        self.dirty_ids.clear();
+
+        // Assemble final buffer from cache in insertion order
         for id in &self.order {
-            if let Some(shape) = self.shapes.get(id) {
-                self.triangulate_shape(shape, &mut vertices, &mut indices);
+            if let Some(cached) = self.tri_cache.get(id) {
+                if cached.vertices.is_empty() {
+                    continue;
+                }
+                let base_index = vertices.len() as u32;
+                vertices.extend_from_slice(&cached.vertices);
+                indices.extend(cached.indices.iter().map(|&idx| idx + base_index));
             }
         }
 
-        // Process preview shape last (renders on top)
+        (vertices, indices)
+    }
+
+    /// Triangulate only the preview shape for a separate GPU buffer.
+    ///
+    /// Returns (vertices, indices) ready for GPU upload, or empty vecs if no preview.
+    pub fn triangulate_preview(&self) -> (Vec<PolygonVertex>, Vec<u32>) {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
         if let Some(preview) = &self.preview {
             self.triangulate_shape(preview, &mut vertices, &mut indices);
         }
@@ -774,10 +898,7 @@ impl ShapeManager {
             }
         }
 
-        // Preview shape is always rendered (user is actively drawing it)
-        if let Some(preview) = &self.preview {
-            self.triangulate_shape(preview, &mut vertices, &mut indices);
-        }
+        // Preview shape is now in a separate buffer (see triangulate_preview)
 
         (vertices, indices, visible_count)
     }
@@ -786,6 +907,9 @@ impl ShapeManager {
     ///
     /// Handles self-intersecting polygons by decomposing them into simple
     /// polygons using the evenodd fill rule before triangulation.
+    ///
+    /// The `known_simple` flag on the shape is used to skip the expensive
+    /// O(n^2) self-intersection check for GDS polygons and rectangles.
     fn triangulate_shape(
         &self,
         shape: &Shape,
@@ -807,8 +931,8 @@ impl ShapeManager {
             return;
         }
 
-        // Check if polygon is self-intersecting
-        if is_self_intersecting(&shape.points) {
+        // Check if polygon is self-intersecting (skip for known-simple polygons)
+        if !shape.known_simple && is_self_intersecting(&shape.points) {
             // Decompose into simple polygons using evenodd fill rule
             let simple_polygons = decompose_self_intersecting(&shape.points);
 
@@ -833,6 +957,8 @@ impl ShapeManager {
             );
         }
     }
+
+
 
     /// Triangulate a polygon with holes using earcutr's native hole support.
     fn triangulate_polygon_with_holes(
@@ -946,12 +1072,18 @@ mod tests {
             [0.0, 1.0, 0.0, 0.5],
         );
 
-        let (vertices, _) = manager.triangulate();
-        assert_eq!(vertices.len(), 4);
-
-        manager.clear_preview();
+        // Preview is now in a separate buffer, not in the main triangulate output
         let (vertices, _) = manager.triangulate();
         assert_eq!(vertices.len(), 0);
+
+        // Preview has its own triangulation
+        let (preview_verts, preview_idxs) = manager.triangulate_preview();
+        assert_eq!(preview_verts.len(), 4);
+        assert_eq!(preview_idxs.len(), 6);
+
+        manager.clear_preview();
+        let (preview_verts, _) = manager.triangulate_preview();
+        assert_eq!(preview_verts.len(), 0);
     }
 
     #[test]

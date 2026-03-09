@@ -13,6 +13,7 @@ fn main() {
         .manage(state::AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::open_gds,
+            commands::read_gds_bytes,
             commands::save_gds,
             commands::get_pending_file,
             commands::get_current_file,

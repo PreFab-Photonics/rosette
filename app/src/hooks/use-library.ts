@@ -5,7 +5,7 @@ import type { CellNode } from "@/stores/explorer";
 import { useLayerStore, hexToRgba, FILL_PATTERN_IDS } from "@/stores/layer";
 import {
   isTauri,
-  openGds,
+  readGdsBytes,
   listenTauri,
   getPendingFile,
 } from "@/lib/tauri";
@@ -144,12 +144,11 @@ export function useLibrary(
       if (cancelled) return;
 
       try {
-        // Get full Library JSON from the backend
-        const data = await openGds(path);
-        if (cancelled || !data.json) return;
+        // Read raw GDS bytes and parse directly in WASM (avoids JSON round-trip)
+        const bytes = await readGdsBytes(path);
+        if (cancelled) return;
 
-        // Load hierarchically — preserves all cells, refs, paths, text
-        const newLibrary = wasm.WasmLibrary.from_library_json(data.json);
+        const newLibrary = wasm.WasmLibrary.from_gds_bytes(bytes);
         syncLayerColors(newLibrary, layersRef.current);
 
         if (libraryInstance) {

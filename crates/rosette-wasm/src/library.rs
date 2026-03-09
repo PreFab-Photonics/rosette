@@ -2091,9 +2091,29 @@ impl WasmLibrary {
     /// # Errors
     /// Returns a JsValue error if parsing fails.
     pub fn from_library_json(json: &str) -> Result<WasmLibrary, JsValue> {
-        let mut library: Library = rosette_io::json::from_string(json)
+        let library: Library = rosette_io::json::from_string(json)
             .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
 
+        Ok(Self::init_from_library(library))
+    }
+
+    /// Create a WasmLibrary directly from raw GDS binary bytes.
+    ///
+    /// This is the fast path for the Tauri desktop app: the raw file bytes
+    /// are passed directly to WASM, avoiding the JSON serialization round-trip
+    /// that `from_library_json` requires.
+    pub fn from_gds_bytes(bytes: &[u8]) -> Result<WasmLibrary, JsValue> {
+        let library = rosette_io::gds::read_bytes(bytes)
+            .map_err(|e| JsValue::from_str(&format!("GDS parse error: {}", e)))?;
+
+        Ok(Self::init_from_library(library))
+    }
+
+    /// Shared initialization: transform coordinates, build element refs, set active cell.
+    ///
+    /// Takes a `Library` in SDK coordinates (micrometers, Y-up) and produces a
+    /// fully initialized `WasmLibrary` in world coordinates (nm * GRID_SIZE, Y-down).
+    fn init_from_library(mut library: Library) -> WasmLibrary {
         // Scale factor: SDK uses micrometers, app world units = nm * GRID_SIZE.
         // 1 μm = 1000 nm, and 1 nm = GRID_SIZE world units.
         // Y is negated: GDS/SDK use math convention (Y-up), renderer uses screen (Y-down).
@@ -2101,11 +2121,13 @@ impl WasmLibrary {
         const GRID_SIZE: f64 = 50.0;
         let s = UM_TO_NM * GRID_SIZE;
 
-        // Transform all elements in every cell from um/Y-up to world/Y-down
-        let cell_names: Vec<String> = library.cells().iter().map(|c| c.name().to_string()).collect();
-        for cell_name in &cell_names {
-            let cell = library.cell_mut(cell_name).unwrap();
+        // Pre-compute the flip transforms once (used for CellRef conjugation)
+        let flip = Transform::scale(s, -s);
+        let flip_inv = Transform::scale(1.0 / s, -1.0 / s);
 
+        // Transform all elements in every cell from um/Y-up to world/Y-down.
+        // Iterate cells by index to avoid O(C^2) name lookups.
+        for cell in library.cells_mut() {
             // Transform the cell origin
             let origin = cell.origin();
             cell.set_origin(Point::new(origin.x * s, -origin.y * s));
@@ -2133,8 +2155,6 @@ impl WasmLibrary {
                         // CellRef transform T maps child→parent in um/Y-up.
                         // In world/Y-down: T_new = S * T * S^{-1}
                         // This correctly converts translation, rotation, and mirror.
-                        let flip = Transform::scale(s, -s);
-                        let flip_inv = Transform::scale(1.0 / s, -1.0 / s);
                         cell_ref.transform = flip.then(&cell_ref.transform).then(&flip_inv);
 
                         // Scale repetition spacing (in parent cell's coordinate space).
@@ -2153,27 +2173,18 @@ impl WasmLibrary {
             }
         }
 
-        // Build the WasmLibrary from the transformed library
-        let mut wasm_lib = WasmLibrary {
-            library,
-            active_cell: None,
-            element_refs: HashMap::new(),
-            layer_colors: HashMap::new(),
-            layer_fill_patterns: HashMap::new(),
-            dirty: false,
-            group_map: HashMap::new(),
-            uuid_to_group: HashMap::new(),
-            hole_indices_map: HashMap::new(),
-            hierarchy_depth_limit: 0,
-        };
+        // Count total elements across all cells for pre-allocation (Opt 2)
+        let total_elements: usize = library.cells().iter().map(|c| c.elements().len()).sum();
 
-        // Build element_refs for all cells
-        let cell_names: Vec<String> = wasm_lib.library.cells().iter().map(|c| c.name().to_string()).collect();
-        for cell_name in &cell_names {
-            let elem_count = wasm_lib.library.cell(cell_name).map(|c| c.elements().len()).unwrap_or(0);
-            for i in 0..elem_count {
+        // Build element_refs for all cells.
+        // Pre-allocate HashMap to avoid ~17 resize/rehash cycles (Opt 2).
+        // Iterate cells directly by slice to avoid O(C^2) name lookups (Opt 4).
+        let mut element_refs = HashMap::with_capacity(total_elements);
+        for cell in library.cells() {
+            let cell_name = cell.name().to_string();
+            for i in 0..cell.elements().len() {
                 let uuid = Uuid::new_v4().to_string();
-                wasm_lib.element_refs.insert(
+                element_refs.insert(
                     uuid,
                     ElementRef {
                         cell_name: cell_name.clone(),
@@ -2184,11 +2195,20 @@ impl WasmLibrary {
         }
 
         // Set active cell to top cell (last cell in the list)
-        if let Some(top) = wasm_lib.library.top_cell() {
-            wasm_lib.active_cell = Some(top.name().to_string());
-        }
+        let active_cell = library.top_cell().map(|c| c.name().to_string());
 
-        Ok(wasm_lib)
+        WasmLibrary {
+            library,
+            active_cell,
+            element_refs,
+            layer_colors: HashMap::new(),
+            layer_fill_patterns: HashMap::new(),
+            dirty: false,
+            group_map: HashMap::new(),
+            uuid_to_group: HashMap::new(),
+            hole_indices_map: HashMap::new(),
+            hierarchy_depth_limit: 0,
+        }
     }
 
     /// Export the library as GDS II binary bytes.
@@ -2210,12 +2230,10 @@ impl WasmLibrary {
         const GRID_SIZE: f64 = 50.0;
         let s = UM_TO_NM * GRID_SIZE;
         let inv = 1.0 / s;
+        let inv_flip = Transform::scale(inv, -inv);
+        let flip = Transform::scale(s, -s);
 
-        let cell_names: Vec<String> = library.cells().iter().map(|c| c.name().to_string()).collect();
-        for cell_name in &cell_names {
-            let cell = library.cell_mut(cell_name).unwrap();
-
-            // Inverse transform the cell origin
+        for cell in library.cells_mut() {
             let origin = cell.origin();
             cell.set_origin(Point::new(origin.x * inv, -origin.y * inv));
 
@@ -2238,8 +2256,6 @@ impl WasmLibrary {
                     }
                     Element::CellRef(cell_ref) => {
                         // Inverse conjugation: T_original = S^{-1} * T_stored * S
-                        let inv_flip = Transform::scale(inv, -inv);
-                        let flip = Transform::scale(s, -s);
                         cell_ref.transform =
                             inv_flip.then(&cell_ref.transform).then(&flip);
 
@@ -2278,11 +2294,10 @@ impl WasmLibrary {
         const GRID_SIZE: f64 = 50.0;
         let s = UM_TO_NM * GRID_SIZE;
         let inv = 1.0 / s;
+        let inv_flip = Transform::scale(inv, -inv);
+        let flip = Transform::scale(s, -s);
 
-        let cell_names: Vec<String> = library.cells().iter().map(|c| c.name().to_string()).collect();
-        for cell_name in &cell_names {
-            let cell = library.cell_mut(cell_name).unwrap();
-
+        for cell in library.cells_mut() {
             let origin = cell.origin();
             cell.set_origin(Point::new(origin.x * inv, -origin.y * inv));
 
@@ -2305,8 +2320,6 @@ impl WasmLibrary {
                     }
                     Element::CellRef(cell_ref) => {
                         // Inverse conjugation: T_original = S^{-1} * T_stored * S
-                        let inv_flip = Transform::scale(inv, -inv);
-                        let flip = Transform::scale(s, -s);
                         cell_ref.transform =
                             inv_flip.then(&cell_ref.transform).then(&flip);
 
@@ -3091,21 +3104,24 @@ impl WasmLibrary {
     }
 
     pub(crate) fn get_render_polygons_internal(&self) -> Vec<RenderPolygon> {
-        let mut result = Vec::new();
-
         let default_color = [0.5, 0.5, 0.5, 0.7];
 
         let cell_name = match &self.active_cell {
             Some(name) => name,
-            None => return result,
+            None => return Vec::new(),
         };
 
         let cell = match self.library.cell(cell_name) {
             Some(c) => c,
-            None => return result,
+            None => return Vec::new(),
         };
 
-        // Render direct polygon elements (UUID-tracked)
+        // Pre-allocate result with estimated capacity (Opt 6).
+        // Each element could produce ~1 polygon, CellRefs may produce more.
+        let mut result = Vec::with_capacity(cell.elements().len());
+
+        // Render direct polygon elements (UUID-tracked).
+        // Only iterate element_refs that belong to the active cell (Opt 5).
         for (uuid, elem_ref) in &self.element_refs {
             if elem_ref.cell_name != *cell_name {
                 continue;
