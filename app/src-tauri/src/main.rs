@@ -13,9 +13,10 @@ fn main() {
         .manage(state::AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::open_gds,
-            commands::navigate_cell,
-            commands::get_cell_tree,
+            commands::save_gds,
             commands::get_pending_file,
+            commands::get_current_file,
+            commands::set_current_file,
         ])
         .setup(|app| {
             // Handle file associations: when a user double-clicks a .gds file,

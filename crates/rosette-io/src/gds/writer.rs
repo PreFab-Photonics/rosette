@@ -60,6 +60,17 @@ pub fn write_library(path: impl AsRef<Path>, library: &Library) -> Result<(), Gd
     writer.write_library(library)
 }
 
+/// Write a library to an in-memory byte buffer.
+///
+/// This is the symmetric counterpart to [`super::read_bytes`] and is useful
+/// when a file path is not available (e.g. WASM environments).
+pub fn write_bytes(library: &Library) -> Result<Vec<u8>, GdsError> {
+    let mut output = Vec::new();
+    let mut writer = GdsWriter::new(&mut output);
+    writer.write_library(library)?;
+    Ok(output)
+}
+
 // GDS Record Types
 const HEADER: u8 = 0x00;
 const BGNLIB: u8 = 0x01;

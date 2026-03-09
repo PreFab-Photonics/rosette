@@ -89,6 +89,56 @@ export function getCommands(): CommandItem[] {
 
   const commands: CommandItem[] = [
     // =========================================================================
+    // File commands (Tauri only)
+    // =========================================================================
+    ...(() => {
+      if (!("__TAURI__" in window)) return [];
+
+      return [
+        {
+          id: "file-open",
+          type: "command" as CommandType,
+          name: "File: Open GDS",
+          shortcut: { modifiers: [keys.mod], key: "O" },
+          action: async () => {
+            close();
+            const { pickGdsFile } = await import("@/lib/tauri");
+            const path = await pickGdsFile();
+            if (path) {
+              const { emit } = await import("@tauri-apps/api/event");
+              await emit("open-file", path);
+            }
+          },
+          searchableText: "File open gds load import",
+        },
+        {
+          id: "file-save",
+          type: "command" as CommandType,
+          name: "File: Save",
+          shortcut: { modifiers: [keys.mod], key: "S" },
+          action: async () => {
+            close();
+            const { handleSave } = await import("@/App");
+            await handleSave(false);
+          },
+          searchableText: "File save gds export write",
+        },
+        {
+          id: "file-save-as",
+          type: "command" as CommandType,
+          name: "File: Save As",
+          shortcut: { modifiers: [keys.mod, "⇧"], key: "S" },
+          action: async () => {
+            close();
+            const { handleSave } = await import("@/App");
+            await handleSave(true);
+          },
+          searchableText: "File save as gds export write new",
+        },
+      ] satisfies CommandItem[];
+    })(),
+
+    // =========================================================================
     // Theme commands
     // =========================================================================
     {

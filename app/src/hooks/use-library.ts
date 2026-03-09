@@ -6,7 +6,6 @@ import { useLayerStore, hexToRgba, FILL_PATTERN_IDS } from "@/stores/layer";
 import {
   isTauri,
   openGds,
-  navigateCell as tauriNavigateCell,
   listenTauri,
   getPendingFile,
 } from "@/lib/tauri";
@@ -76,6 +75,9 @@ function syncLayerColors(
  * for live updates from `rosette serve`, and supports navigating into
  * nested cells via `/api/design/navigate`.
  *
+ * In Tauri mode, loads full hierarchical GDS files via the backend and
+ * manages them locally in the WASM library.
+ *
  * @param wasm - The loaded WASM module
  * @param isWasmReady - Whether the WASM module is ready
  */
@@ -89,10 +91,8 @@ export function useLibrary(
   const layersRef = useRef(layers);
   const designVersionRef = useRef(0);
   const wasmRef = useRef(wasm);
-  // Track which cell the current library was loaded for (to avoid redundant navigations)
+  // Track which cell the current library was loaded for (design mode only)
   const loadedCellRef = useRef<string | null>(null);
-  // Track whether a GDS file has been loaded from the Tauri backend
-  const tauriGdsLoadedRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => {
@@ -144,10 +144,12 @@ export function useLibrary(
       if (cancelled) return;
 
       try {
+        // Get full Library JSON from the backend
         const data = await openGds(path);
         if (cancelled || !data.json) return;
 
-        const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
+        // Load hierarchically — preserves all cells, refs, paths, text
+        const newLibrary = wasm.WasmLibrary.from_library_json(data.json);
         syncLayerColors(newLibrary, layersRef.current);
 
         if (libraryInstance) {
@@ -155,13 +157,18 @@ export function useLibrary(
         }
 
         libraryInstance = newLibrary;
-        tauriGdsLoadedRef.current = true;
         setLibrary(newLibrary);
         setIsReady(true);
 
-        if (data.cells) {
-          loadedCellRef.current = data.cells.name;
-          useExplorerStore.getState().setCellTree([data.cells]);
+        // Build the cell tree from the WASM library itself
+        const tree = newLibrary.get_cell_tree();
+        if (tree) {
+          useExplorerStore.getState().setCellTree(tree);
+          // Set active cell to the top cell (first root in the tree)
+          const topCellName = newLibrary.active_cell_name();
+          if (topCellName) {
+            useExplorerStore.getState().setActiveCell(topCellName);
+          }
         }
       } catch (err) {
         console.error("Failed to open GDS file:", err);
@@ -261,49 +268,31 @@ export function useLibrary(
   const cellTree = useExplorerStore((s) => s.cellTree);
 
   useEffect(() => {
-    const inDesignMode = isDesignMode();
-    const inTauriMode = isTauriMode();
-
-    if (!wasm || !isWasmReady || (!inDesignMode && !inTauriMode) || !cellTree || !activeCell)
-      return;
+    if (!wasm || !isWasmReady || !isDesignMode() || !cellTree || !activeCell) return;
 
     // Don't navigate if we haven't loaded the initial design yet
     if (!libraryInstance) return;
 
-    // In Tauri mode, don't navigate until a GDS file has been opened
-    if (inTauriMode && !tauriGdsLoadedRef.current) return;
-
     // Skip if the current library already has geometry for this cell
-    // (e.g., SSE just loaded the top cell — no need to re-fetch it)
     if (loadedCellRef.current === activeCell) return;
 
     let cancelled = false;
 
     const navigateToCell = async () => {
       try {
-        let json: string | null = null;
+        // Design mode: use HTTP API
+        const res = await fetch("/api/design/navigate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cell: activeCell }),
+        });
 
-        if (inTauriMode) {
-          // Tauri mode: use IPC command
-          json = await tauriNavigateCell(activeCell);
-        } else {
-          // Design mode: use HTTP API
-          const res = await fetch("/api/design/navigate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ cell: activeCell }),
-          });
+        if (!res.ok || cancelled) return;
 
-          if (!res.ok || cancelled) return;
+        const data: NavigateResponse = await res.json();
+        if (cancelled || !data.json) return;
 
-          const data: NavigateResponse = await res.json();
-          if (cancelled) return;
-          json = data.json;
-        }
-
-        if (cancelled || !json) return;
-
-        const newLibrary = wasm.WasmLibrary.from_flat_json(json);
+        const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
         syncLayerColors(newLibrary, layersRef.current);
 
         // Free old library
@@ -327,6 +316,14 @@ export function useLibrary(
       cancelled = true;
     };
   }, [wasm, isWasmReady, activeCell, cellTree]);
+
+  // Tauri mode: when activeCell changes, just switch the active cell in the WASM library
+  useEffect(() => {
+    if (!isTauriMode() || !library || !activeCell) return;
+    library.set_active_cell(activeCell);
+    // Mark dirty so the renderer picks up the change
+    library.mark_clean(); // Reset first to ensure dirty flag is meaningful
+  }, [library, activeCell]);
 
   // Sync layer colors and fill patterns to library (hidden layers get alpha=0 so they don't render)
   useEffect(() => {

@@ -2072,6 +2072,261 @@ impl WasmLibrary {
             .map_err(|e| JsValue::from_str(&format!("JSON serialize error: {}", e)))
     }
 
+    /// Load a full hierarchical library from JSON without flattening.
+    ///
+    /// Unlike [`from_json`] which flattens the hierarchy into a single cell,
+    /// this preserves all cells, cell references, paths, and text elements.
+    /// Coordinates are converted from the SDK convention (micrometers, Y-up)
+    /// to app world coordinates (GRID_SIZE units per nm, Y-down).
+    ///
+    /// This is the load path for Tauri desktop mode where the user opens a
+    /// GDS file and wants to edit it hierarchically then save back.
+    ///
+    /// # Arguments
+    /// * `json` - JSON string containing a serialized Library (in micrometers)
+    ///
+    /// # Returns
+    /// A new WasmLibrary with the full cell hierarchy preserved.
+    ///
+    /// # Errors
+    /// Returns a JsValue error if parsing fails.
+    pub fn from_library_json(json: &str) -> Result<WasmLibrary, JsValue> {
+        let mut library: Library = rosette_io::json::from_string(json)
+            .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+
+        // Scale factor: SDK uses micrometers, app world units = nm * GRID_SIZE.
+        // 1 μm = 1000 nm, and 1 nm = GRID_SIZE world units.
+        // Y is negated: GDS/SDK use math convention (Y-up), renderer uses screen (Y-down).
+        const UM_TO_NM: f64 = 1000.0;
+        const GRID_SIZE: f64 = 50.0;
+        let s = UM_TO_NM * GRID_SIZE;
+
+        // Transform all elements in every cell from um/Y-up to world/Y-down
+        let cell_names: Vec<String> = library.cells().iter().map(|c| c.name().to_string()).collect();
+        for cell_name in &cell_names {
+            let cell = library.cell_mut(cell_name).unwrap();
+
+            // Transform the cell origin
+            let origin = cell.origin();
+            cell.set_origin(Point::new(origin.x * s, -origin.y * s));
+
+            // Transform all elements in-place
+            for element in cell.elements_mut() {
+                match element {
+                    Element::Polygon { polygon, .. } => {
+                        for v in polygon.vertices_mut() {
+                            let x = v.x * s;
+                            let y = -v.y * s;
+                            *v = Point::new(x, y);
+                        }
+                    }
+                    Element::Path { points, width, .. } => {
+                        for p in points.iter_mut() {
+                            let x = p.x * s;
+                            let y = -p.y * s;
+                            *p = Point::new(x, y);
+                        }
+                        *width *= s;
+                    }
+                    Element::CellRef(cell_ref) => {
+                        // Conjugate the CellRef transform by the coordinate change S.
+                        // CellRef transform T maps child→parent in um/Y-up.
+                        // In world/Y-down: T_new = S * T * S^{-1}
+                        // This correctly converts translation, rotation, and mirror.
+                        let flip = Transform::scale(s, -s);
+                        let flip_inv = Transform::scale(1.0 / s, -1.0 / s);
+                        cell_ref.transform = flip.then(&cell_ref.transform).then(&flip_inv);
+
+                        // Scale repetition spacing (in parent cell's coordinate space).
+                        // col_spacing is X-direction (just scale), row_spacing is
+                        // Y-direction (scale + negate for Y-flip).
+                        if let Some(ref mut rep) = cell_ref.repetition {
+                            rep.col_spacing *= s;
+                            rep.row_spacing *= -s;
+                        }
+                    }
+                    Element::Text { position, height, .. } => {
+                        *position = Point::new(position.x * s, -position.y * s);
+                        *height *= s;
+                    }
+                }
+            }
+        }
+
+        // Build the WasmLibrary from the transformed library
+        let mut wasm_lib = WasmLibrary {
+            library,
+            active_cell: None,
+            element_refs: HashMap::new(),
+            layer_colors: HashMap::new(),
+            layer_fill_patterns: HashMap::new(),
+            dirty: false,
+            group_map: HashMap::new(),
+            uuid_to_group: HashMap::new(),
+            hole_indices_map: HashMap::new(),
+            hierarchy_depth_limit: 0,
+        };
+
+        // Build element_refs for all cells
+        let cell_names: Vec<String> = wasm_lib.library.cells().iter().map(|c| c.name().to_string()).collect();
+        for cell_name in &cell_names {
+            let elem_count = wasm_lib.library.cell(cell_name).map(|c| c.elements().len()).unwrap_or(0);
+            for i in 0..elem_count {
+                let uuid = Uuid::new_v4().to_string();
+                wasm_lib.element_refs.insert(
+                    uuid,
+                    ElementRef {
+                        cell_name: cell_name.clone(),
+                        element_index: i,
+                    },
+                );
+            }
+        }
+
+        // Set active cell to top cell (last cell in the list)
+        if let Some(top) = wasm_lib.library.top_cell() {
+            wasm_lib.active_cell = Some(top.name().to_string());
+        }
+
+        Ok(wasm_lib)
+    }
+
+    /// Export the library as GDS II binary bytes.
+    ///
+    /// Coordinates are converted back from app world coordinates
+    /// (GRID_SIZE units per nm, Y-down) to GDS convention (micrometers, Y-up).
+    ///
+    /// # Returns
+    /// A `Uint8Array` containing the GDS binary data.
+    ///
+    /// # Errors
+    /// Returns a JsValue error if serialization fails.
+    pub fn to_gds(&self) -> Result<Vec<u8>, JsValue> {
+        // Clone the library and apply inverse coordinate transform
+        let mut library = self.library.clone();
+
+        // Inverse scale: world -> um. s = UM_TO_NM * GRID_SIZE = 50000
+        const UM_TO_NM: f64 = 1000.0;
+        const GRID_SIZE: f64 = 50.0;
+        let s = UM_TO_NM * GRID_SIZE;
+        let inv = 1.0 / s;
+
+        let cell_names: Vec<String> = library.cells().iter().map(|c| c.name().to_string()).collect();
+        for cell_name in &cell_names {
+            let cell = library.cell_mut(cell_name).unwrap();
+
+            // Inverse transform the cell origin
+            let origin = cell.origin();
+            cell.set_origin(Point::new(origin.x * inv, -origin.y * inv));
+
+            for element in cell.elements_mut() {
+                match element {
+                    Element::Polygon { polygon, .. } => {
+                        for v in polygon.vertices_mut() {
+                            let x = v.x * inv;
+                            let y = -v.y * inv;
+                            *v = Point::new(x, y);
+                        }
+                    }
+                    Element::Path { points, width, .. } => {
+                        for p in points.iter_mut() {
+                            let x = p.x * inv;
+                            let y = -p.y * inv;
+                            *p = Point::new(x, y);
+                        }
+                        *width *= inv;
+                    }
+                    Element::CellRef(cell_ref) => {
+                        // Inverse conjugation: T_original = S^{-1} * T_stored * S
+                        let inv_flip = Transform::scale(inv, -inv);
+                        let flip = Transform::scale(s, -s);
+                        cell_ref.transform =
+                            inv_flip.then(&cell_ref.transform).then(&flip);
+
+                        if let Some(ref mut rep) = cell_ref.repetition {
+                            rep.col_spacing *= inv;
+                            rep.row_spacing *= -inv;
+                        }
+                    }
+                    Element::Text { position, height, .. } => {
+                        *position = Point::new(position.x * inv, -position.y * inv);
+                        *height *= inv;
+                    }
+                }
+            }
+        }
+
+        rosette_io::gds::write_bytes(&library)
+            .map_err(|e| JsValue::from_str(&format!("GDS write error: {}", e)))
+    }
+
+    /// Export the library to JSON with coordinates in micrometers (GDS convention).
+    ///
+    /// This is used by the Tauri backend to write GDS files: the frontend sends
+    /// this JSON to the backend, which deserializes and writes via `gds::write_library`.
+    ///
+    /// # Returns
+    /// A JSON string with coordinates converted back to micrometers/Y-up.
+    ///
+    /// # Errors
+    /// Returns a JsValue error if serialization fails.
+    pub fn to_library_json(&self) -> Result<String, JsValue> {
+        // Clone the library and apply inverse coordinate transform
+        let mut library = self.library.clone();
+
+        const UM_TO_NM: f64 = 1000.0;
+        const GRID_SIZE: f64 = 50.0;
+        let s = UM_TO_NM * GRID_SIZE;
+        let inv = 1.0 / s;
+
+        let cell_names: Vec<String> = library.cells().iter().map(|c| c.name().to_string()).collect();
+        for cell_name in &cell_names {
+            let cell = library.cell_mut(cell_name).unwrap();
+
+            let origin = cell.origin();
+            cell.set_origin(Point::new(origin.x * inv, -origin.y * inv));
+
+            for element in cell.elements_mut() {
+                match element {
+                    Element::Polygon { polygon, .. } => {
+                        for v in polygon.vertices_mut() {
+                            let x = v.x * inv;
+                            let y = -v.y * inv;
+                            *v = Point::new(x, y);
+                        }
+                    }
+                    Element::Path { points, width, .. } => {
+                        for p in points.iter_mut() {
+                            let x = p.x * inv;
+                            let y = -p.y * inv;
+                            *p = Point::new(x, y);
+                        }
+                        *width *= inv;
+                    }
+                    Element::CellRef(cell_ref) => {
+                        // Inverse conjugation: T_original = S^{-1} * T_stored * S
+                        let inv_flip = Transform::scale(inv, -inv);
+                        let flip = Transform::scale(s, -s);
+                        cell_ref.transform =
+                            inv_flip.then(&cell_ref.transform).then(&flip);
+
+                        if let Some(ref mut rep) = cell_ref.repetition {
+                            rep.col_spacing *= inv;
+                            rep.row_spacing *= -inv;
+                        }
+                    }
+                    Element::Text { position, height, .. } => {
+                        *position = Point::new(position.x * inv, -position.y * inv);
+                        *height *= inv;
+                    }
+                }
+            }
+        }
+
+        rosette_io::json::to_string(&library)
+            .map_err(|e| JsValue::from_str(&format!("JSON serialize error: {}", e)))
+    }
+
     /// Get all polygons for rendering.
     ///
     /// Returns a JS array of [id, vertices, color] tuples where:

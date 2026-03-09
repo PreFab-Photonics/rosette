@@ -8,7 +8,9 @@ import { StatusBar } from "@/components/ui/StatusBar";
 import { Toolbar } from "@/components/ui/Toolbar";
 import { useUIStore } from "@/stores/ui";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
-import { isTauri, pickGdsFile } from "@/lib/tauri";
+import { isTauri, pickGdsFile, pickSaveFile, saveGds, getCurrentFile } from "@/lib/tauri";
+import { useWasmContextStore } from "@/stores/wasm-context";
+import { useStatusMessageStore } from "@/stores/status-message";
 
 /**
  * Emit an open-file event for the Tauri backend to process.
@@ -17,6 +19,49 @@ import { isTauri, pickGdsFile } from "@/lib/tauri";
 async function emitOpenFile(path: string) {
   const { emit } = await import("@tauri-apps/api/event");
   await emit("open-file", path);
+}
+
+/**
+ * Save the current library to a GDS file.
+ *
+ * If `forceDialog` is true or no current file path exists, prompts with Save As.
+ * Otherwise saves to the current file path (Cmd+S behavior).
+ */
+async function handleSave(forceDialog: boolean) {
+  const library = useWasmContextStore.getState().library;
+  if (!library) return;
+
+  try {
+    let path: string | null = null;
+
+    if (!forceDialog) {
+      // Try to get the current file path (Save)
+      path = await getCurrentFile();
+    }
+
+    if (!path) {
+      // No current file or Save As — show dialog
+      path = await pickSaveFile();
+    }
+
+    if (!path) return; // User cancelled
+
+    // Ensure .gds extension
+    if (!path.endsWith(".gds") && !path.endsWith(".gds2") && !path.endsWith(".gdsii")) {
+      path += ".gds";
+    }
+
+    // Generate GDS bytes from the WASM library
+    const bytes = library.to_gds();
+
+    // Write to disk via Tauri backend
+    await saveGds(path, bytes);
+
+    useStatusMessageStore.getState().show(`Saved to ${path.split("/").pop()}`);
+  } catch (err) {
+    console.error("Failed to save GDS file:", err);
+    useStatusMessageStore.getState().show(`Save failed: ${err}`, "error");
+  }
 }
 
 /**
@@ -55,17 +100,28 @@ export default function App() {
     prevIsLg.current = isLg;
   }, [isLg]);
 
-  // Tauri: Cmd+O to open a GDS file
+  // Tauri: Cmd+O to open, Cmd+S to save, Cmd+Shift+S to save as
   useEffect(() => {
     if (!isTauri) return;
 
     const handleKeyDown = async (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "o") {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+
+      if (e.key === "o") {
         e.preventDefault();
         const path = await pickGdsFile();
         if (path) {
           await emitOpenFile(path);
         }
+      } else if (e.key === "s" && e.shiftKey) {
+        // Cmd+Shift+S: Save As (always show dialog)
+        e.preventDefault();
+        await handleSave(true);
+      } else if (e.key === "s") {
+        // Cmd+S: Save (to current file, or Save As if none)
+        e.preventDefault();
+        await handleSave(false);
       }
     };
 
@@ -132,3 +188,6 @@ export default function App() {
     </div>
   );
 }
+
+/** Export handleSave for use in command palette. */
+export { handleSave };

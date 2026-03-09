@@ -21,4 +21,4 @@ mod reader;
 pub(crate) mod writer;
 
 pub use reader::{read, read_bytes};
-pub use writer::{GdsError, write, write_library};
+pub use writer::{write, write_bytes, write_library, GdsError};
