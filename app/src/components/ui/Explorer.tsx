@@ -13,6 +13,7 @@ import { useRulerStore } from "@/stores/ruler";
 import { useCellDragStore } from "@/stores/cell-drag";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { useResize } from "@/hooks/use-resize";
 import {
   RenameCellCommand,
   PasteElementsCommand,
@@ -454,7 +455,9 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
                   }
                 : null;
               const vp = getEffectiveViewport(canvas);
-              useViewportStore.getState().zoomToSelected(bounds, vp.width, vp.height, vp.screenCenter);
+              useViewportStore
+                .getState()
+                .zoomToSelected(bounds, vp.width, vp.height, vp.screenCenter);
             },
             disabled: !hasSelection,
           },
@@ -906,7 +909,15 @@ export function Explorer() {
   const isDark = theme === "dark";
   const collapsed = useUIStore((s) => s.explorerCollapsed);
   const toggleCollapsed = useUIStore((s) => s.toggleExplorerCollapsed);
+  const explorerWidth = useUIStore((s) => s.explorerWidth);
+  const setExplorerWidth = useUIStore((s) => s.setExplorerWidth);
   const { isSm } = useBreakpoint();
+
+  const { handleProps: resizeHandleProps } = useResize({
+    side: "left",
+    width: explorerWidth,
+    onResize: setExplorerWidth,
+  });
 
   const projectName = useExplorerStore((s) => s.projectName);
   const setProjectName = useExplorerStore((s) => s.setProjectName);
@@ -1029,12 +1040,15 @@ export function Explorer() {
       <div
         ref={drawerRef}
         className={cn(
-          "fixed top-4 left-4 z-40 w-72 rounded-xl border transition-opacity duration-200",
+          "fixed top-4 left-4 z-40 rounded-xl border transition-opacity duration-200",
           cellsLoaded ? "opacity-100" : "pointer-events-none opacity-0",
           isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
           isOverlay && "shadow-xl",
         )}
+        style={{ width: explorerWidth }}
       >
+        {/* Invisible resize handle on the right edge */}
+        <div {...resizeHandleProps} />
         {/* Header bar — editable project name, matches Sidebar tab bar height */}
         <div className="flex items-center gap-1 px-1 pt-1 pb-[3px]">
           {/* Icon — same size as Sidebar tab buttons */}
@@ -1146,7 +1160,14 @@ export function Explorer() {
         {/* Hierarchy level footer — controls rendering depth on canvas */}
         <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
         <div className="flex items-center justify-between pl-2 pr-[5.5px] py-1.5">
-          <span className={cn("text-xs select-none pointer-events-none", isDark ? "text-white/40" : "text-black/40")}>Level</span>
+          <span
+            className={cn(
+              "text-xs select-none pointer-events-none",
+              isDark ? "text-white/40" : "text-black/40",
+            )}
+          >
+            Level
+          </span>
           <div className="flex items-center gap-1">
             <input
               id="hierarchy-level-input"

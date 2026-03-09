@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLayerStore, LAYER_PALETTE, MAX_LAYER_NUMBER, type Layer, type FillPattern } from "@/stores/layer";
+import {
+  useLayerStore,
+  LAYER_PALETTE,
+  MAX_LAYER_NUMBER,
+  type Layer,
+  type FillPattern,
+} from "@/stores/layer";
 import { useContextMenuStore } from "@/stores/context-menu";
 import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";

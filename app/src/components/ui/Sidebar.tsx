@@ -5,6 +5,7 @@ import { useMinimapStore } from "@/stores/minimap";
 import { cn, keys } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { useResize } from "@/hooks/use-resize";
 import { LayersPanel } from "./LayersPanel";
 import { InspectorPanel } from "./InspectorPanel";
 
@@ -93,7 +94,15 @@ export function Sidebar() {
   const isDark = theme === "dark";
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleCollapsed = useUIStore((s) => s.toggleSidebarCollapsed);
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
   const { isSm } = useBreakpoint();
+
+  const { handleProps: resizeHandleProps } = useResize({
+    side: "right",
+    width: sidebarWidth,
+    onResize: setSidebarWidth,
+  });
 
   const activeTab = useUIStore((s) => s.sidebarTab);
   const setSidebarTab = useUIStore((s) => s.setSidebarTab);
@@ -145,11 +154,14 @@ export function Sidebar() {
       <div
         ref={drawerRef}
         className={cn(
-          "fixed top-4 right-4 z-40 w-72 rounded-xl border",
+          "fixed top-4 right-4 z-40 rounded-xl border",
           isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
           isOverlay && "shadow-xl",
         )}
+        style={{ width: sidebarWidth }}
       >
+        {/* Invisible resize handle on the left edge */}
+        <div {...resizeHandleProps} />
         {/* Tab bar */}
         <div className="flex items-center gap-1 px-1 pt-1 pb-[3px]">
           {TABS.map((tab) => {

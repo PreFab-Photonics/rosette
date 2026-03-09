@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { WasmLibrary } from "@/wasm/rosette_wasm";
 import { useExplorerStore } from "@/stores/explorer";
 import type { CellNode } from "@/stores/explorer";
-import { useLayerStore, hexToRgba, FILL_PATTERN_IDS, LAYER_PALETTE, type Layer } from "@/stores/layer";
 import {
-  isTauri,
-  readGdsBytes,
-  listenTauri,
-  getPendingFile,
-} from "@/lib/tauri";
+  useLayerStore,
+  hexToRgba,
+  FILL_PATTERN_IDS,
+  LAYER_PALETTE,
+  type Layer,
+} from "@/stores/layer";
+import { isTauri, readGdsBytes, listenTauri, getPendingFile } from "@/lib/tauri";
 
 // Module-level singleton for library
 let libraryInstance: WasmLibrary | null = null;
@@ -102,9 +103,7 @@ function applyServerLayers(lib: WasmLibrary, serverLayers: ServerLayerDef[]): bo
   if (serverLayers.length === 0) return false;
 
   // Build a set of (layerNumber, datatype) pairs defined by the server
-  const defined = new Set(
-    serverLayers.map((l) => `${l.layerNumber}/${l.datatype}`),
-  );
+  const defined = new Set(serverLayers.map((l) => `${l.layerNumber}/${l.datatype}`));
 
   // Start with server-defined layers
   const newLayers: Layer[] = serverLayers.map((l) => ({
@@ -165,8 +164,7 @@ function discoverLayers(lib: WasmLibrary): void {
     const datatype = usedLayers[i + 1];
     const id = i / 2 + 1;
     const colorIndex = (id - 1) % LAYER_COLORS.length;
-    const name =
-      datatype === 0 ? `layer${layerNumber}` : `layer${layerNumber}/${datatype}`;
+    const name = datatype === 0 ? `layer${layerNumber}` : `layer${layerNumber}/${datatype}`;
 
     newLayers.push({
       id,

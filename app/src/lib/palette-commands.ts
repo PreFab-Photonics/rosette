@@ -301,7 +301,9 @@ export function getCommands(): CommandItem[] {
                 }
               : null;
             const vp = getEffectiveViewport(canvas);
-            useViewportStore.getState().zoomToSelected(bounds, vp.width, vp.height, vp.screenCenter);
+            useViewportStore
+              .getState()
+              .zoomToSelected(bounds, vp.width, vp.height, vp.screenCenter);
           }
         }
         close();

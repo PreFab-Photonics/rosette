@@ -13,8 +13,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Panel width (Tailwind w-72) in CSS pixels. Must match Explorer.tsx and Sidebar.tsx. */
-const PANEL_WIDTH = 288;
 /** Collapsed rail width (w-[38px]) in CSS pixels. Must match Explorer.tsx and Sidebar.tsx. */
 const COLLAPSED_WIDTH = 38;
 /** Panel gap from viewport edge (Tailwind left-4/right-4 = 16px). Must match Explorer.tsx and Sidebar.tsx. */
@@ -35,21 +33,18 @@ export function getEffectiveViewport(canvas: HTMLElement): {
   screenCenter: { x: number; y: number };
 } {
   const rect = canvas.getBoundingClientRect();
-  const { zenMode, explorerCollapsed, sidebarCollapsed } = useUIStore.getState();
+  const { zenMode, explorerCollapsed, sidebarCollapsed, explorerWidth, sidebarWidth } =
+    useUIStore.getState();
 
   let leftInset = 0;
   let rightInset = 0;
 
   if (!zenMode) {
     // Explorer on the left
-    leftInset = explorerCollapsed
-      ? COLLAPSED_WIDTH + PANEL_GAP
-      : PANEL_WIDTH + PANEL_GAP;
+    leftInset = explorerCollapsed ? COLLAPSED_WIDTH + PANEL_GAP : explorerWidth + PANEL_GAP;
 
     // Sidebar on the right
-    rightInset = sidebarCollapsed
-      ? COLLAPSED_WIDTH + PANEL_GAP
-      : PANEL_WIDTH + PANEL_GAP;
+    rightInset = sidebarCollapsed ? COLLAPSED_WIDTH + PANEL_GAP : sidebarWidth + PANEL_GAP;
   }
 
   const effectiveWidth = Math.max(1, rect.width - leftInset - rightInset);

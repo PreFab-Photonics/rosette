@@ -41,6 +41,13 @@ function resolveTheme(setting: ThemeSetting): ResolvedTheme {
 /** Sidebar tab identifiers. */
 export type SidebarTab = "layers" | "inspector";
 
+/** Default panel width in CSS pixels (Tailwind w-72). */
+export const DEFAULT_PANEL_WIDTH = 288;
+/** Minimum panel width when resizing. */
+export const MIN_PANEL_WIDTH = 200;
+/** Maximum panel width when resizing. */
+export const MAX_PANEL_WIDTH = 480;
+
 /**
  * UI state for application settings and preferences.
  */
@@ -67,6 +74,10 @@ interface UIState {
   explorerCollapsed: boolean;
   /** Whether the Sidebar panel is collapsed to an icon rail. */
   sidebarCollapsed: boolean;
+  /** Explorer panel width in CSS pixels. */
+  explorerWidth: number;
+  /** Sidebar panel width in CSS pixels. */
+  sidebarWidth: number;
 
   /** Set the theme preference. */
   setThemeSetting: (setting: ThemeSetting) => void;
@@ -100,6 +111,10 @@ interface UIState {
   setExplorerCollapsed: (collapsed: boolean) => void;
   /** Set Sidebar collapsed state directly (used by auto-collapse on breakpoint change). */
   setSidebarCollapsed: (collapsed: boolean) => void;
+  /** Set Explorer panel width, clamped to [MIN_PANEL_WIDTH, MAX_PANEL_WIDTH]. */
+  setExplorerWidth: (width: number) => void;
+  /** Set Sidebar panel width, clamped to [MIN_PANEL_WIDTH, MAX_PANEL_WIDTH]. */
+  setSidebarWidth: (width: number) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -116,6 +131,8 @@ export const useUIStore = create<UIState>()(
       zenMode: false,
       explorerCollapsed: false,
       sidebarCollapsed: false,
+      explorerWidth: DEFAULT_PANEL_WIDTH,
+      sidebarWidth: DEFAULT_PANEL_WIDTH,
 
       setThemeSetting: (setting) => set({ themeSetting: setting, theme: resolveTheme(setting) }),
       toggleTheme: () =>
@@ -146,6 +163,14 @@ export const useUIStore = create<UIState>()(
       toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setExplorerCollapsed: (collapsed) => set({ explorerCollapsed: collapsed }),
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+      setExplorerWidth: (width) =>
+        set({
+          explorerWidth: Math.round(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, width))),
+        }),
+      setSidebarWidth: (width) =>
+        set({
+          sidebarWidth: Math.round(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, width))),
+        }),
     }),
     {
       name: "rosette-ui",
@@ -155,11 +180,18 @@ export const useUIStore = create<UIState>()(
         zenMode: state.zenMode,
         explorerCollapsed: state.explorerCollapsed,
         sidebarCollapsed: state.sidebarCollapsed,
+        explorerWidth: state.explorerWidth,
+        sidebarWidth: state.sidebarWidth,
       }),
       onRehydrateStorage: () => (state) => {
-        // Resolve theme on rehydration (in case system preference changed)
         if (state) {
+          // Resolve theme on rehydration (in case system preference changed)
           state.theme = resolveTheme(state.themeSetting);
+          // Clamp persisted widths to current min/max (guards against constant changes)
+          const clamp = (v: number) =>
+            Math.round(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, v)));
+          state.explorerWidth = clamp(state.explorerWidth);
+          state.sidebarWidth = clamp(state.sidebarWidth);
         }
       },
     },
