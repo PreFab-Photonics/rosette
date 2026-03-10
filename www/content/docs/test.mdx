@@ -1,0 +1,24 @@
+---
+title: Components
+description: Reusable photonic components
+---
+
+Rosette ships with a library of reusable photonic components. Components are Python functions that you own and can customize — inspired by the shadcn/ui model.
+
+## Installing Components
+
+```bash
+rosette init
+```
+
+This copies component source files into your project so you can read, modify, and extend them.
+
+## Available Components
+
+Components live in your project's `components/` directory after initialization. Each one is a standalone Python function that returns geometry.
+
+```python
+from components.waveguide import waveguide
+
+wg = waveguide(length=100.0, width=0.5)
+```

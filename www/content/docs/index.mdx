@@ -1,0 +1,34 @@
+---
+title: Getting Started
+description: Get up and running with Rosette
+---
+
+Rosette is a photonic integrated circuit design tool. It provides a Python API backed by a high-performance Rust core for designing, simulating, and exporting photonic layouts.
+
+## Installation
+
+```bash
+pip install rosette
+```
+
+## Quick Start
+
+```python
+import rosette
+
+# Create a new design
+design = rosette.Design("my_chip")
+
+# Add components and route waveguides
+# ...
+
+# Export to GDS
+design.to_gds("my_chip.gds")
+```
+
+## What's Next
+
+<Cards>
+  <Card title="Installation" href="/docs/installation" />
+  <Card title="Components" href="/docs/components" />
+</Cards>

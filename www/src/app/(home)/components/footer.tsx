@@ -1,0 +1,51 @@
+import Link from "next/link";
+
+const footerLinks = [
+  { label: "Docs", href: "/docs", external: false },
+  {
+    label: "GitHub",
+    href: "https://github.com/prefab-photonics/rosette",
+    external: true,
+  },
+  {
+    label: "Prefab Photonics",
+    href: "https://prefab-photonics.com",
+    external: true,
+  },
+] as const;
+
+export function Footer() {
+  return (
+    <footer className="border-t border-black/10 dark:border-white/10">
+      <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 px-6 py-8 sm:flex-row sm:justify-between">
+        <p className="text-xs text-black/40 dark:text-white/40">
+          Prefab Photonics
+        </p>
+
+        <div className="flex items-center gap-6">
+          {footerLinks.map((link) =>
+            link.external ? (
+              <a
+                key={link.href}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-black/40 transition-colors hover:text-black/70 dark:text-white/40 dark:hover:text-white/70"
+              >
+                {link.label}
+              </a>
+            ) : (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="text-xs text-black/40 transition-colors hover:text-black/70 dark:text-white/40 dark:hover:text-white/70"
+              >
+                {link.label}
+              </Link>
+            ),
+          )}
+        </div>
+      </div>
+    </footer>
+  );
+}
