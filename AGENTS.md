@@ -19,7 +19,7 @@ uv run maturin develop                   # Rebuild Python bindings after Rust ch
 cargo test -p rosette-core waveguide     # Rust: crate + filter
 uv run pytest python/tests/test_foo.py::TestClass::test_method -v
 
-# Lint (CI runs these)
+# Lint
 cargo fmt && cargo clippy -- -D warnings
 uv run ruff check python/ && uv run ruff format python/
 ```
