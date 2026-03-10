@@ -15,7 +15,6 @@ import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 
 
@@ -46,10 +45,6 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     design_filename: str | None = None  # Source filename (e.g., "layout.py" or "mmi.gds")
     design_version: int = 0
     on_error: Callable[[str], None] | None = None
-
-    # Design cell data for navigation (flatten-on-demand)
-    _top_cell: Any = None
-    _child_cells_list: list[Any] | None = None
 
     # Condition variable for SSE notifications
     _condition: threading.Condition = threading.Condition()
@@ -87,65 +82,6 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
 
         # Static file serving for web app
         self.handle_static_file(path)
-
-    def do_POST(self) -> None:
-        """Handle POST requests."""
-        parsed = urlparse(self.path)
-        path = parsed.path
-
-        if path == "/api/design/navigate":
-            self.handle_navigate()
-            return
-
-        self.send_error(404, "Not Found")
-
-    def handle_navigate(self) -> None:
-        """Handle POST /api/design/navigate — flatten a specific cell.
-
-        Request body: {"cell": "cell_name"}
-        Response: {"json": "...flattened polygon data..."}
-        """
-        from rosette._core import to_flat_json_cell
-
-        try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
-            data = json.loads(body)
-            cell_name = data.get("cell")
-
-            if not cell_name:
-                self.send_error(400, "Missing 'cell' field")
-                return
-
-            top_cell = self.__class__._top_cell
-            child_cells_list = self.__class__._child_cells_list
-
-            if top_cell is None:
-                self.send_error(404, "No design loaded")
-                return
-
-            # If navigating to the top cell, use the pre-flattened JSON
-            if cell_name == top_cell.name:
-                response = {"json": self.__class__.design_json}
-            else:
-                # Flatten the requested cell on demand
-                inner_children = [c._inner for c in child_cells_list] if child_cells_list else []
-                flat_json = to_flat_json_cell(cell_name, top_cell._inner, inner_children)
-                if flat_json is None:
-                    self.send_error(404, f"Cell '{cell_name}' not found")
-                    return
-                response = {"json": flat_json}
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(json.dumps(response).encode("utf-8"))
-
-        except (json.JSONDecodeError, ValueError) as e:
-            self.send_error(400, f"Invalid request: {e}")
-        except Exception as e:
-            self.send_error(500, f"Internal error: {e}")
 
     def handle_design_events(self) -> None:
         """Handle SSE endpoint for live design updates.
@@ -327,16 +263,6 @@ class RosetteServer:
         # Notify all SSE connections of the change
         with RosetteHandler._condition:
             RosetteHandler._condition.notify_all()
-
-    def set_design_cells(self, top_cell, child_cells_list) -> None:
-        """Store the design cells for on-demand cell navigation.
-
-        Args:
-            top_cell: The top-level Cell (Python wrapper)
-            child_cells_list: List of child Cell objects, or None
-        """
-        RosetteHandler._top_cell = top_cell
-        RosetteHandler._child_cells_list = child_cells_list
 
     def get_design_version(self) -> int:
         """Get the current design version number."""

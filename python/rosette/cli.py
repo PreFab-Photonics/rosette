@@ -540,43 +540,42 @@ def _build_cell_tree(cell, child_cells_list):
 
 
 def _prepare_design(cell):
-    """Load child cells, flatten geometry, and build hierarchy tree.
+    """Serialize cell hierarchy and build explorer tree.
 
     Returns:
-        Tuple of (json_str, cell_tree, child_cells_list) where:
-        - json_str: Flattened polygon JSON for the top cell
+        Tuple of (json_str, cell_tree) where:
+        - json_str: Hierarchical library JSON (micrometers, full structure)
         - cell_tree: Hierarchy tree dict for the explorer panel
-        - child_cells_list: List of child Cell objects (or None)
     """
-    from rosette._core import to_flat_json
+    from rosette._core import to_json
 
     # Collect child cells
     child_cells_list = list(cell.get_child_cells()) if hasattr(cell, "get_child_cells") else None
 
-    # Serialize to flattened JSON for fast rendering
+    # Serialize to hierarchical JSON (preserves cells, refs, paths, text)
     if child_cells_list:
         inner_cells = [c._inner for c in child_cells_list]
-        json_str = to_flat_json(cell._inner, inner_cells)
+        json_str = to_json(cell._inner, inner_cells)
     else:
-        json_str = to_flat_json(cell._inner, None)
+        json_str = to_json(cell._inner, None)
 
     # Build hierarchy tree for the explorer panel
     cell_tree = _build_cell_tree(cell, child_cells_list)
 
-    return json_str, cell_tree, child_cells_list
+    return json_str, cell_tree
 
 
 def _prepare_design_from_library(library):
-    """Flatten a Library (e.g. from read_gds) for the viewer.
+    """Serialize a Library (e.g. from read_gds) for the viewer.
 
     The Library already contains the full cell hierarchy, so we serialize
     it directly rather than collecting child cells from Python wrappers.
 
     Returns:
-        Tuple of (cell, json_str, cell_tree, child_cells_list)
+        Tuple of (json_str, cell_tree)
     """
     from rosette import Library as LibWrapper
-    from rosette._core import to_flat_json
+    from rosette._core import to_json
 
     # Wrap into Python types
     if not isinstance(library, LibWrapper):
@@ -589,13 +588,13 @@ def _prepare_design_from_library(library):
     all_cells = library.cells()
     child_cells_list = [c for c in all_cells if c.name != top.name]
 
-    # Flatten the whole library (preserves hierarchy for rendering)
-    json_str = to_flat_json(library._inner)
+    # Serialize the full hierarchical library
+    json_str = to_json(library._inner)
 
     # Build hierarchy tree
     cell_tree = _build_cell_tree(top, child_cells_list)
 
-    return top, json_str, cell_tree, child_cells_list
+    return json_str, cell_tree
 
 
 def _start_server(port: int):
@@ -786,13 +785,12 @@ def serve_design(
 
     if design:
         cell, file_path, _ = load_design(design)
-        json_str, cell_tree, child_cells_list = _prepare_design(cell)
+        json_str, cell_tree = _prepare_design(cell)
         layer_defs = _load_layer_map_safe()
 
         server.set_design_json(
             json_str, cells=cell_tree, layers=layer_defs, filename=Path(design).name
         )
-        server.set_design_cells(cell, child_cells_list)
 
         if not no_open:
             tauri_proc = _open_viewer(
@@ -834,7 +832,7 @@ def serve_design(
                         del sys.modules[name]
 
                     cell, _, _ = load_design(design)
-                    json_str, cell_tree, child_cells_list = _prepare_design(cell)
+                    json_str, cell_tree = _prepare_design(cell)
                     layer_defs = _load_layer_map_safe()
 
                     server.set_design_json(
@@ -843,7 +841,6 @@ def serve_design(
                         layers=layer_defs,
                         filename=Path(design).name,
                     )
-                    server.set_design_cells(cell, child_cells_list)
                 except Exception as e:
                     print(f"error: {e}")
 
@@ -900,11 +897,10 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
     tauri_proc = None
 
     inner_lib = read_gds(str(file_path))
-    cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(inner_lib)
+    json_str, cell_tree = _prepare_design_from_library(inner_lib)
     layer_defs = _load_layer_map_safe()
 
     server.set_design_json(json_str, cells=cell_tree, layers=layer_defs, filename=file_path.name)
-    server.set_design_cells(cell, child_cells_list)
 
     if not no_open:
         tauri_proc = _open_viewer(
@@ -924,9 +920,7 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
         for _changes in watch(file_path):
             try:
                 inner_lib = read_gds(str(file_path))
-                cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(
-                    inner_lib
-                )
+                json_str, cell_tree = _prepare_design_from_library(inner_lib)
                 layer_defs = _load_layer_map_safe()
                 server.set_design_json(
                     json_str,
@@ -934,7 +928,6 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
                     layers=layer_defs,
                     filename=file_path.name,
                 )
-                server.set_design_cells(cell, child_cells_list)
             except Exception as e:
                 print(f"error: {e}")
 

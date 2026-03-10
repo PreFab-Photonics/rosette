@@ -27,7 +27,7 @@ mod reader;
 mod writer;
 
 pub use reader::{from_string, read};
-pub use writer::{to_string, write};
+pub use writer::{to_string, to_string_compact, write};
 
 use thiserror::Error;
 

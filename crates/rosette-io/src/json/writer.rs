@@ -26,7 +26,7 @@ pub fn write(path: impl AsRef<Path>, library: &Library) -> Result<(), JsonError>
     Ok(())
 }
 
-/// Serialize a library to a JSON string.
+/// Serialize a library to a pretty-printed JSON string.
 ///
 /// # Arguments
 /// * `library` - The library to serialize
@@ -38,6 +38,23 @@ pub fn write(path: impl AsRef<Path>, library: &Library) -> Result<(), JsonError>
 /// Returns an error if serialization fails.
 pub fn to_string(library: &Library) -> Result<String, JsonError> {
     Ok(serde_json::to_string_pretty(library)?)
+}
+
+/// Serialize a library to a compact JSON string (no extra whitespace).
+///
+/// Same as [`to_string`] but produces minimal JSON, suitable for wire
+/// transfer (e.g., SSE events from `rosette serve`).
+///
+/// # Arguments
+/// * `library` - The library to serialize
+///
+/// # Returns
+/// A compact JSON string representation of the library.
+///
+/// # Errors
+/// Returns an error if serialization fails.
+pub fn to_string_compact(library: &Library) -> Result<String, JsonError> {
+    Ok(serde_json::to_string(library)?)
 }
 
 #[cfg(test)]
@@ -82,5 +99,28 @@ mod tests {
         let json = to_string(&library).unwrap();
         assert!(json.contains("\"in\""));
         assert!(json.contains("\"out\""));
+    }
+
+    #[test]
+    fn test_to_string_compact() {
+        let mut cell = Cell::new("test");
+        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
+
+        let mut library = Library::new("test_lib");
+        library.add_cell(cell).unwrap();
+
+        let compact = to_string_compact(&library).unwrap();
+        let pretty = to_string(&library).unwrap();
+
+        // Compact has no newlines; pretty does
+        assert!(!compact.contains('\n'));
+        assert!(pretty.contains('\n'));
+
+        // Both contain the same data
+        assert!(compact.contains("test_lib"));
+        assert!(compact.contains("\"name\""));
+
+        // Compact is shorter
+        assert!(compact.len() < pretty.len());
     }
 }

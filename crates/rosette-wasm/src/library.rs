@@ -125,11 +125,6 @@ pub struct WasmLibrary {
     layer_fill_patterns: HashMap<u32, u32>,
     /// Whether the library has changed since last sync.
     dirty: bool,
-    /// Maps instance group ID → list of element UUIDs in that group.
-    /// Used for selecting entire cell instances in design mode.
-    group_map: HashMap<u32, Vec<String>>,
-    /// Maps element UUID → group ID it belongs to (reverse lookup).
-    uuid_to_group: HashMap<String, u32>,
     /// Maps element UUIDs to hole start indices for polygons with cutouts.
     ///
     /// Produced by `boolean_operation` when the result has interior rings.
@@ -204,8 +199,6 @@ impl WasmLibrary {
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
             dirty: false,
-            group_map: HashMap::new(),
-            uuid_to_group: HashMap::new(),
             hole_indices_map: HashMap::new(),
             hierarchy_depth_limit: 0,
         }
@@ -1135,13 +1128,7 @@ impl WasmLibrary {
             return self.get_all_ref_uuids_for_element(elem_idx);
         }
 
-        // Check pre-flattened group membership (design mode)
-        if let Some(group_id) = self.uuid_to_group.get(uuid)
-            && let Some(ids) = self.group_map.get(group_id)
-        {
-            return ids.clone();
-        }
-        // Ungrouped — return just this element
+        // Regular element — return just this element
         vec![uuid.to_string()]
     }
 
@@ -1186,11 +1173,10 @@ impl WasmLibrary {
         ids
     }
 
-    /// Get one representative UUID per instance group, plus ungrouped UUIDs.
+    /// Get one representative UUID per element or CellRef instance.
     ///
     /// Used for Tab-cycling: each step in the cycle corresponds to one
-    /// cell instance (group) or one standalone polygon.
-    /// Includes CellRef instances (one representative per CellRef element).
+    /// cell instance (CellRef) or one standalone element (polygon, path, text).
     pub fn get_group_representative_ids(&self) -> Vec<String> {
         let cell_name = match &self.active_cell {
             Some(name) => name,
@@ -1202,35 +1188,23 @@ impl WasmLibrary {
             None => return Vec::new(),
         };
 
-        let mut seen_groups = std::collections::HashMap::new();
-        let mut ungrouped = Vec::new();
+        let mut result = Vec::new();
 
-        for (uuid, elem_ref) in &self.element_refs {
-            if elem_ref.cell_name != *cell_name {
-                continue;
-            }
-
-            // Skip CellRef elements — they are represented by synthetic UUIDs below
-            if matches!(
-                cell.elements().get(elem_ref.element_index),
-                Some(Element::CellRef(_))
-            ) {
-                continue;
-            }
-
-            if let Some(&group_id) = self.uuid_to_group.get(uuid) {
-                seen_groups.entry(group_id).or_insert_with(|| uuid.clone());
-            } else {
-                ungrouped.push(uuid.clone());
-            }
-        }
-
-        let mut groups: Vec<(u32, String)> = seen_groups.into_iter().collect();
-        groups.sort_by_key(|(id, _)| *id);
-
-        let mut result: Vec<String> = groups.into_iter().map(|(_, uuid)| uuid).collect();
-        ungrouped.sort();
-        result.extend(ungrouped);
+        // Collect non-CellRef element UUIDs (polygons, paths, text)
+        let mut direct_uuids: Vec<String> = self
+            .element_refs
+            .iter()
+            .filter(|(_, elem_ref)| {
+                elem_ref.cell_name == *cell_name
+                    && !matches!(
+                        cell.elements().get(elem_ref.element_index),
+                        Some(Element::CellRef(_))
+                    )
+            })
+            .map(|(uuid, _)| uuid.clone())
+            .collect();
+        direct_uuids.sort();
+        result.extend(direct_uuids);
 
         // Include one representative per CellRef instance
         for (elem_idx, element) in cell.elements().iter().enumerate() {
@@ -2018,71 +1992,6 @@ impl WasmLibrary {
         Ok(wasm_lib)
     }
 
-    /// Load a library from pre-flattened JSON.
-    ///
-    /// This method parses JSON that has already been flattened by `to_flat_json()`.
-    /// The input format is:
-    /// ```json
-    /// {"polygons": [{"v": [x0,y0,x1,y1,...], "l": 1, "d": 0}, ...]}
-    /// ```
-    ///
-    /// This is faster than `from_json()` because:
-    /// - No hierarchy traversal needed
-    /// - No path-to-polygon conversion
-    /// - No scaling (already done server-side)
-    ///
-    /// # Arguments
-    /// * `json` - JSON string containing pre-flattened polygon data
-    ///
-    /// # Returns
-    /// A new WasmLibrary with a single cell containing all polygons.
-    ///
-    /// # Errors
-    /// Returns a JsValue error if parsing fails.
-    pub fn from_flat_json(json: &str) -> Result<WasmLibrary, JsValue> {
-        use rosette_core::FlatGeometry;
-
-        let flat: FlatGeometry = serde_json::from_str(json)
-            .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
-
-        // Create a new library with a single cell
-        let mut wasm_lib = WasmLibrary::new("design");
-        wasm_lib.add_cell("flattened")?;
-        wasm_lib.set_active_cell("flattened");
-
-        // The flat JSON contains coordinates in nanometers (from to_flat_json's UM_TO_NM
-        // scaling). The app's internal world coordinate system uses GRID_SIZE world units
-        // per nanometer (1 nm = GRID_SIZE world units), so we must scale up to match.
-        // Y is also negated: GDS/SDK use math convention (Y-up) while the app's
-        // renderer uses screen convention (Y-down).
-        const GRID_SIZE: f64 = 50.0;
-
-        // Add all polygons, scaling from nm to world units (with Y flip),
-        // and build group maps for instance-based selection
-        for poly in flat.polygons {
-            if poly.vertices.len() >= 6 {
-                let scaled: Vec<f64> = poly
-                    .vertices
-                    .chunks(2)
-                    .flat_map(|xy| [xy[0] * GRID_SIZE, -xy[1] * GRID_SIZE])
-                    .collect();
-                let uuid = wasm_lib.add_polygon(&scaled, poly.layer, poly.datatype);
-
-                // Track group membership
-                if let (Some(uuid), Some(group_id)) = (&uuid, poly.group) {
-                    wasm_lib
-                        .group_map
-                        .entry(group_id)
-                        .or_default()
-                        .push(uuid.clone());
-                    wasm_lib.uuid_to_group.insert(uuid.clone(), group_id);
-                }
-            }
-        }
-
-        Ok(wasm_lib)
-    }
-
     /// Export the library to JSON.
     ///
     /// # Returns
@@ -2229,8 +2138,6 @@ impl WasmLibrary {
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
             dirty: false,
-            group_map: HashMap::new(),
-            uuid_to_group: HashMap::new(),
             hole_indices_map: HashMap::new(),
             hierarchy_depth_limit: 0,
         }

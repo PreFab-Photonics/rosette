@@ -1346,7 +1346,7 @@ export class SetInstanceArrayCommand implements Command {
  * Called after any command that changes cell structure (add, delete, rename)
  * or cell references (add/remove instance). This keeps the Explorer's
  * hierarchical tree in sync with the library in standalone mode.
- * In design mode the tree comes from the server, but calling this is harmless.
+ * In design mode the tree comes from the WASM library, same as standalone.
  */
 export function syncCellTree(library: WasmLibrary): void {
   const tree = library.get_cell_tree();

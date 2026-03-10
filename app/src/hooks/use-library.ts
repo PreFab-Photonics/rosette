@@ -61,13 +61,6 @@ interface DesignResponse {
   filename: string | null;
 }
 
-/**
- * Response from /api/design/navigate.
- */
-interface NavigateResponse {
-  json: string;
-}
-
 /** Type guard: is the cells payload a hierarchy tree? */
 function isCellTree(cells: CellNode | string[] | null): cells is CellNode {
   return cells !== null && !Array.isArray(cells) && "name" in cells && "children" in cells;
@@ -190,8 +183,10 @@ function discoverLayers(lib: WasmLibrary): void {
  *
  * Creates a singleton library with a default cell and syncs layer colors.
  * In design mode (`?design=true`), connects to `/api/design/events` SSE
- * for live updates from `rosette serve`, and supports navigating into
- * nested cells via `/api/design/navigate`.
+ * for live updates from `rosette serve`. The full hierarchical library
+ * is sent over SSE and loaded via `from_library_json`, giving design
+ * mode the same instance handling as Tauri mode (cell navigation,
+ * hierarchy depth control, instance transforms in inspector).
  *
  * In Tauri mode, loads full hierarchical GDS files via the backend and
  * manages them locally in the WASM library.
@@ -209,8 +204,6 @@ export function useLibrary(
   const layersRef = useRef(layers);
   const designVersionRef = useRef(0);
   const wasmRef = useRef(wasm);
-  // Track which cell the current library was loaded for (design mode only)
-  const loadedCellRef = useRef<string | null>(null);
 
   // Keep refs in sync
   useEffect(() => {
@@ -246,8 +239,6 @@ export function useLibrary(
     } else {
       useExplorerStore.getState().setCells(["top"]);
     }
-    // Mark the initial cell as loaded so the navigate effect doesn't fire
-    loadedCellRef.current = "top";
     setLibrary(libraryInstance);
     setIsReady(true);
   }, [wasm, isWasmReady]);
@@ -345,7 +336,6 @@ export function useLibrary(
       libraryInstance = newLib;
       setLibrary(newLib);
       setIsReady(true);
-      loadedCellRef.current = "top";
 
       // Reset explorer
       useExplorerStore.getState().setProjectName("untitled-project");
@@ -390,8 +380,8 @@ export function useLibrary(
         // Check if version changed and we have JSON
         if (data.version !== designVersionRef.current && data.json) {
           try {
-            // Create library from pre-flattened JSON (fast path)
-            const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
+            // Create library from hierarchical JSON (same path as Tauri/GDS)
+            const newLibrary = wasm.WasmLibrary.from_library_json(data.json);
 
             // Apply server-provided layer definitions, or fall back to auto-discovery
             if (data.layers && data.layers.length > 0) {
@@ -411,15 +401,19 @@ export function useLibrary(
             setIsReady(true);
             designVersionRef.current = data.version;
 
-            // Update explorer with cell hierarchy from the server
-            if (data.cells) {
+            // Build cell tree from the WASM library (same as Tauri mode)
+            const tree = newLibrary.get_cell_tree();
+            if (tree) {
+              useExplorerStore.getState().setCellTree(tree);
+              const topCellName = newLibrary.active_cell_name();
+              if (topCellName) {
+                useExplorerStore.getState().setActiveCell(topCellName);
+              }
+            } else if (data.cells) {
+              // Fallback to server-provided cell tree
               if (isCellTree(data.cells)) {
-                // SSE always delivers the top cell's geometry
-                loadedCellRef.current = data.cells.name;
                 useExplorerStore.getState().setCellTree([data.cells]);
               } else {
-                // Legacy flat list fallback
-                loadedCellRef.current = data.cells[0] ?? null;
                 useExplorerStore.getState().setCells(data.cells);
               }
             }
@@ -446,61 +440,6 @@ export function useLibrary(
       eventSource.close();
     };
   }, [wasm, isWasmReady]);
-
-  // Design mode: navigate into a cell when activeCell changes
-  const activeCell = useExplorerStore((s) => s.activeCell);
-  const cellTree = useExplorerStore((s) => s.cellTree);
-
-  useEffect(() => {
-    if (!wasm || !isWasmReady || !isDesignMode() || !cellTree || !activeCell) return;
-
-    // Don't navigate if we haven't loaded the initial design yet
-    if (!libraryInstance) return;
-
-    // Skip if the current library already has geometry for this cell
-    if (loadedCellRef.current === activeCell) return;
-
-    let cancelled = false;
-
-    const navigateToCell = async () => {
-      try {
-        // Design mode: use HTTP API
-        const res = await fetch("/api/design/navigate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cell: activeCell }),
-        });
-
-        if (!res.ok || cancelled) return;
-
-        const data: NavigateResponse = await res.json();
-        if (cancelled || !data.json) return;
-
-        const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
-        discoverLayers(newLibrary);
-        syncLayerColors(newLibrary, useLayerStore.getState().layers);
-
-        // Free old library
-        if (libraryInstance) {
-          libraryInstance.free();
-        }
-
-        libraryInstance = newLibrary;
-        loadedCellRef.current = activeCell;
-        setLibrary(newLibrary);
-      } catch (err) {
-        if (!cancelled) {
-          console.error("Failed to navigate to cell:", err);
-        }
-      }
-    };
-
-    navigateToCell();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [wasm, isWasmReady, activeCell, cellTree]);
 
   // Sync layer colors and fill patterns to library (hidden layers get alpha=0 so they don't render)
   useEffect(() => {

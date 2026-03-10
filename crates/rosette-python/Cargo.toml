@@ -13,4 +13,3 @@ rosette-core.workspace = true
 rosette-drc.workspace = true
 rosette-io.workspace = true
 pyo3 = { workspace = true, features = ["extension-module"] }
-serde_json.workspace = true

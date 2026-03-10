@@ -3243,7 +3243,6 @@ dependencies = [
  "rosette-core",
  "rosette-drc",
  "rosette-io",
- "serde_json",
 ]
 
 [[package]]
@@ -3262,7 +3261,6 @@ dependencies = [
  "rosette-io",
  "serde",
  "serde-wasm-bindgen",
- "serde_json",
  "thiserror 1.0.69",
  "uuid",
  "wasm-bindgen",

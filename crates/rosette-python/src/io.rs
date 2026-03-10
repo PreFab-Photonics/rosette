@@ -265,7 +265,7 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
                 "cells parameter is only valid when design is a Cell, not a Library",
             ));
         }
-        return json::to_string(&lib.0).map_err(|e| {
+        return json::to_string_compact(&lib.0).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize to JSON: {}", e))
         });
     }
@@ -283,7 +283,7 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         }
 
-        return json::to_string(&lib).map_err(|e| {
+        return json::to_string_compact(&lib).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize to JSON: {}", e))
         });
     }
@@ -293,117 +293,4 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
     ))
 }
 
-/// Serialize a Cell or Library to a flattened JSON string for the web viewer.
-///
-/// This flattens the design hierarchy into a simple list of polygons:
-/// - Expands all cell references with their transforms applied
-/// - Converts path elements to polygon ribbons
-/// - Scales coordinates from micrometers to nanometers (×1000)
-/// - Skips text elements
-///
-/// The output format is optimized for the web viewer:
-/// ```json
-/// {"polygons": [{"v": [x0,y0,x1,y1,...], "l": 1, "d": 0}, ...]}
-/// ```
-///
-/// Args:
-///     design: A Cell or Library to serialize
-///     cells: Optional list of child cells (only for Cell, not Library)
-///
-/// Returns:
-///     A JSON string with flattened polygon data
-///
-/// Example:
-///     >>> cell = Cell("my_design")
-///     >>> cell.add_polygon(Polygon.rect(Point.origin(), 10, 5), 1)
-///     >>> json_str = to_flat_json(cell)
-#[pyfunction]
-#[pyo3(signature = (design, cells=None))]
-pub fn to_flat_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResult<String> {
-    use rosette_core::flatten_library;
 
-    // Scale factor: SDK uses micrometers, web app uses nanometers
-    const UM_TO_NM: f64 = 1000.0;
-
-    // Try Library first
-    if let Ok(lib) = design.extract::<PyLibrary>() {
-        if cells.is_some() {
-            return Err(pyo3::exceptions::PyTypeError::new_err(
-                "cells parameter is only valid when design is a Cell, not a Library",
-            ));
-        }
-
-        let flat = flatten_library(&lib.0, UM_TO_NM);
-        return serde_json::to_string(&flat).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize to JSON: {}", e))
-        });
-    }
-
-    // Try Cell
-    if let Ok(cell) = design.extract::<PyCell>() {
-        // Create a library for flattening
-        let mut lib = rosette_core::Library::new(cell.0.name().to_string());
-
-        if let Some(child_cells) = cells {
-            let cells_vec: Vec<_> = child_cells.iter().map(|c| c.0.clone()).collect();
-            lib.add_cell_recursive(cell.0.clone(), &cells_vec);
-        } else {
-            lib.add_cell(cell.0.clone())
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        }
-
-        let flat = flatten_library(&lib, UM_TO_NM);
-        return serde_json::to_string(&flat).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize to JSON: {}", e))
-        });
-    }
-
-    Err(pyo3::exceptions::PyTypeError::new_err(
-        "design must be a Cell or Library",
-    ))
-}
-
-/// Flatten a specific cell (by name) from a pre-built library to JSON.
-///
-/// This is used by `rosette serve` to support navigating into nested cells.
-/// The caller provides the top cell and its children (to build the library),
-/// then specifies which cell to flatten.
-///
-/// Args:
-///     cell_name: Name of the cell to flatten
-///     top_cell: The top-level cell (used to build the library)
-///     child_cells: All child cells referenced by the hierarchy
-///
-/// Returns:
-///     A JSON string with flattened polygon data for the requested cell,
-///     or None if the cell is not found.
-#[pyfunction]
-#[pyo3(signature = (cell_name, top_cell, child_cells))]
-pub fn to_flat_json_cell(
-    cell_name: &str,
-    top_cell: &PyCell,
-    child_cells: Vec<PyCell>,
-) -> PyResult<Option<String>> {
-    use rosette_core::flatten_cell;
-
-    const UM_TO_NM: f64 = 1000.0;
-
-    // Build a library with the full hierarchy
-    let mut lib = rosette_core::Library::new(top_cell.0.name().to_string());
-    let cells_vec: Vec<_> = child_cells.into_iter().map(|c| c.0).collect();
-    lib.add_cell_recursive(top_cell.0.clone(), &cells_vec);
-
-    // Flatten the requested cell
-    match flatten_cell(&lib, cell_name, UM_TO_NM) {
-        Some(flat) => {
-            let json = serde_json::to_string(&flat).map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!(
-                    "Failed to serialize to JSON: {}",
-                    e
-                ))
-            })?;
-            Ok(Some(json))
-        }
-        None => Ok(None),
-    }
-}
