@@ -44,7 +44,7 @@ export function Tooltip({
       {children}
       <div
         className={cn(
-          "pointer-events-none absolute z-50 flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100",
+          "pointer-events-none select-none absolute z-50 flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100",
           positionClass,
           isDark
             ? "border-white/10 bg-[rgb(29,29,29)] text-white/90"

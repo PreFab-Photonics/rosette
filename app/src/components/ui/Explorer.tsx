@@ -25,6 +25,7 @@ import {
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 import { isTauri } from "@/lib/tauri";
 import { cn, keys, centerViewOnSelection, getEffectiveViewport } from "@/lib/utils";
+import { Tooltip } from "@/components/ui/Tooltip";
 
 // =============================================================================
 // Types (shared by HamburgerMenu)
@@ -877,7 +878,7 @@ function CollapsedExplorer({ isDark, onExpand }: { isDark: boolean; onExpand: ()
           src="/icon.svg"
           alt=""
           draggable={false}
-          className={cn("h-5 w-5 rounded border", isDark ? "border-white/40" : "border-black/40")}
+          className={cn("h-5 w-5 select-none pointer-events-none rounded border", isDark ? "border-white/40" : "border-black/40")}
         />
       </div>
 
@@ -1077,7 +1078,7 @@ export function Explorer() {
               alt=""
               draggable={false}
               className={cn(
-                "h-5 w-5 rounded border",
+                "h-5 w-5 select-none pointer-events-none rounded border",
                 isDark ? "border-white/40" : "border-black/40",
               )}
             />
@@ -1227,32 +1228,33 @@ export function Explorer() {
               )}
             />
             {/* "All levels" button */}
-            <button
-              type="button"
-              title="All levels"
-              onClick={() => setHierarchyLevelLimit(Infinity)}
-              className={cn(
-                "flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg border transition-colors",
-                isDark
-                  ? "border-white/10 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/90"
-                  : "border-black/10 bg-black/5 text-black/40 hover:bg-black/10 hover:text-black/90",
-              )}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <Tooltip label="All levels" position="bottom">
+              <button
+                type="button"
+                onClick={() => setHierarchyLevelLimit(Infinity)}
+                className={cn(
+                  "flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg border transition-colors",
+                  isDark
+                    ? "border-white/10 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/90"
+                    : "border-black/10 bg-black/5 text-black/40 hover:bg-black/10 hover:text-black/90",
+                )}
               >
-                <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                <polyline points="2 17 12 22 22 17" />
-                <polyline points="2 12 12 17 22 12" />
-              </svg>
-            </button>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                  <polyline points="2 17 12 22 22 17" />
+                  <polyline points="2 12 12 17 22 12" />
+                </svg>
+              </button>
+            </Tooltip>
           </div>
         </div>
       </div>
