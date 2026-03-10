@@ -55,6 +55,8 @@ interface DesignResponse {
   cells: CellNode | string[] | null;
   /** Layer definitions from rosette.toml (if available). */
   layers: ServerLayerDef[] | null;
+  /** Source filename (e.g., "layout.py" or "mmi.gds"). */
+  filename: string | null;
 }
 
 /**
@@ -274,6 +276,12 @@ export function useLibrary(
         setLibrary(newLibrary);
         setIsReady(true);
 
+        // Set project name from the opened file's basename
+        const basename = path.split(/[/\\]/).pop();
+        if (basename) {
+          useExplorerStore.getState().setProjectName(basename);
+        }
+
         // Build the cell tree from the WASM library itself
         const tree = newLibrary.get_cell_tree();
         if (tree) {
@@ -362,6 +370,11 @@ export function useLibrary(
                 loadedCellRef.current = data.cells[0] ?? null;
                 useExplorerStore.getState().setCells(data.cells);
               }
+            }
+
+            // Set project name from source filename (e.g., "layout.py" or "mmi.gds")
+            if (data.filename) {
+              useExplorerStore.getState().setProjectName(data.filename);
             }
           } catch (parseError) {
             console.error("Failed to parse design:", parseError);

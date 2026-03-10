@@ -621,7 +621,9 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
         json_str, cell_tree, child_cells_list = _prepare_design(cell)
         layer_defs = _load_layer_map_safe()
 
-        server.set_design_json(json_str, cells=cell_tree, layers=layer_defs)
+        server.set_design_json(
+            json_str, cells=cell_tree, layers=layer_defs, filename=Path(design).name
+        )
         server.set_design_cells(cell, child_cells_list)
 
         if not no_open:
@@ -661,7 +663,12 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
                     json_str, cell_tree, child_cells_list = _prepare_design(cell)
                     layer_defs = _load_layer_map_safe()
 
-                    server.set_design_json(json_str, cells=cell_tree, layers=layer_defs)
+                    server.set_design_json(
+                        json_str,
+                        cells=cell_tree,
+                        layers=layer_defs,
+                        filename=Path(design).name,
+                    )
                     server.set_design_cells(cell, child_cells_list)
                 except Exception as e:
                     print(f"error: {e}")
@@ -705,7 +712,7 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False):
     cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(inner_lib)
     layer_defs = _load_layer_map_safe()
 
-    server.set_design_json(json_str, cells=cell_tree, layers=layer_defs)
+    server.set_design_json(json_str, cells=cell_tree, layers=layer_defs, filename=file_path.name)
     server.set_design_cells(cell, child_cells_list)
 
     if not no_open:
@@ -724,7 +731,12 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False):
                     inner_lib
                 )
                 layer_defs = _load_layer_map_safe()
-                server.set_design_json(json_str, cells=cell_tree, layers=layer_defs)
+                server.set_design_json(
+                    json_str,
+                    cells=cell_tree,
+                    layers=layer_defs,
+                    filename=file_path.name,
+                )
                 server.set_design_cells(cell, child_cells_list)
             except Exception as e:
                 print(f"error: {e}")

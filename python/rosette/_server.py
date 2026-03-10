@@ -43,6 +43,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     design_json: str | None = None
     design_cells: dict | None = None  # Hierarchy tree: {name, children}
     design_layers: list[dict] | None = None  # Layer definitions from rosette.toml
+    design_filename: str | None = None  # Source filename (e.g., "layout.py" or "mmi.gds")
     design_version: int = 0
     on_error: Callable[[str], None] | None = None
 
@@ -171,6 +172,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                 "json": self.__class__.design_json,
                 "cells": self.__class__.design_cells,
                 "layers": self.__class__.design_layers,
+                "filename": self.__class__.design_filename,
             },
         )
 
@@ -191,6 +193,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                             "json": self.__class__.design_json,
                             "cells": self.__class__.design_cells,
                             "layers": self.__class__.design_layers,
+                            "filename": self.__class__.design_filename,
                         },
                     )
                     last_version = current_version
@@ -216,6 +219,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             "json": self.__class__.design_json,
             "cells": self.__class__.design_cells,
             "layers": self.__class__.design_layers,
+            "filename": self.__class__.design_filename,
         }
 
         self.send_response(200)
@@ -304,6 +308,7 @@ class RosetteServer:
         json_str: str,
         cells: dict | None = None,
         layers: list[dict] | None = None,
+        filename: str | None = None,
     ) -> None:
         """Update the design JSON and increment version.
 
@@ -311,10 +316,12 @@ class RosetteServer:
             json_str: JSON string of the serialized library
             cells: Optional cell hierarchy tree: {name, children}
             layers: Optional layer definitions from rosette.toml (LayerMap.to_dict_list())
+            filename: Optional source filename (e.g., "layout.py" or "mmi.gds")
         """
         RosetteHandler.design_json = json_str
         RosetteHandler.design_cells = cells
         RosetteHandler.design_layers = layers
+        RosetteHandler.design_filename = filename
         RosetteHandler.design_version += 1
 
         # Notify all SSE connections of the change
