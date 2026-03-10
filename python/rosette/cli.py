@@ -147,6 +147,17 @@ def main():
     serve_parser.add_argument(
         "--no-open", action="store_true", help="Don't open browser automatically"
     )
+    serve_parser.add_argument(
+        "--native",
+        action="store_true",
+        default=None,
+        help="Open in native Tauri window (auto-detected if available)",
+    )
+    serve_parser.add_argument(
+        "--no-native",
+        action="store_true",
+        help="Force browser mode even if Tauri app is available",
+    )
 
     # run command
     run_parser = subparsers.add_parser("run", help="View a GDS file in the browser")
@@ -156,6 +167,17 @@ def main():
     )
     run_parser.add_argument(
         "--no-open", action="store_true", help="Don't open browser automatically"
+    )
+    run_parser.add_argument(
+        "--native",
+        action="store_true",
+        default=None,
+        help="Open in native Tauri window (auto-detected if available)",
+    )
+    run_parser.add_argument(
+        "--no-native",
+        action="store_true",
+        help="Force browser mode even if Tauri app is available",
     )
 
     args = parser.parse_args()
@@ -167,9 +189,15 @@ def main():
     elif args.command == "build":
         build_design(args.design, args.output, args.verbose)
     elif args.command == "serve":
-        serve_design(args.design, args.port, args.no_open)
+        native = None if args.native is None else True
+        if args.no_native:
+            native = False
+        serve_design(args.design, args.port, args.no_open, native=native)
     elif args.command == "run":
-        run_gds(args.file, args.port, args.no_open)
+        native_run = None if args.native is None else True
+        if args.no_native:
+            native_run = False
+        run_gds(args.file, args.port, args.no_open, native=native_run)
 
 
 def init_project(name: str | None, template: str = "blank"):
@@ -606,15 +634,155 @@ def _load_layer_map_safe() -> list[dict] | None:
     return None
 
 
-def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
+def _find_tauri_binary() -> Path | None:
+    """Find a pre-built Tauri binary, or None if not available.
+
+    Checks the workspace-level target/ directory (Cargo workspaces
+    build into the root target/, not each crate's own target/).
+    Prefers release over debug.
+    """
+    workspace_root = Path(__file__).parent.parent.parent
+    target_dir = workspace_root / "target"
+    if not target_dir.exists():
+        return None
+
+    binary_name = "rosette-desktop"
+    if sys.platform == "win32":
+        binary_name += ".exe"
+
+    for profile in ("release", "debug"):
+        binary = target_dir / profile / binary_name
+        if binary.exists() and binary.is_file():
+            return binary
+
+    return None
+
+
+def _find_tauri_source() -> Path | None:
+    """Find the Tauri source directory (app/src-tauri/), or None."""
+    tauri_dir = Path(__file__).parent.parent.parent / "app" / "src-tauri"
+    if tauri_dir.exists() and (tauri_dir / "Cargo.toml").exists():
+        return tauri_dir
+    return None
+
+
+def _launch_tauri(url: str, allow_build: bool = False) -> subprocess.Popen | None:
+    """Launch the Tauri desktop app pointing at the given URL.
+
+    Tries a pre-built binary first. Only falls back to `cargo run`
+    when allow_build is True (explicit --native flag), since building
+    from source takes minutes.
+
+    Returns the subprocess handle, or None on failure.
+    """
+    design_url = f"{url}?design=true" if "?" not in url else url
+
+    # Try pre-built binary first (instant startup)
+    binary = _find_tauri_binary()
+    if binary:
+        try:
+            proc = subprocess.Popen(
+                [str(binary), "--url", design_url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return proc
+        except OSError:
+            pass  # Binary exists but failed to run, try cargo
+
+    if not allow_build:
+        return None
+
+    # Fall back to cargo run (only with explicit --native)
+    tauri_dir = _find_tauri_source()
+    if tauri_dir is None:
+        return None
+
+    if not shutil.which("cargo"):
+        print("Error: cargo not found, cannot build native app")
+        return None
+
+    print("Building native app (first run may take a few minutes)...")
+    try:
+        proc = subprocess.Popen(
+            [
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "rosette-desktop",
+                "--",
+                "--url",
+                design_url,
+            ],
+            cwd=str(tauri_dir.parent.parent),  # workspace root
+        )
+        return proc
+    except OSError:
+        return None
+
+
+def _open_viewer(
+    url: str,
+    *,
+    use_native: bool,
+    allow_build: bool,
+    native_explicit: bool,
+    design_mode: bool = True,
+    label: str = "",
+) -> subprocess.Popen | None:
+    """Open the viewer in a native Tauri window or browser.
+
+    Returns the Tauri subprocess handle, or None if browser was used.
+    """
+    browser_url = f"{url}?design=true" if design_mode else url
+    status = f"{url}  |  {label}  |  " if label else f"{url}  |  "
+
+    if use_native:
+        proc = _launch_tauri(url, allow_build=allow_build)
+        if proc:
+            print(f"{status}native  |  Ctrl+C to stop")
+            return proc
+        # Native requested but failed — fall back to browser
+        if native_explicit:
+            print("Warning: Could not launch native window, falling back to browser")
+
+    webbrowser.open(browser_url)
+    print(f"{status}Ctrl+C to stop")
+    return None
+
+
+def _cleanup_tauri(proc: subprocess.Popen | None):
+    """Terminate a Tauri process if still running."""
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def serve_design(
+    design: str | None, port: int = 5173, no_open: bool = False, *, native: bool | None = None
+):
     """Start development server with live preview for Python designs.
 
     Args:
         design: Path to design file (.py, optional). If None, opens empty canvas.
         port: Server port (default: 5173)
         no_open: Don't open browser automatically
+        native: True to force native window, False to force browser,
+                None to auto-detect (use native if Tauri binary/source available)
     """
     server, url = _start_server(port)
+
+    # Resolve native mode: auto-detect if not explicitly set.
+    # Auto-detect only uses a pre-built binary (instant). Building from
+    # source (cargo run) only happens with explicit --native.
+    use_native = bool(native) if native is not None else _find_tauri_binary() is not None
+    allow_build = native is True  # only build from source if explicitly requested
+
+    tauri_proc = None
 
     if design:
         cell, file_path, _ = load_design(design)
@@ -627,9 +795,15 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
         server.set_design_cells(cell, child_cells_list)
 
         if not no_open:
-            webbrowser.open(f"{url}?design=true")
-
-        print(f"{url}  |  {file_path}  |  Ctrl+C to stop")
+            tauri_proc = _open_viewer(
+                url,
+                use_native=use_native,
+                allow_build=allow_build,
+                native_explicit=native is True,
+                label=str(file_path),
+            )
+        else:
+            print(f"{url}  |  {file_path}  |  Ctrl+C to stop")
 
         # Watch for file changes
         try:
@@ -680,20 +854,31 @@ def serve_design(design: str | None, port: int = 5173, no_open: bool = False):
 
     else:
         if not no_open:
-            webbrowser.open(url)
-        print(f"{url}  |  Ctrl+C to stop")
+            tauri_proc = _open_viewer(
+                url,
+                use_native=use_native,
+                allow_build=allow_build,
+                native_explicit=native is True,
+                design_mode=False,
+            )
+        else:
+            print(f"{url}  |  Ctrl+C to stop")
         _wait_forever()
+
+    _cleanup_tauri(tauri_proc)
 
     print()
 
 
-def run_gds(file: str, port: int = 5173, no_open: bool = False):
-    """View a GDS file in the browser.
+def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool | None = None):
+    """View a GDS file in the browser or native window.
 
     Args:
         file: Path to GDS file
         port: Server port (default: 5173)
         no_open: Don't open browser automatically
+        native: True to force native window, False to force browser,
+                None to auto-detect (use native if Tauri binary/source available)
     """
     from rosette._core import read_gds
 
@@ -708,6 +893,12 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False):
 
     server, url = _start_server(port)
 
+    # Resolve native mode (auto-detect only uses pre-built binary)
+    use_native = bool(native) if native is not None else _find_tauri_binary() is not None
+    allow_build = native is True
+
+    tauri_proc = None
+
     inner_lib = read_gds(str(file_path))
     cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(inner_lib)
     layer_defs = _load_layer_map_safe()
@@ -716,9 +907,15 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False):
     server.set_design_cells(cell, child_cells_list)
 
     if not no_open:
-        webbrowser.open(f"{url}?design=true")
-
-    print(f"{url}  |  {file_path}  |  Ctrl+C to stop")
+        tauri_proc = _open_viewer(
+            url,
+            use_native=use_native,
+            allow_build=allow_build,
+            native_explicit=native is True,
+            label=str(file_path),
+        )
+    else:
+        print(f"{url}  |  {file_path}  |  Ctrl+C to stop")
 
     # Watch for changes to the GDS file
     try:
@@ -745,6 +942,8 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False):
         _wait_forever()
     except KeyboardInterrupt:
         pass
+
+    _cleanup_tauri(tauri_proc)
 
     print()
 
