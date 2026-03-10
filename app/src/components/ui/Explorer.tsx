@@ -536,7 +536,7 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
         )}
       >
         <div className="flex h-4 w-4 items-center justify-center">
-          <Menu className={cn("h-4 w-4", isDark ? "text-white/90" : "text-black/90")} />
+          <Menu className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")} />
         </div>
       </button>
 
@@ -1125,7 +1125,7 @@ export function Explorer() {
                 isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
               )}
             >
-              <NavArrowLeft className={cn("h-4 w-4", isDark ? "text-white/40" : "text-black/40")} />
+              <NavArrowLeft className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")} />
             </button>
           )}
 

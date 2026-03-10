@@ -200,7 +200,7 @@ export function Sidebar() {
               )}
             >
               <NavArrowRight
-                className={cn("h-4 w-4", isDark ? "text-white/40" : "text-black/40")}
+                className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")}
               />
             </button>
           )}
