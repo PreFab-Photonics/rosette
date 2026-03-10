@@ -197,7 +197,12 @@ export function StatusBar({
           {!compact && !minimal && (
             <>
               <VersionBadge isDark={isDark} />
-              <span className={cn("mx-1 select-none pointer-events-none", isDark ? "text-white/20" : "text-black/20")}>
+              <span
+                className={cn(
+                  "mx-1 select-none pointer-events-none",
+                  isDark ? "text-white/20" : "text-black/20",
+                )}
+              >
                 &middot;
               </span>
             </>

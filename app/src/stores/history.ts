@@ -9,6 +9,7 @@ import { create } from "zustand";
 import type { Command, CommandContext } from "@/lib/commands";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useStatusMessageStore } from "@/stores/status-message";
+import { useDocumentStore } from "@/stores/document";
 
 /** Maximum number of commands to keep in history. */
 const MAX_HISTORY_DEPTH = 100;
@@ -85,6 +86,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
 
     // Notify overlays (e.g., instance labels) that library state changed.
     useWasmContextStore.getState().bumpSyncGeneration();
+    useDocumentStore.getState().markDirty();
 
     set((state) => {
       // Add to undo stack, respecting max depth
@@ -117,6 +119,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       return;
     }
     useWasmContextStore.getState().bumpSyncGeneration();
+    useDocumentStore.getState().markDirty();
 
     set((state) => {
       const newUndoStack = state.undoStack.slice(0, -1);
@@ -146,6 +149,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       return;
     }
     useWasmContextStore.getState().bumpSyncGeneration();
+    useDocumentStore.getState().markDirty();
 
     set((state) => {
       const newRedoStack = state.redoStack.slice(0, -1);
@@ -170,6 +174,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   },
 
   pushCommand: (command) => {
+    useDocumentStore.getState().markDirty();
     set((state) => {
       // Add to undo stack, respecting max depth
       const newUndoStack = [...state.undoStack, command];

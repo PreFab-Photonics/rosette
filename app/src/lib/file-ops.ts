@@ -5,9 +5,16 @@ import {
   saveGds,
   saveBytes,
   getCurrentFile,
+  setCurrentFile,
 } from "@/lib/tauri";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useStatusMessageStore } from "@/stores/status-message";
+import { useDocumentStore } from "@/stores/document";
+import { useHistoryStore } from "@/stores/history";
+import { useSelectionStore } from "@/stores/selection";
+import { useRulerStore } from "@/stores/ruler";
+import { useClipboardStore } from "@/stores/clipboard";
+import { useLayerStore } from "@/stores/layer";
 
 /**
  * Emit an open-file event for the Tauri backend to process.
@@ -54,11 +61,66 @@ export async function handleSave(forceDialog: boolean) {
     // Write to disk via Tauri backend
     await saveGds(path, bytes);
 
+    useDocumentStore.getState().markClean();
     useStatusMessageStore.getState().show(`Saved to ${path.split("/").pop()}`);
   } catch (err) {
     console.error("Failed to save GDS file:", err);
     useStatusMessageStore.getState().show(`Save failed: ${err}`, "error");
   }
+}
+
+/**
+ * Check if there are unsaved changes and prompt the user before discarding.
+ *
+ * In Tauri mode, shows a native confirmation dialog. In the browser,
+ * falls back to `window.confirm()`.
+ *
+ * @returns `true` if the user confirmed (or there are no unsaved changes),
+ *          `false` if the user cancelled.
+ */
+export async function confirmDiscardChanges(): Promise<boolean> {
+  if (!useDocumentStore.getState().isDirty) return true;
+
+  if (isTauri) {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    return ask("You have unsaved changes. Do you want to discard them?", {
+      title: "Unsaved Changes",
+      kind: "warning",
+      okLabel: "Discard",
+      cancelLabel: "Cancel",
+    });
+  }
+
+  return window.confirm("You have unsaved changes. Do you want to discard them?");
+}
+
+/**
+ * Create a new empty file, resetting the editor to a blank state.
+ *
+ * Checks for unsaved changes, then dispatches a DOM event that
+ * `use-library.ts` listens for. The actual library replacement
+ * happens inside the hook (which owns the singleton and local state).
+ */
+export async function handleNewFile(): Promise<void> {
+  // Guard: check unsaved changes
+  const confirmed = await confirmDiscardChanges();
+  if (!confirmed) return;
+
+  // Reset stores that don't depend on the library
+  useHistoryStore.getState().clear();
+  useSelectionStore.getState().clearSelection();
+  useRulerStore.getState().clearAllRulers();
+  useClipboardStore.getState().clear();
+  useLayerStore.getState().resetLayers([]);
+  useDocumentStore.getState().markClean();
+
+  // Clear current file path in Tauri
+  if (isTauri) {
+    await setCurrentFile(null);
+  }
+
+  // Dispatch event for use-library to handle (it owns the WASM singleton)
+  window.dispatchEvent(new CustomEvent("rosette-new-file"));
 }
 
 /**

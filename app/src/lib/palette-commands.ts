@@ -89,8 +89,22 @@ export function getCommands(): CommandItem[] {
 
   const commands: CommandItem[] = [
     // =========================================================================
-    // File commands (Tauri only)
+    // File commands
     // =========================================================================
+    {
+      id: "file-new",
+      type: "command",
+      name: "File: New",
+      shortcut: { modifiers: [keys.mod], key: "N" },
+      action: async () => {
+        close();
+        const { handleNewFile } = await import("@/lib/file-ops");
+        await handleNewFile();
+      },
+      searchableText: "File new create blank empty reset",
+    },
+
+    // Tauri-only file commands
     ...(() => {
       if (!("__TAURI__" in window)) return [];
 
@@ -102,8 +116,10 @@ export function getCommands(): CommandItem[] {
           shortcut: { modifiers: [keys.mod], key: "O" },
           action: async () => {
             close();
+            const { confirmDiscardChanges, emitOpenFile } = await import("@/lib/file-ops");
+            const confirmed = await confirmDiscardChanges();
+            if (!confirmed) return;
             const { pickGdsFile } = await import("@/lib/tauri");
-            const { emitOpenFile } = await import("@/lib/file-ops");
             const path = await pickGdsFile();
             if (path) {
               await emitOpenFile(path);

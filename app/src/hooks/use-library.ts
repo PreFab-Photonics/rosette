@@ -10,6 +10,8 @@ import {
   type Layer,
 } from "@/stores/layer";
 import { isTauri, readGdsBytes, listenTauri, getPendingFile } from "@/lib/tauri";
+import { useWasmContextStore } from "@/stores/wasm-context";
+import { useViewportStore } from "@/stores/viewport";
 
 // Module-level singleton for library
 let libraryInstance: WasmLibrary | null = null;
@@ -318,6 +320,56 @@ export function useLibrary(
       cancelled = true;
       unlisten?.();
     };
+  }, [wasm, isWasmReady]);
+
+  // Listen for "new file" events (from Cmd+N, menu, or command palette)
+  useEffect(() => {
+    if (!wasm || !isWasmReady) return;
+
+    const handleNewFile = () => {
+      // Create a fresh library with one "top" cell
+      const newLib = new wasm.WasmLibrary("rosette");
+      try {
+        newLib.add_cell("top");
+      } catch {
+        // "top" is a valid cell name; this should never fail
+      }
+      newLib.set_active_cell("top");
+
+      // Free old library
+      if (libraryInstance) {
+        libraryInstance.free();
+      }
+
+      // Install the new library (both module singleton and React state)
+      libraryInstance = newLib;
+      setLibrary(newLib);
+      setIsReady(true);
+      loadedCellRef.current = "top";
+
+      // Reset explorer
+      useExplorerStore.getState().setProjectName("untitled-project");
+      const tree = newLib.get_cell_tree();
+      if (tree) {
+        useExplorerStore.getState().setCellTree(tree);
+      } else {
+        useExplorerStore.getState().setCells(["top"]);
+      }
+      useExplorerStore.getState().setActiveCell("top");
+
+      // Reset viewport to center origin on screen
+      const canvas = document.getElementById("rosette-canvas");
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect();
+        useViewportStore.getState().reset(rect.width, rect.height);
+      }
+
+      // Notify overlays that library state changed
+      useWasmContextStore.getState().bumpSyncGeneration();
+    };
+
+    window.addEventListener("rosette-new-file", handleNewFile);
+    return () => window.removeEventListener("rosette-new-file", handleNewFile);
   }, [wasm, isWasmReady]);
 
   // Design mode: SSE for live design updates from server

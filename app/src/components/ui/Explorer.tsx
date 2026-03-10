@@ -24,6 +24,7 @@ import {
 } from "@/lib/commands";
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 import { isTauri } from "@/lib/tauri";
+import { handleNewFile, confirmDiscardChanges } from "@/lib/file-ops";
 import { cn, keys, centerViewOnSelection, getEffectiveViewport } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 
@@ -233,10 +234,21 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
       label: "File",
       buildItems: () => [
         {
+          id: "file-new",
+          label: "New",
+          shortcut: { modifiers: [keys.mod], key: "N" },
+          action: async () => {
+            await handleNewFile();
+          },
+          disabled: false,
+        },
+        {
           id: "file-open",
           label: "Open...",
           shortcut: { modifiers: [keys.mod], key: "O" },
           action: async () => {
+            const confirmed = await confirmDiscardChanges();
+            if (!confirmed) return;
             const { pickGdsFile } = await import("@/lib/tauri");
             const { emitOpenFile } = await import("@/lib/file-ops");
             const path = await pickGdsFile();
@@ -878,7 +890,10 @@ function CollapsedExplorer({ isDark, onExpand }: { isDark: boolean; onExpand: ()
           src="/icon.svg"
           alt=""
           draggable={false}
-          className={cn("h-5 w-5 select-none pointer-events-none rounded border", isDark ? "border-white/40" : "border-black/40")}
+          className={cn(
+            "h-5 w-5 select-none pointer-events-none rounded border",
+            isDark ? "border-white/40" : "border-black/40",
+          )}
         />
       </div>
 

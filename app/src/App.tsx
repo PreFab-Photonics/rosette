@@ -9,7 +9,7 @@ import { Toolbar } from "@/components/ui/Toolbar";
 import { useUIStore } from "@/stores/ui";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { isTauri, pickGdsFile } from "@/lib/tauri";
-import { emitOpenFile, handleSave } from "@/lib/file-ops";
+import { emitOpenFile, handleSave, handleNewFile, confirmDiscardChanges } from "@/lib/file-ops";
 
 /**
  * Main application component.
@@ -55,8 +55,13 @@ export default function App() {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
 
-      if (e.key === "o") {
+      if (e.key === "n") {
         e.preventDefault();
+        await handleNewFile();
+      } else if (e.key === "o") {
+        e.preventDefault();
+        const confirmed = await confirmDiscardChanges();
+        if (!confirmed) return;
         const path = await pickGdsFile();
         if (path) {
           await emitOpenFile(path);
@@ -95,6 +100,8 @@ export default function App() {
               (p: string) => p.endsWith(".gds") || p.endsWith(".gds2") || p.endsWith(".gdsii"),
             );
             if (gdsPath) {
+              const confirmed = await confirmDiscardChanges();
+              if (!confirmed) return;
               await emitOpenFile(gdsPath);
             }
           }
