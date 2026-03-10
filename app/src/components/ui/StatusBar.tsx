@@ -2,6 +2,9 @@ import { useMemo } from "react";
 import { useUIStore } from "@/stores/ui";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useMinimapStore } from "@/stores/minimap";
+import { useSelectionStore } from "@/stores/selection";
+import { useWasmContextStore } from "@/stores/wasm-context";
+import { useLayerStore } from "@/stores/layer";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { getDisplayUnit, formatCoordinate } from "@/lib/format";
 import { SCALE_BAR_TARGET_PIXELS, SCALE_BAR_MAX_WIDTH, NICE_NUMBERS } from "@/lib/constants";
@@ -102,6 +105,149 @@ function StatusMessage({ isDark }: { isDark: boolean }) {
       </span>
     </div>
   );
+}
+
+/**
+ * Compact selection summary shown in the center of the status bar
+ * when elements are selected and no ephemeral status message is active.
+ */
+function SelectionInfo({ isDark }: { isDark: boolean }) {
+  const selectedIds = useSelectionStore((s) => s.selectedIds);
+  const library = useWasmContextStore((s) => s.library);
+  const layers = useLayerStore((s) => s.layers);
+
+  const info = useMemo(() => {
+    const count = selectedIds.size;
+    if (count === 0 || !library) return null;
+
+    const firstId = selectedIds.values().next().value as string;
+    const isRef = firstId.startsWith("ref:");
+
+    // --- Single instance (CellRef) ---
+    if (count === 1 && isRef) {
+      const refInfo = library.get_cell_ref_info(firstId);
+      if (refInfo) {
+        const cellName = refInfo.cell_name;
+        refInfo.free();
+        return { label: `Instance "${cellName}"`, layerNumber: null, datatype: null };
+      }
+    }
+
+    // --- Single text element ---
+    if (count === 1 && library.is_text_element(firstId)) {
+      const textInfo = library.get_text_element_info(firstId) as {
+        text: string;
+        layer: number;
+        datatype: number;
+      } | null;
+      if (textInfo) {
+        const preview =
+          textInfo.text.length > 20 ? textInfo.text.slice(0, 20) + "\u2026" : textInfo.text;
+        return {
+          label: `Text "${preview}"`,
+          layerNumber: textInfo.layer,
+          datatype: textInfo.datatype,
+        };
+      }
+    }
+
+    // --- Polygon(s) ---
+    // Gather layer info from all selected elements
+    let firstLayer: number | null = null;
+    let firstDatatype: number | null = null;
+    let mixed = false;
+    let vertexCount = 0;
+
+    for (const id of selectedIds) {
+      const elInfo = library.get_element_info(id);
+      if (elInfo) {
+        if (firstLayer === null) {
+          firstLayer = elInfo.layer;
+          firstDatatype = elInfo.datatype;
+        } else if (elInfo.layer !== firstLayer || elInfo.datatype !== firstDatatype) {
+          mixed = true;
+        }
+        if (count === 1) {
+          vertexCount = elInfo.vertices.length / 2;
+        }
+        elInfo.free();
+        // For multi-select we only need to detect mixed, so we can break early
+        if (mixed && count > 1) break;
+      }
+    }
+
+    if (count === 1) {
+      return {
+        label: `Polygon \u00b7 ${vertexCount} vertices`,
+        layerNumber: firstLayer,
+        datatype: firstDatatype,
+      };
+    }
+
+    if (mixed) {
+      return { label: `${count} elements \u00b7 Mixed layers`, layerNumber: null, datatype: null };
+    }
+
+    return { label: `${count} elements`, layerNumber: firstLayer, datatype: firstDatatype };
+  }, [selectedIds, library]);
+
+  if (!info) return null;
+
+  // Look up layer display name and color
+  const layerMeta = useMemo(() => {
+    if (info.layerNumber === null) return null;
+    for (const layer of layers.values()) {
+      if (layer.layerNumber === info.layerNumber && layer.datatype === info.datatype) {
+        return { name: layer.name, color: layer.color };
+      }
+    }
+    return null;
+  }, [info, layers]);
+
+  const layerSuffix =
+    info.layerNumber !== null
+      ? ` \u00b7 ${layerMeta?.name ? `${info.layerNumber}/${info.datatype} ${layerMeta.name}` : `${info.layerNumber}/${info.datatype}`}`
+      : "";
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+      {layerMeta && (
+        <div
+          className="h-2 w-2 flex-shrink-0 rounded-full -translate-y-px"
+          style={{ backgroundColor: layerMeta.color }}
+        />
+      )}
+      <span
+        className={cn(
+          "truncate text-[11px] select-none",
+          isDark ? "text-white/50" : "text-black/50",
+        )}
+      >
+        {info.label}
+        {layerSuffix}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Center section of the status bar.
+ *
+ * Priority: ephemeral status message > selection info > empty spacer.
+ */
+function CenterInfo({ isDark }: { isDark: boolean }) {
+  const message = useStatusMessageStore((s) => s.message);
+  const hasSelection = useSelectionStore((s) => s.selectedIds.size > 0);
+
+  if (message) {
+    return <StatusMessage isDark={isDark} />;
+  }
+
+  if (hasSelection) {
+    return <SelectionInfo isDark={isDark} />;
+  }
+
+  return <div className="flex-1" />;
 }
 
 /**
@@ -281,8 +427,8 @@ export function StatusBar({
           )}
         </div>
 
-        {/* Center: status message or spacer — hidden on minimal */}
-        {!minimal && <StatusMessage isDark={isDark} />}
+        {/* Center: status message > selection info > spacer — hidden on minimal */}
+        {!minimal && <CenterInfo isDark={isDark} />}
         {minimal && <div className="flex-1" />}
 
         {/* Right: Scale bar (inline) + toggles */}
