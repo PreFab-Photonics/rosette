@@ -49,6 +49,7 @@ export function Canvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastMousePos = useRef({ x: 0, y: 0 });
+  const lastCursorScreen = useRef<{ x: number; y: number } | null>(null);
   const currentMouseWorld = useRef<{ x: number; y: number } | null>(null);
   const [canvasReady, setCanvasReady] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -408,6 +409,20 @@ export function Canvas() {
     };
   }, []);
 
+  // Recalculate cursor world position when viewport changes (zoom/pan via
+  // keyboard, zoom-to-fit, minimap click, etc.) without requiring mouse movement.
+  // Uses the JS-side viewport formula directly rather than screenToWorld (which
+  // delegates to the WASM renderer) to avoid depending on renderer sync timing.
+  useEffect(() => {
+    const screen = lastCursorScreen.current;
+    if (!screen) return;
+    const worldX = (screen.x - offset.x) / zoom;
+    const worldY = (screen.y - offset.y) / zoom;
+    const gridX = Math.trunc(worldX / GRID_SIZE);
+    const gridY = Math.trunc(worldY / GRID_SIZE);
+    setCursorWorld({ x: gridX, y: -gridY });
+  }, [zoom, offset, setCursorWorld]);
+
   // Mouse move - pan, laser, zoom, rectangle, move, or update cursor position
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -419,6 +434,7 @@ export function Canvas() {
       const rect = canvas.getBoundingClientRect();
       const screenX = e.clientX - rect.left;
       const screenY = e.clientY - rect.top;
+      lastCursorScreen.current = { x: screenX, y: screenY };
 
       // Track whether an active drawing tool handled this event.
       // If so, we'll render eagerly to minimize input-to-pixel latency.
@@ -571,6 +587,7 @@ export function Canvas() {
       cancelAnimationFrame(cursorRafRef.current);
       cursorRafRef.current = 0;
     }
+    lastCursorScreen.current = null;
     setCursorWorld(null);
   }, [
     setCursorWorld,
