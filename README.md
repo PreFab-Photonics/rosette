@@ -1,6 +1,14 @@
 # Rosette
 
-A photonic layout library for designing integrated circuits. Rust core with Python bindings.
+A modern layout editor for photonic integrated circuits — fast, intelligent, and collaborative.
+
+Rosette combines a Rust-powered geometry engine with a Python API and a WebGPU visual editor. Design PICs with code, an AI agent, or visually. The output is fabrication-ready GDSII.
+
+### Highlights
+
+- **Fast visual editor** — WebGPU-rendered layout viewer with hot reload, layer controls, and cell hierarchy. Edit code, see changes instantly.
+- **Rust core, Python API** — Geometry, routing, and DRC run in compiled Rust. You work in Python.
+- **AI-native** — Every project includes agent instructions, type stubs, and structured feedback so AI coding tools can design circuits alongside you.
 
 ## Installation
 
@@ -8,55 +16,33 @@ A photonic layout library for designing integrated circuits. Rust core with Pyth
 pip install rosette
 ```
 
-## Quick Start
+## Getting Started
+
+Start a project:
+
+```bash
+rosette init my_chip
+cd my_chip
+```
+
+This gives you a `rosette.toml` config (layers, DRC rules), editable components, example designs, and AI agent instructions. Build and preview with:
+
+```bash
+rosette build designs/basic_shapes.py
+rosette serve designs/basic_shapes.py
+```
+
+Or use Rosette as a library in any Python script:
 
 ```python
-from rosette import *
+from rosette import Cell, Layer, Point, Polygon, write_gds
 
-# Create a simple waveguide route
-route = Route(Layer(1, 0), width=0.5, bend_radius=10.0)
-route.start_at(0, 0)
-route.to(100, 0)
-route.to(100, 50)
-route.end_at(150, 50)
+cell = Cell("my_design")
+cell.add_polygon(Polygon.rect(Point(0, 0), 20, 10), Layer(1, 0))
 
-cell = route.to_cell("my_route")
 write_gds("output.gds", cell)
 ```
 
-## Components
+## License
 
-| Component            | Description                               |
-| -------------------- | ----------------------------------------- |
-| `Waveguide`          | Straight waveguide section                |
-| `Bend`               | Circular or Euler bend                    |
-| `Taper`              | Width transition                          |
-| `SBend`              | S-curve lateral offset                    |
-| `MMI`                | Multi-mode interferometer (1x2, 2x1, 2x2) |
-| `DirectionalCoupler` | Evanescent coupler                        |
-| `YBranch`            | Y-junction splitter                       |
-| `Ring`               | Ring resonator (all-pass or add-drop)     |
-| `Spiral`             | Compact delay line                        |
-| `GratingCoupler`     | Fiber-to-chip coupler                     |
-| `Crossing`           | Waveguide intersection                    |
-
-## CLI
-
-```bash
-rosette init my_project    # Create a new project
-rosette build design.py    # Build design to GDS
-```
-
-## Development
-
-```bash
-# Install dependencies
-uv sync --dev
-
-# Build Python package
-uv run maturin develop
-
-# Run tests
-cargo test
-uv run pytest
-```
+MIT
