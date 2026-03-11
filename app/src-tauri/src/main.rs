@@ -4,7 +4,9 @@
 mod commands;
 mod state;
 
+use serde::Deserialize;
 use tauri::{Emitter, Manager};
+use tauri_plugin_window_state::StateFlags;
 
 /// Check if a path looks like a GDS file.
 fn is_gds_path(path: &str) -> bool {
@@ -28,13 +30,44 @@ fn parse_url_arg() -> Option<String> {
     None
 }
 
+/// Minimal view of the persisted window state file (written by tauri-plugin-window-state).
+#[derive(Deserialize)]
+struct SavedWindowState {
+    #[serde(default)]
+    maximized: bool,
+}
+
+/// Read the saved window state from disk so we know if the window was maximized.
+fn read_saved_window_state(app: &tauri::App) -> Option<SavedWindowState> {
+    let config_dir = app.path().app_config_dir().ok()?;
+    let state_path = config_dir.join(".window-state.json");
+    let file = std::fs::File::open(state_path).ok()?;
+    let reader = std::io::BufReader::new(file);
+    let states: std::collections::HashMap<String, SavedWindowState> =
+        serde_json::from_reader(reader).ok()?;
+    states
+        .into_iter()
+        .find(|(k, _)| k == "main")
+        .map(|(_, v)| v)
+}
+
 fn main() {
     let url_override = parse_url_arg();
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    StateFlags::SIZE
+                        | StateFlags::POSITION
+                        | StateFlags::MAXIMIZED
+                        | StateFlags::FULLSCREEN,
+                )
+                .skip_initial_state("main")
+                .build(),
+        )
         .manage(state::AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::open_gds,
@@ -87,9 +120,35 @@ fn main() {
                 }
             }
 
-            #[cfg(target_os = "macos")]
-            if url_override.is_none() {
-                let _ = app;
+            // Manually restore window state to avoid the macOS maximize animation.
+            // The plugin's initial restore is skipped for "main" (skip_initial_state)
+            // so we handle it here: if the window was maximized, we size it to fill
+            // the screen directly instead of calling maximize(), which would trigger
+            // an animated zoom effect on macOS.
+            if let Some(window) = app.get_webview_window("main") {
+                let saved = read_saved_window_state(app);
+                let was_maximized = saved.as_ref().is_some_and(|s| s.maximized);
+
+                if was_maximized {
+                    // Set frame to the usable monitor area (excludes menu bar and dock) — no animation.
+                    if let Ok(Some(monitor)) = window.current_monitor() {
+                        let work = monitor.work_area();
+                        let _ = window.set_position(tauri::PhysicalPosition::new(
+                            work.position.x,
+                            work.position.y,
+                        ));
+                        let _ = window
+                            .set_size(tauri::PhysicalSize::new(work.size.width, work.size.height));
+                    }
+                } else {
+                    // Not maximized — restore saved size/position normally.
+                    use tauri_plugin_window_state::WindowExt;
+                    let _ = window.restore_state(
+                        StateFlags::SIZE | StateFlags::POSITION | StateFlags::FULLSCREEN,
+                    );
+                }
+
+                window.show().unwrap_or_default();
             }
 
             Ok(())
