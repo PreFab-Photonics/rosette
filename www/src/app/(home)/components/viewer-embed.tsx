@@ -11,11 +11,14 @@ import { useEffect, useState } from "react";
 export function ViewerEmbed({
   src,
   fallback,
+  iframeRef,
 }: {
   /** URL for the viewer iframe (e.g. "/viewer/index.html?embed=true") */
   src: string;
   /** Code string to show as fallback when WebGPU is unavailable */
   fallback: string;
+  /** Optional ref forwarded to the iframe element for external use. */
+  iframeRef?: React.RefObject<HTMLIFrameElement | null>;
 }) {
   const [supported, setSupported] = useState<boolean | null>(null);
 
@@ -40,14 +43,14 @@ export function ViewerEmbed({
   // Still checking — show placeholder matching the viewer dimensions
   if (supported === null) {
     return (
-      <div className="aspect-[2/1] w-full rounded-xl border border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02]" />
+      <div className="aspect-[2/1] w-full rounded-xl border border-brand-purple/10 bg-brand-purple/[0.02] dark:border-brand-purple/15 dark:bg-brand-purple/[0.03]" />
     );
   }
 
   // WebGPU not supported — fall back to code block
   if (!supported) {
     return (
-      <div className="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
+      <div className="overflow-hidden rounded-xl border border-brand-purple/10 bg-black/[0.01] dark:border-brand-purple/15 dark:bg-brand-purple/[0.03]">
         <div className="overflow-x-auto p-5">
           <pre className="text-[13px] leading-relaxed font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
             <code>{fallback}</code>
@@ -59,8 +62,9 @@ export function ViewerEmbed({
 
   // WebGPU supported — render interactive viewer
   return (
-    <div className="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
+    <div className="select-none overflow-hidden rounded-xl border border-brand-purple/10 dark:border-brand-purple/15">
       <iframe
+        ref={iframeRef}
         src={src}
         title="Rosette photonic layout viewer"
         className="aspect-[2/1] w-full border-0"

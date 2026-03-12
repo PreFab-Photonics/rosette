@@ -230,3 +230,27 @@ export const useViewportStore = create<ViewportState>((set, get) => ({
 // Export constants and types for use elsewhere
 export { GRID_SIZE, DEFAULT_ZOOM, MIN_ZOOM, MAX_ZOOM };
 export type { WorldBounds };
+
+/**
+ * When running inside an iframe (embed mode), broadcast viewport changes to
+ * the parent frame so the host page can render a synced background dot grid.
+ */
+if (typeof window !== "undefined" && window.parent !== window) {
+  const postViewport = (state: ViewportState) => {
+    window.parent.postMessage(
+      {
+        type: "rosette-viewport",
+        zoom: state.zoom,
+        offsetX: state.offset.x,
+        offsetY: state.offset.y,
+      },
+      "*",
+    );
+  };
+
+  // Broadcast on every state change
+  useViewportStore.subscribe(postViewport);
+
+  // Also broadcast the initial state so the host page can render immediately
+  postViewport(useViewportStore.getState());
+}

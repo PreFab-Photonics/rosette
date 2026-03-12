@@ -14,7 +14,7 @@ export function CopyButton({ text }: { text: string }) {
           setTimeout(() => setCopied(false), 2000);
         });
       }}
-      className="ml-3 flex-shrink-0 text-black/30 transition-colors hover:text-black/60 dark:text-white/30 dark:hover:text-white/60"
+      className="ml-3 flex-shrink-0 text-brand-purple/40 transition-colors hover:text-brand-purple dark:text-brand-purple-light/40 dark:hover:text-brand-purple-light"
       aria-label="Copy to clipboard"
     >
       {copied ? (
