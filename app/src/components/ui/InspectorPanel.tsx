@@ -9,6 +9,7 @@ import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import {
   ChangeElementLayerCommand,
   EditVerticesCommand,
+  EditPathCommand,
   ResizeElementsCommand,
   MoveElementsToCommand,
   SetCellOriginCommand,
@@ -21,6 +22,7 @@ import {
   type ArrayParams,
 } from "@/lib/commands";
 import { useExplorerStore } from "@/stores/explorer";
+import { usePathStore, type PathMetadata } from "@/stores/path";
 import { formatCoordinate, type UnitInfo } from "@/lib/format";
 import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
@@ -102,6 +104,15 @@ function NumberField({
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
   const cancelledRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  // Track mount state so blur during unmount doesn't fire onChange
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Sync display value when external value changes while not editing
   useEffect(() => {
@@ -123,6 +134,10 @@ function NumberField({
       setEditing(false);
       return;
     }
+    // If the component is unmounting (e.g., Escape cleared selection and the
+    // inspector is switching views), suppress the onChange call — the user
+    // didn't confirm the edit.
+    if (!mountedRef.current) return;
     const parsed = Number.parseFloat(editValue);
     if (!Number.isNaN(parsed) && onChange) {
       onChange(parsed);
@@ -228,6 +243,14 @@ function TextField({
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
   const cancelledRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!editing) {
@@ -248,6 +271,7 @@ function TextField({
       setEditing(false);
       return;
     }
+    if (!mountedRef.current) return;
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== value) {
       onChange(trimmed);
@@ -333,6 +357,14 @@ function TextAreaField({
   const [editValue, setEditValue] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cancelledRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!editing) {
@@ -353,6 +385,7 @@ function TextAreaField({
       setEditing(false);
       return;
     }
+    if (!mountedRef.current) return;
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== value) {
       onChange(trimmed);
@@ -1070,12 +1103,20 @@ export function InspectorPanel() {
   // The value itself is unused; the subscription triggers re-renders.
   useHistoryStore((s) => s.undoStack.length + s.redoStack.length);
 
+  // Path metadata subscription — must be at the top level (before early returns)
+  // to satisfy React's Rules of Hooks.
+  const pathMetadata = usePathStore((s) => s.pathMetadata);
+
   // Read cell origin — not memoized because we need fresh data after undo/redo.
   // Only used when nothing is selected (cell inspector), so it's cheap.
   const cellOriginRaw = library?.get_cell_origin();
   const cellOrigin = cellOriginRaw ? { x: cellOriginRaw[0], y: cellOriginRaw[1] } : { x: 0, y: 0 };
   const cellOriginRef = useRef(cellOrigin);
   cellOriginRef.current = cellOrigin;
+
+  // Refs for path inspector callbacks (must be declared before early returns).
+  const pathMetaRef = useRef<PathMetadata | undefined>(undefined);
+  const firstIdRef = useRef<string | undefined>(undefined);
 
   const handleCellRename = useCallback(
     (newName: string) => {
@@ -1408,6 +1449,65 @@ export function InspectorPanel() {
       if (target) target.focus();
     });
   }, [focusRequested, focusField]);
+
+  // Path inspector callbacks — declared here (before early returns) so hook
+  // count is stable across renders.  The refs ensure they always read the
+  // latest metadata without needing it in the dependency array.
+  const handlePathWidthChange = useCallback(
+    (displayValue: number) => {
+      const meta = pathMetaRef.current;
+      const elementId = firstIdRef.current;
+      if (!meta || !elementId || !library || !renderer) return;
+      if (!useSelectionStore.getState().selectedIds.has(elementId)) return;
+
+      // Convert display µm → nm → world units (same as polygon dimension edits)
+      const worldWidth = displayValue * unitInfo.scale * GRID_SIZE;
+      if (worldWidth <= 0) return;
+
+      const cmd = new EditPathCommand(elementId, meta, { ...meta, width: worldWidth }, "Change path width");
+      useHistoryStore.getState().execute(cmd, { library, renderer });
+    },
+    [library, renderer, unitInfo],
+  );
+
+  const handlePathCornerRadiusChange = useCallback(
+    (displayValue: number) => {
+      const meta = pathMetaRef.current;
+      const elementId = firstIdRef.current;
+      if (!meta || !elementId) return;
+      const worldRadius = displayValue * unitInfo.scale * GRID_SIZE;
+      if (worldRadius < 0) return;
+      usePathStore.getState().setPathMetadata(elementId, { ...meta, cornerRadius: worldRadius });
+    },
+    [unitInfo],
+  );
+
+  const handlePathWaypointChange = useCallback(
+    (index: number, axis: "x" | "y", displayValue: number) => {
+      const meta = pathMetaRef.current;
+      const elementId = firstIdRef.current;
+      if (!meta || !elementId || !library || !renderer) return;
+      if (!useSelectionStore.getState().selectedIds.has(elementId)) return;
+
+      // Convert display µm → nm → world (Y negated, same as polygon vertex edits)
+      const valueInNm = displayValue * unitInfo.scale;
+      const worldValue = axis === "y" ? -valueInNm * GRID_SIZE : valueInNm * GRID_SIZE;
+
+      const newWaypoints = meta.waypoints.map((wp, i) => {
+        if (i !== index) return wp;
+        return axis === "x" ? { x: worldValue, y: wp.y } : { x: wp.x, y: worldValue };
+      });
+
+      const cmd = new EditPathCommand(
+        elementId,
+        meta,
+        { ...meta, waypoints: newWaypoints },
+        "Edit path waypoint",
+      );
+      useHistoryStore.getState().execute(cmd, { library, renderer });
+    },
+    [library, renderer, unitInfo],
+  );
 
   // Cell inspector (no selection)
   if (!data) {
@@ -1744,6 +1844,131 @@ export function InspectorPanel() {
         </div>
       );
     }
+  }
+
+  // Derive path metadata from the top-level subscription (hook is above early returns).
+  const pathMeta: PathMetadata | undefined =
+    isSingle && first ? pathMetadata.get(first.id) : undefined;
+  pathMetaRef.current = pathMeta;
+  firstIdRef.current = first?.id;
+
+  // Path inspector (single path selected)
+  if (pathMeta && isSingle) {
+    // Convert world → nm → display (same pipeline as polygon)
+    const pathWidthDisplay = formatCoordinate(pathMeta.width / GRID_SIZE, unitInfo);
+    const cornerRadiusDisplay = formatCoordinate(pathMeta.cornerRadius / GRID_SIZE, unitInfo);
+
+    const posX = bounds ? formatCoordinate(bounds.minX / GRID_SIZE, unitInfo) : "—";
+    const posY = bounds ? formatCoordinate(-bounds.maxY / GRID_SIZE, unitInfo) : "—";
+
+    // Build waypoint rows (same conversion as polygon VerticesSection)
+    const waypointRows = pathMeta.waypoints.map((wp, i) => {
+      const displayX = formatCoordinate(wp.x / GRID_SIZE, unitInfo);
+      const displayY = formatCoordinate(-wp.y / GRID_SIZE, unitInfo);
+      return (
+        <VertexRow
+          key={i}
+          index={i}
+          x={displayX}
+          y={displayY}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          canRemove={pathMeta.waypoints.length > 2}
+          onChangeX={(v) => handlePathWaypointChange(i, "x", v)}
+          onChangeY={(v) => handlePathWaypointChange(i, "y", v)}
+          onRemove={() => {
+            // Remove waypoint (minimum 2)
+            if (pathMeta.waypoints.length <= 2) return;
+            const meta = pathMetaRef.current;
+            const elementId = firstIdRef.current;
+            if (!meta || !elementId || !library || !renderer) return;
+            const newWaypoints = meta.waypoints.filter((_, j) => j !== i);
+            const cmd = new EditPathCommand(
+              elementId,
+              meta,
+              { ...meta, waypoints: newWaypoints },
+              "Remove path waypoint",
+            );
+            useHistoryStore.getState().execute(cmd, { library, renderer });
+          }}
+        />
+      );
+    });
+
+    return (
+      <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
+        {/* Path header */}
+        <div className="px-3 pt-2 pb-1">
+          <span
+            className={cn(
+              "text-xs font-medium select-none",
+              isDark ? "text-white/70" : "text-black/70",
+            )}
+          >
+            Path · {pathMeta.waypoints.length} waypoints
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Layer */}
+        <SectionHeader label="Layer" isDark={isDark} />
+        <LayerSelector
+          currentLayer={first.layer}
+          currentDatatype={first.datatype}
+          isDark={isDark}
+          onChange={handleLayerChange}
+        />
+
+        {/* Divider */}
+        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Path properties */}
+        <SectionHeader label="Path" isDark={isDark} />
+        <NumberField
+          label="Width"
+          value={pathWidthDisplay}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={handlePathWidthChange}
+        />
+        <NumberField
+          label="Radius"
+          value={cornerRadiusDisplay}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={handlePathCornerRadiusChange}
+        />
+
+        {/* Divider */}
+        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Position */}
+        <SectionHeader label="Position" isDark={isDark} />
+        <NumberField
+          label="X"
+          value={posX}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={(v) => handlePositionChange("x", v)}
+        />
+        <NumberField
+          label="Y"
+          value={posY}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={(v) => handlePositionChange("y", v)}
+        />
+
+        {/* Divider */}
+        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Waypoints */}
+        <SectionHeader label="Waypoints" isDark={isDark} />
+        <div className="flex max-h-48 flex-col overflow-y-auto">{waypointRows}</div>
+      </div>
+    );
   }
 
   // Format bounds for display.

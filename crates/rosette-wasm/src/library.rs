@@ -137,6 +137,111 @@ pub struct WasmLibrary {
     hierarchy_depth_limit: u32,
 }
 
+/// Generate a constant-width ribbon polygon from a centerline.
+///
+/// At each interior vertex, computes the miter point that keeps the path
+/// edges at exactly `half_width` from the centerline. The miter length is
+/// clamped to `2 * half_width` to avoid spikes at very sharp bends.
+fn constant_width_path(centerline: &[Point], width: f64) -> Option<Polygon> {
+    if centerline.len() < 2 {
+        return None;
+    }
+
+    let hw = width / 2.0;
+    let n = centerline.len();
+    let mut left = Vec::with_capacity(n);
+    let mut right = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let (nx, ny) = if i == 0 {
+            // First point: perpendicular to first segment
+            let dx = centerline[1].x - centerline[0].x;
+            let dy = centerline[1].y - centerline[0].y;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 1e-12 {
+                continue;
+            }
+            (-dy / len, dx / len)
+        } else if i == n - 1 {
+            // Last point: perpendicular to last segment
+            let dx = centerline[n - 1].x - centerline[n - 2].x;
+            let dy = centerline[n - 1].y - centerline[n - 2].y;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 1e-12 {
+                continue;
+            }
+            (-dy / len, dx / len)
+        } else {
+            // Interior: compute miter from incoming and outgoing segment normals
+            let dx1 = centerline[i].x - centerline[i - 1].x;
+            let dy1 = centerline[i].y - centerline[i - 1].y;
+            let len1 = (dx1 * dx1 + dy1 * dy1).sqrt();
+            let dx2 = centerline[i + 1].x - centerline[i].x;
+            let dy2 = centerline[i + 1].y - centerline[i].y;
+            let len2 = (dx2 * dx2 + dy2 * dy2).sqrt();
+
+            if len1 < 1e-12 || len2 < 1e-12 {
+                continue;
+            }
+
+            // Per-segment unit normals (pointing left of travel direction)
+            let n1x = -dy1 / len1;
+            let n1y = dx1 / len1;
+            let n2x = -dy2 / len2;
+            let n2y = dx2 / len2;
+
+            // Miter direction = average of the two normals
+            let mx = n1x + n2x;
+            let my = n1y + n2y;
+            let mlen = (mx * mx + my * my).sqrt();
+
+            if mlen < 1e-12 {
+                // Normals are opposite (180° turn) — use first normal
+                (n1x, n1y)
+            } else {
+                // Miter scale: hw / dot(miter_unit, n1) keeps edges at half_width
+                let mux = mx / mlen;
+                let muy = my / mlen;
+                let dot = mux * n1x + muy * n1y;
+
+                if dot.abs() < 1e-6 {
+                    (n1x, n1y)
+                } else {
+                    let scale = (hw / dot).min(2.0 * hw).max(-2.0 * hw);
+                    // Return the pre-scaled offset (not unit normal * hw)
+                    left.push(Point::new(
+                        centerline[i].x + mux * scale,
+                        centerline[i].y + muy * scale,
+                    ));
+                    right.push(Point::new(
+                        centerline[i].x - mux * scale,
+                        centerline[i].y - muy * scale,
+                    ));
+                    continue;
+                }
+            }
+        };
+
+        left.push(Point::new(
+            centerline[i].x + nx * hw,
+            centerline[i].y + ny * hw,
+        ));
+        right.push(Point::new(
+            centerline[i].x - nx * hw,
+            centerline[i].y - ny * hw,
+        ));
+    }
+
+    if left.len() < 2 {
+        return None;
+    }
+
+    // Build closed polygon: left side forward, right side reversed
+    right.reverse();
+    left.append(&mut right);
+    Some(Polygon::new(left))
+}
+
 /// Pack layer number and datatype into a single u32 key.
 fn layer_key(layer: u16, datatype: u16) -> u32 {
     ((layer as u32) << 16) | (datatype as u32)
@@ -423,6 +528,60 @@ impl WasmLibrary {
             uuid.clone(),
             ElementRef {
                 cell_name: cell_name.clone(),
+                element_index,
+            },
+        );
+
+        self.dirty = true;
+        Some(uuid)
+    }
+
+    /// Create a path (waveguide) polygon from a centerline and width.
+    ///
+    /// Generates a constant-width ribbon polygon. At interior corners the
+    /// miter offset is clamped so the path edges stay at exactly half-width
+    /// from the centerline without flaring at bends.
+    ///
+    /// Points are provided as a flat array: [x0, y0, x1, y1, ...].
+    /// Returns the element's UUID, or None if generation fails.
+    ///
+    /// # Arguments
+    /// * `points` - Flat array of centerline coordinates in world units
+    /// * `width` - Path width in world units
+    /// * `layer` - GDS layer number
+    /// * `datatype` - GDS datatype number
+    pub fn create_path(
+        &mut self,
+        points: &[f64],
+        width: f64,
+        layer: u16,
+        datatype: u16,
+    ) -> Option<String> {
+        if points.len() < 4 {
+            return None; // Need at least 2 points
+        }
+
+        let cell_name = self.active_cell.as_ref()?;
+
+        let centerline: Vec<Point> = points
+            .chunks(2)
+            .map(|chunk| Point::new(chunk[0], chunk[1]))
+            .collect();
+
+        let polygon = constant_width_path(&centerline, width)?;
+
+        let layer_spec = Layer::new(layer, datatype);
+        let cell_name = cell_name.clone();
+        let cell = self.library.cell_mut(&cell_name)?;
+        cell.add_polygon(polygon, layer_spec);
+
+        let element_index = cell.elements().len() - 1;
+        let uuid = Uuid::new_v4().to_string();
+
+        self.element_refs.insert(
+            uuid.clone(),
+            ElementRef {
+                cell_name,
                 element_index,
             },
         );
@@ -997,6 +1156,26 @@ impl WasmLibrary {
                         hits.push((uuid.clone(), polygon.area()));
                     }
                 }
+                Some(Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                }) => {
+                    let key = layer_key(layer.number, layer.datatype);
+                    if let Some(color) = self.layer_colors.get(&key)
+                        && color[3] <= 0.0
+                    {
+                        continue;
+                    }
+
+                    if let Some(ribbon) = offset_polygon(points, *width) {
+                        let bbox = ribbon.bbox();
+                        if bbox.contains(point) && ribbon.contains(point) {
+                            hits.push((uuid.clone(), ribbon.area()));
+                        }
+                    }
+                }
                 Some(Element::Text {
                     text,
                     position,
@@ -1077,6 +1256,26 @@ impl WasmLibrary {
                     let bbox = polygon.bbox();
                     if bbox.overlaps(&query_bbox) {
                         hits.push(uuid.clone());
+                    }
+                }
+                Some(Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                }) => {
+                    let key = layer_key(layer.number, layer.datatype);
+                    if let Some(color) = self.layer_colors.get(&key)
+                        && color[3] <= 0.0
+                    {
+                        continue;
+                    }
+
+                    if let Some(ribbon) = offset_polygon(points, *width) {
+                        let bbox = ribbon.bbox();
+                        if bbox.overlaps(&query_bbox) {
+                            hits.push(uuid.clone());
+                        }
                     }
                 }
                 Some(Element::Text {
@@ -1348,6 +1547,19 @@ impl WasmLibrary {
                     .collect();
                 Some(vertices)
             }
+            Some(Element::Path { points, width, .. }) => {
+                // Convert path to ribbon polygon for outline rendering
+                if let Some(ribbon) = offset_polygon(points, *width) {
+                    let vertices: Vec<f64> = ribbon
+                        .vertices()
+                        .iter()
+                        .flat_map(|p| vec![p.x, p.y])
+                        .collect();
+                    Some(vertices)
+                } else {
+                    None
+                }
+            }
             Some(Element::Text {
                 text,
                 position,
@@ -1406,6 +1618,28 @@ impl WasmLibrary {
                     layer: layer.number,
                     datatype: layer.datatype,
                 })
+            }
+            Some(Element::Path {
+                points,
+                width,
+                layer,
+                ..
+            }) => {
+                // Convert path centerline to ribbon polygon for selection outlines
+                if let Some(ribbon) = offset_polygon(points, *width) {
+                    let vertices: Vec<f64> = ribbon
+                        .vertices()
+                        .iter()
+                        .flat_map(|p| vec![p.x, p.y])
+                        .collect();
+                    Some(ElementInfo {
+                        vertices,
+                        layer: layer.number,
+                        datatype: layer.datatype,
+                    })
+                } else {
+                    None
+                }
             }
             Some(Element::Text {
                 text,
@@ -1546,6 +1780,13 @@ impl WasmLibrary {
             Some(Element::Polygon { polygon, .. }) => {
                 let translation = Vector2::new(dx, dy);
                 *polygon = polygon.translate(translation);
+                self.dirty = true;
+                true
+            }
+            Some(Element::Path { points, .. }) => {
+                for point in points.iter_mut() {
+                    *point = Point::new(point.x + dx, point.y + dy);
+                }
                 self.dirty = true;
                 true
             }
@@ -3061,21 +3302,43 @@ impl WasmLibrary {
                 continue;
             }
 
-            if let Some(Element::Polygon { polygon, layer }) =
-                cell.elements().get(elem_ref.element_index)
-            {
-                let key = layer_key(layer.number, layer.datatype);
-                let color = self
-                    .layer_colors
-                    .get(&key)
-                    .copied()
-                    .unwrap_or(default_color);
-                let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
+            match cell.elements().get(elem_ref.element_index) {
+                Some(Element::Polygon { polygon, layer }) => {
+                    let key = layer_key(layer.number, layer.datatype);
+                    let color = self
+                        .layer_colors
+                        .get(&key)
+                        .copied()
+                        .unwrap_or(default_color);
+                    let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
 
-                let vertices: Vec<[f64; 2]> =
-                    polygon.vertices().iter().map(|p| [p.x, p.y]).collect();
+                    let vertices: Vec<[f64; 2]> =
+                        polygon.vertices().iter().map(|p| [p.x, p.y]).collect();
 
-                result.push((uuid.clone(), vertices, color, fill_pattern));
+                    result.push((uuid.clone(), vertices, color, fill_pattern));
+                }
+                Some(Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                }) => {
+                    if let Some(ribbon) = offset_polygon(points, *width) {
+                        let key = layer_key(layer.number, layer.datatype);
+                        let color = self
+                            .layer_colors
+                            .get(&key)
+                            .copied()
+                            .unwrap_or(default_color);
+                        let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
+
+                        let vertices: Vec<[f64; 2]> =
+                            ribbon.vertices().iter().map(|p| [p.x, p.y]).collect();
+
+                        result.push((uuid.clone(), vertices, color, fill_pattern));
+                    }
+                }
+                _ => {}
             }
         }
 

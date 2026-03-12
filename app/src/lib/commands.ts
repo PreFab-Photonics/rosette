@@ -20,6 +20,7 @@ import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 import { computeAlignmentDeltas, type AlignType, type AlignmentDelta } from "@/lib/align";
+import { usePathStore, type PathMetadata } from "@/stores/path";
 
 /**
  * Context passed to commands for executing operations.
@@ -457,6 +458,150 @@ export class CreatePolygonCommand implements Command {
   /** Get the created element ID (available after execute). */
   getElementId(): string | null {
     return this.elementId;
+  }
+}
+
+/**
+ * Command to create a path (waveguide) polygon from a centerline and width.
+ *
+ * Uses offset_polygon to generate a ribbon polygon with straight miter joins.
+ * Corner radius is applied as a separate edit operation.
+ */
+export class CreatePathCommand implements Command {
+  readonly type = "create-path";
+  readonly description: string;
+
+  /** Created element ID (populated after execute). */
+  private elementId: string | null = null;
+
+  /** Path metadata for undo/redo management. */
+  private metadata: PathMetadata | null = null;
+
+  constructor(
+    private readonly points: Float64Array,
+    private readonly width: number,
+    private readonly layer: number,
+    private readonly datatype: number = 0,
+    private readonly waypoints?: { x: number; y: number }[],
+  ) {
+    this.description = `Create path with ${points.length / 2} waypoints`;
+  }
+
+  execute(ctx: CommandContext): void {
+    const id = ctx.library.create_path(this.points, this.width, this.layer, this.datatype);
+
+    if (id) {
+      this.elementId = id;
+
+      // Restore path metadata on redo (metadata is set after first execute by the caller,
+      // or by the command itself on redo if waypoints were provided).
+      if (this.metadata) {
+        usePathStore.getState().setPathMetadata(id, this.metadata);
+      } else if (this.waypoints) {
+        this.metadata = {
+          waypoints: this.waypoints,
+          width: this.width,
+          cornerRadius: 0,
+          layer: this.layer,
+          datatype: this.datatype,
+        };
+        usePathStore.getState().setPathMetadata(id, this.metadata);
+      }
+
+      ctx.renderer.sync_from_library(ctx.library);
+      ctx.renderer.mark_dirty();
+      useSelectionStore.getState().select(id);
+    }
+  }
+
+  undo(ctx: CommandContext): void {
+    if (this.elementId) {
+      // Snapshot metadata before removing so redo can restore it
+      if (!this.metadata) {
+        this.metadata =
+          usePathStore.getState().pathMetadata.get(this.elementId) ?? null;
+      }
+
+      usePathStore.getState().removePathMetadata(this.elementId);
+      ctx.library.remove_element(this.elementId);
+      ctx.renderer.sync_from_library(ctx.library);
+      ctx.renderer.mark_dirty();
+
+      const { selectedIds, removeFromSelection } = useSelectionStore.getState();
+      if (selectedIds.has(this.elementId)) {
+        removeFromSelection(this.elementId);
+      }
+    }
+  }
+
+  /** Get the created element ID (available after execute). */
+  getElementId(): string | null {
+    return this.elementId;
+  }
+}
+
+/**
+ * Command to edit a path's properties (width, waypoints, or waypoint removal).
+ *
+ * Uses snapshot-delete-recreate: removes the old path element, creates a new one
+ * with updated parameters, and manages path metadata for undo/redo.
+ */
+export class EditPathCommand implements Command {
+  readonly type = "edit-path";
+  readonly description: string;
+
+  /** Current element ID (changes on each execute/undo cycle). */
+  private currentId: string;
+
+  /** Original metadata (for undo). */
+  private readonly oldMeta: PathMetadata;
+
+  /** New metadata (for execute/redo). */
+  private readonly newMeta: PathMetadata;
+
+  constructor(
+    elementId: string,
+    oldMeta: PathMetadata,
+    newMeta: PathMetadata,
+    description: string,
+  ) {
+    this.currentId = elementId;
+    this.oldMeta = oldMeta;
+    this.newMeta = newMeta;
+    this.description = description;
+  }
+
+  execute(ctx: CommandContext): void {
+    this.currentId = this.rebuildPath(ctx, this.currentId, this.newMeta);
+  }
+
+  undo(ctx: CommandContext): void {
+    this.currentId = this.rebuildPath(ctx, this.currentId, this.oldMeta);
+  }
+
+  private rebuildPath(ctx: CommandContext, oldId: string, meta: PathMetadata): string {
+    const flatPoints = new Float64Array(meta.waypoints.length * 2);
+    for (let i = 0; i < meta.waypoints.length; i++) {
+      flatPoints[i * 2] = meta.waypoints[i].x;
+      flatPoints[i * 2 + 1] = meta.waypoints[i].y;
+    }
+
+    ctx.library.remove_element(oldId);
+    const newId = ctx.library.create_path(flatPoints, meta.width, meta.layer, meta.datatype);
+
+    if (newId) {
+      usePathStore.getState().removePathMetadata(oldId);
+      usePathStore.getState().setPathMetadata(newId, { ...meta });
+      ctx.renderer.sync_from_library(ctx.library);
+      ctx.renderer.mark_dirty();
+      useSelectionStore.getState().select(newId);
+      return newId;
+    }
+
+    // Fallback: sync even if create failed
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+    return oldId;
   }
 }
 

@@ -390,6 +390,11 @@ export function useKeyboardShortcuts(
           e.preventDefault();
           setTool("polygon");
           break;
+        case "h":
+        case "H":
+          e.preventDefault();
+          setTool("path");
+          break;
         case "t":
           e.preventDefault();
           setTool("text");

@@ -16,6 +16,7 @@ import { useLaser } from "@/hooks/use-laser";
 import { useZoom } from "@/hooks/use-zoom";
 import { useRectangle } from "@/hooks/use-rectangle";
 import { usePolygon } from "@/hooks/use-polygon";
+import { usePath } from "@/hooks/use-path";
 import { useSelection } from "@/hooks/use-selection";
 import { useMove } from "@/hooks/use-move";
 import { useText } from "@/hooks/use-text";
@@ -31,6 +32,7 @@ import { LaserCursor } from "@/components/canvas/LaserCursor";
 import { ZoomBox } from "@/components/canvas/ZoomBox";
 import { MarqueeBox } from "@/components/canvas/MarqueeBox";
 import { PolygonPreview } from "@/components/canvas/PolygonPreview";
+import { PathPreview } from "@/components/canvas/PathPreview";
 import { RulerOverlay } from "@/components/canvas/RulerOverlay";
 import { InstanceLabels } from "@/components/canvas/InstanceLabels";
 import { TextOverlay } from "@/components/canvas/TextOverlay";
@@ -137,6 +139,16 @@ export function Canvas() {
     isNearStart: polyIsNearStart,
     alignmentGuides: polyAlignmentGuides,
   } = usePolygon(screenToWorld, library, renderer, zoom);
+
+  // Path/waveguide tool integration
+  const {
+    handleMouseDown: handlePathMouseDown,
+    handleMouseMove: handlePathMouseMove,
+    cancelDrawing: cancelPathDrawing,
+    waypoints: pathWaypoints,
+    cursorPoint: pathCursorPoint,
+    alignmentGuides: pathAlignmentGuides,
+  } = usePath(screenToWorld, library, renderer, zoom);
 
   // Ruler tool integration
   const {
@@ -370,6 +382,12 @@ export function Canvas() {
         return;
       }
 
+      // Handle path/waveguide tool
+      if (activeTool === "path" && e.button === 0) {
+        handlePathMouseDown(e);
+        return;
+      }
+
       // Handle ruler tool
       if (activeTool === "ruler" && e.button === 0) {
         handleRulerMouseDown(e);
@@ -396,6 +414,7 @@ export function Canvas() {
       handleSelectMouseDown,
       handleMoveMouseDown,
       handlePolyMouseDown,
+      handlePathMouseDown,
       handleRulerMouseDown,
       handleTextMouseDown,
     ],
@@ -473,6 +492,11 @@ export function Canvas() {
         handlePolyMouseMove(e);
       }
 
+      // Handle path/waveguide tool movement
+      if (activeTool === "path") {
+        handlePathMouseMove(e);
+      }
+
       // Handle ruler tool movement
       if (activeTool === "ruler") {
         handleRulerMouseMove(e);
@@ -534,6 +558,7 @@ export function Canvas() {
       handleSelectMouseMove,
       handleMoveMouseMove,
       handlePolyMouseMove,
+      handlePathMouseMove,
       handleRulerMouseMove,
       handleTextMouseMove,
       render,
@@ -578,6 +603,7 @@ export function Canvas() {
     setIsDragging(false);
     cancelRectDrawing();
     cancelPolyDrawing();
+    cancelPathDrawing();
     cancelRulerDrawing();
     cancelTextEditing();
     handleSelectMouseLeave();
@@ -593,6 +619,7 @@ export function Canvas() {
     setCursorWorld,
     cancelRectDrawing,
     cancelPolyDrawing,
+    cancelPathDrawing,
     cancelRulerDrawing,
     cancelTextEditing,
     handleSelectMouseLeave,
@@ -826,7 +853,8 @@ export function Canvas() {
     }
     if (isLaserActive) return "cursor-none";
     if (isZoomActive) return "cursor-crosshair";
-    if (activeTool === "rectangle" || activeTool === "polygon") return "cursor-crosshair";
+    if (activeTool === "rectangle" || activeTool === "polygon" || activeTool === "path")
+      return "cursor-crosshair";
     if (activeTool === "text") return isEditingText ? "cursor-text" : "cursor-crosshair";
     if (activeTool === "ruler") {
       if (isDraggingRulerEndpoint) return "cursor-grabbing";
@@ -863,6 +891,13 @@ export function Canvas() {
           cursorPoint={polyCursorPoint}
           isNearStart={polyIsNearStart}
           alignmentGuides={polyAlignmentGuides}
+        />
+      )}
+      {activeTool === "path" && pathWaypoints.length > 0 && (
+        <PathPreview
+          waypoints={pathWaypoints}
+          cursorPoint={pathCursorPoint}
+          alignmentGuides={pathAlignmentGuides}
         />
       )}
       {/* Cell name label during drag-to-instance */}

@@ -445,6 +445,17 @@ export function getCommands(): CommandItem[] {
       searchableText: "Tool polygon shape draw",
     },
     {
+      id: "tool-path",
+      type: "tool",
+      name: "Tool: Path",
+      shortcut: { key: "H" },
+      action: () => {
+        setTool("path");
+        close();
+      },
+      searchableText: "Tool path waveguide route draw",
+    },
+    {
       id: "tool-text",
       type: "tool",
       name: "Tool: Text",

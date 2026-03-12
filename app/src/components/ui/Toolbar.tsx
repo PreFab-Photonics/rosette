@@ -23,6 +23,7 @@ import {
   Text,
   Union,
   ZoomIn,
+  PathArrow,
 } from "iconoir-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -63,6 +64,7 @@ const BASE_TOOLS: ToolDef[] = [
 const SHAPE_TOOLS: ToolDef[] = [
   { id: "rectangle", icon: Square3dCornerToCorner, label: "Rectangle", shortcut: "R" },
   { id: "polygon", icon: Pentagon, label: "Polygon", shortcut: "G" },
+  { id: "path", icon: PathArrow, label: "Path", shortcut: "H" },
   { id: "text", icon: Text, label: "Text", shortcut: "T" },
 ];
 
