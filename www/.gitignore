@@ -20,6 +20,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# viewer embed (built from app/ via scripts/build_landing_viewer.sh)
+/public/viewer/
+
 # others
 .env*.local
 .vercel

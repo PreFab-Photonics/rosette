@@ -27,10 +27,28 @@ function isDesignMode(): boolean {
 }
 
 /**
+ * Check if running in embed mode.
+ * Embed mode loads a static JSON file and hides all chrome.
+ * Activated by `?embed=true&src=path/to/design.json`.
+ */
+export function isEmbedMode(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("embed") === "true";
+}
+
+/**
+ * Get the static JSON source URL for embed mode.
+ */
+function getEmbedSrc(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("src");
+}
+
+/**
  * Check if running in Tauri desktop mode.
  */
 function isTauriMode(): boolean {
-  return isTauri && !isDesignMode();
+  return isTauri && !isDesignMode() && !isEmbedMode();
 }
 
 /**
@@ -217,8 +235,8 @@ export function useLibrary(
   useEffect(() => {
     if (!wasm || !isWasmReady) return;
 
-    // In design mode, don't create default library - wait for server data
-    if (isDesignMode()) {
+    // In design mode or embed mode, don't create default library - wait for server/static data
+    if (isDesignMode() || isEmbedMode()) {
       return;
     }
 
@@ -438,6 +456,55 @@ export function useLibrary(
 
     return () => {
       eventSource.close();
+    };
+  }, [wasm, isWasmReady]);
+
+  // Embed mode: load a static JSON file once
+  useEffect(() => {
+    if (!wasm || !isWasmReady || !isEmbedMode()) return;
+
+    const src = getEmbedSrc();
+    if (!src || src.startsWith("//") || /^https?:\/\//i.test(src)) {
+      console.error("Embed mode requires a relative ?src= parameter pointing to a JSON file");
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch(src);
+        if (!response.ok) throw new Error(`Failed to fetch ${src}: ${response.status}`);
+        const json = await response.text();
+        if (cancelled) return;
+
+        const newLibrary = wasm.WasmLibrary.from_library_json(json);
+        discoverLayers(newLibrary);
+        syncLayerColors(newLibrary, useLayerStore.getState().layers);
+
+        if (libraryInstance) {
+          libraryInstance.free();
+        }
+
+        libraryInstance = newLibrary;
+        setLibrary(newLibrary);
+        setIsReady(true);
+
+        const tree = newLibrary.get_cell_tree();
+        if (tree) {
+          useExplorerStore.getState().setCellTree(tree);
+          const topCellName = newLibrary.active_cell_name();
+          if (topCellName) {
+            useExplorerStore.getState().setActiveCell(topCellName);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load embed design:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
   }, [wasm, isWasmReady]);
 

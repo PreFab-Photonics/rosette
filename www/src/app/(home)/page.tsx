@@ -1,82 +1,120 @@
 import Link from "next/link";
+import { ViewerEmbed } from "./components/viewer-embed";
 
 /* -------------------------------------------------------------------------- */
 /*  Hero                                                                      */
 /* -------------------------------------------------------------------------- */
 
+const heroCodeFallback = `from rosette import Cell, Layer, Route, write_gds
+from components.mmi import mmi_1x2
+from components.grating_coupler import grating_coupler
+
+chip = Cell("splitter")
+gc = grating_coupler(layer=Layer(1, 0)).at(0, 0)
+mmi = mmi_1x2(layer=Layer(1, 0)).at(80, 0)
+chip.add_ref(gc)
+chip.add_ref(mmi)
+
+Route.through(gc.port("opt"), mmi.port("in"),
+    layer=Layer(1, 0), width=0.5, bend_radius=10.0)
+
+write_gds("splitter.gds", chip)`;
+
 function Hero() {
   return (
-    <section className="mx-auto max-w-5xl px-6 pb-24 pt-32 text-center">
-      <h1 className="text-5xl font-bold tracking-tight text-black/90 sm:text-6xl dark:text-white/90">
-        Design photonics with code
-      </h1>
+    <section className="mx-auto max-w-6xl px-6 pb-16 pt-28 sm:pt-36">
+      {/* Hero text */}
+      <div className="mx-auto max-w-2xl text-center">
+        <h1 className="text-4xl font-bold tracking-tight text-black/90 sm:text-5xl lg:text-6xl dark:text-white/90">
+          Design photonics with code
+        </h1>
 
-      <p className="mx-auto mt-6 max-w-xl text-lg text-black/50 dark:text-white/50">
-        Python API. Rust core. Agentic from day one.
-      </p>
+        <p className="mx-auto mt-6 max-w-lg text-lg leading-relaxed text-black/50 dark:text-white/50">
+          A layout engine for photonic integrated circuits.{" "}
+          <span className="font-medium text-black/80 dark:text-white/80">
+            Rust core. Python API. AI&#8209;native.
+          </span>
+        </p>
 
-      <div className="mt-10 flex items-center justify-center gap-4">
-        <Link
-          href="/docs"
-          className="inline-flex h-10 items-center rounded-lg bg-black px-5 text-sm font-medium text-white transition-colors hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
-        >
-          Get Started
-        </Link>
-        <a
-          href="https://github.com/prefab-photonics/rosette"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex h-10 items-center rounded-lg border border-black/10 px-5 text-sm font-medium text-black/70 transition-colors hover:bg-black/5 dark:border-white/10 dark:text-white/70 dark:hover:bg-white/5"
-        >
-          GitHub
-        </a>
+        <div className="mt-8 flex items-center justify-center gap-4">
+          <div className="inline-flex h-11 items-center rounded-lg border border-black/10 bg-black/[0.03] px-5 font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/70">
+            <span className="select-none text-black/30 dark:text-white/30">
+              $&nbsp;
+            </span>
+            pip install rosette
+          </div>
+
+          <span className="text-sm text-black/30 dark:text-white/30">or</span>
+
+          <Link
+            href="/docs"
+            className="inline-flex h-11 items-center rounded-lg bg-black px-6 text-sm font-medium text-white transition-colors hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
+          >
+            Get started
+          </Link>
+        </div>
       </div>
 
-      <div className="mx-auto mt-12 max-w-sm rounded-xl border border-black/10 bg-black/5 p-4 dark:border-white/10 dark:bg-white/5">
-        <pre className="text-sm font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
-          <code>pip install rosette</code>
-        </pre>
+      {/* Full-width viewer */}
+      <div className="mt-14">
+        <ViewerEmbed
+          src="/viewer/index.html?embed=true&src=./showcase.json"
+          fallback={heroCodeFallback}
+        />
       </div>
     </section>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Feature Pillars                                                           */
+/*  Why Rosette                                                               */
 /* -------------------------------------------------------------------------- */
 
-const pillars = [
+const reasons = [
   {
-    title: "Rust-fast",
+    title: "Rust core, Python API",
     description:
-      "Geometry, routing, DRC, and GDS I/O execute in compiled Rust. You write Python.",
+      "Geometry, routing, DRC, and GDS I/O execute in compiled Rust. You write Python. Near-native speed with a scripting workflow.",
   },
   {
-    title: "Agentic",
+    title: "AI-native",
     description:
-      "Built for AI workflows. Ships with agent instructions, type stubs, and feedback loops so AI tools can design circuits.",
+      "Ships with agent instructions, type stubs, and structured build feedback. AI coding tools design circuits alongside you from day one.",
   },
   {
     title: "Own your components",
     description:
-      "shadcn-style: components are plain Python functions copied to your project. Read, modify, extend.",
+      "shadcn-style: 13 photonic components are plain Python functions copied to your project. Read them, modify them, extend them.",
+  },
+  {
+    title: "Fabrication-ready",
+    description:
+      "Industry-standard GDSII output, built-in design rule checking, and path length tracking for phase-sensitive photonic designs.",
   },
 ] as const;
 
-function Pillars() {
+function WhyRosette() {
   return (
-    <section className="mx-auto max-w-5xl px-6 py-24">
-      <div className="grid gap-6 sm:grid-cols-3">
-        {pillars.map((pillar) => (
+    <section className="mx-auto max-w-6xl px-6 py-24">
+      <h2 className="text-2xl font-bold tracking-tight text-black/90 dark:text-white/90">
+        Why Rosette?
+      </h2>
+      <p className="mt-3 max-w-lg text-sm leading-relaxed text-black/50 dark:text-white/50">
+        A modern foundation for photonic chip design. Fast, open, and built for
+        how people actually work today.
+      </p>
+
+      <div className="mt-12 grid gap-6 sm:grid-cols-2">
+        {reasons.map((reason) => (
           <div
-            key={pillar.title}
+            key={reason.title}
             className="rounded-xl border border-black/10 p-6 dark:border-white/10"
           >
-            <h3 className="text-sm font-medium text-black/90 dark:text-white/90">
-              {pillar.title}
+            <h3 className="text-sm font-semibold text-black/90 dark:text-white/90">
+              {reason.title}
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-black/50 dark:text-white/50">
-              {pillar.description}
+              {reason.description}
             </p>
           </div>
         ))}
@@ -86,80 +124,65 @@ function Pillars() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Feature Showcase                                                          */
+/*  What's Inside                                                             */
 /* -------------------------------------------------------------------------- */
 
-const features = [
+const capabilities = [
   {
-    title: "Automatic routing",
+    title: "Intelligent routing",
     description:
-      "Route.through() handles bends, tapers, and width transitions. Euler bends minimize loss. Radius auto-reduces when space is tight, with warnings.",
-    code: `route = Route.through(
-    mmi.port("out1"),
-    Point(200, 50),
-    ring.port("in"),
-    layer=layers.core,
-    width=0.5,
-    bend_radius=10.0,
-)`,
+      "Route.through() handles bends, tapers, and width transitions automatically. Euler bends minimize optical loss. Radius auto-reduces when space is tight, with warnings.",
   },
   {
-    title: "Built-in DRC",
+    title: "Design rule checking",
     description:
-      "Seven check types: min width, min spacing, min area, enclosure, overlap rules, and allowed angles. Configurable in TOML. Runs at Rust speed.",
-    code: `[drc.layers.core]
-min_width = 0.15
-min_spacing = 0.15
-min_area = 0.01
-allowed_angles = [0, 45, 90, 135, 180]`,
+      "Seven check types: min width, min spacing, min area, enclosure, overlap rules, and allowed angles. Configurable in TOML, executed at Rust speed.",
   },
   {
-    title: "Live viewer",
+    title: "Live preview",
     description:
-      "rosette serve gives instant visual feedback with hot reload. WebGPU rendering handles millions of polygons. Also ships as a native desktop app.",
-    code: `$ rosette serve design.py
-
-  Watching design.py for changes...
-  Serving at http://localhost:8000`,
+      "rosette serve gives instant visual feedback with hot reload. WebGPU-rendered viewer handles millions of polygons. Ships as a native desktop app too.",
   },
   {
-    title: "13 photonic components",
+    title: "Photonic components",
     description:
-      "Waveguides, Euler bends, MMIs, directional couplers, ring resonators, grating couplers, spirals, crossings, and more. All with consistent port conventions.",
-    code: `from components.ring import ring
-from components.grating_coupler import grating_coupler
-
-r = ring(
-    layer=layers.core,
-    radius=10.0,
-    coupling_gap=0.2,
-    style="add-drop",
-)`,
+      "Waveguides, Euler bends, tapers, S-bends, MMIs, directional couplers, ring resonators, grating couplers, spirals, and crossings. Consistent port conventions.",
+  },
+  {
+    title: "Hierarchical cells",
+    description:
+      "Cell-based design with the .at() instance API for ergonomic placement. Transform chaining, automatic child-cell collection for GDS export.",
+  },
+  {
+    title: "Path length tracking",
+    description:
+      "Every component and route tracks its optical path length. Critical for Mach-Zehnder interferometers, balanced detection, and phase-sensitive designs.",
   },
 ] as const;
 
-function Features() {
+function WhatsInside() {
   return (
-    <section className="mx-auto max-w-5xl px-6 py-24">
-      <div className="space-y-20">
-        {features.map((feature) => (
+    <section className="mx-auto max-w-6xl px-6 py-24">
+      <h2 className="text-2xl font-bold tracking-tight text-black/90 dark:text-white/90">
+        What&rsquo;s inside
+      </h2>
+      <p className="mt-3 max-w-lg text-sm leading-relaxed text-black/50 dark:text-white/50">
+        Everything you need to go from design to fabrication-ready GDSII, with
+        no GUI required.
+      </p>
+
+      <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {capabilities.map((cap) => (
           <div
-            key={feature.title}
-            className="grid items-start gap-8 sm:grid-cols-2"
+            key={cap.title}
+            className="rounded-xl border border-black/10 p-6 dark:border-white/10"
           >
-            <div>
-              <h3 className="text-lg font-medium text-black/90 dark:text-white/90">
-                {feature.title}
-              </h3>
-              <p className="mt-3 text-sm leading-relaxed text-black/50 dark:text-white/50">
-                {feature.description}
-              </p>
-            </div>
-            <div className="overflow-x-auto rounded-xl border border-black/10 bg-black/5 p-5 dark:border-white/10 dark:bg-white/5">
-              <pre className="text-[13px] leading-relaxed font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
-                <code>{feature.code}</code>
-              </pre>
-            </div>
+            <h3 className="text-sm font-semibold text-black/90 dark:text-white/90">
+              {cap.title}
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-black/50 dark:text-white/50">
+              {cap.description}
+            </p>
           </div>
         ))}
       </div>
@@ -168,81 +191,43 @@ function Features() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Full Example                                                              */
+/*  Closing CTA                                                               */
 /* -------------------------------------------------------------------------- */
 
-const fullExample = `import rosette as ro
-from rosette import Point, Layer
-
-# Load project configuration
-layers = ro.load_layer_map()
-
-# Import components — you own these files
-from components.mmi import mmi_1x2
-from components.bend import bend
-from components.grating_coupler import grating_coupler
-
-# Create components
-splitter = mmi_1x2(layer=layers.core)
-gc_in = grating_coupler(layer=layers.core)
-gc_out = grating_coupler(layer=layers.core)
-
-# Assemble the design
-chip = ro.Cell("splitter_tree")
-
-gc = chip.place(gc_in).at(0, 0)
-mmi = chip.place(splitter).at(100, 0)
-
-ro.Route.through(gc.port("opt"), mmi.port("in"),
-    layer=layers.core, width=0.5, bend_radius=10.0)
-
-# Export
-ro.write_gds("splitter_tree.gds", chip)`;
-
-function FullExample() {
+function ClosingCTA() {
   return (
-    <section className="mx-auto max-w-5xl px-6 py-24">
-      <h2 className="text-center text-2xl font-bold tracking-tight text-black/90 dark:text-white/90">
-        From idea to GDS in one file
-      </h2>
-      <p className="mx-auto mt-4 max-w-lg text-center text-sm text-black/50 dark:text-white/50">
-        Components are plain Python functions. Place them, route between their
-        ports, and export. No GUI required.
-      </p>
+    <section className="mx-auto max-w-6xl px-6 py-24">
+      <div className="mx-auto max-w-2xl text-center">
+        <h2 className="text-3xl font-bold tracking-tight text-black/90 sm:text-4xl dark:text-white/90">
+          The photonic layout engine
+        </h2>
+        <p className="mx-auto mt-6 max-w-lg text-base leading-relaxed text-black/50 dark:text-white/50">
+          Thousands of geometry operations, routing decisions, and design checks
+          &mdash; compiled to native code and wrapped in a clean Python API.{" "}
+          <span className="font-medium text-black/80 dark:text-white/80">
+            Take the engine and build something real.
+          </span>
+        </p>
 
-      <div className="mt-10 overflow-x-auto rounded-xl border border-black/10 bg-black/5 p-6 dark:border-white/10 dark:bg-white/5">
-        <pre className="text-[13px] leading-relaxed font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
-          <code>{fullExample}</code>
-        </pre>
-      </div>
-    </section>
-  );
-}
+        <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+          <div className="inline-flex h-11 items-center rounded-lg border border-black/10 bg-black/[0.03] px-5 font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/70">
+            <span className="select-none text-black/30 dark:text-white/30">
+              $&nbsp;
+            </span>
+            pip install rosette
+          </div>
 
-/* -------------------------------------------------------------------------- */
-/*  Bottom CTA                                                                */
-/* -------------------------------------------------------------------------- */
+          <span className="hidden text-sm text-black/30 sm:inline dark:text-white/30">
+            or
+          </span>
 
-function BottomCTA() {
-  return (
-    <section className="mx-auto max-w-5xl px-6 py-24 text-center">
-      <h2 className="text-2xl font-bold tracking-tight text-black/90 dark:text-white/90">
-        Get started
-      </h2>
-
-      <div className="mx-auto mt-8 max-w-sm rounded-xl border border-black/10 bg-black/5 p-4 dark:border-white/10 dark:bg-white/5">
-        <pre className="text-sm font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
-          <code>pip install rosette</code>
-        </pre>
-      </div>
-
-      <div className="mt-8">
-        <Link
-          href="/docs"
-          className="inline-flex h-10 items-center rounded-lg bg-black px-5 text-sm font-medium text-white transition-colors hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
-        >
-          Read the docs
-        </Link>
+          <Link
+            href="/docs"
+            className="inline-flex h-11 items-center rounded-lg bg-black px-6 text-sm font-medium text-white transition-colors hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
+          >
+            Read the docs
+          </Link>
+        </div>
       </div>
     </section>
   );
@@ -256,10 +241,9 @@ export default function HomePage() {
   return (
     <>
       <Hero />
-      <Pillars />
-      <Features />
-      <FullExample />
-      <BottomCTA />
+      <WhyRosette />
+      <WhatsInside />
+      <ClosingCTA />
     </>
   );
 }
