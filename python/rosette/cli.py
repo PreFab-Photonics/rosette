@@ -36,12 +36,13 @@ def _list_templates() -> list[str]:
     return [d.name for d in TEMPLATES_DIR.iterdir() if d.is_dir()]
 
 
-def _apply_template(template_dir: Path, project_dir: Path, name: str):
+def _apply_template(template_dir: Path, project_dir: Path, name: str, tools: list[str] | None = None):
     """Apply a template to the project directory.
 
     - Files ending in .template have {{name}} replaced and extension stripped
     - File named 'gitignore' is renamed to '.gitignore'
     - All other files are copied as-is
+    - If tools is provided, only tool-specific files for selected tools are copied
     """
     for src_path in template_dir.rglob("*"):
         if src_path.is_dir():
@@ -49,6 +50,19 @@ def _apply_template(template_dir: Path, project_dir: Path, name: str):
 
         # Compute relative path and destination
         rel_path = src_path.relative_to(template_dir)
+
+        # Filter tool-specific files
+        if tools is not None:
+            rel_str = str(rel_path)
+            # OpenCode-specific files
+            if rel_str.startswith(".opencode") or rel_str == "AGENTS.md.template":
+                if "opencode" not in tools:
+                    continue
+            # Claude Code-specific files
+            if rel_str == "CLAUDE.md.template":
+                if "claude" not in tools:
+                    continue
+
         dest_path = project_dir / rel_path
 
         # Handle special naming
@@ -121,6 +135,11 @@ def main():
         default="blank",
         help="Project template to use (default: blank)",
     )
+    init_parser.add_argument(
+        "--tools",
+        default=None,
+        help="AI tools to configure, comma-separated (opencode,claude). Interactive if omitted.",
+    )
 
     # update command - updates template files
     subparsers.add_parser("update", help="Update AGENTS.md to latest template")
@@ -183,7 +202,8 @@ def main():
     args = parser.parse_args()
 
     if args.command == "init":
-        init_project(args.name, args.template)
+        tools = args.tools.split(",") if args.tools else None
+        init_project(args.name, args.template, tools=tools)
     elif args.command == "update":
         update_project()
     elif args.command == "build":
@@ -200,7 +220,116 @@ def main():
         run_gds(args.file, args.port, args.no_open, native=native_run)
 
 
-def init_project(name: str | None, template: str = "blank"):
+def _select_tools_interactive() -> list[str]:
+    """Interactive multi-select for AI tool configuration.
+
+    Uses arrow keys + space in TTY mode, falls back to numbered prompt.
+    """
+    options = [
+        ("opencode", "OpenCode"),
+        ("claude", "Claude Code"),
+    ]
+
+    if not sys.stdin.isatty():
+        return [key for key, _ in options]
+
+    try:
+        return _interactive_checkbox(options)
+    except Exception:
+        return _simple_select(options)
+
+
+def _interactive_checkbox(options: list[tuple[str, str]]) -> list[str]:
+    """Checkbox selector using terminal raw mode (Unix)."""
+    import termios
+    import tty
+
+    selected = [False] * len(options)  # Start unchecked
+    cursor = 0
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    drawn = False
+
+    def render():
+        nonlocal drawn
+        if drawn:
+            # Move cursor up to overwrite previous render
+            sys.stdout.write(f"\033[{len(options) + 1}A\033[J")
+        sys.stdout.write(
+            "Select AI tools (\033[1m\u2191\u2193\033[0m move, "
+            "\033[1mspace\033[0m toggle, "
+            "\033[1menter\033[0m confirm):\r\n"
+        )
+        for i, (_, label) in enumerate(options):
+            check = "\033[32m\u25cf\033[0m" if selected[i] else "\u25cb"
+            arrow = "\033[36m\u203a\033[0m " if i == cursor else "  "
+            sys.stdout.write(f"  {arrow}{check} {label}\r\n")
+        sys.stdout.flush()
+        drawn = True
+
+    try:
+        tty.setraw(fd)
+        sys.stdout.write("\r\n")
+        sys.stdout.write("  Rosette sets up AI agent config so your editor knows how to work\r\n")
+        sys.stdout.write("  with photonic designs. Pick which tools you use:\r\n")
+        sys.stdout.write("\r\n")
+        sys.stdout.flush()
+        render()
+
+        while True:
+            ch = sys.stdin.read(1)
+            if ch in ("\r", "\n"):
+                if any(selected):
+                    break
+                # Nothing selected — nudge the user
+                continue
+            elif ch == " ":
+                selected[cursor] = not selected[cursor]
+                render()
+            elif ch == "\x1b":
+                ch2 = sys.stdin.read(1)
+                if ch2 == "[":
+                    ch3 = sys.stdin.read(1)
+                    if ch3 == "A":  # Up
+                        cursor = (cursor - 1) % len(options)
+                        render()
+                    elif ch3 == "B":  # Down
+                        cursor = (cursor + 1) % len(options)
+                        render()
+            elif ch == "\x03":  # Ctrl+C
+                raise KeyboardInterrupt
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+    sys.stdout.write("\n")
+    return [key for (key, _), sel in zip(options, selected) if sel]
+
+
+def _simple_select(options: list[tuple[str, str]]) -> list[str]:
+    """Fallback numbered prompt for non-TTY or when raw mode fails."""
+    print()
+    print("  Rosette sets up AI agent config so your editor knows how to work")
+    print("  with photonic designs. Pick which tools you use:")
+    print()
+    for i, (_, label) in enumerate(options, 1):
+        print(f"  {i}. {label}")
+    print(f"  {len(options) + 1}. All")
+
+    choice = input(f"Choice (comma-separated, default: {len(options) + 1}): ").strip()
+    if not choice or choice == str(len(options) + 1):
+        return [key for key, _ in options]
+
+    selected = []
+    for c in choice.split(","):
+        c = c.strip()
+        if c.isdigit():
+            idx = int(c) - 1
+            if 0 <= idx < len(options):
+                selected.append(options[idx][0])
+    return selected or [key for key, _ in options]
+
+
+def init_project(name: str | None, template: str = "blank", tools: list[str] | None = None):
     """Initialize a rosette project.
 
     If name is provided, creates a new directory with that name.
@@ -223,6 +352,18 @@ def init_project(name: str | None, template: str = "blank"):
         print("Error: rosette.toml already exists (project already initialized)")
         sys.exit(1)
 
+    # Select AI tools if not specified
+    if tools is None:
+        tools = _select_tools_interactive()
+
+    # Validate tool names
+    valid_tools = {"opencode", "claude"}
+    invalid = set(tools) - valid_tools
+    if invalid:
+        print(f"Error: Unknown tools: {', '.join(invalid)}")
+        print(f"Valid options: {', '.join(sorted(valid_tools))}")
+        sys.exit(1)
+
     # Load and apply template
     template_dir = _get_template_dir(template)
     if template_dir is None:
@@ -231,7 +372,7 @@ def init_project(name: str | None, template: str = "blank"):
         print(f"Available templates: {', '.join(available)}")
         sys.exit(1)
 
-    _apply_template(template_dir, project_dir, name)
+    _apply_template(template_dir, project_dir, name, tools=tools)
 
     # Create output directory (runtime, not part of template)
     (project_dir / "output").mkdir(exist_ok=True)
@@ -245,13 +386,17 @@ def init_project(name: str | None, template: str = "blank"):
     # Set up venv with rosette for LSP support
     _setup_venv(project_dir)
 
-    print(f"Initialized rosette project '{name}' (template: {template})")
+    tool_names = ", ".join(sorted(tools))
+    print(f"Initialized rosette project '{name}' (template: {template}, tools: {tool_names})")
     print()
     print("Next steps:")
     print("  rosette build designs/basic_shapes.py")
     print()
     print("Or use an AI agent:")
-    print("  opencode  # reads AGENTS.md for instructions")
+    if "opencode" in tools:
+        print("  opencode       # reads AGENTS.md for instructions")
+    if "claude" in tools:
+        print("  claude         # reads CLAUDE.md for instructions")
 
 
 def _copy_source_files(rosette_dir: Path):
@@ -340,6 +485,7 @@ def update_project():
     Convention:
     - Rosette-managed directories (.rosette/) are fully replaced
     - Template files (*.template) are processed with {{name}} substitution
+    - Only updates files for tools that are already configured
     - User-owned files are never touched:
       - designs/ - your design files
       - components/ - your customizable components (shadcn-style)
@@ -364,8 +510,20 @@ def update_project():
         print("Error: Template 'blank' not found")
         sys.exit(1)
 
+    # Detect which tools are configured by checking for their files
+    tools = []
+    if (project_dir / "AGENTS.md").exists() or (project_dir / ".opencode").exists():
+        tools.append("opencode")
+    if (project_dir / "CLAUDE.md").exists():
+        tools.append("claude")
+    # If neither detected (legacy project), default to opencode for backwards compat
+    if not tools:
+        tools.append("opencode")
+
     # Rosette-managed directories: replace entirely from template
     managed_dirs = [".rosette"]
+    if "opencode" in tools:
+        managed_dirs.append(".opencode")
     for dir_name in managed_dirs:
         src = template_dir / dir_name
         if src.exists():
@@ -374,9 +532,14 @@ def update_project():
                 shutil.rmtree(dst)
             shutil.copytree(src, dst)
 
-    # Template files at root: process with {{name}} substitution
+    # Template files at root: process with {{name}} substitution (filtered by tools)
     for template_file in template_dir.glob("*.template"):
         output_name = template_file.stem  # e.g., AGENTS.md.template -> AGENTS.md
+        # Filter tool-specific templates
+        if output_name == "AGENTS.md" and "opencode" not in tools:
+            continue
+        if output_name == "CLAUDE.md" and "claude" not in tools:
+            continue
         content = template_file.read_text().replace("{{name}}", name)
         (project_dir / output_name).write_text(content)
 
@@ -386,7 +549,8 @@ def update_project():
     # Ensure venv is set up
     _setup_venv(project_dir)
 
-    print("Updated project to latest templates")
+    tool_names = ", ".join(sorted(tools))
+    print(f"Updated project to latest templates (tools: {tool_names})")
 
 
 def load_design(path_spec: str) -> tuple:
