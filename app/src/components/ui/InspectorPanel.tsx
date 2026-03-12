@@ -13,14 +13,12 @@ import {
   MoveElementsToCommand,
   SetCellOriginCommand,
   RenameCellCommand,
-  SetInstanceTransformCommand,
-  SetInstanceArrayCommand,
   UpdateTextContentCommand,
   MoveTextCommand,
   SetTextHeightCommand,
   type ArrayParams,
 } from "@/lib/commands";
-import { useExplorerStore } from "@/stores/explorer";
+import { useExplorerStore, type CellNode } from "@/stores/explorer";
 import { formatCoordinate, type UnitInfo } from "@/lib/format";
 import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
@@ -148,7 +146,10 @@ function NumberField({
 
   return (
     <div className="flex items-center justify-between gap-2 px-3 py-1" data-field={label}>
-      <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
+      <span className={cn("text-xs select-none", readOnly
+        ? isDark ? "text-white/30" : "text-black/30"
+        : isDark ? "text-white/50" : "text-black/50",
+      )}>
         {label}
       </span>
       <div className="flex items-center gap-1">
@@ -185,8 +186,8 @@ function NumberField({
               "w-20 rounded border border-transparent px-1.5 py-0.5 text-right font-mono text-xs outline-none transition-colors",
               readOnly
                 ? isDark
-                  ? "text-white/70"
-                  : "text-black/70"
+                  ? "text-white/30"
+                  : "text-black/30"
                 : isDark
                   ? "cursor-text text-white/90 hover:bg-white/5"
                   : "cursor-text text-black/90 hover:bg-black/5",
@@ -198,7 +199,10 @@ function NumberField({
         )}
         {unit && (
           <span
-            className={cn("w-6 text-xs select-none", isDark ? "text-white/40" : "text-black/40")}
+            className={cn("w-6 text-xs select-none", readOnly
+              ? isDark ? "text-white/20" : "text-black/20"
+              : isDark ? "text-white/40" : "text-black/40",
+            )}
           >
             {unit}
           </span>
@@ -725,6 +729,7 @@ function VertexRow({
   onChangeX,
   onChangeY,
   onRemove,
+  readOnly,
 }: {
   index: number;
   x: string;
@@ -735,6 +740,7 @@ function VertexRow({
   onChangeX: (value: number) => void;
   onChangeY: (value: number) => void;
   onRemove: () => void;
+  readOnly?: boolean;
 }) {
   return (
     <div data-vertex-row>
@@ -748,30 +754,32 @@ function VertexRow({
         >
           V{index}
         </span>
-        <button
-          type="button"
-          onClick={onRemove}
-          disabled={!canRemove}
-          className={cn(
-            "flex-shrink-0 rounded p-0.5 transition-colors",
-            canRemove
-              ? isDark
-                ? "text-white/40 hover:bg-white/10 hover:text-white/70"
-                : "text-black/40 hover:bg-black/10 hover:text-black/70"
-              : isDark
-                ? "cursor-not-allowed text-white/10"
-                : "cursor-not-allowed text-black/10",
-          )}
-          tabIndex={canRemove ? 0 : -1}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">
-            <path d="M4 8h8" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={!canRemove}
+            className={cn(
+              "flex-shrink-0 rounded p-0.5 transition-colors",
+              canRemove
+                ? isDark
+                  ? "text-white/40 hover:bg-white/10 hover:text-white/70"
+                  : "text-black/40 hover:bg-black/10 hover:text-black/70"
+                : isDark
+                  ? "cursor-not-allowed text-white/10"
+                  : "cursor-not-allowed text-black/10",
+            )}
+            tabIndex={canRemove ? 0 : -1}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+              <path d="M4 8h8" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
       </div>
       {/* X / Y coordinate fields */}
-      <NumberField label="X" value={x} unit={unit} isDark={isDark} onChange={onChangeX} />
-      <NumberField label="Y" value={y} unit={unit} isDark={isDark} onChange={onChangeY} />
+      <NumberField label="X" value={x} unit={unit} isDark={isDark} onChange={onChangeX} readOnly={readOnly} />
+      <NumberField label="Y" value={y} unit={unit} isDark={isDark} onChange={onChangeY} readOnly={readOnly} />
     </div>
   );
 }
@@ -789,6 +797,8 @@ function VerticesSection({
   onChangeVertex,
   onRemoveVertex,
   onAddVertex,
+  readOnly,
+  label,
 }: {
   vertices: Float64Array;
   unitInfo: UnitInfo;
@@ -796,6 +806,8 @@ function VerticesSection({
   onChangeVertex: (index: number, axis: "x" | "y", displayValue: number) => void;
   onRemoveVertex: (index: number) => void;
   onAddVertex: () => void;
+  readOnly?: boolean;
+  label?: string;
 }) {
   const vertexCount = vertices.length / 2;
   const canRemove = vertexCount > 3;
@@ -877,33 +889,36 @@ function VerticesSection({
         onChangeX={(v) => onChangeVertex(i, "x", v)}
         onChangeY={(v) => onChangeVertex(i, "y", v)}
         onRemove={() => onRemoveVertex(i)}
+        readOnly={readOnly}
       />,
     );
   }
 
   return (
     <>
-      <SectionHeader label="Vertices" isDark={isDark} />
+      <SectionHeader label={label ?? "Vertices"} isDark={isDark} />
       <div ref={scrollRef} className="flex max-h-48 flex-col overflow-y-auto">
         {rows}
       </div>
-      <div className="px-3 pt-1">
-        <button
-          type="button"
-          onClick={handleAdd}
-          className={cn(
-            "flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
-            isDark
-              ? "border-white/10 text-white/50 hover:bg-white/5 hover:text-white/70"
-              : "border-black/10 text-black/50 hover:bg-black/5 hover:text-black/70",
-          )}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">
-            <path d="M8 4v8M4 8h8" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-          Add vertex
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="px-3 pt-1">
+          <button
+            type="button"
+            onClick={handleAdd}
+            className={cn(
+              "flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
+              isDark
+                ? "border-white/10 text-white/50 hover:bg-white/5 hover:text-white/70"
+                : "border-black/10 text-black/50 hover:bg-black/5 hover:text-black/70",
+            )}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+              <path d="M8 4v8M4 8h8" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            Add vertex
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -1065,6 +1080,22 @@ export function InspectorPanel() {
 
   // Cell inspector data (shown when nothing is selected)
   const activeCell = useExplorerStore((s) => s.activeCell);
+  const cellTree = useExplorerStore((s) => s.cellTree);
+
+  // Detect if the active cell is a parent (has children = CellRef instances).
+  // When true, only position is editable in the inspector; everything else is read-only.
+  const isParentCell = useMemo(() => {
+    if (!activeCell || !cellTree) return false;
+    const findNode = (nodes: CellNode[]): CellNode | undefined => {
+      for (const node of nodes) {
+        if (node.name === activeCell) return node;
+        const found = findNode(node.children);
+        if (found) return found;
+      }
+    };
+    const node = findNode(cellTree);
+    return node ? node.children.length > 0 : false;
+  }, [activeCell, cellTree]);
 
   // Subscribe to history changes so cell inspector re-reads origin after undo/redo/execute.
   // The value itself is unused; the subscription triggers re-renders.
@@ -1229,119 +1260,6 @@ export function InspectorPanel() {
     useHistoryStore.getState().execute(cmd, { library, renderer });
   }, [data, library, renderer]);
 
-  // Keep a ref to the instance data so the position handler always reads the latest transform.
-  const instanceRef = useRef(data?.instance ?? null);
-  instanceRef.current = data?.instance ?? null;
-
-  const handleInstancePositionChange = useCallback(
-    (axis: "x" | "y", displayValue: number) => {
-      const inst = instanceRef.current;
-      if (!inst || !library || !renderer) return;
-
-      // Convert display µm → nm → world coordinates. Y is negated.
-      const valueInNm = displayValue * unitInfo.scale;
-      const worldValue = axis === "y" ? -valueInNm * GRID_SIZE : valueInNm * GRID_SIZE;
-
-      // MoveElementsToCommand computes delta as (newPos - oldPos) per axis.
-      // We only change the axis the user edited; the other stays at 0 delta.
-      const cmd = new MoveElementsToCommand(
-        inst.ids,
-        inst.x, // oldMinX
-        inst.y, // oldMinY
-        axis === "x" ? worldValue : inst.x, // newX
-        axis === "y" ? worldValue : inst.y, // newY
-      );
-      useHistoryStore.getState().execute(cmd, { library, renderer });
-    },
-    [library, renderer, unitInfo],
-  );
-
-  /**
-   * Build a new transform with the given rotation (degrees) and scale,
-   * pivoting around the child cell's origin so that the origin's world
-   * position (inst.x, inst.y) stays fixed.
-   */
-  const buildPivotedTransform = useCallback(
-    (inst: InstanceData, newDegrees: number, newScale: number): Float64Array => {
-      const newRad = (newDegrees * Math.PI) / 180;
-      const cos = Math.cos(newRad);
-      const sin = Math.sin(newRad);
-      const det = inst.transform[0] * inst.transform[3] - inst.transform[1] * inst.transform[2];
-      const reflect = det < 0 ? -1 : 1;
-
-      // New linear part: [a', b', c', d']
-      // No reflection:  [[s*cos, -s*sin], [s*sin,  s*cos]]
-      // With mirror_x:  [[s*cos,  s*sin], [s*sin, -s*cos]]
-      const a = newScale * cos;
-      const b = -newScale * sin * reflect;
-      const c = newScale * sin;
-      const d = newScale * cos * reflect;
-
-      // Adjust tx/ty so the child origin stays at the same world position.
-      // world_origin = [a,b;c,d] * childOrigin + [tx,ty]  (this is inst.x, inst.y)
-      // We want: inst.x = a'*ox + b'*oy + tx'  →  tx' = inst.x - a'*ox - b'*oy
-      const ox = inst.childOriginX;
-      const oy = inst.childOriginY;
-      const newTx = inst.x - (a * ox + b * oy);
-      const newTy = inst.y - (c * ox + d * oy);
-
-      return new Float64Array([a, b, c, d, newTx, newTy]);
-    },
-    [],
-  );
-
-  const handleInstanceRotationChange = useCallback(
-    (newDegrees: number) => {
-      const inst = instanceRef.current;
-      if (!inst || !library || !renderer) return;
-
-      const newTransform = buildPivotedTransform(inst, newDegrees, inst.scale);
-      const cmd = new SetInstanceTransformCommand(
-        inst.refId,
-        inst.transform,
-        newTransform,
-        "Set rotation",
-      );
-      useHistoryStore.getState().execute(cmd, { library, renderer });
-    },
-    [library, renderer, buildPivotedTransform],
-  );
-
-  const handleInstanceScaleChange = useCallback(
-    (newScale: number) => {
-      const inst = instanceRef.current;
-      if (!inst || !library || !renderer) return;
-      if (newScale <= 0) return;
-
-      const newTransform = buildPivotedTransform(inst, inst.rotation, newScale);
-      const cmd = new SetInstanceTransformCommand(
-        inst.refId,
-        inst.transform,
-        newTransform,
-        "Set scale",
-      );
-      useHistoryStore.getState().execute(cmd, { library, renderer });
-    },
-    [library, renderer, buildPivotedTransform],
-  );
-
-  const handleInstanceArrayChange = useCallback(
-    (field: "columns" | "rows" | "colSpacing" | "rowSpacing", value: number) => {
-      const inst = instanceRef.current;
-      if (!inst || !library || !renderer) return;
-
-      const cur = inst.array ?? { columns: 1, rows: 1, colSpacing: 0, rowSpacing: 0 };
-      const newParams: ArrayParams = { ...cur, [field]: value };
-
-      // Clamp columns/rows to >= 1
-      if (newParams.columns < 1) newParams.columns = 1;
-      if (newParams.rows < 1) newParams.rows = 1;
-
-      const cmd = new SetInstanceArrayCommand(inst.refId, inst.array, newParams);
-      useHistoryStore.getState().execute(cmd, { library, renderer });
-    },
-    [library, renderer],
-  );
 
   // Native keydown listener on the panel container.
   // - Tab/Shift+Tab: cycle through focusable fields with wrap-around.
@@ -1471,151 +1389,9 @@ export function InspectorPanel() {
     );
   }
 
-  const { elements, bounds, isMixed, instance } = data;
+  const { elements, bounds, isMixed } = data;
   const isSingle = elements.length === 1;
   const first = elements[0];
-
-  // Instance inspector (CellRef selected)
-  if (instance) {
-    // Convert transform origin (world coords) → display units.
-    // Y is negated (world Y-down → display Y-up).
-    const instX = formatCoordinate(instance.x / GRID_SIZE, unitInfo);
-    const instY = formatCoordinate(-instance.y / GRID_SIZE, unitInfo);
-
-    // Format rotation to a clean number (avoid -0, floating point noise).
-    // Normalize to (-180, 180] range.
-    let rotDeg = instance.rotation;
-    if (rotDeg > 180) rotDeg -= 360;
-    if (rotDeg <= -180) rotDeg += 360;
-    // Snap near-zero to 0 to avoid "-0" display
-    if (Math.abs(rotDeg) < 1e-10) rotDeg = 0;
-    const rotDisplay = Number.parseFloat(rotDeg.toFixed(4)).toString();
-
-    // Format scale to a clean number, always showing at least one decimal place.
-    const scaleClean = Number.parseFloat(instance.scale.toFixed(6));
-    const scaleDisplay = Number.isInteger(scaleClean)
-      ? scaleClean.toFixed(1)
-      : scaleClean.toString();
-
-    // Array repetition display values.
-    const arrCols = instance.array?.columns ?? 1;
-    const arrRows = instance.array?.rows ?? 1;
-    const arrColSpacingDisplay = formatCoordinate(
-      (instance.array?.colSpacing ?? 0) / GRID_SIZE,
-      unitInfo,
-    );
-    const arrRowSpacingDisplay = formatCoordinate(
-      (instance.array?.rowSpacing ?? 0) / GRID_SIZE,
-      unitInfo,
-    );
-
-    return (
-      <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
-        {/* Instance header */}
-        <div className="px-3 pt-2 pb-1">
-          <span
-            className={cn(
-              "text-xs font-medium select-none",
-              isDark ? "text-white/70" : "text-black/70",
-            )}
-          >
-            Instance
-          </span>
-        </div>
-
-        {/* Divider */}
-        <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
-
-        {/* Cell name (read-only) */}
-        <SectionHeader label="Cell" isDark={isDark} />
-        <div className="flex items-center justify-between gap-2 px-3 py-1">
-          <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-            Name
-          </span>
-          <span
-            className={cn(
-              "max-w-36 truncate text-right font-mono text-xs select-none",
-              isDark ? "text-white/70" : "text-black/70",
-            )}
-          >
-            {instance.cellName}
-          </span>
-        </div>
-
-        {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
-
-        {/* Position */}
-        <SectionHeader label="Position" isDark={isDark} />
-        <NumberField
-          label="X"
-          value={instX}
-          unit={unitInfo.unit}
-          isDark={isDark}
-          onChange={(v) => handleInstancePositionChange("x", v)}
-        />
-        <NumberField
-          label="Y"
-          value={instY}
-          unit={unitInfo.unit}
-          isDark={isDark}
-          onChange={(v) => handleInstancePositionChange("y", v)}
-        />
-
-        {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
-
-        {/* Transform */}
-        <SectionHeader label="Transform" isDark={isDark} />
-        <NumberField
-          label="Rotation"
-          value={rotDisplay}
-          unit={"\u00B0"}
-          isDark={isDark}
-          onChange={handleInstanceRotationChange}
-        />
-        <NumberField
-          label="Scale"
-          value={scaleDisplay}
-          unit="au"
-          isDark={isDark}
-          onChange={handleInstanceScaleChange}
-        />
-
-        {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
-
-        {/* Array */}
-        <SectionHeader label="Array" isDark={isDark} />
-        <NumberField
-          label="Cols"
-          value={String(arrCols)}
-          isDark={isDark}
-          onChange={(v) => handleInstanceArrayChange("columns", Math.round(v))}
-        />
-        <NumberField
-          label="Rows"
-          value={String(arrRows)}
-          isDark={isDark}
-          onChange={(v) => handleInstanceArrayChange("rows", Math.round(v))}
-        />
-        <NumberField
-          label="Col gap"
-          value={arrColSpacingDisplay}
-          unit={unitInfo.unit}
-          isDark={isDark}
-          onChange={(v) => handleInstanceArrayChange("colSpacing", v * unitInfo.scale * GRID_SIZE)}
-        />
-        <NumberField
-          label="Row gap"
-          value={arrRowSpacingDisplay}
-          unit={unitInfo.unit}
-          isDark={isDark}
-          onChange={(v) => handleInstanceArrayChange("rowSpacing", v * unitInfo.scale * GRID_SIZE)}
-        />
-      </div>
-    );
-  }
 
   // Text inspector (single text element selected)
   if (isSingle && library && library.is_text_element(first.id)) {
@@ -1754,6 +1530,9 @@ export function InspectorPanel() {
   const width = bounds ? formatCoordinate((bounds.maxX - bounds.minX) / GRID_SIZE, unitInfo) : "—";
   const height = bounds ? formatCoordinate((bounds.maxY - bounds.minY) / GRID_SIZE, unitInfo) : "—";
 
+  // When viewing from a parent cell, only position is editable.
+  const positionEditable = isParentCell || isSingle;
+
   return (
     <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
       {/* Selection summary */}
@@ -1772,30 +1551,34 @@ export function InspectorPanel() {
       <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
 
       {/* Layer */}
-      <SectionHeader label="Layer" isDark={isDark} />
+      {!isParentCell && (
+        <>
+          <SectionHeader label="Layer" isDark={isDark} />
 
-      {isMixed ? (
-        <div className="flex items-center justify-between gap-2 px-3 py-1">
-          <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-            Layer
-          </span>
-          <span
-            className={cn("text-xs italic select-none", isDark ? "text-white/40" : "text-black/40")}
-          >
-            Mixed
-          </span>
-        </div>
-      ) : (
-        <LayerSelector
-          currentLayer={first.layer}
-          currentDatatype={first.datatype}
-          isDark={isDark}
-          onChange={handleLayerChange}
-        />
+          {isMixed ? (
+            <div className="flex items-center justify-between gap-2 px-3 py-1">
+              <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
+                Layer
+              </span>
+              <span
+                className={cn("text-xs italic select-none", isDark ? "text-white/40" : "text-black/40")}
+              >
+                Mixed
+              </span>
+            </div>
+          ) : (
+            <LayerSelector
+              currentLayer={first.layer}
+              currentDatatype={first.datatype}
+              isDark={isDark}
+              onChange={handleLayerChange}
+            />
+          )}
+
+          {/* Divider */}
+          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        </>
       )}
-
-      {/* Divider */}
-      <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
 
       {/* Position */}
       <SectionHeader label="Position" isDark={isDark} />
@@ -1804,16 +1587,16 @@ export function InspectorPanel() {
         value={posX}
         unit={unitInfo.unit}
         isDark={isDark}
-        onChange={isSingle ? (v) => handlePositionChange("x", v) : undefined}
-        readOnly={!isSingle}
+        onChange={positionEditable ? (v) => handlePositionChange("x", v) : undefined}
+        readOnly={!positionEditable}
       />
       <NumberField
         label="Y"
         value={posY}
         unit={unitInfo.unit}
         isDark={isDark}
-        onChange={isSingle ? (v) => handlePositionChange("y", v) : undefined}
-        readOnly={!isSingle}
+        onChange={positionEditable ? (v) => handlePositionChange("y", v) : undefined}
+        readOnly={!positionEditable}
       />
 
       {/* Divider */}
@@ -1826,32 +1609,50 @@ export function InspectorPanel() {
         value={width}
         unit={unitInfo.unit}
         isDark={isDark}
-        onChange={isSingle ? (v) => handleDimensionChange("width", v) : undefined}
-        readOnly={!isSingle}
+        onChange={isSingle && !isParentCell ? (v) => handleDimensionChange("width", v) : undefined}
+        readOnly={!isSingle || isParentCell}
       />
       <NumberField
         label="H"
         value={height}
         unit={unitInfo.unit}
         isDark={isDark}
-        onChange={isSingle ? (v) => handleDimensionChange("height", v) : undefined}
-        readOnly={!isSingle}
+        onChange={isSingle && !isParentCell ? (v) => handleDimensionChange("height", v) : undefined}
+        readOnly={!isSingle || isParentCell}
       />
 
-      {/* Vertices (single selection only) */}
-      {isSingle && (
+      {/* Vertices — single selection when editable, all elements when parent (read-only) */}
+      {(isSingle || isParentCell) && (
         <>
           {/* Divider */}
           <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
 
-          <VerticesSection
-            vertices={first.vertices}
-            unitInfo={unitInfo}
-            isDark={isDark}
-            onChangeVertex={handleVertexChange}
-            onRemoveVertex={handleVertexRemove}
-            onAddVertex={handleVertexAdd}
-          />
+          {isParentCell && !isSingle ? (
+            // Show vertices from all elements (read-only) when at parent cell
+            elements.map((el, elIdx) => (
+              <VerticesSection
+                key={el.id}
+                vertices={el.vertices}
+                unitInfo={unitInfo}
+                isDark={isDark}
+                onChangeVertex={handleVertexChange}
+                onRemoveVertex={handleVertexRemove}
+                onAddVertex={handleVertexAdd}
+                readOnly
+                label={elements.length > 1 ? `Vertices (${elIdx + 1}/${elements.length})` : undefined}
+              />
+            ))
+          ) : (
+            <VerticesSection
+              vertices={first.vertices}
+              unitInfo={unitInfo}
+              isDark={isDark}
+              onChangeVertex={handleVertexChange}
+              onRemoveVertex={handleVertexRemove}
+              onAddVertex={handleVertexAdd}
+              readOnly={isParentCell}
+            />
+          )}
         </>
       )}
     </div>
