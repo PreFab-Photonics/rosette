@@ -16,12 +16,210 @@ import { useViewportStore } from "@/stores/viewport";
 // Module-level singleton for library
 let libraryInstance: WasmLibrary | null = null;
 
+// =============================================================================
+// Source map for two-way editing (rosette serve)
+// =============================================================================
+
+/** Source location info from the Python server. */
+export interface SourceInfo {
+  file: string;
+  line: number;
+  fn: string;
+  code: string;
+  type: string; // "polygon" | "path" | "ref"
+}
+
+/** UUID → SourceInfo mapping, built after each design update. */
+let currentSourceMap: Map<string, SourceInfo> | null = null;
+
+/**
+ * Get source info for an element by UUID.
+ * Returns null if no source tracking is available or the element has no source.
+ */
+export function getSourceInfo(uuid: string): SourceInfo | null {
+  return currentSourceMap?.get(uuid) ?? null;
+}
+
+/**
+ * Send an edit request to the Python server.
+ * The server patches the source file, the file watcher detects the change,
+ * and the design is re-executed automatically.
+ */
+export async function sendEdit(edit: {
+  file: string;
+  line: number;
+  old_code?: string;
+  new_code: string;
+}): Promise<boolean> {
+  try {
+    const res = await fetch("/api/design/edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(edit),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Send a semantic edit operation to the Python server.
+ * The server applies the edit using libcst, the file watcher detects the
+ * change, and the design is re-executed automatically.
+ */
+export async function sendSemanticEdit(
+  edit: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    const res = await fetch("/api/design/edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(edit),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Send a vertex edit for a polygon or path element.
+ * Vertices are in WASM world coordinates — the server handles conversion to µm.
+ */
+export function sendVertexEdit(
+  elementId: string,
+  newVertices: Float64Array,
+): void {
+  const source = getSourceInfo(elementId);
+  if (!source) return;
+  if (source.type !== "polygon" && source.type !== "path") return;
+
+  sendSemanticEdit({
+    op: "modify_vertices",
+    file: source.file,
+    line: source.line,
+    old_code: source.code,
+    vertices: Array.from(newVertices),
+  });
+}
+
+/**
+ * Send a layer change for an element.
+ */
+export function sendLayerEdit(
+  elementId: string,
+  layer: number,
+  datatype: number,
+): void {
+  const source = getSourceInfo(elementId);
+  if (!source) return;
+  if (source.type !== "polygon" && source.type !== "path") return;
+
+  sendSemanticEdit({
+    op: "modify_layer",
+    file: source.file,
+    line: source.line,
+    old_code: source.code,
+    layer,
+    datatype,
+  });
+}
+
+/**
+ * Send a delete operation for an element.
+ */
+export function sendDeleteEdit(elementId: string): void {
+  const source = getSourceInfo(elementId);
+  if (!source) return;
+
+  sendSemanticEdit({
+    op: "delete_element",
+    file: source.file,
+    line: source.line,
+    old_code: source.code,
+  });
+}
+
+/**
+ * Send an add operation for a new polygon element.
+ * Inserts a new add_polygon call after the last source-tracked element.
+ */
+export function sendAddEdit(
+  vertices: Float64Array,
+  layer: number,
+  datatype: number,
+): void {
+  if (!currentSourceMap || currentSourceMap.size === 0) return;
+
+  // Find the last source entry to determine file, insertion point, and cell variable.
+  let lastLine = 0;
+  let file = "";
+  let cellVar = "cell";
+
+  for (const source of currentSourceMap.values()) {
+    if (source.line > lastLine) {
+      lastLine = source.line;
+      file = source.file;
+      // Extract cell variable from code like "top.add_polygon(...)" or "top.add_ref(...)"
+      const dotIdx = source.code.indexOf(".");
+      if (dotIdx > 0) {
+        cellVar = source.code.substring(0, dotIdx).trim();
+      }
+    }
+  }
+
+  if (!file || lastLine === 0) return;
+
+  sendSemanticEdit({
+    op: "add_element",
+    file,
+    after_line: lastLine,
+    element_type: "polygon",
+    vertices: Array.from(vertices),
+    layer,
+    datatype,
+    cell_var: cellVar,
+  });
+}
+
+/**
+ * Build UUID → SourceInfo mapping from render polygon order.
+ * The render polygons are in the same order as the flat JSON polygons,
+ * so we can correlate by index.
+ */
+function buildSourceMap(
+  lib: WasmLibrary,
+  serverSourceMap: (SourceInfo | null)[] | null,
+): void {
+  if (!serverSourceMap || serverSourceMap.length === 0) {
+    currentSourceMap = null;
+    return;
+  }
+
+  const map = new Map<string, SourceInfo>();
+  try {
+    const renderPolygons = lib.get_render_polygons() as [string, unknown, unknown, unknown][];
+    for (let i = 0; i < renderPolygons.length && i < serverSourceMap.length; i++) {
+      const uuid = renderPolygons[i][0];
+      const source = serverSourceMap[i];
+      if (uuid && source) {
+        map.set(uuid, source);
+      }
+    }
+  } catch {
+    // WASM call failed, no source map
+  }
+
+  currentSourceMap = map.size > 0 ? map : null;
+}
+
 /**
  * Check if running in design preview mode.
  * Design mode is activated by the `?design=true` URL parameter,
  * set by `rosette serve`.
  */
-function isDesignMode(): boolean {
+export function isDesignMode(): boolean {
   const params = new URLSearchParams(window.location.search);
   return params.get("design") === "true";
 }
@@ -55,6 +253,8 @@ interface DesignResponse {
   json: string | null;
   /** Cell hierarchy tree (design mode) or flat list (legacy). */
   cells: CellNode | string[] | null;
+  /** Source map for two-way editing (parallel to flat JSON polygons). */
+  source_map: (SourceInfo | null)[] | null;
   /** Layer definitions from rosette.toml (if available). */
   layers: ServerLayerDef[] | null;
   /** Source filename (e.g., "layout.py" or "mmi.gds"). */
@@ -66,6 +266,7 @@ interface DesignResponse {
  */
 interface NavigateResponse {
   json: string;
+  source_map: (SourceInfo | null)[] | null;
 }
 
 /** Type guard: is the cells payload a hierarchy tree? */
@@ -401,15 +602,25 @@ export function useLibrary(
             }
             syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
-            // Free old library to prevent memory leak
-            if (libraryInstance) {
-              libraryInstance.free();
-            }
+            // Defer freeing old library so React can re-render with the new
+            // one first. Without this, InspectorPanel (or other components)
+            // may call methods on the freed WASM object during the render
+            // triggered by setLibrary, causing a null-pointer crash.
+            const oldLib = libraryInstance;
 
             libraryInstance = newLibrary;
             setLibrary(newLibrary);
             setIsReady(true);
             designVersionRef.current = data.version;
+
+            if (oldLib) {
+              requestAnimationFrame(() => {
+                try { oldLib.free(); } catch { /* already freed */ }
+              });
+            }
+
+            // Build UUID → SourceInfo mapping for two-way editing
+            buildSourceMap(newLibrary, data.source_map ?? null);
 
             // Update explorer with cell hierarchy from the server
             if (data.cells) {
@@ -480,14 +691,21 @@ export function useLibrary(
         discoverLayers(newLibrary);
         syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
-        // Free old library
-        if (libraryInstance) {
-          libraryInstance.free();
-        }
+        // Defer freeing old library so React re-renders first
+        const oldLib = libraryInstance;
 
         libraryInstance = newLibrary;
         loadedCellRef.current = activeCell;
         setLibrary(newLibrary);
+
+        if (oldLib) {
+          requestAnimationFrame(() => {
+            try { oldLib.free(); } catch { /* already freed */ }
+          });
+        }
+
+        // Build source map for the navigated cell
+        buildSourceMap(newLibrary, data.source_map ?? null);
       } catch (err) {
         if (!cancelled) {
           console.error("Failed to navigate to cell:", err);

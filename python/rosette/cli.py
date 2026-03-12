@@ -661,6 +661,78 @@ def build_design(design: str, output_dir: str, verbose: bool = False):
     print(f"ok {gds_output}")
 
 
+def _build_source_map(json_str: str, cell) -> list[dict | None] | None:
+    """Build a source map parallel to the flat JSON polygon array.
+
+    Maps each flat polygon to the source location (file, line, function, code)
+    of the Python call that created it. Ungrouped polygons map to direct
+    add_polygon/add_path calls; grouped polygons map to add_ref calls.
+
+    Returns None if source tracking was not active during design execution.
+    """
+    import json
+
+    sources = getattr(cell, "_element_sources", None)
+    if not sources:
+        return None
+
+    data = json.loads(json_str)
+    polygons = data.get("polygons", [])
+    if not polygons:
+        return None
+
+    # Separate direct element sources (polygon/path) from ref sources, in order.
+    # Texts don't produce flat polygons. Refs produce grouped polygons.
+    direct_sources = []
+    ref_sources = {}  # group_id (order of ref elements) -> SourceLocation
+    ref_counter = 0
+    for src in sources:
+        if src is None:
+            continue
+        if src.element_type in ("polygon", "path"):
+            direct_sources.append(src)
+        elif src.element_type == "ref":
+            ref_sources[ref_counter] = src
+            ref_counter += 1
+        # "text" elements don't produce flat polygons
+
+    # Walk the flat polygon list and assign sources
+    source_map = []
+    direct_idx = 0
+
+    for poly in polygons:
+        group = poly.get("g")
+        if group is None:
+            # Direct polygon/path element
+            if direct_idx < len(direct_sources):
+                src = direct_sources[direct_idx]
+                source_map.append({
+                    "file": src.file,
+                    "line": src.line,
+                    "fn": src.function,
+                    "code": src.code,
+                    "type": src.element_type,
+                })
+                direct_idx += 1
+            else:
+                source_map.append(None)
+        else:
+            # Grouped polygon from a cell ref
+            src = ref_sources.get(group)
+            if src:
+                source_map.append({
+                    "file": src.file,
+                    "line": src.line,
+                    "fn": src.function,
+                    "code": src.code,
+                    "type": "ref",
+                })
+            else:
+                source_map.append(None)
+
+    return source_map
+
+
 def _build_cell_tree(cell, child_cells_list):
     """Build a hierarchy tree from a cell and its children.
 
@@ -707,10 +779,11 @@ def _prepare_design(cell):
     """Load child cells, flatten geometry, and build hierarchy tree.
 
     Returns:
-        Tuple of (json_str, cell_tree, child_cells_list) where:
+        Tuple of (json_str, cell_tree, child_cells_list, source_map) where:
         - json_str: Flattened polygon JSON for the top cell
         - cell_tree: Hierarchy tree dict for the explorer panel
         - child_cells_list: List of child Cell objects (or None)
+        - source_map: List of source info dicts parallel to flat polygons (or None)
     """
     from rosette._core import to_flat_json
 
@@ -727,7 +800,10 @@ def _prepare_design(cell):
     # Build hierarchy tree for the explorer panel
     cell_tree = _build_cell_tree(cell, child_cells_list)
 
-    return json_str, cell_tree, child_cells_list
+    # Build source map for two-way editing
+    source_map = _build_source_map(json_str, cell)
+
+    return json_str, cell_tree, child_cells_list, source_map
 
 
 def _prepare_design_from_library(library):
@@ -938,6 +1014,14 @@ def serve_design(
         native: True to force native window, False to force browser,
                 None to auto-detect (use native if Tauri binary/source available)
     """
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     server, url = _start_server(port)
 
     # Resolve native mode: auto-detect if not explicitly set.
@@ -949,14 +1033,24 @@ def serve_design(
     tauri_proc = None
 
     if design:
+        # Enable source tracking for two-way editing
+        from rosette import enable_source_tracking
+
+        enable_source_tracking()
+
         cell, file_path, _ = load_design(design)
-        json_str, cell_tree, child_cells_list = _prepare_design(cell)
+        json_str, cell_tree, child_cells_list, source_map = _prepare_design(cell)
         layer_defs = _load_layer_map_safe()
 
         server.set_design_json(
-            json_str, cells=cell_tree, layers=layer_defs, filename=Path(design).name
+            json_str,
+            cells=cell_tree,
+            layers=layer_defs,
+            filename=Path(design).name,
+            source_map=source_map,
         )
         server.set_design_cells(cell, child_cells_list)
+        server.set_design_file(str(file_path.resolve()))
 
         if not no_open:
             tauri_proc = _open_viewer(
@@ -997,8 +1091,13 @@ def serve_design(
                     for name in stale:
                         del sys.modules[name]
 
+                    # Also clear linecache so source tracking picks up changes
+                    import linecache
+
+                    linecache.clearcache()
+
                     cell, _, _ = load_design(design)
-                    json_str, cell_tree, child_cells_list = _prepare_design(cell)
+                    json_str, cell_tree, child_cells_list, source_map = _prepare_design(cell)
                     layer_defs = _load_layer_map_safe()
 
                     server.set_design_json(
@@ -1006,6 +1105,7 @@ def serve_design(
                         cells=cell_tree,
                         layers=layer_defs,
                         filename=Path(design).name,
+                        source_map=source_map,
                     )
                     server.set_design_cells(cell, child_cells_list)
                 except Exception as e:

@@ -3147,50 +3147,83 @@ impl WasmLibrary {
         // Each element could produce ~1 polygon, CellRefs may produce more.
         let mut result = Vec::with_capacity(cell.elements().len());
 
-        // Render direct polygon elements (UUID-tracked).
-        // Only iterate element_refs that belong to the active cell (Opt 5).
+        // Build a reverse lookup: element_index → UUID for direct polygons.
+        // The element_refs HashMap has arbitrary iteration order, but we need
+        // to emit render polygons in element order (matching flatten_cell_recursive)
+        // so that buildSourceMap's index-based correlation works correctly.
+        let mut index_to_uuid: std::collections::HashMap<usize, String> =
+            std::collections::HashMap::new();
         for (uuid, elem_ref) in &self.element_refs {
-            if elem_ref.cell_name != *cell_name {
-                continue;
-            }
-
-            if let Some(Element::Polygon { polygon, layer }) =
-                cell.elements().get(elem_ref.element_index)
-            {
-                let key = layer_key(layer.number, layer.datatype);
-                let color = self
-                    .layer_colors
-                    .get(&key)
-                    .copied()
-                    .unwrap_or(default_color);
-                let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
-
-                let vertices: Vec<[f64; 2]> =
-                    polygon.vertices().iter().map(|p| [p.x, p.y]).collect();
-
-                result.push((uuid.clone(), vertices, color, fill_pattern));
+            if elem_ref.cell_name == *cell_name {
+                index_to_uuid.insert(elem_ref.element_index, uuid.clone());
             }
         }
 
-        // Resolve CellRef elements on-the-fly with synthetic UUIDs
+        // Iterate elements in order — matching flatten_cell_recursive which
+        // processes Polygons and CellRefs in element order. This ensures render
+        // polygon index i corresponds to source_map index i.
         let max_depth = self.hierarchy_depth_limit;
         for (elem_idx, element) in cell.elements().iter().enumerate() {
-            if let Element::CellRef(cell_ref) = element
-                && let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
-            {
-                let mut poly_counter: usize = 0;
-                for copy_transform in array_transforms(cell_ref) {
-                    self.collect_render_polygons_recursive(
-                        ref_cell,
-                        &copy_transform,
-                        elem_idx,
-                        &mut poly_counter,
-                        &default_color,
-                        0,
-                        max_depth,
-                        &mut result,
-                    );
+            match element {
+                Element::Polygon { polygon, layer } => {
+                    if let Some(uuid) = index_to_uuid.get(&elem_idx) {
+                        let key = layer_key(layer.number, layer.datatype);
+                        let color = self
+                            .layer_colors
+                            .get(&key)
+                            .copied()
+                            .unwrap_or(default_color);
+                        let fill_pattern =
+                            self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
+                        let vertices: Vec<[f64; 2]> =
+                            polygon.vertices().iter().map(|p| [p.x, p.y]).collect();
+                        result.push((uuid.clone(), vertices, color, fill_pattern));
+                    }
                 }
+                Element::CellRef(cell_ref) => {
+                    if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
+                        let mut poly_counter: usize = 0;
+                        for copy_transform in array_transforms(cell_ref) {
+                            self.collect_render_polygons_recursive(
+                                ref_cell,
+                                &copy_transform,
+                                elem_idx,
+                                &mut poly_counter,
+                                &default_color,
+                                0,
+                                max_depth,
+                                &mut result,
+                            );
+                        }
+                    }
+                }
+                Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                } => {
+                    // Render path as polygon ribbon (matches flatten_cell_recursive).
+                    // In from_flat_json mode paths are already polygons, but in
+                    // init_from_library (Tauri) mode they remain as Element::Path.
+                    if let Some(uuid) = index_to_uuid.get(&elem_idx) {
+                        if let Some(ribbon) = offset_polygon(points, *width) {
+                            let key = layer_key(layer.number, layer.datatype);
+                            let color = self
+                                .layer_colors
+                                .get(&key)
+                                .copied()
+                                .unwrap_or(default_color);
+                            let fill_pattern =
+                                self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
+                            let vertices: Vec<[f64; 2]> =
+                                ribbon.vertices().iter().map(|p| [p.x, p.y]).collect();
+                            result.push((uuid.clone(), vertices, color, fill_pattern));
+                        }
+                    }
+                }
+                // Text elements don't produce rendered polygons
+                _ => {}
             }
         }
 
