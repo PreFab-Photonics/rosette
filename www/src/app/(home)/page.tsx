@@ -1,14 +1,3 @@
-import {
-  BrainElectricity,
-  Cube,
-  Eye,
-  Flash,
-  GitFork,
-  Globe,
-  PathArrow,
-  Ruler,
-  ShieldCheck,
-} from "iconoir-react";
 import Link from "next/link";
 import { CopyButton } from "./components/copy-button";
 import { HeroViewer } from "./components/hero-viewer";
@@ -41,7 +30,7 @@ function Hero() {
           {/* Tag line */}
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-brand-purple/20 bg-brand-purple/5 px-4 py-1.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-wide text-brand-purple uppercase dark:border-brand-purple/25 dark:bg-brand-purple/10 dark:text-brand-purple-light">
             <span className="h-1.5 w-1.5 rounded-full bg-brand-gold" />
-            Open source photonic design
+            In development
           </div>
 
           <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-black/90 sm:text-5xl lg:text-6xl dark:text-white">
@@ -60,7 +49,7 @@ function Hero() {
 
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install */}
-            <div className="inline-flex h-11 items-center rounded-lg border border-brand-purple/15 bg-brand-purple/5 px-5 font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-brand-purple/20 dark:bg-brand-purple/10 dark:text-white/70">
+            <div className="inline-flex h-11 items-center rounded-lg border border-brand-purple/15 border-b-brand-purple/25 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-brand-purple/20 dark:border-b-brand-purple/35 dark:bg-[hsl(250,10%,12%)] dark:text-white/70 dark:shadow-none">
               <span className="select-none text-brand-purple/50 dark:text-brand-purple-light/50">
                 $&nbsp;
               </span>
@@ -72,7 +61,7 @@ function Hero() {
             <button
               type="button"
               disabled
-              className="inline-flex h-11 items-center gap-2 rounded-lg bg-brand-purple px-6 text-sm font-medium text-white"
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
               title="Coming soon"
             >
               <svg
@@ -99,7 +88,7 @@ function Hero() {
               href="https://github.com/PreFab-Photonics/rosette"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple/15 px-5 text-sm font-medium text-black/70 transition-colors hover:border-brand-purple/30 hover:bg-brand-purple/5 dark:border-brand-purple/20 dark:text-white/70 dark:hover:border-brand-purple/40 dark:hover:bg-brand-purple/10"
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple/15 border-b-brand-purple/25 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-brand-purple/30 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-brand-purple/20 dark:border-b-brand-purple/35 dark:bg-[hsl(250,10%,12%)] dark:text-white/70 dark:shadow-none dark:hover:border-brand-purple/40 dark:hover:bg-[hsl(250,10%,15%)]"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -132,19 +121,16 @@ function Hero() {
 
 const reasons = [
   {
-    icon: <Flash className="h-5 w-5" />,
     title: "Fast",
     description:
       "Geometry, routing, DRC, and GDS I/O compile to native Rust. Thousands of operations resolve in milliseconds, not minutes.",
   },
   {
-    icon: <BrainElectricity className="h-5 w-5" />,
     title: "Intelligent",
     description:
       "AI-native from day one. Ships with agent instructions, type stubs, and structured build feedback so coding tools design circuits alongside you.",
   },
   {
-    icon: <Globe className="h-5 w-5" />,
     title: "Accessible",
     description:
       "A clean Python API over a compiled core. Open source, editable components, live visual preview, and a native desktop app. Use it however you work.",
@@ -153,7 +139,7 @@ const reasons = [
 
 function WhyRosette() {
   return (
-    <section className="relative mx-auto max-w-6xl px-6 py-24">
+    <section className="relative mx-auto max-w-6xl px-6 py-16">
       <div className="flex items-center gap-3 mb-3">
         <div className="h-px w-8 bg-brand-purple dark:bg-brand-purple-light" />
         <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-brand-purple uppercase dark:text-brand-purple-light">
@@ -163,23 +149,17 @@ function WhyRosette() {
       <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-black/90 italic dark:text-white">
         Why Rosette?
       </h2>
-      <p className="mt-3 max-w-lg text-sm leading-relaxed text-black/50 dark:text-white/50">
-        Three principles behind every design decision in Rosette.
-      </p>
 
-      <div className="mt-12 grid gap-4 sm:grid-cols-3">
-        {reasons.map((reason) => (
-          <div
-            key={reason.title}
-            className="group rounded-xl border border-black/[0.06] bg-white/50 p-6 transition-all hover:border-brand-purple/20 hover:shadow-[0_0_24px_-8px_rgba(64,55,193,0.12)] dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-brand-purple/25 dark:hover:shadow-[0_0_24px_-8px_rgba(91,82,214,0.15)]"
-          >
-            <div className="inline-flex rounded-lg bg-brand-purple/10 p-2 text-brand-purple dark:bg-brand-purple/15 dark:text-brand-purple-light">
-              {reason.icon}
-            </div>
-            <h3 className="mt-4 text-sm font-semibold text-black/90 dark:text-white/90">
+      <div className="mt-10 grid gap-x-10 gap-y-6 sm:grid-cols-3">
+        {reasons.map((reason, i) => (
+          <div key={reason.title}>
+            <span className="font-[family-name:var(--font-geist-mono)] text-xs text-brand-purple/40 dark:text-brand-purple-light/40">
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <h3 className="mt-1 text-sm font-semibold text-black/90 dark:text-white/90">
               {reason.title}
             </h3>
-            <p className="mt-2 text-sm leading-relaxed text-black/50 dark:text-white/50">
+            <p className="mt-1.5 text-sm leading-relaxed text-black/50 dark:text-white/50">
               {reason.description}
             </p>
           </div>
@@ -195,37 +175,37 @@ function WhyRosette() {
 
 const capabilities = [
   {
-    icon: <PathArrow className="h-5 w-5" />,
+    label: "routing",
     title: "Intelligent routing",
     description:
       "Route.through() handles bends, tapers, and width transitions automatically. Euler bends minimize optical loss. Radius auto-reduces when space is tight, with warnings.",
   },
   {
-    icon: <ShieldCheck className="h-5 w-5" />,
+    label: "drc",
     title: "Design rule checking",
     description:
       "Seven check types: min width, min spacing, min area, enclosure, overlap rules, and allowed angles. Configurable in TOML, executed at Rust speed.",
   },
   {
-    icon: <Eye className="h-5 w-5" />,
+    label: "preview",
     title: "Live preview",
     description:
       "rosette serve gives instant visual feedback with hot reload. WebGPU-rendered viewer handles millions of polygons. Ships as a native desktop app too.",
   },
   {
-    icon: <Cube className="h-5 w-5" />,
+    label: "components",
     title: "Photonic components",
     description:
       "Waveguides, Euler bends, tapers, S-bends, MMIs, directional couplers, ring resonators, grating couplers, spirals, and crossings. Consistent port conventions.",
   },
   {
-    icon: <GitFork className="h-5 w-5" />,
+    label: "cells",
     title: "Hierarchical cells",
     description:
       "Cell-based design with the .at() instance API for ergonomic placement. Transform chaining, automatic child-cell collection for GDS export.",
   },
   {
-    icon: <Ruler className="h-5 w-5" />,
+    label: "pathlength",
     title: "Path length tracking",
     description:
       "Every component and route tracks its optical path length. Critical for Mach-Zehnder interferometers, balanced detection, and phase-sensitive designs.",
@@ -234,7 +214,7 @@ const capabilities = [
 
 function WhatsInside() {
   return (
-    <section className="relative mx-auto max-w-6xl px-6 py-24">
+    <section className="relative mx-auto max-w-6xl px-6 py-16">
       {/* Subtle divider */}
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-brand-purple/20 to-transparent" />
 
@@ -247,24 +227,20 @@ function WhatsInside() {
       <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-black/90 italic dark:text-white">
         What&rsquo;s inside
       </h2>
-      <p className="mt-3 max-w-lg text-sm leading-relaxed text-black/50 dark:text-white/50">
-        Everything you need to go from design to fabrication-ready GDSII, with
-        no GUI required.
-      </p>
 
-      <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-10 grid gap-px sm:grid-cols-2 lg:grid-cols-3">
         {capabilities.map((cap) => (
           <div
-            key={cap.title}
-            className="group rounded-xl border border-black/[0.06] bg-white/50 p-6 transition-all hover:border-brand-purple/20 hover:shadow-[0_0_24px_-8px_rgba(64,55,193,0.12)] dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-brand-purple/25 dark:hover:shadow-[0_0_24px_-8px_rgba(91,82,214,0.15)]"
+            key={cap.label}
+            className="py-5 sm:pr-8 lg:pr-10"
           >
-            <div className="inline-flex rounded-lg bg-brand-gold/10 p-2 text-brand-gold-dark dark:bg-brand-gold/10 dark:text-brand-gold">
-              {cap.icon}
-            </div>
-            <h3 className="mt-4 text-sm font-semibold text-black/90 dark:text-white/90">
+            <span className="font-[family-name:var(--font-geist-mono)] text-[11px] text-brand-gold-dark/60 dark:text-brand-gold/50">
+              {cap.label}
+            </span>
+            <h3 className="mt-1 text-sm font-semibold text-black/90 dark:text-white/90">
               {cap.title}
             </h3>
-            <p className="mt-2 text-sm leading-relaxed text-black/50 dark:text-white/50">
+            <p className="mt-1.5 text-sm leading-relaxed text-black/50 dark:text-white/50">
               {cap.description}
             </p>
           </div>
@@ -286,7 +262,7 @@ function ClosingCTA() {
         <div className="h-px bg-gradient-to-r from-transparent via-brand-purple/20 to-transparent" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-6 py-24">
+      <div className="mx-auto max-w-6xl px-6 py-16">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-black/90 sm:text-4xl dark:text-white">
             The modern photonic{" "}
@@ -305,7 +281,7 @@ function ClosingCTA() {
 
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install */}
-            <div className="inline-flex h-11 items-center rounded-lg border border-brand-purple/15 bg-brand-purple/5 px-5 font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-brand-purple/20 dark:bg-brand-purple/10 dark:text-white/70">
+            <div className="inline-flex h-11 items-center rounded-lg border border-brand-purple/15 border-b-brand-purple/25 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-brand-purple/20 dark:border-b-brand-purple/35 dark:bg-[hsl(250,10%,12%)] dark:text-white/70 dark:shadow-none">
               <span className="select-none text-brand-purple/50 dark:text-brand-purple-light/50">
                 $&nbsp;
               </span>
@@ -317,7 +293,7 @@ function ClosingCTA() {
             <button
               type="button"
               disabled
-              className="inline-flex h-11 items-center gap-2 rounded-lg bg-brand-purple px-6 text-sm font-medium text-white"
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
               title="Coming soon"
             >
               <svg
@@ -344,7 +320,7 @@ function ClosingCTA() {
               href="https://github.com/PreFab-Photonics/rosette"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple/15 px-5 text-sm font-medium text-black/70 transition-colors hover:border-brand-purple/30 hover:bg-brand-purple/5 dark:border-brand-purple/20 dark:text-white/70 dark:hover:border-brand-purple/40 dark:hover:bg-brand-purple/10"
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple/15 border-b-brand-purple/25 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-brand-purple/30 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-brand-purple/20 dark:border-b-brand-purple/35 dark:bg-[hsl(250,10%,12%)] dark:text-white/70 dark:shadow-none dark:hover:border-brand-purple/40 dark:hover:bg-[hsl(250,10%,15%)]"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
