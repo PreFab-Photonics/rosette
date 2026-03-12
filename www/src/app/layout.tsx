@@ -22,7 +22,7 @@ const instrumentSerif = Instrument_Serif({
 
 export const metadata: Metadata = {
   title: {
-    default: "Rosette",
+    default: "Rosette - The modern photonic layout editor",
     template: "%s | Rosette",
   },
   description: "Photonic integrated circuit design",
