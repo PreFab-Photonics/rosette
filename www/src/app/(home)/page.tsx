@@ -24,7 +24,7 @@ write_gds("splitter.gds", chip)`;
 function Hero() {
   return (
     <section className="relative">
-      <div className="mx-auto max-w-6xl px-6 pb-16 pt-28 sm:pt-36">
+      <div className="mx-auto max-w-6xl px-6 pb-16 pt-20 sm:pt-24">
         {/* Hero text */}
         <div className="mx-auto max-w-2xl text-center">
           {/* Tag line */}
@@ -45,6 +45,18 @@ function Hero() {
             <span className="font-medium text-brand-purple dark:text-brand-purple-light">
               Fast. Intelligent. Accessible.
             </span>
+          </p>
+
+          <p className="mt-3 text-sm text-black/30 dark:text-white/30">
+            by{" "}
+            <a
+              href="https://prefabphotonics.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-black/15 underline-offset-2 transition-colors hover:text-black/50 dark:decoration-white/15 dark:hover:text-white/50"
+            >
+              PreFab Photonics
+            </a>
           </p>
 
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">

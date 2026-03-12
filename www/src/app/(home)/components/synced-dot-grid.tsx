@@ -170,9 +170,10 @@ export function SyncedDotGrid({
           continue;
         }
 
-        // Radial fade from iframe center
+        // Radial fade from iframe center (fade faster below the viewer)
         const dx = sx - iframeCenterX;
-        const dy = sy - iframeCenterY;
+        const rawDy = sy - iframeCenterY;
+        const dy = rawDy > 0 ? rawDy * 2.2 : rawDy;
         const dist = Math.sqrt(dx * dx + dy * dy);
         const radialFade = Math.max(0, 1 - dist / fadeRadius);
         if (radialFade <= 0) continue;
@@ -241,6 +242,16 @@ export function SyncedDotGrid({
       window.removeEventListener("resize", scheduleRedraw);
       window.removeEventListener("scroll", scheduleRedraw);
     };
+  }, [scheduleRedraw]);
+
+  // Redraw when theme changes (next-themes toggles .dark on <html>)
+  useEffect(() => {
+    const observer = new MutationObserver(scheduleRedraw);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
   }, [scheduleRedraw]);
 
   return (
