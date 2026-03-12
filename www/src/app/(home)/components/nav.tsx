@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 const navLinks = [
@@ -15,8 +16,15 @@ export function Nav() {
       <nav className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
         <Link
           href="/"
-          className="text-sm font-medium text-black/90 transition-colors hover:text-black dark:text-white/90 dark:hover:text-white"
+          className="flex items-center gap-2 text-sm font-medium text-black/90 transition-colors hover:text-black dark:text-white/90 dark:hover:text-white"
         >
+          <Image
+            src="/rosette-logo.png"
+            alt="Rosette"
+            width={28}
+            height={28}
+            className=""
+          />
           Rosette
         </Link>
 

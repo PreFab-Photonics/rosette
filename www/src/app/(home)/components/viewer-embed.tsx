@@ -12,7 +12,7 @@ export function ViewerEmbed({
   src,
   fallback,
 }: {
-  /** URL for the viewer iframe (e.g. "/viewer/index.html?embed=true&src=...") */
+  /** URL for the viewer iframe (e.g. "/viewer/index.html?embed=true") */
   src: string;
   /** Code string to show as fallback when WebGPU is unavailable */
   fallback: string;
@@ -48,11 +48,6 @@ export function ViewerEmbed({
   if (!supported) {
     return (
       <div className="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
-        <div className="flex h-9 items-center border-b border-black/10 bg-black/[0.03] px-4 dark:border-white/10 dark:bg-white/[0.03]">
-          <span className="text-xs font-medium text-black/40 dark:text-white/40">
-            design.py
-          </span>
-        </div>
         <div className="overflow-x-auto p-5">
           <pre className="text-[13px] leading-relaxed font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
             <code>{fallback}</code>
@@ -65,14 +60,6 @@ export function ViewerEmbed({
   // WebGPU supported — render interactive viewer
   return (
     <div className="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
-      <div className="flex h-9 items-center border-b border-black/10 bg-black/[0.03] px-4 dark:border-white/10 dark:bg-white/[0.03]">
-        <span className="text-xs font-medium text-black/40 dark:text-white/40">
-          live preview
-        </span>
-        <span className="ml-auto text-[10px] text-black/25 dark:text-white/25">
-          scroll to zoom &middot; drag to pan
-        </span>
-      </div>
       <iframe
         src={src}
         title="Rosette photonic layout viewer"
