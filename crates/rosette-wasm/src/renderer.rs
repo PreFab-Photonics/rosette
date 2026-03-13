@@ -54,12 +54,13 @@ struct GridPointGpu {
     _padding: f32,
 }
 
-/// GPU-compatible laser point data.
+/// GPU-compatible laser segment data (vertex instance buffer).
+/// Each instance represents a line segment between two consecutive trail points.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct LaserPointGpu {
-    screen_pos: [f32; 2], // Screen position in pixels
-    _padding: [f32; 2],
+struct LaserSegmentGpu {
+    p0: [f32; 2], // Start screen position in pixels
+    p1: [f32; 2], // End screen position in pixels
 }
 
 /// GPU-compatible laser uniform data.
@@ -126,10 +127,10 @@ pub struct WasmRenderer {
 
     // Laser pointer rendering
     laser_pipeline: wgpu::RenderPipeline,
-    laser_points_buffer: wgpu::Buffer,
+    laser_segments_buffer: wgpu::Buffer,
     laser_uniform_buffer: wgpu::Buffer,
     laser_bind_group: wgpu::BindGroup,
-    laser_point_count: u32,
+    laser_segment_count: u32,
     laser_uniform: LaserUniformGpu,
 
     // Polygon/shape rendering
@@ -184,8 +185,8 @@ pub struct WasmRenderer {
     polygon_index_capacity: usize,
     border_segment_capacity: usize,
 
-    // Bind group layout needed for border buffer reallocation
-    // (polygon buffers don't need bind group recreation since they're vertex/index buffers)
+    // Bind group layout kept for potential future use (border segments are vertex instance buffers)
+    #[allow(dead_code)]
     border_bind_group_layout: wgpu::BindGroupLayout,
 
     // Dirty tracking for efficient rendering
@@ -296,7 +297,16 @@ impl WasmRenderer {
                 &wgpu::DeviceDescriptor {
                     label: Some("rosette-device"),
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                    required_limits: {
+                        let mut limits = wgpu::Limits::downlevel_webgl2_defaults();
+                        // Use the adapter's actual max texture size to support
+                        // high-DPI / Retina displays (default WebGL2 limit is 2048,
+                        // but most GPUs support 4096–16384).
+                        let adapter_limits = adapter.limits();
+                        limits.max_texture_dimension_2d =
+                            adapter_limits.max_texture_dimension_2d;
+                        limits
+                    },
                     memory_hints: wgpu::MemoryHints::default(),
                 },
                 None,
@@ -306,12 +316,27 @@ impl WasmRenderer {
 
         // Configure surface
         let surface_caps = surface.get_capabilities(&adapter);
+        web_sys::console::log_1(
+            &format!(
+                "[rosette] GPU backend: {:?}, formats: {:?}, alpha_modes: {:?}",
+                adapter.get_info().backend,
+                surface_caps.formats,
+                surface_caps.alpha_modes,
+            )
+            .into(),
+        );
+        // Prefer non-sRGB format: all colors in the app (clear color, layer colors,
+        // selection colors) are specified in sRGB space already. Using a non-sRGB
+        // surface avoids double gamma encoding that would make everything look washed out.
         let surface_format = surface_caps
             .formats
             .iter()
-            .find(|f| f.is_srgb())
+            .find(|f| !f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
+        web_sys::console::log_1(
+            &format!("[rosette] Selected surface format: {:?}", surface_format).into(),
+        );
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -344,7 +369,7 @@ impl WasmRenderer {
         let grid_points_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("grid-points"),
             size: max_grid_points * std::mem::size_of::<GridPointGpu>() as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -373,7 +398,7 @@ impl WasmRenderer {
             }],
         });
 
-        // Create grid bind group layout (viewport + points)
+        // Create grid bind group layout (viewport only - points are now vertex instance buffers)
         let grid_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("grid-bind-group-layout"),
@@ -383,16 +408,6 @@ impl WasmRenderer {
                         visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -408,10 +423,6 @@ impl WasmRenderer {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: viewport_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: grid_points_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -434,7 +445,22 @@ impl WasmRenderer {
             vertex: wgpu::VertexState {
                 module: &grid_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<GridPointGpu>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0, // screen_pos
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32,
+                            offset: 8,
+                            shader_location: 1, // opacity
+                        },
+                    ],
+                }],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -510,11 +536,11 @@ impl WasmRenderer {
         });
 
         // Create laser pointer pipeline
-        let max_laser_points = 10000u64;
-        let laser_points_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("laser-points"),
-            size: max_laser_points * std::mem::size_of::<LaserPointGpu>() as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        let max_laser_segments = 10000u64;
+        let laser_segments_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("laser-segments"),
+            size: max_laser_segments * std::mem::size_of::<LaserSegmentGpu>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -553,17 +579,6 @@ impl WasmRenderer {
                         },
                         count: None,
                     },
-                    // Laser points storage
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
                 ],
             });
 
@@ -578,10 +593,6 @@ impl WasmRenderer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: laser_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: laser_points_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -604,7 +615,22 @@ impl WasmRenderer {
             vertex: wgpu::VertexState {
                 module: &laser_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<LaserSegmentGpu>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0, // p0
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 8,
+                            shader_location: 1, // p1
+                        },
+                    ],
+                }],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -765,7 +791,7 @@ impl WasmRenderer {
         let selection_segment_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("selection-segments"),
             size: max_outline_segments * std::mem::size_of::<OutlineSegment>() as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -780,7 +806,7 @@ impl WasmRenderer {
         let hover_segment_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("hover-segments"),
             size: max_outline_segments * std::mem::size_of::<OutlineSegment>() as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -820,21 +846,10 @@ impl WasmRenderer {
                         },
                         count: None,
                     },
-                    // Outline segments storage
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
                 ],
             });
 
-        // Selection bind group (uses selection uniform + selection segments)
+        // Selection bind group (uses selection uniform; segments are vertex instance buffers)
         let selection_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("selection-bind-group"),
             layout: &outline_bind_group_layout,
@@ -847,14 +862,10 @@ impl WasmRenderer {
                     binding: 1,
                     resource: selection_uniform_buffer.as_entire_binding(),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: selection_segment_buffer.as_entire_binding(),
-                },
             ],
         });
 
-        // Hover bind group (uses hover uniform + hover segments)
+        // Hover bind group (uses hover uniform; segments are vertex instance buffers)
         let hover_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("hover-bind-group"),
             layout: &outline_bind_group_layout,
@@ -866,10 +877,6 @@ impl WasmRenderer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: hover_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: hover_segment_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -892,7 +899,22 @@ impl WasmRenderer {
             vertex: wgpu::VertexState {
                 module: &outline_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<OutlineSegment>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0, // p0
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 8,
+                            shader_location: 1, // p1
+                        },
+                    ],
+                }],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -940,7 +962,7 @@ impl WasmRenderer {
         let border_segment_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("border-segments"),
             size: (border_segment_capacity * std::mem::size_of::<ColoredSegment>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -970,17 +992,6 @@ impl WasmRenderer {
                         },
                         count: None,
                     },
-                    // Border segments storage
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
                 ],
             });
 
@@ -996,10 +1007,6 @@ impl WasmRenderer {
                     binding: 1,
                     resource: border_uniform_buffer.as_entire_binding(),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: border_segment_buffer.as_entire_binding(),
-                },
             ],
         });
 
@@ -1009,7 +1016,7 @@ impl WasmRenderer {
         let preview_border_segment_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("preview-border-segments"),
             size: (PREVIEW_BORDER_CAPACITY * std::mem::size_of::<ColoredSegment>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -1024,10 +1031,6 @@ impl WasmRenderer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: border_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: preview_border_segment_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -1050,7 +1053,27 @@ impl WasmRenderer {
             vertex: wgpu::VertexState {
                 module: &border_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<ColoredSegment>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0, // p0
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 8,
+                            shader_location: 1, // p1
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x4,
+                            offset: 16,
+                            shader_location: 2, // color
+                        },
+                    ],
+                }],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1095,10 +1118,10 @@ impl WasmRenderer {
             grid_visible: true,
             // Laser pointer
             laser_pipeline,
-            laser_points_buffer,
+            laser_segments_buffer,
             laser_uniform_buffer,
             laser_bind_group,
-            laser_point_count: 0,
+            laser_segment_count: 0,
             laser_uniform,
             // Polygon/shape rendering
             polygon_pipeline,
@@ -1270,6 +1293,7 @@ impl WasmRenderer {
             if self.grid_visible && self.grid_point_count > 0 {
                 render_pass.set_pipeline(&self.grid_pipeline);
                 render_pass.set_bind_group(0, &self.grid_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.grid_points_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.grid_point_count);
             }
 
@@ -1306,6 +1330,7 @@ impl WasmRenderer {
             if self.border_segment_count > 0 {
                 render_pass.set_pipeline(&self.border_pipeline);
                 render_pass.set_bind_group(0, &self.border_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.border_segment_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.border_segment_count);
             }
 
@@ -1313,29 +1338,32 @@ impl WasmRenderer {
             if self.preview_border_segment_count > 0 {
                 render_pass.set_pipeline(&self.border_pipeline);
                 render_pass.set_bind_group(0, &self.preview_border_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.preview_border_segment_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.preview_border_segment_count);
             }
 
-            // Draw selection outlines (magenta, uses selection_bind_group)
+            // Draw selection outlines
             if self.selection_segment_count > 0 {
                 render_pass.set_pipeline(&self.outline_pipeline);
                 render_pass.set_bind_group(0, &self.selection_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.selection_segment_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.selection_segment_count);
             }
 
-            // Draw hover outline (black, uses hover_bind_group, on top of selection)
+            // Draw hover outline (on top of selection)
             if self.hover_segment_count > 0 {
                 render_pass.set_pipeline(&self.outline_pipeline);
                 render_pass.set_bind_group(0, &self.hover_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.hover_segment_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.hover_segment_count);
             }
 
-            // Draw laser pointer trail (if any points exist)
-            // Each segment is between points[i] and points[i+1], so we draw (n-1) instances
-            if self.laser_point_count > 1 && self.laser_uniform.opacity > 0.0 {
+            // Draw laser pointer trail
+            if self.laser_segment_count > 0 && self.laser_uniform.opacity > 0.0 {
                 render_pass.set_pipeline(&self.laser_pipeline);
                 render_pass.set_bind_group(0, &self.laser_bind_group, &[]);
-                render_pass.draw(0..4, 0..(self.laser_point_count - 1));
+                render_pass.set_vertex_buffer(0, self.laser_segments_buffer.slice(..));
+                render_pass.draw(0..4, 0..self.laser_segment_count);
             }
         }
 
@@ -1469,32 +1497,13 @@ impl WasmRenderer {
             (new_capacity * std::mem::size_of::<ColoredSegment>()) as f64 / (1024.0 * 1024.0)
         );
 
-        // Create new buffer
+        // Create new vertex buffer (no bind group recreation needed - vertex buffers
+        // are set directly in the render pass, not through bind groups)
         self.border_segment_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("border-segments"),
             size: (new_capacity * std::mem::size_of::<ColoredSegment>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
-        });
-
-        // Recreate bind group with new buffer
-        self.border_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("border-bind-group"),
-            layout: &self.border_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.viewport_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.border_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.border_segment_buffer.as_entire_binding(),
-                },
-            ],
         });
 
         self.border_segment_capacity = new_capacity;
@@ -2159,29 +2168,30 @@ impl WasmRenderer {
     /// # Arguments
     /// * `points` - Flat array of screen coordinates (x, y pairs).
     pub fn set_laser_points(&mut self, points: &[f64]) {
-        let max_points = 10000usize;
-        let num_points = (points.len() / 2).min(max_points);
+        let max_segments = 10000usize;
+        let num_points = points.len() / 2;
 
-        if num_points == 0 {
-            self.laser_point_count = 0;
+        if num_points < 2 {
+            self.laser_segment_count = 0;
             self.needs_render = true;
             return;
         }
 
-        let gpu_points: Vec<LaserPointGpu> = (0..num_points)
-            .map(|i| LaserPointGpu {
-                screen_pos: [points[i * 2] as f32, points[i * 2 + 1] as f32],
-                _padding: [0.0, 0.0],
+        let num_segments = (num_points - 1).min(max_segments);
+        let gpu_segments: Vec<LaserSegmentGpu> = (0..num_segments)
+            .map(|i| LaserSegmentGpu {
+                p0: [points[i * 2] as f32, points[i * 2 + 1] as f32],
+                p1: [points[(i + 1) * 2] as f32, points[(i + 1) * 2 + 1] as f32],
             })
             .collect();
 
         self.queue.write_buffer(
-            &self.laser_points_buffer,
+            &self.laser_segments_buffer,
             0,
-            bytemuck::cast_slice(&gpu_points),
+            bytemuck::cast_slice(&gpu_segments),
         );
 
-        self.laser_point_count = num_points as u32;
+        self.laser_segment_count = num_segments as u32;
         self.needs_render = true;
     }
 
@@ -2203,8 +2213,8 @@ impl WasmRenderer {
 
     /// Clear the laser pointer trail.
     pub fn clear_laser(&mut self) {
-        if self.laser_point_count > 0 {
-            self.laser_point_count = 0;
+        if self.laser_segment_count > 0 {
+            self.laser_segment_count = 0;
             self.laser_uniform.opacity = 0.9; // Reset to default
             self.queue.write_buffer(
                 &self.laser_uniform_buffer,
@@ -2514,6 +2524,7 @@ impl WasmRenderer {
             if self.grid_visible && self.grid_point_count > 0 {
                 render_pass.set_pipeline(&self.grid_pipeline);
                 render_pass.set_bind_group(0, &self.grid_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.grid_points_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.grid_point_count);
             }
 
@@ -2550,6 +2561,7 @@ impl WasmRenderer {
             if self.border_segment_count > 0 {
                 render_pass.set_pipeline(&self.border_pipeline);
                 render_pass.set_bind_group(0, &self.border_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.border_segment_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.border_segment_count);
             }
 
@@ -2557,6 +2569,7 @@ impl WasmRenderer {
             if self.preview_border_segment_count > 0 {
                 render_pass.set_pipeline(&self.border_pipeline);
                 render_pass.set_bind_group(0, &self.preview_border_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.preview_border_segment_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.preview_border_segment_count);
             }
 
@@ -2564,6 +2577,7 @@ impl WasmRenderer {
             if self.selection_segment_count > 0 {
                 render_pass.set_pipeline(&self.outline_pipeline);
                 render_pass.set_bind_group(0, &self.selection_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.selection_segment_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.selection_segment_count);
             }
 
@@ -2571,14 +2585,16 @@ impl WasmRenderer {
             if self.hover_segment_count > 0 {
                 render_pass.set_pipeline(&self.outline_pipeline);
                 render_pass.set_bind_group(0, &self.hover_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.hover_segment_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.hover_segment_count);
             }
 
             // Laser
-            if self.laser_point_count > 1 && self.laser_uniform.opacity > 0.0 {
+            if self.laser_segment_count > 0 && self.laser_uniform.opacity > 0.0 {
                 render_pass.set_pipeline(&self.laser_pipeline);
                 render_pass.set_bind_group(0, &self.laser_bind_group, &[]);
-                render_pass.draw(0..4, 0..(self.laser_point_count - 1));
+                render_pass.set_vertex_buffer(0, self.laser_segments_buffer.slice(..));
+                render_pass.draw(0..4, 0..self.laser_segment_count);
             }
         }
 
