@@ -134,7 +134,7 @@ function Hero() {
 
         {/* Full-width viewer + synced background dot grid */}
         <HeroViewer
-          src="/viewer/index.html?embed=true&src=showcase.json&colors=4037C1,78909c&fills=solid,hatched&name=demo"
+          src="/viewer/index.html?embed=true&src=showcase.json&colors=382165,5635a2,e6b01b&fills=solid,solid,solid&name=demo"
           fallback={heroCodeFallback}
         />
       </div>

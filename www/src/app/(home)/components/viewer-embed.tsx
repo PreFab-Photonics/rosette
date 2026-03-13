@@ -43,7 +43,7 @@ export function ViewerEmbed({
   // Still checking — show placeholder matching the viewer dimensions
   if (supported === null) {
     return (
-      <div className="aspect-[2/1] w-full rounded-xl border border-black/[0.06] border-b-black/10 bg-black/[0.01] shadow-md shadow-black/5 dark:border-white/[0.08] dark:border-b-white/10 dark:bg-white/[0.02] dark:shadow-black/20" />
+      <div className="aspect-[16/10] w-full rounded-xl border border-black/[0.06] border-b-black/10 bg-black/[0.01] shadow-md shadow-black/5 dark:border-white/[0.08] dark:border-b-white/10 dark:bg-white/[0.02] dark:shadow-black/20" />
     );
   }
 
@@ -67,7 +67,7 @@ export function ViewerEmbed({
         ref={iframeRef}
         src={src}
         title="Rosette photonic layout viewer"
-        className="aspect-[2/1] w-full border-0"
+        className="aspect-[16/10] w-full border-0"
         loading="lazy"
         sandbox="allow-scripts allow-same-origin"
       />
