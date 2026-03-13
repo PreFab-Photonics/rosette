@@ -7,6 +7,7 @@ import {
   hexToRgba,
   FILL_PATTERN_IDS,
   LAYER_PALETTE,
+  type FillPattern,
   type Layer,
 } from "@/stores/layer";
 import { isTauri, readGdsBytes, listenTauri, getPendingFile } from "@/lib/tauri";
@@ -56,6 +57,21 @@ function getEmbedColors(): string[] | null {
   const raw = params.get("colors");
   if (!raw) return null;
   return raw.split(",").map((c) => `#${c.trim()}`);
+}
+
+/**
+ * Get custom layer fill patterns from the URL for embed mode.
+ *
+ * Accepts a `?fills=` parameter with comma-separated fill pattern names.
+ * Fills are applied in order to auto-discovered layers.
+ * Valid values: solid, hatched, crosshatched, dotted.
+ * Example: `?fills=solid,hatched` assigns solid to layer 1, hatched to layer 2.
+ */
+function getEmbedFills(): string[] | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("fills");
+  if (!raw) return null;
+  return raw.split(",").map((f) => f.trim());
 }
 
 /**
@@ -504,14 +520,22 @@ export function useLibrary(
         const newLibrary = wasm.WasmLibrary.from_library_json(json);
         discoverLayers(newLibrary);
 
-        // Apply custom embed colors if provided via ?colors= parameter
+        // Apply custom embed colors and fills if provided via ?colors= / ?fills= parameters
         const embedColors = getEmbedColors();
-        if (embedColors) {
+        const embedFills = getEmbedFills();
+        if (embedColors || embedFills) {
           const layerMap = useLayerStore.getState().layers;
           const layerArray = Array.from(layerMap.values());
-          const updated = layerArray.map((layer, i) =>
-            i < embedColors.length ? { ...layer, color: embedColors[i] } : layer,
-          );
+          const updated = layerArray.map((layer, i) => {
+            let patched = layer;
+            if (embedColors && i < embedColors.length) {
+              patched = { ...patched, color: embedColors[i] };
+            }
+            if (embedFills && i < embedFills.length && embedFills[i] in FILL_PATTERN_IDS) {
+              patched = { ...patched, fillPattern: embedFills[i] as FillPattern };
+            }
+            return patched;
+          });
           useLayerStore.getState().resetLayers(updated);
         }
 

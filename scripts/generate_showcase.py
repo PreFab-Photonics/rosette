@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate a showcase design JSON for the landing page viewer embed.
 
-Creates a clean geometric composition on two layers (brand purple + brand gold)
-to demonstrate the viewer's multi-layer rendering on the landing page.
+Creates a simple photonic layout on two layers to demonstrate the viewer's
+multi-layer rendering on the landing page. Layer 1 is a waveguide with tapers,
+layer 2 is cladding pads with hatched fill. No overlapping shapes.
 """
 
 import sys
@@ -17,32 +18,28 @@ def main():
     from rosette import Cell, Layer, Point, Polygon
     from rosette._core import to_json
 
-    # Two layers — will be colored brand-purple and brand-gold by the viewer
-    purple = Layer(1, 0)
-    gold = Layer(2, 0)
+    core = Layer(1, 0)
+    clad = Layer(2, 0)
 
     cell = Cell("top")
 
-    # --- Purple layer: clean rectangles and rounded shapes ---
-    # Large central rectangle
-    cell.add_polygon(Polygon.rect_centered(Point(0, 0), 50, 24), purple)
-    # Flanking squares
-    cell.add_polygon(Polygon.rect_centered(Point(-45, 0), 18, 18), purple)
-    cell.add_polygon(Polygon.rect_centered(Point(45, 0), 18, 18), purple)
-    # Small accent rectangles
-    cell.add_polygon(Polygon.rect_centered(Point(-20, 25), 12, 6), purple)
-    cell.add_polygon(Polygon.rect_centered(Point(20, 25), 12, 6), purple)
+    # --- Core layer: waveguide with tapers ---
+    # Main waveguide
+    cell.add_polygon(Polygon.rect_centered(Point(0, 0), 100, 5), core)
+    # Left taper (wider at outer end)
+    cell.add_polygon(
+        Polygon([Point(-70, -6), Point(-50, -2.5), Point(-50, 2.5), Point(-70, 6)]),
+        core,
+    )
+    # Right taper
+    cell.add_polygon(
+        Polygon([Point(50, -2.5), Point(70, -6), Point(70, 6), Point(50, 2.5)]),
+        core,
+    )
 
-    # --- Gold layer: hexagons and circles ---
-    # Central hexagon
-    cell.add_polygon(Polygon.regular(Point(0, 0), 8, 6), gold)
-    # Orbiting circles (high-sided polygons)
-    cell.add_polygon(Polygon.regular(Point(-45, 0), 5, 32), gold)
-    cell.add_polygon(Polygon.regular(Point(45, 0), 5, 32), gold)
-    # Accent hexagons
-    cell.add_polygon(Polygon.regular(Point(-20, -22), 6, 6), gold)
-    cell.add_polygon(Polygon.regular(Point(20, -22), 6, 6), gold)
-    cell.add_polygon(Polygon.regular(Point(0, 28), 4, 6), gold)
+    # --- Cladding layer: pads above and below the waveguide ---
+    cell.add_polygon(Polygon.rect_centered(Point(0, 11), 60, 10), clad)
+    cell.add_polygon(Polygon.rect_centered(Point(0, -11), 60, 10), clad)
 
     # Serialize (no child cells, everything is in one cell)
     json_str = to_json(cell._inner, None)

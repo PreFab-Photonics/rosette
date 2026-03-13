@@ -43,14 +43,14 @@ export function ViewerEmbed({
   // Still checking — show placeholder matching the viewer dimensions
   if (supported === null) {
     return (
-      <div className="aspect-[2/1] w-full rounded-xl border border-brand-purple/10 border-b-brand-purple/20 bg-brand-purple/[0.02] shadow-md shadow-black/5 dark:border-brand-purple/15 dark:border-b-brand-purple/25 dark:bg-brand-purple/[0.03] dark:shadow-black/20" />
+      <div className="aspect-[2/1] w-full rounded-xl border border-black/[0.06] border-b-black/10 bg-black/[0.01] shadow-md shadow-black/5 dark:border-white/[0.08] dark:border-b-white/10 dark:bg-white/[0.02] dark:shadow-black/20" />
     );
   }
 
   // WebGPU not supported — fall back to code block
   if (!supported) {
     return (
-      <div className="overflow-hidden rounded-xl border border-brand-purple/10 border-b-brand-purple/20 bg-black/[0.01] shadow-md shadow-black/5 dark:border-brand-purple/15 dark:border-b-brand-purple/25 dark:bg-brand-purple/[0.03] dark:shadow-black/20">
+      <div className="overflow-hidden rounded-xl border border-black/[0.06] border-b-black/10 bg-black/[0.01] shadow-md shadow-black/5 dark:border-white/[0.08] dark:border-b-white/10 dark:bg-white/[0.02] dark:shadow-black/20">
         <div className="overflow-x-auto p-5">
           <pre className="text-[13px] leading-relaxed font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
             <code>{fallback}</code>
@@ -62,7 +62,7 @@ export function ViewerEmbed({
 
   // WebGPU supported — render interactive viewer
   return (
-    <div className="select-none overflow-hidden rounded-xl border border-brand-purple/10 border-b-brand-purple/20 shadow-md shadow-black/5 ring-1 ring-inset ring-white/50 dark:border-brand-purple/15 dark:border-b-brand-purple/25 dark:shadow-black/20 dark:ring-white/5">
+    <div className="select-none overflow-hidden rounded-xl border border-black/[0.06] border-b-black/10 shadow-md shadow-black/5 ring-1 ring-inset ring-white/50 dark:border-white/[0.08] dark:border-b-white/10 dark:shadow-black/20 dark:ring-white/5">
       <iframe
         ref={iframeRef}
         src={src}

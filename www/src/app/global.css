@@ -8,11 +8,6 @@
   --color-brand-purple: #4037C1;
   --color-brand-purple-light: #5B52D6;
   --color-brand-purple-dark: #302A9E;
-  --color-brand-purple-faint: #4037C115;
-  --color-brand-gold: #F3CD49;
-  --color-brand-gold-light: #F7DC7A;
-  --color-brand-gold-dark: #D4AD1F;
-  --color-brand-gold-faint: #F3CD4915;
 }
 
 /* ── Fumadocs overrides: inject brand purple as the primary accent ───────── */
@@ -27,14 +22,12 @@
   --color-fd-primary: #5B52D6;
   --color-fd-primary-foreground: #ffffff;
   --color-fd-ring: #5B52D680;
-  --color-fd-background: hsl(250, 15%, 6%);
+  --color-fd-background: hsl(0, 0%, 6%);
   --color-fd-foreground: hsl(0, 0%, 93%);
-  --color-fd-muted: hsl(250, 10%, 12%);
-  --color-fd-card: hsl(250, 10%, 9%);
-  --color-fd-popover: hsl(250, 10%, 10%);
-  --color-fd-border: hsla(250, 20%, 30%, 30%);
-  --color-fd-accent: hsla(250, 30%, 40%, 25%);
-  --color-fd-secondary: hsl(250, 10%, 14%);
+  --color-fd-muted: hsl(0, 0%, 12%);
+  --color-fd-card: hsl(0, 0%, 9%);
+  --color-fd-popover: hsl(0, 0%, 10%);
+  --color-fd-border: hsla(0, 0%, 30%, 30%);
+  --color-fd-accent: hsla(0, 0%, 40%, 25%);
+  --color-fd-secondary: hsl(0, 0%, 14%);
 }
-
-

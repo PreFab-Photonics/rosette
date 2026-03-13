@@ -7,11 +7,11 @@ const navLinks = [
 
 export function Nav() {
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-brand-purple/10 bg-white/90 backdrop-blur-xl dark:border-brand-purple/15 dark:bg-[hsl(250,15%,6%)]/90">
+    <header className="sticky top-0 z-50 w-full border-b border-black/[0.06] bg-white/90 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[hsl(0,0%,6%)]/90">
       <nav className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
         <Link
           href="/"
-          className="flex items-center gap-2 text-sm font-semibold tracking-tight text-black/90 transition-colors hover:text-brand-purple dark:text-white/90 dark:hover:text-brand-purple-light"
+          className="flex items-center gap-2 text-sm font-semibold tracking-tight text-black/90 transition-colors hover:text-black dark:text-white/90 dark:hover:text-white"
         >
           <Image
             src="/rosette-logo.png"
@@ -20,7 +20,7 @@ export function Nav() {
             height={28}
             className=""
           />
-          <span className="text-xl font-[family-name:var(--font-instrument-serif)]">Rosette</span>
+          <span className="text-2xl font-[family-name:var(--font-instrument-serif)]">Rosette</span>
         </Link>
 
         <div className="flex items-center gap-6">
@@ -31,7 +31,7 @@ export function Nav() {
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-black/50 transition-colors hover:text-brand-purple dark:text-white/50 dark:hover:text-brand-purple-light"
+                className="text-sm text-black/50 transition-colors hover:text-black/80 dark:text-white/50 dark:hover:text-white/80"
               >
                 {link.label}
               </a>
@@ -39,7 +39,7 @@ export function Nav() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="text-sm text-black/50 transition-colors hover:text-brand-purple dark:text-white/50 dark:hover:text-brand-purple-light"
+                className="text-sm text-black/50 transition-colors hover:text-black/80 dark:text-white/50 dark:hover:text-white/80"
               >
                 {link.label}
               </Link>

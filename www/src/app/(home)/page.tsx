@@ -28,8 +28,8 @@ function Hero() {
         {/* Hero text */}
         <div className="mx-auto max-w-2xl text-center">
           {/* Tag line */}
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-brand-purple/20 bg-brand-purple/5 px-4 py-1.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-wide text-brand-purple uppercase dark:border-brand-purple/25 dark:bg-brand-purple/10 dark:text-brand-purple-light">
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-gold" />
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.03] px-4 py-1.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-wide text-black/50 uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/50">
+            <span className="h-1.5 w-1.5 rounded-full bg-black/30 dark:bg-white/40" />
             In development
           </div>
 
@@ -42,7 +42,7 @@ function Hero() {
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-black/50 dark:text-white/60">
             A layout engine for photonic integrated circuits.{" "}
-            <span className="font-medium text-brand-purple dark:text-brand-purple-light">
+            <span className="font-medium text-black/80 dark:text-white/80">
               Fast. Intelligent. Accessible.
             </span>
           </p>
@@ -61,8 +61,8 @@ function Hero() {
 
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install */}
-            <div className="inline-flex h-11 items-center rounded-lg border border-brand-purple/15 border-b-brand-purple/25 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-brand-purple/20 dark:border-b-brand-purple/35 dark:bg-[hsl(250,10%,12%)] dark:text-white/70 dark:shadow-none">
-              <span className="select-none text-brand-purple/50 dark:text-brand-purple-light/50">
+            <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-white/5 dark:text-white/70 dark:shadow-none">
+              <span className="select-none text-black/30 dark:text-white/30">
                 $&nbsp;
               </span>
               pip install rosette
@@ -100,7 +100,7 @@ function Hero() {
               href="https://github.com/PreFab-Photonics/rosette"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple/15 border-b-brand-purple/25 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-brand-purple/30 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-brand-purple/20 dark:border-b-brand-purple/35 dark:bg-[hsl(250,10%,12%)] dark:text-white/70 dark:shadow-none dark:hover:border-brand-purple/40 dark:hover:bg-[hsl(250,10%,15%)]"
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-white/5 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -119,7 +119,7 @@ function Hero() {
 
         {/* Full-width viewer + synced background dot grid */}
         <HeroViewer
-          src="/viewer/index.html?embed=true&src=showcase.json&colors=4037C1,F3CD49&name=demo"
+          src="/viewer/index.html?embed=true&src=showcase.json&colors=4037C1,78909c&fills=solid,hatched&name=demo"
           fallback={heroCodeFallback}
         />
       </div>
@@ -153,8 +153,8 @@ function WhyRosette() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 py-16">
       <div className="flex items-center gap-3 mb-3">
-        <div className="h-px w-8 bg-brand-purple dark:bg-brand-purple-light" />
-        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-brand-purple uppercase dark:text-brand-purple-light">
+        <div className="h-px w-8 bg-black/20 dark:bg-white/20" />
+        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-black/40 uppercase dark:text-white/40">
           Principles
         </span>
       </div>
@@ -165,7 +165,7 @@ function WhyRosette() {
       <div className="mt-10 grid gap-x-10 gap-y-6 sm:grid-cols-3">
         {reasons.map((reason, i) => (
           <div key={reason.title}>
-            <span className="font-[family-name:var(--font-geist-mono)] text-xs text-brand-purple/40 dark:text-brand-purple-light/40">
+            <span className="font-[family-name:var(--font-geist-mono)] text-xs text-black/20 dark:text-white/20">
               {String(i + 1).padStart(2, "0")}
             </span>
             <h3 className="mt-1 text-sm font-semibold text-black/90 dark:text-white/90">
@@ -228,11 +228,11 @@ function WhatsInside() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 py-16">
       {/* Subtle divider */}
-      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-brand-purple/20 to-transparent" />
+      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-black/10 to-transparent dark:via-white/10" />
 
       <div className="flex items-center gap-3 mb-3">
-        <div className="h-px w-8 bg-brand-gold dark:bg-brand-gold" />
-        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-brand-gold-dark uppercase dark:text-brand-gold">
+        <div className="h-px w-8 bg-black/20 dark:bg-white/20" />
+        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-black/40 uppercase dark:text-white/40">
           Features
         </span>
       </div>
@@ -268,7 +268,7 @@ function ClosingCTA() {
     <section className="relative">
       {/* Top divider */}
       <div className="absolute inset-x-0 top-0 mx-auto max-w-6xl px-6">
-        <div className="h-px bg-gradient-to-r from-transparent via-brand-purple/20 to-transparent" />
+        <div className="h-px bg-gradient-to-r from-transparent via-black/10 to-transparent dark:via-white/10" />
       </div>
 
       <div className="mx-auto max-w-6xl px-6 py-16">
@@ -283,15 +283,15 @@ function ClosingCTA() {
             Thousands of geometry operations, routing decisions, and design
             checks &mdash; compiled to native code and wrapped in a clean Python
             API.{" "}
-            <span className="font-medium text-brand-purple dark:text-brand-purple-light">
+            <span className="font-medium text-black/80 dark:text-white/80">
               Fast. Intelligent. Accessible.
             </span>
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install */}
-            <div className="inline-flex h-11 items-center rounded-lg border border-brand-purple/15 border-b-brand-purple/25 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-brand-purple/20 dark:border-b-brand-purple/35 dark:bg-[hsl(250,10%,12%)] dark:text-white/70 dark:shadow-none">
-              <span className="select-none text-brand-purple/50 dark:text-brand-purple-light/50">
+            <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-white/5 dark:text-white/70 dark:shadow-none">
+              <span className="select-none text-black/30 dark:text-white/30">
                 $&nbsp;
               </span>
               pip install rosette
@@ -329,7 +329,7 @@ function ClosingCTA() {
               href="https://github.com/PreFab-Photonics/rosette"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple/15 border-b-brand-purple/25 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-brand-purple/30 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-brand-purple/20 dark:border-b-brand-purple/35 dark:bg-[hsl(250,10%,12%)] dark:text-white/70 dark:shadow-none dark:hover:border-brand-purple/40 dark:hover:bg-[hsl(250,10%,15%)]"
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-white/5 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
