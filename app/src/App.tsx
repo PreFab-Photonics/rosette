@@ -31,7 +31,6 @@ export default function App() {
   const prevIsLg = useRef<boolean | null>(null);
 
   useEffect(() => {
-    if (embed) return;
     if (prevIsLg.current === null) {
       // Initial load — if wide, force panels expanded
       if (isLg) {
@@ -48,7 +47,7 @@ export default function App() {
       useUIStore.getState().setSidebarCollapsed(false);
     }
     prevIsLg.current = isLg;
-  }, [isLg, embed]);
+  }, [isLg]);
 
   // Tauri: Cmd+O to open, Cmd+S to save, Cmd+Shift+S to save as
   useEffect(() => {
@@ -125,14 +124,21 @@ export default function App() {
     };
   }, [embed]);
 
-  // Embed mode: canvas + toolbar only, no panels/statusbar
+  // Embed mode: full app experience (Explorer, Sidebar, StatusBar, CommandPalette)
   if (embed) {
     return (
       <div
-        className={`relative h-screen w-screen ${theme === "dark" ? "bg-black" : "bg-white"}`}
+        className={`flex h-screen w-screen flex-col ${theme === "dark" ? "bg-black" : "bg-white"}`}
       >
-        <Canvas />
-        <Toolbar compact={false} minimal={false} />
+        <div className="relative min-h-0 flex-1">
+          <Canvas />
+          {!zenMode && <Toolbar compact={false} minimal={false} />}
+          {!zenMode && <Explorer />}
+          {!zenMode && <Sidebar />}
+          <Minimap />
+          <CommandPalette />
+        </div>
+        <StatusBar compact={isMd || isSm} minimal={isSm} />
       </div>
     );
   }

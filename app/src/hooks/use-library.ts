@@ -45,6 +45,29 @@ function getEmbedSrc(): string | null {
 }
 
 /**
+ * Get custom layer colors from the URL for embed mode.
+ *
+ * Accepts a `?colors=` parameter with comma-separated hex colors (without #).
+ * Colors are applied in order to auto-discovered layers.
+ * Example: `?colors=4037C1,F3CD49` assigns purple to layer 1, gold to layer 2.
+ */
+function getEmbedColors(): string[] | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("colors");
+  if (!raw) return null;
+  return raw.split(",").map((c) => `#${c.trim()}`);
+}
+
+/**
+ * Get a custom project name from the URL for embed mode.
+ * Example: `?name=my-design`
+ */
+function getEmbedName(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("name");
+}
+
+/**
  * Check if running in Tauri desktop mode.
  */
 function isTauriMode(): boolean {
@@ -480,6 +503,18 @@ export function useLibrary(
 
         const newLibrary = wasm.WasmLibrary.from_library_json(json);
         discoverLayers(newLibrary);
+
+        // Apply custom embed colors if provided via ?colors= parameter
+        const embedColors = getEmbedColors();
+        if (embedColors) {
+          const layerMap = useLayerStore.getState().layers;
+          const layerArray = Array.from(layerMap.values());
+          const updated = layerArray.map((layer, i) =>
+            i < embedColors.length ? { ...layer, color: embedColors[i] } : layer,
+          );
+          useLayerStore.getState().resetLayers(updated);
+        }
+
         syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
         if (libraryInstance) {
@@ -489,6 +524,12 @@ export function useLibrary(
         libraryInstance = newLibrary;
         setLibrary(newLibrary);
         setIsReady(true);
+
+        // Set project name from ?name= parameter or fall back to library name
+        const embedName = getEmbedName();
+        if (embedName) {
+          useExplorerStore.getState().setProjectName(embedName);
+        }
 
         const tree = newLibrary.get_cell_tree();
         if (tree) {
