@@ -16,7 +16,7 @@ const footerLinks = [
 
 export function Footer() {
   return (
-    <footer className="border-t border-brand-purple/10 dark:border-brand-purple/15">
+    <footer className="border-t border-brand-purple/10 bg-brand-purple/[0.03] dark:border-brand-purple/15 dark:bg-brand-purple/[0.06]">
       <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 px-6 py-8 sm:flex-row sm:justify-between">
         <p className="text-xs text-black/40 dark:text-white/40">
           &copy; {new Date().getFullYear()} PreFab Photonics
