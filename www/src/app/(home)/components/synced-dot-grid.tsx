@@ -194,9 +194,10 @@ export function SyncedDotGrid({
 
         if (alpha < 0.01) continue;
 
+        // Brand purple light / gold dark
         const color = isDark
-          ? `rgba(255,255,255,${alpha})`
-          : `rgba(0,0,0,${alpha})`;
+          ? `rgba(243,205,73,${alpha})`
+          : `rgba(64,55,193,${alpha})`;
 
         ctx.fillStyle = color;
         ctx.fillRect(

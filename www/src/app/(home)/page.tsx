@@ -61,7 +61,7 @@ function Hero() {
 
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install */}
-            <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-white/5 dark:text-white/70 dark:shadow-none">
+            <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
               <span className="select-none text-black/30 dark:text-white/30">
                 $&nbsp;
               </span>
@@ -100,7 +100,7 @@ function Hero() {
               href="https://github.com/PreFab-Photonics/rosette"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-white/5 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-neutral-800"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -135,17 +135,17 @@ const reasons = [
   {
     title: "Fast",
     description:
-      "Geometry, routing, DRC, and GDS I/O compile to native Rust. Thousands of operations resolve in milliseconds, not minutes.",
+      "A compiled Rust core, WebGPU rendering, and an ergonomic API that keeps you in flow. From geometry operations to live preview, every layer of the stack is built for speed.",
   },
   {
     title: "Intelligent",
     description:
-      "AI-native from day one. Ships with agent instructions, type stubs, and structured build feedback so coding tools design circuits alongside you.",
+      "Fabrication-aware from the ground up. Design rules, routing constraints, and process knowledge are built in — and AI-native tooling lets coding agents design circuits alongside you.",
   },
   {
     title: "Accessible",
     description:
-      "A clean Python API over a compiled core. Open source, editable components, live visual preview, and a native desktop app. Use it however you work.",
+      "A clean Python API, open-source components you own and edit, a visual desktop app, and documentation written for photonics engineers. Professional tools without the learning cliff.",
   },
 ];
 
@@ -187,40 +187,40 @@ function WhyRosette() {
 
 const capabilities = [
   {
-    label: "routing",
-    title: "Intelligent routing",
+    label: "app",
+    title: "Desktop app",
     description:
-      "Route.through() handles bends, tapers, and width transitions automatically. Euler bends minimize optical loss. Radius auto-reduces when space is tight, with warnings.",
+      "A native app with a WebGPU-rendered viewer, hot-reloading preview, and design rule overlays. See your layout update in real time as you write code.",
   },
   {
-    label: "drc",
-    title: "Design rule checking",
+    label: "python",
+    title: "Python API",
     description:
-      "Seven check types: min width, min spacing, min area, enclosure, overlap rules, and allowed angles. Configurable in TOML, executed at Rust speed.",
+      "A clean, typed Python interface over a compiled Rust core. Ergonomic placement, automatic routing, and hierarchical cells — all in the language your team already knows.",
   },
   {
-    label: "preview",
-    title: "Live preview",
+    label: "fabrication",
+    title: "Fabrication awareness",
     description:
-      "rosette serve gives instant visual feedback with hot reload. WebGPU-rendered viewer handles millions of polygons. Ships as a native desktop app too.",
+      "Built on PreFab\u2019s process knowledge. Design rule checks, minimum feature validation, and manufacturing constraints are part of the workflow, not an afterthought.",
   },
   {
-    label: "components",
-    title: "Photonic components",
+    label: "agents",
+    title: "Agentic workflows",
     description:
-      "Waveguides, Euler bends, tapers, S-bends, MMIs, directional couplers, ring resonators, grating couplers, spirals, and crossings. Consistent port conventions.",
+      "AI-native from day one. Agent instructions, type stubs, structured build feedback, and editable components give coding agents the context to design circuits alongside you.",
   },
   {
-    label: "cells",
-    title: "Hierarchical cells",
+    label: "docs",
+    title: "Documentation",
     description:
-      "Cell-based design with the .at() instance API for ergonomic placement. Transform chaining, automatic child-cell collection for GDS export.",
+      "Guides, API references, and copy-paste recipes written for photonics engineers. From first install to tapeout, every step is documented.",
   },
   {
-    label: "pathlength",
-    title: "Path length tracking",
+    label: "more",
+    title: "More to come",
     description:
-      "Every component and route tracks its optical path length. Critical for Mach-Zehnder interferometers, balanced detection, and phase-sensitive designs.",
+      "Simulation integration, a component marketplace, cloud collaboration, and more. Rosette is actively developed and shaped by the photonics community.",
   },
 ];
 
@@ -290,7 +290,7 @@ function ClosingCTA() {
 
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install */}
-            <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-white/5 dark:text-white/70 dark:shadow-none">
+            <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
               <span className="select-none text-black/30 dark:text-white/30">
                 $&nbsp;
               </span>
@@ -329,7 +329,7 @@ function ClosingCTA() {
               href="https://github.com/PreFab-Photonics/rosette"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-white/5 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-neutral-800"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
