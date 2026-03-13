@@ -186,7 +186,7 @@ export function SyncedDotGrid({
         const isMajor = isMajorX && isMajorY;
 
         // Opacity: base * LOD fade * radial fade
-        const themeOpacity = isDark ? 0.5 : 0.8;
+        const themeOpacity = isDark ? 0.9 : 0.8;
         const baseAlpha = isMajor
           ? 0.8 * themeOpacity
           : 0.8 * fadeOpacity * themeOpacity;
