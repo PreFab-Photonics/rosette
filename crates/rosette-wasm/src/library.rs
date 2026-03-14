@@ -11,7 +11,7 @@ use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 /// A rendered polygon: (uuid, vertices, color, fill_pattern).
-/// fill_pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+/// fill_pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
 type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4], u32);
 
 /// Iterate over all array copy transforms for a CellRef.
@@ -121,7 +121,7 @@ pub struct WasmLibrary {
     /// Layer colors for rendering (layer_key -> RGBA).
     layer_colors: HashMap<u32, [f32; 4]>,
     /// Layer fill patterns (layer_key -> pattern id).
-    /// 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    /// 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
     layer_fill_patterns: HashMap<u32, u32>,
     /// Whether the library has changed since last sync.
     dirty: bool,
@@ -425,6 +425,21 @@ fn layer_key(layer: u16, datatype: u16) -> u32 {
     ((layer as u32) << 16) | (datatype as u32)
 }
 
+/// Compute absolute area of a polygon using the shoelace formula.
+fn polygon_area(vertices: &[[f64; 2]]) -> f64 {
+    let n = vertices.len();
+    if n < 3 {
+        return 0.0;
+    }
+    let mut area = 0.0;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        area += vertices[i][0] * vertices[j][1];
+        area -= vertices[j][0] * vertices[i][1];
+    }
+    area.abs() * 0.5
+}
+
 /// Ratio of CSS em-size to visual cap-height for monospace fonts.
 ///
 /// The stored `height` represents the visual character height (cap-height).
@@ -626,7 +641,7 @@ impl WasmLibrary {
 
     /// Set the fill pattern for a layer.
     ///
-    /// Pattern IDs: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    /// Pattern IDs: 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
     pub fn set_layer_fill_pattern(&mut self, layer: u16, datatype: u16, pattern: u32) {
         let key = layer_key(layer, datatype);
         self.layer_fill_patterns.insert(key, pattern);
@@ -3590,6 +3605,17 @@ impl WasmLibrary {
                 }
             }
         }
+
+        // Sort by area descending so large shapes draw first and small shapes
+        // render on top. This ensures features like waveguides and vias are never
+        // hidden behind substrate or cladding polygons.
+        result.sort_by(|a, b| {
+            let area_a = polygon_area(&a.1);
+            let area_b = polygon_area(&b.1);
+            area_b
+                .partial_cmp(&area_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         result
     }

@@ -3,7 +3,15 @@ import { create } from "zustand";
 /**
  * Fill pattern for layer rendering.
  */
-export type FillPattern = "solid" | "hatched" | "crosshatched" | "dotted";
+export type FillPattern =
+  | "solid"
+  | "hatched"
+  | "crosshatched"
+  | "dotted"
+  | "horizontal"
+  | "vertical"
+  | "zigzag"
+  | "brick";
 
 /** Maps fill pattern names to WASM renderer IDs. Single source of truth. */
 export const FILL_PATTERN_IDS: Record<FillPattern, number> = {
@@ -11,6 +19,10 @@ export const FILL_PATTERN_IDS: Record<FillPattern, number> = {
   hatched: 1,
   crosshatched: 2,
   dotted: 3,
+  horizontal: 4,
+  vertical: 5,
+  zigzag: 6,
+  brick: 7,
 };
 
 /**

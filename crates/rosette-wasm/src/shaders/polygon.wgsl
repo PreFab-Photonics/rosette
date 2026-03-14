@@ -2,7 +2,8 @@
 //
 // Renders filled polygons using triangulated vertices.
 // Vertices store WORLD positions and are transformed to screen space in the shader.
-// Supports fill patterns: solid (0), hatched (1), crosshatched (2), dotted (3).
+// Supports fill patterns: solid (0), hatched (1), crosshatched (2), dotted (3),
+// horizontal (4), vertical (5), zigzag (6), brick (7).
 
 struct Viewport {
     offset: vec2<f32>,          // Screen position of world origin
@@ -18,7 +19,7 @@ struct Viewport {
 struct VertexInput {
     @location(0) position: vec2<f32>,       // World position
     @location(1) color: vec4<f32>,          // RGBA color
-    @location(2) fill_pattern: u32,         // 0=solid, 1=hatched, 2=crosshatched, 3=dotted
+    @location(2) fill_pattern: u32,         // 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick
 }
 
 struct VertexOutput {
@@ -100,6 +101,60 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dx = gx - cx;
         let dy = gy - cy;
         if (dx * dx + dy * dy) > (dot_radius * dot_radius) {
+            discard;
+        }
+        return in.color;
+    }
+
+    if in.fill_pattern == 4u {
+        // Horizontal: evenly spaced horizontal lines
+        let d = ((sp.y % spacing + spacing) % spacing);
+        let dist = min(d, spacing - d);
+        if dist > line_width {
+            discard;
+        }
+        return in.color;
+    }
+
+    if in.fill_pattern == 5u {
+        // Vertical: evenly spaced vertical lines
+        let d = ((sp.x % spacing + spacing) % spacing);
+        let dist = min(d, spacing - d);
+        if dist > line_width {
+            discard;
+        }
+        return in.color;
+    }
+
+    if in.fill_pattern == 6u {
+        // Zigzag: continuous zigzag/sawtooth lines
+        // Create a triangular wave on x, then check distance from sp.y to the wave
+        let half = spacing * 0.5;
+        let cell_x = ((sp.x % spacing + spacing) % spacing);
+        // Triangular wave: rises from 0 to half, falls back to 0
+        let wave = abs(cell_x - half);
+        let cell_y = ((sp.y % spacing + spacing) % spacing);
+        let dist = abs(cell_y - wave);
+        // Also check wrap-around distance for continuity at cell boundaries
+        let dist_wrap = min(dist, min(abs(cell_y - wave + spacing), abs(cell_y - wave - spacing)));
+        if dist_wrap > line_width {
+            discard;
+        }
+        return in.color;
+    }
+
+    if in.fill_pattern == 7u {
+        // Brick: horizontal lines with alternating offset vertical joins
+        let row = floor(sp.y / spacing);
+        // Horizontal lines at spacing intervals
+        let dy_brick = ((sp.y % spacing + spacing) % spacing);
+        let h_dist = min(dy_brick, spacing - dy_brick);
+        // Vertical joins offset by half spacing on odd rows
+        let x_offset = select(0.0, spacing * 0.5, (u32(abs(row)) % 2u) == 1u);
+        let shifted_x = sp.x + x_offset;
+        let dx_brick = ((shifted_x % spacing + spacing) % spacing);
+        let v_dist = min(dx_brick, spacing - dx_brick);
+        if h_dist > line_width && v_dist > line_width {
             discard;
         }
         return in.color;
