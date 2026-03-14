@@ -48,7 +48,7 @@ export function Nav() {
           <button
             type="button"
             disabled
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-brand-purple-dark/50 bg-brand-purple px-3 text-xs font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
+            className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-md border border-brand-purple-dark/50 bg-brand-purple px-3 opacity-50 text-xs font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
             title="Coming soon"
           >
             <svg

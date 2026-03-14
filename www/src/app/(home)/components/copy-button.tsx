@@ -2,19 +2,28 @@
 
 import { useState } from "react";
 
-export function CopyButton({ text }: { text: string }) {
+export function CopyButton({
+  text,
+  disabled = false,
+}: { text: string; disabled?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => {
+        if (disabled) return;
         navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         });
       }}
-      className="ml-3 flex-shrink-0 text-black/25 transition-colors hover:text-black/60 dark:text-white/25 dark:hover:text-white/60"
+      className={`ml-3 flex-shrink-0 transition-colors ${
+        disabled
+          ? "cursor-not-allowed text-black/15 dark:text-white/15"
+          : "text-black/25 hover:text-black/60 dark:text-white/25 dark:hover:text-white/60"
+      }`}
       aria-label="Copy to clipboard"
     >
       {copied ? (

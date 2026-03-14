@@ -62,15 +62,15 @@ function Hero() {
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install — Python API */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
+              <div className="inline-flex h-11 cursor-not-allowed items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 opacity-50 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
                 <span className="select-none text-black/30 dark:text-white/30">
                   $&nbsp;
                 </span>
                 pip install rosette
-                <CopyButton text="pip install rosette" />
+                <CopyButton text="pip install rosette" disabled />
               </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Python API
+                Python API &middot; coming soon
               </span>
             </div>
 
@@ -79,7 +79,7 @@ function Hero() {
               <button
                 type="button"
                 disabled
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
+                className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 opacity-50 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
                 title="Coming soon"
               >
                 <svg
@@ -101,7 +101,7 @@ function Hero() {
                 Download
               </button>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Desktop app
+                Desktop app &middot; coming soon
               </span>
             </div>
 
@@ -306,15 +306,15 @@ function ClosingCTA() {
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install — Python API */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
+              <div className="inline-flex h-11 cursor-not-allowed items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 opacity-50 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
                 <span className="select-none text-black/30 dark:text-white/30">
                   $&nbsp;
                 </span>
                 pip install rosette
-                <CopyButton text="pip install rosette" />
+                <CopyButton text="pip install rosette" disabled />
               </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Python API
+                Python API &middot; coming soon
               </span>
             </div>
 
@@ -323,7 +323,7 @@ function ClosingCTA() {
               <button
                 type="button"
                 disabled
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
+                className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 opacity-50 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
                 title="Coming soon"
               >
                 <svg
@@ -345,7 +345,7 @@ function ClosingCTA() {
                 Download
               </button>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Desktop app
+                Desktop app &middot; coming soon
               </span>
             </div>
 
