@@ -20,7 +20,9 @@ import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 import { computeAlignmentDeltas, type AlignType, type AlignmentDelta } from "@/lib/align";
-import { usePathStore, type PathMetadata } from "@/stores/path";
+import { usePathStore, DEFAULT_NUM_ARC_POINTS, type PathMetadata } from "@/stores/path";
+import { useStatusMessageStore } from "@/stores/status-message";
+import { checkBendRadiusReductions } from "@/lib/path";
 
 /**
  * Context passed to commands for executing operations.
@@ -462,10 +464,42 @@ export class CreatePolygonCommand implements Command {
 }
 
 /**
+ * Convert world units to micrometers for display in status messages.
+ * World units are nm * GRID_SIZE, so: µm = world / GRID_SIZE / 1000.
+ */
+function worldToUm(world: number): string {
+  const um = world / GRID_SIZE / 1000;
+  return um.toFixed(um >= 10 ? 1 : um >= 1 ? 2 : 3);
+}
+
+/**
+ * Show a status bar warning if any corners had their bend radius auto-reduced.
+ */
+function warnBendRadiusReductions(
+  waypoints: { x: number; y: number }[],
+  cornerRadius: number,
+): void {
+  if (cornerRadius <= 0) return;
+  const reductions = checkBendRadiusReductions(waypoints, cornerRadius);
+  if (reductions.length === 0) return;
+
+  const requestedUm = worldToUm(cornerRadius);
+  const minActual = Math.min(...reductions.map((r) => r.actual));
+  const minActualUm = worldToUm(minActual);
+
+  const msg =
+    reductions.length === 1
+      ? `Bend radius reduced to ${minActualUm} µm at corner ${reductions[0].cornerIndex} (requested ${requestedUm} µm)`
+      : `Bend radius reduced at ${reductions.length} corners (min ${minActualUm} µm, requested ${requestedUm} µm)`;
+
+  useStatusMessageStore.getState().show(msg, "warn");
+}
+
+/**
  * Command to create a path (waveguide) polygon from a centerline and width.
  *
- * Uses offset_polygon to generate a ribbon polygon with straight miter joins.
- * Corner radius is applied as a separate edit operation.
+ * Uses the Rust WASM `create_path_rounded` to generate a ribbon polygon with
+ * circular-arc bends at interior corners when `cornerRadius > 0`.
  */
 export class CreatePathCommand implements Command {
   readonly type = "create-path";
@@ -483,12 +517,21 @@ export class CreatePathCommand implements Command {
     private readonly layer: number,
     private readonly datatype: number = 0,
     private readonly waypoints?: { x: number; y: number }[],
+    private readonly cornerRadius: number = 0,
+    private readonly numArcPoints: number = DEFAULT_NUM_ARC_POINTS,
   ) {
     this.description = `Create path with ${points.length / 2} waypoints`;
   }
 
   execute(ctx: CommandContext): void {
-    const id = ctx.library.create_path(this.points, this.width, this.layer, this.datatype);
+    const id = ctx.library.create_path_rounded(
+      this.points,
+      this.width,
+      this.cornerRadius,
+      this.numArcPoints,
+      this.layer,
+      this.datatype,
+    );
 
     if (id) {
       this.elementId = id;
@@ -501,7 +544,8 @@ export class CreatePathCommand implements Command {
         this.metadata = {
           waypoints: this.waypoints,
           width: this.width,
-          cornerRadius: 0,
+          cornerRadius: this.cornerRadius,
+          numArcPoints: this.numArcPoints,
           layer: this.layer,
           datatype: this.datatype,
         };
@@ -511,6 +555,11 @@ export class CreatePathCommand implements Command {
       ctx.renderer.sync_from_library(ctx.library);
       ctx.renderer.mark_dirty();
       useSelectionStore.getState().select(id);
+
+      // Warn if any corners had their bend radius auto-reduced
+      if (this.waypoints) {
+        warnBendRadiusReductions(this.waypoints, this.cornerRadius);
+      }
     }
   }
 
@@ -587,7 +636,14 @@ export class EditPathCommand implements Command {
     }
 
     ctx.library.remove_element(oldId);
-    const newId = ctx.library.create_path(flatPoints, meta.width, meta.layer, meta.datatype);
+    const newId = ctx.library.create_path_rounded(
+      flatPoints,
+      meta.width,
+      meta.cornerRadius,
+      meta.numArcPoints ?? DEFAULT_NUM_ARC_POINTS,
+      meta.layer,
+      meta.datatype,
+    );
 
     if (newId) {
       usePathStore.getState().removePathMetadata(oldId);
@@ -595,6 +651,10 @@ export class EditPathCommand implements Command {
       ctx.renderer.sync_from_library(ctx.library);
       ctx.renderer.mark_dirty();
       useSelectionStore.getState().select(newId);
+
+      // Warn if any corners had their bend radius auto-reduced
+      warnBendRadiusReductions(meta.waypoints, meta.cornerRadius);
+
       return newId;
     }
 

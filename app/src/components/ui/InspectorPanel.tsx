@@ -1474,12 +1474,20 @@ export function InspectorPanel() {
     (displayValue: number) => {
       const meta = pathMetaRef.current;
       const elementId = firstIdRef.current;
-      if (!meta || !elementId) return;
+      if (!meta || !elementId || !library || !renderer) return;
+      if (!useSelectionStore.getState().selectedIds.has(elementId)) return;
       const worldRadius = displayValue * unitInfo.scale * GRID_SIZE;
       if (worldRadius < 0) return;
-      usePathStore.getState().setPathMetadata(elementId, { ...meta, cornerRadius: worldRadius });
+
+      const cmd = new EditPathCommand(
+        elementId,
+        meta,
+        { ...meta, cornerRadius: worldRadius },
+        "Change path corner radius",
+      );
+      useHistoryStore.getState().execute(cmd, { library, renderer });
     },
-    [unitInfo],
+    [library, renderer, unitInfo],
   );
 
   const handlePathWaypointChange = useCallback(

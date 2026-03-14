@@ -36,6 +36,7 @@ import { PathPreview } from "@/components/canvas/PathPreview";
 import { RulerOverlay } from "@/components/canvas/RulerOverlay";
 import { InstanceLabels } from "@/components/canvas/InstanceLabels";
 import { TextOverlay } from "@/components/canvas/TextOverlay";
+import { PathSelectionOverlay } from "@/components/canvas/PathSelectionOverlay";
 import { ContextMenu } from "@/components/ui/ContextMenu";
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 
@@ -910,6 +911,7 @@ export function Canvas() {
           {cellDragName}
         </div>
       )}
+      <PathSelectionOverlay />
       <InstanceLabels />
       <TextOverlay />
       <RulerOverlay />

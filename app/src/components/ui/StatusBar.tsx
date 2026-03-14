@@ -6,6 +6,7 @@ import { useSelectionStore } from "@/stores/selection";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useLayerStore } from "@/stores/layer";
 import { useStatusMessageStore } from "@/stores/status-message";
+import { usePathStore } from "@/stores/path";
 import { getDisplayUnit, formatCoordinate } from "@/lib/format";
 import { SCALE_BAR_TARGET_PIXELS, SCALE_BAR_MAX_WIDTH, NICE_NUMBERS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -115,6 +116,7 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
   const selectedIds = useSelectionStore((s) => s.selectedIds);
   const library = useWasmContextStore((s) => s.library);
   const layers = useLayerStore((s) => s.layers);
+  const pathMetadata = usePathStore((s) => s.pathMetadata);
 
   const info = useMemo(() => {
     const count = selectedIds.size;
@@ -147,6 +149,18 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
           label: `Text "${preview}"`,
           layerNumber: textInfo.layer,
           datatype: textInfo.datatype,
+        };
+      }
+    }
+
+    // --- Single path (waveguide) ---
+    if (count === 1) {
+      const pathMeta = pathMetadata.get(firstId);
+      if (pathMeta) {
+        return {
+          label: `Path \u00b7 ${pathMeta.waypoints.length} waypoints`,
+          layerNumber: pathMeta.layer,
+          datatype: pathMeta.datatype,
         };
       }
     }
@@ -189,7 +203,7 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
     }
 
     return { label: `${count} elements`, layerNumber: firstLayer, datatype: firstDatatype };
-  }, [selectedIds, library]);
+  }, [selectedIds, library, pathMetadata]);
 
   if (!info) return null;
 

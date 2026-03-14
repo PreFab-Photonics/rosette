@@ -118,7 +118,7 @@ export function usePath(
       if (!library || !renderer || pathWaypoints.length < 2) return;
 
       // Get path parameters from the store
-      const { width } = usePathStore.getState();
+      const { width, cornerRadius, numArcPoints } = usePathStore.getState();
 
       // Convert points to flat Float64Array [x0, y0, x1, y1, ...]
       const flatPoints = new Float64Array(pathWaypoints.length * 2);
@@ -140,6 +140,8 @@ export function usePath(
         layerNumber,
         datatype,
         [...pathWaypoints],
+        cornerRadius,
+        numArcPoints,
       );
       useHistoryStore.getState().execute(command, { library, renderer });
 

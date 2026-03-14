@@ -7,6 +7,11 @@ import { GRID_SIZE } from "@/stores/viewport";
 export const DEFAULT_PATH_WIDTH = 500 * GRID_SIZE;
 
 /**
+ * Default number of arc points for corner rounding.
+ */
+export const DEFAULT_NUM_ARC_POINTS = 64;
+
+/**
  * Path metadata stored alongside the WASM element.
  *
  * The WASM element is a polygon generated from the centerline + width.
@@ -20,6 +25,8 @@ export interface PathMetadata {
   width: number;
   /** Corner radius in world units (0 = sharp corners). */
   cornerRadius: number;
+  /** Number of arc points for corner rounding (higher = smoother). */
+  numArcPoints: number;
   /** GDS layer number. */
   layer: number;
   /** GDS datatype. */
@@ -35,11 +42,15 @@ interface PathState {
   width: number;
   /** Default corner radius for new paths (world units). 0 = sharp corners. */
   cornerRadius: number;
+  /** Default number of arc points for corner rounding. */
+  numArcPoints: number;
 
   /** Set the default waveguide width. */
   setWidth: (width: number) => void;
   /** Set the default corner radius. */
   setCornerRadius: (cornerRadius: number) => void;
+  /** Set the default number of arc points. */
+  setNumArcPoints: (numArcPoints: number) => void;
 
   /** Path metadata keyed by element UUID. */
   pathMetadata: Map<string, PathMetadata>;
@@ -52,9 +63,11 @@ interface PathState {
 export const usePathStore = create<PathState>((set, get) => ({
   width: DEFAULT_PATH_WIDTH,
   cornerRadius: 0,
+  numArcPoints: DEFAULT_NUM_ARC_POINTS,
 
   setWidth: (width) => set({ width }),
   setCornerRadius: (cornerRadius) => set({ cornerRadius }),
+  setNumArcPoints: (numArcPoints) => set({ numArcPoints }),
 
   pathMetadata: new Map(),
 

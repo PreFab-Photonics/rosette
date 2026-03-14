@@ -36,6 +36,8 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
   const activeLayerId = useLayerStore((s) => s.activeLayerId);
   const layers = useLayerStore((s) => s.layers);
   const width = usePathStore((s) => s.width);
+  const cornerRadius = usePathStore((s) => s.cornerRadius);
+  const numArcPoints = usePathStore((s) => s.numArcPoints);
 
   // Get layer color
   const layer = layers.get(activeLayerId);
@@ -56,8 +58,8 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
   // Build SVG path for the centerline
   const centerlineD = screenPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
 
-  // Generate ribbon preview polygon
-  const ribbonPoints = createRibbonPreview(allPoints, width);
+  // Generate ribbon preview polygon (with rounded corners if cornerRadius > 0)
+  const ribbonPoints = createRibbonPreview(allPoints, width, cornerRadius, numArcPoints);
   const ribbonScreen = ribbonPoints.map(worldToScreen);
   const ribbonD =
     ribbonScreen.length > 0
