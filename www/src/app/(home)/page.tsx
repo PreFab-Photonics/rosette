@@ -34,14 +34,14 @@ function Hero() {
           </div>
 
           <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-black/90 sm:text-5xl lg:text-6xl dark:text-white">
-            The modern photonic{" "}
+            The modern GDSII{" "}
             <span className="text-brand-purple dark:text-brand-purple-light">
               layout editor
             </span>
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-black/50 dark:text-white/60">
-            A layout engine for photonic integrated circuits.{" "}
+            A layout engine for integrated circuits.{" "}
             <span className="font-medium text-black/80 dark:text-white/80">
               Fast. Intelligent. Accessible.
             </span>
@@ -160,7 +160,7 @@ const reasons = [
   {
     title: "Accessible",
     description:
-      "A clean Python API, open-source components you own and edit, a visual desktop app, and documentation written for photonics engineers. Professional tools without the learning cliff.",
+      "A clean Python API, open-source components you own and edit, a visual desktop app, and documentation written for engineers. Professional tools without the learning cliff.",
   },
 ];
 
@@ -229,13 +229,13 @@ const capabilities = [
     label: "docs",
     title: "Documentation",
     description:
-      "Guides, API references, and copy-paste recipes written for photonics engineers. From first install to tapeout, every step is documented.",
+      "Guides, API references, and copy-paste recipes written for engineers. From first install to tapeout, every step is documented.",
   },
   {
     label: "more",
     title: "More to come",
     description:
-      "Simulation integration, a component marketplace, cloud collaboration, and more. Rosette is actively developed and shaped by the photonics community.",
+      "Simulation integration, a component marketplace, cloud collaboration, and more. Rosette is actively developed and shaped by the community.",
   },
 ];
 
@@ -289,7 +289,7 @@ function ClosingCTA() {
       <div className="mx-auto max-w-6xl px-6 py-16">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-black/90 sm:text-4xl dark:text-white">
-            The modern photonic{" "}
+            The modern GDSII{" "}
             <span className="text-brand-purple dark:text-brand-purple-light">
               layout editor
             </span>

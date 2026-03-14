@@ -66,7 +66,7 @@ export function ViewerEmbed({
       <iframe
         ref={iframeRef}
         src={src}
-        title="Rosette photonic layout viewer"
+        title="Rosette layout viewer"
         className="aspect-[16/10] w-full border-0"
         loading="lazy"
         sandbox="allow-scripts allow-same-origin"
