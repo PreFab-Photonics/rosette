@@ -84,6 +84,21 @@ function getEmbedName(): string | null {
 }
 
 /**
+ * Get a custom zoom multiplier from the URL for embed mode.
+ *
+ * Applied after zoom-to-fit: values < 1 zoom out, values > 1 zoom in.
+ * Example: `?zoom=0.8` zooms out 20% from the default fit view.
+ */
+export function getEmbedZoom(): number | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("zoom");
+  if (!raw) return null;
+  const value = Number.parseFloat(raw);
+  if (Number.isNaN(value) || value <= 0) return null;
+  return value;
+}
+
+/**
  * Check if running in Tauri desktop mode.
  */
 function isTauriMode(): boolean {

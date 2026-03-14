@@ -21,7 +21,7 @@ import { useSelection } from "@/hooks/use-selection";
 import { useMove } from "@/hooks/use-move";
 import { useText } from "@/hooks/use-text";
 
-import { useLibrary } from "@/hooks/use-library";
+import { useLibrary, getEmbedZoom, isEmbedMode } from "@/hooks/use-library";
 import { useLayerStore } from "@/stores/layer";
 import { useHistoryStore } from "@/stores/history";
 import { useWasm } from "@/hooks/use-wasm";
@@ -307,6 +307,12 @@ export function Canvas() {
 
     if (isInitialLoad || isDesignReload) {
       useViewportStore.getState().zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
+      // Apply embed zoom multiplier (e.g. ?zoom=0.8 zooms out 20% from fit)
+      const embedZoom = isEmbedMode() ? getEmbedZoom() : null;
+      if (embedZoom !== null) {
+        const center = vp.screenCenter ?? { x: vp.width / 2, y: vp.height / 2 };
+        useViewportStore.getState().zoomAt(embedZoom, center.x, center.y);
+      }
       hasInitialZoom.current = true;
     }
 
