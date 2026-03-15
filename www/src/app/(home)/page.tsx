@@ -286,7 +286,7 @@ function ClosingCTA() {
         <div className="h-px bg-gradient-to-r from-transparent via-black/10 to-transparent dark:via-white/10" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-6 py-16">
+      <div className="mx-auto max-w-6xl px-6 pt-16 pb-32">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-black/90 sm:text-4xl dark:text-white">
             The modern GDSII{" "}
