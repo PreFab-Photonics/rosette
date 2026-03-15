@@ -367,6 +367,35 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
         close();
       };
 
+      const isCellHidden = targetCellName
+        ? explorerStore.hiddenCells.has(targetCellName)
+        : false;
+
+      const toggleCellVisibility = (): void => {
+        if (targetCellName) {
+          useExplorerStore.getState().toggleCellVisibility(targetCellName);
+        }
+        close();
+      };
+
+      const allCells = explorerStore.cells;
+      const allCellsVisible = allCells.every(
+        (c) => !explorerStore.hiddenCells.has(c),
+      );
+      const allCellsHidden = allCells.every((c) =>
+        explorerStore.hiddenCells.has(c),
+      );
+
+      const showAllCells = (): void => {
+        useExplorerStore.getState().showAllCells();
+        close();
+      };
+
+      const hideAllCells = (): void => {
+        useExplorerStore.getState().hideAllCells();
+        close();
+      };
+
       return [
         {
           id: "addCell",
@@ -380,7 +409,26 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
           action: renameCell,
           disabled: !targetCellName,
         },
+        {
+          id: "toggleVisibility",
+          label: isCellHidden ? "Show Cell" : "Hide Cell",
+          action: toggleCellVisibility,
+          disabled: !targetCellName,
+        },
         { id: "sep1", separator: true },
+        {
+          id: "showAllCells",
+          label: "Show All Cells",
+          action: showAllCells,
+          disabled: allCellsVisible,
+        },
+        {
+          id: "hideAllCells",
+          label: "Hide All Cells",
+          action: hideAllCells,
+          disabled: allCellsHidden,
+        },
+        { id: "sep2", separator: true },
         {
           id: "delete",
           label: "Delete Cell",

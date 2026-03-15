@@ -606,6 +606,7 @@ function CellRow({
   depth,
   hasChildren,
   isExpanded,
+  isHidden,
   onToggleExpand,
   onSelect,
   onRename,
@@ -618,6 +619,8 @@ function CellRow({
   depth: number;
   hasChildren: boolean;
   isExpanded: boolean;
+  /** Whether this cell's internal geometry is hidden. */
+  isHidden: boolean;
   onToggleExpand: () => void;
   onSelect: () => void;
   onRename: (newName: string) => void;
@@ -788,7 +791,10 @@ function CellRow({
           />
         ) : (
           <span
-            className="absolute inset-0 truncate text-sm leading-5 select-none"
+            className={cn(
+              "absolute inset-0 truncate text-sm leading-5 select-none",
+              isHidden && "opacity-40",
+            )}
             onDoubleClick={(e) => {
               e.stopPropagation();
               setIsEditing(true);
@@ -813,6 +819,7 @@ function CellTreeNode({
   activeCell,
   editingCellName,
   expandedCells,
+  hiddenCells,
   onSelect,
   onRename,
   onToggleExpand,
@@ -823,6 +830,7 @@ function CellTreeNode({
   activeCell: string | null;
   editingCellName: string | null;
   expandedCells: Set<string>;
+  hiddenCells: Set<string>;
   onSelect: (name: string) => void;
   onRename: (oldName: string, newName: string) => void;
   onToggleExpand: (name: string) => void;
@@ -843,6 +851,7 @@ function CellTreeNode({
         depth={depth}
         hasChildren={hasChildren}
         isExpanded={isExpanded}
+        isHidden={hiddenCells.has(node.name)}
         onToggleExpand={() => onToggleExpand(node.name)}
         onSelect={() => onSelect(node.name)}
         onRename={(newName) => onRename(node.name, newName)}
@@ -860,6 +869,7 @@ function CellTreeNode({
             activeCell={activeCell}
             editingCellName={editingCellName}
             expandedCells={expandedCells}
+            hiddenCells={hiddenCells}
             onSelect={onSelect}
             onRename={onRename}
             onToggleExpand={onToggleExpand}
@@ -967,6 +977,7 @@ export function Explorer() {
   const hierarchyLevelLimit = useExplorerStore((s) => s.hierarchyLevelLimit);
   const setHierarchyLevelLimit = useExplorerStore((s) => s.setHierarchyLevelLimit);
   const maxTreeDepth = useExplorerStore((s) => s.maxTreeDepth);
+  const hiddenCells = useExplorerStore((s) => s.hiddenCells);
 
   // On sm, the expanded Explorer is an overlay — track if it was manually opened
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1168,6 +1179,7 @@ export function Explorer() {
                   activeCell={activeCell}
                   editingCellName={editingCellName}
                   expandedCells={expandedCells}
+                  hiddenCells={hiddenCells}
                   onSelect={handleSelectCell}
                   onRename={handleRenameCell}
                   onToggleExpand={toggleExpanded}
@@ -1183,6 +1195,7 @@ export function Explorer() {
                   depth={0}
                   hasChildren={false}
                   isExpanded={false}
+                  isHidden={hiddenCells.has(name)}
                   onToggleExpand={() => {}}
                   onSelect={() => handleSelectCell(name)}
                   onRename={(newName) => handleRenameCell(name, newName)}

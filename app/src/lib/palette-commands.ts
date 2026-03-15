@@ -833,6 +833,39 @@ export function getCommands(): CommandItem[] {
       },
       searchableText: "Cell change origin position offset set move",
     },
+    {
+      id: "cell-toggle-visibility",
+      type: "cell",
+      name: "Cell: Toggle Active Visibility",
+      action: () => {
+        const { activeCell } = useExplorerStore.getState();
+        if (activeCell) {
+          useExplorerStore.getState().toggleCellVisibility(activeCell);
+        }
+        close();
+      },
+      searchableText: "Toggle cell visibility hide show active",
+    },
+    {
+      id: "cell-show-all",
+      type: "cell",
+      name: "Cell: Show All",
+      action: () => {
+        useExplorerStore.getState().showAllCells();
+        close();
+      },
+      searchableText: "Show all cells visible unhide",
+    },
+    {
+      id: "cell-hide-all",
+      type: "cell",
+      name: "Cell: Hide All",
+      action: () => {
+        useExplorerStore.getState().hideAllCells();
+        close();
+      },
+      searchableText: "Hide all cells invisible",
+    },
 
     // Dynamic: one entry per cell to switch active cell
     ...useExplorerStore.getState().cells.map(

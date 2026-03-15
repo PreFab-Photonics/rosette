@@ -279,6 +279,28 @@ export function Canvas() {
     renderer.mark_dirty();
   }, [library, renderer, hierarchyLevelLimit]);
 
+  // Sync hidden cells to WASM library for cell visibility
+  const hiddenCells = useExplorerStore((s) => s.hiddenCells);
+  useEffect(() => {
+    if (!library || !renderer) return;
+    // Get the set of cells currently hidden in WASM
+    const wasmHidden = new Set<string>(library.get_hidden_cells());
+    // Show cells that are no longer hidden
+    for (const name of wasmHidden) {
+      if (!hiddenCells.has(name)) {
+        library.set_cell_visibility(name, true);
+      }
+    }
+    // Hide cells that are newly hidden
+    for (const name of hiddenCells) {
+      if (!wasmHidden.has(name)) {
+        library.set_cell_visibility(name, false);
+      }
+    }
+    renderer.sync_from_library(library);
+    renderer.mark_dirty();
+  }, [library, renderer, hiddenCells]);
+
   // Track if we've done the initial zoom-to-fit
   const hasInitialZoom = useRef(false);
   // Track the library instance to detect design mode reloads

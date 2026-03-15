@@ -135,6 +135,10 @@ pub struct WasmLibrary {
     /// 1 means only render direct elements of the active cell (instances shown as outlines only).
     /// N means resolve up to N levels of nesting.
     hierarchy_depth_limit: u32,
+    /// Set of cell names whose internal geometry is hidden.
+    /// Hidden cells still show bounding-box outlines and labels,
+    /// but their polygons/paths are not rendered.
+    hidden_cells: HashSet<String>,
 }
 
 /// Generate a constant-width ribbon polygon from a centerline.
@@ -499,6 +503,7 @@ impl WasmLibrary {
             dirty: false,
             hole_indices_map: HashMap::new(),
             hierarchy_depth_limit: 0,
+            hidden_cells: HashSet::new(),
         }
     }
 
@@ -587,6 +592,30 @@ impl WasmLibrary {
     pub fn set_hierarchy_depth_limit(&mut self, limit: u32) {
         self.hierarchy_depth_limit = limit;
         self.dirty = true;
+    }
+
+    /// Set visibility of a cell's internal geometry.
+    ///
+    /// When a cell is hidden, its polygons and paths are not rendered inside
+    /// CellRef instances. Bounding-box outlines, labels, and hit-testing
+    /// remain active so the instance can still be selected and identified.
+    pub fn set_cell_visibility(&mut self, cell_name: &str, visible: bool) {
+        if visible {
+            self.hidden_cells.remove(cell_name);
+        } else {
+            self.hidden_cells.insert(cell_name.to_string());
+        }
+        self.dirty = true;
+    }
+
+    /// Check whether a cell's internal geometry is visible.
+    pub fn is_cell_visible(&self, cell_name: &str) -> bool {
+        !self.hidden_cells.contains(cell_name)
+    }
+
+    /// Get the list of currently hidden cell names.
+    pub fn get_hidden_cells(&self) -> Vec<String> {
+        self.hidden_cells.iter().cloned().collect()
     }
 
     /// Get the origin of the active cell as [x, y].
@@ -2623,6 +2652,7 @@ impl WasmLibrary {
             dirty: false,
             hole_indices_map: HashMap::new(),
             hierarchy_depth_limit: 0,
+            hidden_cells: HashSet::new(),
         }
     }
 
@@ -3017,6 +3047,10 @@ impl WasmLibrary {
                 Element::CellRef(nested_ref) => {
                     // Skip recursion if the next level would exceed the depth limit
                     if max_depth > 0 && current_depth + 1 >= max_depth {
+                        continue;
+                    }
+                    // Skip internal geometry for hidden cells
+                    if self.hidden_cells.contains(&nested_ref.cell_name) {
                         continue;
                     }
                     if let Some(ref_cell) = self.library.cell(&nested_ref.cell_name) {
@@ -3590,6 +3624,10 @@ impl WasmLibrary {
             if let Element::CellRef(cell_ref) = element
                 && let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
             {
+                // Skip internal geometry for hidden cells
+                if self.hidden_cells.contains(&cell_ref.cell_name) {
+                    continue;
+                }
                 let mut poly_counter: usize = 0;
                 for copy_transform in array_transforms(cell_ref) {
                     self.collect_render_polygons_recursive(
