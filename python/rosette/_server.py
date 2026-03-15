@@ -208,6 +208,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             ModifyLayer,
             ModifyPathWidth,
             ModifyVertices,
+            MoveRef,
             SemanticPatcher,
         )
 
@@ -233,6 +234,10 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             "modify_path_width": lambda d: ModifyPathWidth(
                 file=d["file"], line=d["line"],
                 old_code=d.get("old_code"), width=d["width"],
+            ),
+            "move_ref": lambda d: MoveRef(
+                file=d["file"], line=d["line"],
+                old_code=d.get("old_code"), dx=d["dx"], dy=d["dy"],
             ),
         }
 

@@ -85,6 +85,15 @@ class ModifyPathWidth:
     width: float  # WASM world coords
 
 
+@dataclass
+class MoveRef:
+    file: str
+    line: int
+    old_code: str | None
+    dx: float  # delta X in WASM world coords
+    dy: float  # delta Y in WASM world coords
+
+
 # =============================================================================
 # Patch result
 # =============================================================================
@@ -382,6 +391,73 @@ class _PathWidthReplacer(cst.CSTTransformer):
         return updated_node
 
 
+class _RefPositionUpdater(cst.CSTTransformer):
+    """Update the .at(x, y) arguments in an add_ref call by a delta.
+
+    Handles: cell.at(x, y) → cell.at(x + dx, y + dy)
+    """
+
+    METADATA_DEPENDENCIES = (PositionProvider,)
+
+    def __init__(self, target_line: int, dx_um: float, dy_um: float) -> None:
+        super().__init__()
+        self.target_line = target_line
+        self.dx_um = dx_um
+        self.dy_um = dy_um
+        self.replaced = False
+
+    def leave_Call(
+        self, original_node: cst.Call, updated_node: cst.Call
+    ) -> cst.BaseExpression:
+        if self.replaced:
+            return updated_node
+
+        try:
+            pos = self.get_metadata(PositionProvider, original_node)
+            line = pos.start.line
+        except KeyError:
+            return updated_node
+        if line != self.target_line:
+            return updated_node
+
+        func_name = _get_func_name(updated_node.func)
+        if func_name != "at":
+            return updated_node
+
+        # .at(x, y) — update both positional args
+        if len(updated_node.args) >= 2:
+            old_x = self._eval_num(updated_node.args[0].value)
+            old_y = self._eval_num(updated_node.args[1].value)
+            if old_x is not None and old_y is not None:
+                new_x = old_x + self.dx_um
+                new_y = old_y + self.dy_um
+                new_args = list(updated_node.args)
+                new_args[0] = updated_node.args[0].with_changes(
+                    value=cst.parse_expression(_format_num(new_x))
+                )
+                new_args[1] = updated_node.args[1].with_changes(
+                    value=cst.parse_expression(_format_num(new_y))
+                )
+                self.replaced = True
+                return updated_node.with_changes(args=new_args)
+
+        return updated_node
+
+    @staticmethod
+    def _eval_num(node: cst.BaseExpression) -> float | None:
+        """Try to evaluate a numeric literal (including unary minus)."""
+        if isinstance(node, cst.Integer):
+            return float(node.evaluated_value)
+        if isinstance(node, cst.Float):
+            return float(node.evaluated_value)
+        if isinstance(node, cst.UnaryOperation) and isinstance(
+            node.operator, cst.Minus
+        ):
+            inner = _RefPositionUpdater._eval_num(node.expression)
+            return -inner if inner is not None else None
+        return None
+
+
 # =============================================================================
 # SemanticPatcher
 # =============================================================================
@@ -402,6 +478,8 @@ class SemanticPatcher:
             return self._add_element(op)
         elif isinstance(op, ModifyPathWidth):
             return self._modify_path_width(op)
+        elif isinstance(op, MoveRef):
+            return self._move_ref(op)
         else:
             return PatchResult(success=False, error=f"Unknown operation type: {type(op).__name__}")
 
@@ -599,6 +677,32 @@ class SemanticPatcher:
             return PatchResult(
                 success=False,
                 error=f"Could not find add_path call with width at line {op.line}.",
+            )
+
+        Path(op.file).write_text(new_tree.code)
+        return PatchResult(success=True)
+
+    def _move_ref(self, op: MoveRef) -> PatchResult:
+        source, err = self._read_and_validate(op.file, op.line, op.old_code)
+        if err:
+            return err
+
+        dx_um, dy_um = world_to_um(op.dx, op.dy)
+        # world_to_um flips Y and divides by WORLD_PER_UM, but for a delta
+        # we only want the scale+flip, not the absolute conversion.
+        # world_to_um(dx, dy) = (dx/WORLD_PER_UM, -dy/WORLD_PER_UM) which is correct for deltas too.
+
+        try:
+            wrapper = self._wrap(source)
+            transformer = _RefPositionUpdater(op.line, dx_um, dy_um)
+            new_tree = wrapper.visit(transformer)
+        except cst.ParserSyntaxError as e:
+            return PatchResult(success=False, error=f"Failed to parse file: {e}")
+
+        if not transformer.replaced:
+            return PatchResult(
+                success=False,
+                error=f"Could not find .at(x, y) call at line {op.line}.",
             )
 
         Path(op.file).write_text(new_tree.code)

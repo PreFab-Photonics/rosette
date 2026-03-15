@@ -105,6 +105,29 @@ export function sendVertexEdit(
 }
 
 /**
+ * Send a move_ref edit to update .at(x, y) for a cell reference.
+ * dx/dy are in WASM world coordinates.
+ */
+export function sendRefMove(
+  elementId: string,
+  dx: number,
+  dy: number,
+): void {
+  const source = getSourceInfo(elementId);
+  if (!source) return;
+  if (source.type !== "ref") return;
+
+  sendSemanticEdit({
+    op: "move_ref",
+    file: source.file,
+    line: source.line,
+    old_code: source.code,
+    dx,
+    dy,
+  });
+}
+
+/**
  * Send a layer change for an element.
  */
 export function sendLayerEdit(

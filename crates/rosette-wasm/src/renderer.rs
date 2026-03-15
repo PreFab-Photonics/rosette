@@ -316,15 +316,6 @@ impl WasmRenderer {
 
         // Configure surface
         let surface_caps = surface.get_capabilities(&adapter);
-        web_sys::console::log_1(
-            &format!(
-                "[rosette] GPU backend: {:?}, formats: {:?}, alpha_modes: {:?}",
-                adapter.get_info().backend,
-                surface_caps.formats,
-                surface_caps.alpha_modes,
-            )
-            .into(),
-        );
         // Prefer non-sRGB format: all colors in the app (clear color, layer colors,
         // selection colors) are specified in sRGB space already. Using a non-sRGB
         // surface avoids double gamma encoding that would make everything look washed out.
@@ -334,9 +325,12 @@ impl WasmRenderer {
             .find(|f| !f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
-        web_sys::console::log_1(
-            &format!("[rosette] Selected surface format: {:?}", surface_format).into(),
-        );
+
+        // Clamp surface dimensions to the GPU's max texture size (older GPUs
+        // may only support 2048, while HiDPI canvases can exceed that).
+        let max_dim = device.limits().max_texture_dimension_2d;
+        let width = width.min(max_dim);
+        let height = height.min(max_dim);
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -1993,6 +1987,11 @@ impl WasmRenderer {
         if width == 0 || height == 0 {
             return;
         }
+
+        // Clamp to GPU's max texture size (older GPUs may only support 2048)
+        let max_dim = self.device.limits().max_texture_dimension_2d;
+        let width = width.min(max_dim);
+        let height = height.min(max_dim);
 
         self.viewport.set_size(width, height);
         self.surface_config.width = width;
