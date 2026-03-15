@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CopyButton } from "./components/copy-button";
 import { HeroViewer } from "./components/hero-viewer";
+import { RedactedText } from "./components/redacted-text";
 
 /* -------------------------------------------------------------------------- */
 /*  Hero                                                                      */
@@ -29,19 +30,18 @@ function Hero() {
         <div className="mx-auto max-w-2xl text-center">
           {/* Tag line */}
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.03] px-4 py-1.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-wide text-black/50 uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/50">
-            <span className="h-1.5 w-1.5 rounded-full bg-black/30 dark:bg-white/40" />
-            In development
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-yellow" />
+            In beta
           </div>
 
           <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-black/90 sm:text-5xl lg:text-6xl dark:text-white">
-            The modern GDSII{" "}
+            A nice GDSII{" "}
             <span className="text-brand-purple dark:text-brand-purple-light">
               layout editor
             </span>
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-black/50 dark:text-white/60">
-            A layout engine for integrated circuits.{" "}
             <span className="font-medium text-black/80 dark:text-white/80">
               Fast. Intelligent. Accessible.
             </span>
@@ -66,7 +66,8 @@ function Hero() {
                 <span className="select-none text-black/30 dark:text-white/30">
                   $&nbsp;
                 </span>
-                pip install rosette
+                pip install{" "}
+                <RedactedText className="ml-1.5">rosette</RedactedText>
                 <CopyButton text="pip install rosette" disabled />
               </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
@@ -150,17 +151,17 @@ const reasons = [
   {
     title: "Fast",
     description:
-      "A compiled Rust core, WebGPU rendering, and an ergonomic API that keeps you in flow. From geometry operations to live preview, every layer of the stack is built for speed.",
+      "A Rust core and GPU rendering that keeps you in the flow. From geometry operations to live preview, every layer of the stack is built for speed.",
   },
   {
     title: "Intelligent",
     description:
-      "Fabrication-aware from the ground up. Design rules, routing constraints, and process knowledge are built in — and AI-native tooling lets coding agents design circuits alongside you.",
+      "AI-native from the ground up. Built for models and agents to enhance the fabrication, simulation, and design capabilities of your workflow.",
   },
   {
     title: "Accessible",
     description:
-      "A clean Python API, open-source components you own and edit, a visual desktop app, and documentation written for engineers. Professional tools without the learning cliff.",
+      "A clean Python API, a modern desktop app, and documentation written for engineers. Professional tools without the learning cliff.",
   },
 ];
 
@@ -211,19 +212,19 @@ const capabilities = [
     label: "python",
     title: "Python API",
     description:
-      "A clean, typed Python interface over a compiled Rust core. Ergonomic placement, automatic routing, and hierarchical cells — all in the language your team already knows.",
+      "A clean, typed Python interface over a compiled Rust core. Ergonomic placement, automatic routing, and hierarchical cells.",
   },
   {
     label: "fabrication",
     title: "Fabrication awareness",
     description:
-      "Built on PreFab\u2019s process knowledge. Design rule checks, minimum feature validation, and manufacturing constraints are part of the workflow, not an afterthought.",
+      "Built on PreFab\u2019s process knowledge. Move beyond basic design rules with foundry models that have true predictive capabilities.",
   },
   {
     label: "agents",
     title: "Agentic workflows",
     description:
-      "AI-native from day one. Agent instructions, type stubs, structured build feedback, and editable components give coding agents the context to design circuits alongside you.",
+      "AI-native from day one. Agent instructions and direct code access gives LLM agents the context to design circuits alongside you.",
   },
   {
     label: "docs",
@@ -257,16 +258,72 @@ function WhatsInside() {
 
       <div className="mt-10 grid gap-px sm:grid-cols-2 lg:grid-cols-3">
         {capabilities.map((cap) => (
-          <div
-            key={cap.label}
-            className="py-5 sm:pr-8 lg:pr-10"
-          >
+          <div key={cap.label} className="py-5 sm:pr-8 lg:pr-10">
             <h3 className="text-sm font-semibold text-black/90 dark:text-white/90">
               {cap.title}
             </h3>
-            <p className="mt-1.5 text-sm leading-relaxed text-black/50 dark:text-white/50">
-              {cap.description}
-            </p>
+            {cap.label === "more" ? (
+              <div className="mt-2.5 flex flex-wrap gap-x-2 gap-y-1.5 text-black/30 dark:text-white/20">
+                <RedactedText cols={14} rows={3} size={3}>
+                  Simulation
+                </RedactedText>
+                <RedactedText cols={16} rows={3} size={3}>
+                  integration
+                </RedactedText>
+                <RedactedText cols={10} rows={3} size={3}>
+                  component
+                </RedactedText>
+                <RedactedText cols={18} rows={3} size={3}>
+                  marketplace
+                </RedactedText>
+                <RedactedText cols={8} rows={3} size={3}>
+                  cloud
+                </RedactedText>
+                <RedactedText cols={20} rows={3} size={3}>
+                  collaboration
+                </RedactedText>
+                <RedactedText cols={12} rows={3} size={3}>
+                  and more
+                </RedactedText>
+                <RedactedText cols={14} rows={3} size={3}>
+                  actively
+                </RedactedText>
+                <RedactedText cols={16} rows={3} size={3}>
+                  developed
+                </RedactedText>
+                <RedactedText cols={10} rows={3} size={3}>
+                  shaped
+                </RedactedText>
+                <RedactedText cols={18} rows={3} size={3}>
+                  by community
+                </RedactedText>
+                <RedactedText cols={12} rows={3} size={3}>
+                  rosette
+                </RedactedText>
+                <RedactedText cols={16} rows={3} size={3}>
+                  open source
+                </RedactedText>
+                <RedactedText cols={10} rows={3} size={3}>
+                  tools
+                </RedactedText>
+                <RedactedText cols={14} rows={3} size={3}>
+                  platform
+                </RedactedText>
+                <RedactedText cols={8} rows={3} size={3}>
+                  next
+                </RedactedText>
+                <RedactedText cols={18} rows={3} size={3}>
+                  generation
+                </RedactedText>
+                <RedactedText cols={12} rows={3} size={3}>
+                  design
+                </RedactedText>
+              </div>
+            ) : (
+              <p className="mt-1.5 text-sm leading-relaxed text-black/50 dark:text-white/50">
+                {cap.description}
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -289,18 +346,15 @@ function ClosingCTA() {
       <div className="mx-auto max-w-6xl px-6 pt-16 pb-32">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-black/90 sm:text-4xl dark:text-white">
-            The modern GDSII{" "}
+            Your GDSII{" "}
             <span className="text-brand-purple dark:text-brand-purple-light">
               layout editor
             </span>
           </h2>
           <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-black/50 dark:text-white/60">
             Thousands of geometry operations, routing decisions, and design
-            checks &mdash; compiled to native code and wrapped in a clean Python
-            API.{" "}
-            <span className="font-medium text-black/80 dark:text-white/80">
-              Fast. Intelligent. Accessible.
-            </span>
+            checks &mdash; compiled to native code and wrapped in an accessible
+            interface.{" "}
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
@@ -310,7 +364,8 @@ function ClosingCTA() {
                 <span className="select-none text-black/30 dark:text-white/30">
                   $&nbsp;
                 </span>
-                pip install rosette
+                pip install{" "}
+                <RedactedText className="ml-1.5">rosette</RedactedText>
                 <CopyButton text="pip install rosette" disabled />
               </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">

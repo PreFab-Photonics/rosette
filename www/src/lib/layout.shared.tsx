@@ -10,6 +10,7 @@ export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
       title: "Rosette",
+      url: "/",
     },
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };

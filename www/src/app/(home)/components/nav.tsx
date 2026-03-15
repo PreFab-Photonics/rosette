@@ -1,3 +1,5 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 
@@ -9,8 +11,14 @@ export function Nav() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-black/[0.06] bg-white/90 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[hsl(0,0%,6%)]/90">
       <nav className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
-        <Link
+        <a
           href="/"
+          onClick={(e) => {
+            if (window.location.pathname === "/") {
+              e.preventDefault();
+              window.scrollTo({ top: 0 });
+            }
+          }}
           className="flex items-center gap-2 text-sm font-semibold tracking-tight text-black/90 transition-colors hover:text-black dark:text-white/90 dark:hover:text-white"
         >
           <Image
@@ -21,7 +29,7 @@ export function Nav() {
             className=""
           />
           <span className="text-2xl font-[family-name:var(--font-instrument-serif)]">Rosette</span>
-        </Link>
+        </a>
 
         <div className="flex items-center gap-6">
           {navLinks.map((link) =>
@@ -31,7 +39,7 @@ export function Nav() {
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-black/50 transition-colors hover:text-black/80 dark:text-white/50 dark:hover:text-white/80"
+                className="text-sm text-black/70 transition-colors hover:text-black dark:text-white/70 dark:hover:text-white"
               >
                 {link.label}
               </a>
@@ -39,7 +47,7 @@ export function Nav() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="text-sm text-black/50 transition-colors hover:text-black/80 dark:text-white/50 dark:hover:text-white/80"
+                className="text-sm text-black/70 transition-colors hover:text-black dark:text-white/70 dark:hover:text-white"
               >
                 {link.label}
               </Link>
