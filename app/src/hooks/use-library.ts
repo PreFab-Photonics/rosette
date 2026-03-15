@@ -84,6 +84,21 @@ function getEmbedName(): string | null {
 }
 
 /**
+ * Get a custom panel width from the URL for embed mode.
+ *
+ * Sets the Explorer and Sidebar panel widths in CSS pixels.
+ * Example: `?panelWidth=200` makes both panels 200px wide.
+ */
+export function getEmbedPanelWidth(): number | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("panelWidth");
+  if (!raw) return null;
+  const value = Number.parseInt(raw, 10);
+  if (Number.isNaN(value) || value <= 0) return null;
+  return value;
+}
+
+/**
  * Get a custom zoom multiplier from the URL for embed mode.
  *
  * Applied after zoom-to-fit: values < 1 zoom out, values > 1 zoom in.

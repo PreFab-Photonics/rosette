@@ -10,7 +10,7 @@ import { useUIStore } from "@/stores/ui";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { isTauri, pickGdsFile } from "@/lib/tauri";
 import { emitOpenFile, handleSave, handleNewFile, confirmDiscardChanges } from "@/lib/file-ops";
-import { isEmbedMode } from "@/hooks/use-library";
+import { isEmbedMode, getEmbedPanelWidth } from "@/hooks/use-library";
 
 /**
  * Main application component.
@@ -48,6 +48,16 @@ export default function App() {
     }
     prevIsLg.current = isLg;
   }, [isLg]);
+
+  // Embed mode: apply custom panel width from ?panelWidth= URL parameter
+  useEffect(() => {
+    if (!embed) return;
+    const panelWidth = getEmbedPanelWidth();
+    if (panelWidth !== null) {
+      useUIStore.getState().setExplorerWidth(panelWidth);
+      useUIStore.getState().setSidebarWidth(panelWidth);
+    }
+  }, [embed]);
 
   // Tauri: Cmd+O to open, Cmd+S to save, Cmd+Shift+S to save as
   useEffect(() => {
