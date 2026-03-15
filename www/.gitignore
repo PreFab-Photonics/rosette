@@ -21,7 +21,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # viewer embed (built from app/ via scripts/build_landing_viewer.sh)
-/public/viewer/
+# Committed so Vercel can deploy without Rust/wasm-pack toolchain.
+# Rebuild locally with: ./scripts/build_landing_viewer.sh
 
 # others
 .env*.local
