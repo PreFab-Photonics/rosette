@@ -3262,6 +3262,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "thiserror 1.0.69",
+ "ttf-parser",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4543,6 +4544,12 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "ttf-parser"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5be21190ff5d38e8b4a2d3b6a3ae57f612cc39c96e83cedeaf7abc338a8bac4a"
 
 [[package]]
 name = "typeid"

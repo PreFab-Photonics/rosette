@@ -39,6 +39,7 @@ mod renderer;
 mod shaders;
 #[allow(dead_code)]
 mod shapes;
+mod text_to_polygons;
 mod viewport;
 
 use wasm_bindgen::prelude::*;

@@ -1063,6 +1063,57 @@ def write_gds(
 # Valid fill pattern values (matches app/WASM renderer)
 _VALID_FILL_PATTERNS = {"solid", "hatched", "crosshatched", "dotted"}
 
+# Default layer definitions — single source of truth for templates and app.
+# These are used as the fallback when rosette.toml has no [layers] section
+# and are mirrored in the blank/generic templates and the desktop app.
+DEFAULT_LAYERS: list[dict] = [
+    {
+        "name": "silicon",
+        "number": 1,
+        "datatype": 0,
+        "color": "#ff69b4",
+        "fill": "solid",
+        "opacity": 0.7,
+        "description": "Silicon waveguides",
+    },
+    {
+        "name": "metal",
+        "number": 10,
+        "datatype": 0,
+        "color": "#ffeb3b",
+        "fill": "solid",
+        "opacity": 0.7,
+        "description": "Metal routing",
+    },
+    {
+        "name": "text",
+        "number": 100,
+        "datatype": 0,
+        "color": "#607d8b",
+        "fill": "dotted",
+        "opacity": 0.7,
+        "description": "Text annotations",
+    },
+]
+
+
+def _default_layer_map() -> LayerMap:
+    """Create a LayerMap from the built-in DEFAULT_LAYERS."""
+    return LayerMap(
+        [
+            LayerInfo(
+                name=d["name"],
+                layer=Layer(d["number"], d["datatype"]),
+                color=d["color"],
+                fill=d["fill"],
+                opacity=d["opacity"],
+                description=d["description"],
+            )
+            for d in DEFAULT_LAYERS
+        ]
+    )
+
+
 # Hex color regex: #RRGGBB
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -1076,11 +1127,11 @@ class LayerInfo:
     Use `info.layer` to get the underlying Layer for rosette APIs::
 
         layers = load_layer_map()
-        cell.add_polygon(poly, layers.core.layer)
+        cell.add_polygon(poly, layers.silicon.layer)
 
     Attributes:
         layer: The underlying Layer(number, datatype)
-        name: Semantic name (e.g., "core", "clad")
+        name: Semantic name (e.g., "silicon", "metal")
         color: Hex color string (e.g., "#ff69b4")
         fill: Fill pattern ("solid", "hatched", "crosshatched", "dotted")
         opacity: Fill opacity 0.0-1.0
@@ -1129,13 +1180,13 @@ class LayerMap:
 
     Example:
         layers = load_layer_map()
-        layers.core        # -> LayerInfo('core', Layer(1, 0), color='#ff69b4')
-        layers.core.layer  # -> Layer(1, 0)
-        layers.core.color  # -> '#ff69b4'
+        layers.silicon        # -> LayerInfo('silicon', Layer(1, 0), color='#ff69b4')
+        layers.silicon.layer  # -> Layer(1, 0)
+        layers.silicon.color  # -> '#ff69b4'
 
         # Use directly in component calls and cell operations
-        wg = waveguide(layers.core.layer, width=0.5, length=10.0)
-        cell.add_polygon(poly, layers.core.layer)
+        wg = waveguide(layers.silicon.layer, width=0.5, length=10.0)
+        cell.add_polygon(poly, layers.silicon.layer)
 
         # Iterate over all layers
         for info in layers:
@@ -1232,22 +1283,22 @@ def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
     Example:
         In rosette.toml:
 
-            [layers.core]
+            [layers.silicon]
             number = 1
             datatype = 0
             color = "#ff69b4"
-            description = "Waveguide core"
+            description = "Silicon waveguides"
 
-            [layers.clad]
-            number = 2
-            color = "#4caf50"
+            [layers.metal]
+            number = 10
+            color = "#ffeb3b"
 
         Usage:
 
             layers = load_layer_map()
-            layers.core.layer   # Layer(1, 0)
-            layers.core.color   # "#ff69b4"
-            layers.clad.number  # 2
+            layers.silicon.layer   # Layer(1, 0)
+            layers.silicon.color   # "#ff69b4"
+            layers.metal.number    # 10
     """
     # Find config file
     if config_path is not None:
@@ -1268,7 +1319,7 @@ def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
 
     layers_config = config.get("layers", {})
     if not layers_config:
-        return LayerMap()
+        return _default_layer_map()
 
     layer_infos = []
     seen_pairs: dict[tuple[int, int], str] = {}
@@ -1334,6 +1385,7 @@ def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
 
 
 __all__ = [
+    "DEFAULT_LAYERS",
     "BBox",
     "Cell",
     "CellRef",

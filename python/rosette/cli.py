@@ -36,7 +36,9 @@ def _list_templates() -> list[str]:
     return [d.name for d in TEMPLATES_DIR.iterdir() if d.is_dir()]
 
 
-def _apply_template(template_dir: Path, project_dir: Path, name: str, tools: list[str] | None = None):
+def _apply_template(
+    template_dir: Path, project_dir: Path, name: str, tools: list[str] | None = None
+):
     """Apply a template to the project directory.
 
     - Files ending in .template have {{name}} replaced and extension stripped
@@ -785,7 +787,7 @@ def _start_server(port: int):
 
 
 def _load_layer_map_safe() -> list[dict] | None:
-    """Try to load layer map from rosette.toml, return None on failure."""
+    """Try to load layer map from rosette.toml, fall back to defaults."""
     try:
         from rosette import load_layer_map
 
@@ -794,7 +796,10 @@ def _load_layer_map_safe() -> list[dict] | None:
             return layer_map.to_dict_list()
     except (FileNotFoundError, ValueError):
         pass
-    return None
+    # Fall back to built-in defaults so the app always has layers
+    from rosette import _default_layer_map
+
+    return _default_layer_map().to_dict_list()
 
 
 def _find_tauri_binary() -> Path | None:

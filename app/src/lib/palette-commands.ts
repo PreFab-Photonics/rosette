@@ -31,6 +31,7 @@ import {
   placePolygonInViewport,
   placeTextInViewport,
   snapshotElements,
+  TextToPolygonsCommand,
 } from "@/lib/commands";
 import type { AlignType } from "@/lib/align";
 import type { BooleanOpType } from "@/lib/commands";
@@ -653,6 +654,29 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Select all elements",
+    },
+    {
+      id: "edit-text-to-polygons",
+      type: "command",
+      name: "Edit: Convert Text to Polygons",
+      action: () => {
+        const { selectedIds } = useSelectionStore.getState();
+        const { library, renderer } = useWasmContextStore.getState();
+        if (!library || !renderer || selectedIds.size === 0) {
+          close();
+          return;
+        }
+        // Convert all selected text elements in a single undoable command.
+        const textIds = [...selectedIds].filter((id) => library.is_text_element(id));
+        if (textIds.length === 0) {
+          close();
+          return;
+        }
+        const cmd = new TextToPolygonsCommand(textIds);
+        useHistoryStore.getState().execute(cmd, { library, renderer });
+        close();
+      },
+      searchableText: "Convert text to polygons outline vectorize font",
     },
 
     // =========================================================================

@@ -17,7 +17,7 @@ from components import waveguide, bend, grating_coupler, mmi_1x2
 
 # Load named layers from rosette.toml (preferred over hardcoded numbers)
 layers = load_layer_map()
-layer = layers.core.layer  # Layer(1, 0)
+layer = layers.silicon.layer  # Layer(1, 0)
 
 # Components are functions that return Cells
 wg_cell = waveguide(length=10.0, width=0.5, layer=layer)
@@ -81,10 +81,10 @@ Polygon.regular(center, radius, n_sides)
 
 # Layers (from rosette.toml)
 load_layer_map() -> LayerMap          # Load from rosette.toml
-  .core -> LayerInfo                  # Attribute access by name
-  .core.layer -> Layer(1, 0)          # Underlying Layer
-  .core.color -> "#4caf50"            # Hex color
-  .core.number, .core.datatype        # GDS numbers
+  .silicon -> LayerInfo               # Attribute access by name
+  .silicon.layer -> Layer(1, 0)       # Underlying Layer
+  .silicon.color -> "#ff69b4"         # Hex color
+  .silicon.number, .silicon.datatype  # GDS numbers
 Layer(number, datatype=0)             # Direct layer (fallback)
 
 # Layout

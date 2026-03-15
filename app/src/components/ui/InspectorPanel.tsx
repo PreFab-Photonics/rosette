@@ -17,6 +17,7 @@ import {
   UpdateTextContentCommand,
   MoveTextCommand,
   SetTextHeightCommand,
+  TextToPolygonsCommand,
   type ArrayParams,
 } from "@/lib/commands";
 import { useExplorerStore, type CellNode } from "@/stores/explorer";
@@ -1325,7 +1326,7 @@ export function InspectorPanel() {
         e.preventDefault();
         const focusable = Array.from(
           el.querySelectorAll<HTMLElement>(
-            "input, button:not([tabindex='-1']):not([data-layer-option])",
+            "input, textarea, button:not([tabindex='-1']):not([data-layer-option])",
           ),
         );
         if (focusable.length === 0) return;
@@ -1356,12 +1357,12 @@ export function InspectorPanel() {
       if (focusField) {
         const fieldEl = el.querySelector<HTMLElement>(`[data-field="${focusField}"]`);
         if (fieldEl) {
-          target = fieldEl.querySelector<HTMLElement>("button:not([tabindex='-1']), input");
+          target = fieldEl.querySelector<HTMLElement>("button:not([tabindex='-1']), input, textarea");
         }
       }
       if (!target) {
         target = el.querySelector<HTMLElement>(
-          "input, button:not([tabindex='-1']):not([data-layer-option])",
+          "input, textarea, button:not([tabindex='-1']):not([data-layer-option])",
         );
       }
       if (target) target.focus();
@@ -1625,6 +1626,29 @@ export function InspectorPanel() {
             isDark={isDark}
             onChange={handleTextHeightChange}
           />
+
+          {/* Divider */}
+          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+          {/* Convert to polygons */}
+          <div className="px-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (!renderer) return;
+                const cmd = new TextToPolygonsCommand([first.id]);
+                useHistoryStore.getState().execute(cmd, { library, renderer });
+              }}
+              className={cn(
+                "flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition-colors",
+                isDark
+                  ? "border-white/10 text-white/60 hover:bg-white/5 hover:text-white/80"
+                  : "border-black/10 text-black/60 hover:bg-black/5 hover:text-black/80",
+              )}
+            >
+              Convert to Polygons
+            </button>
+          </div>
         </div>
       );
     }

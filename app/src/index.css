@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* Source Code Pro — used for text tool labels (matches the embedded WASM font
+   so "Convert Text to Polygons" produces identical outlines). */
+@font-face {
+  font-family: "Source Code Pro";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/SourceCodePro-Regular.ttf") format("truetype");
+}
+
 :root {
   font-family:
     "Geist Sans",

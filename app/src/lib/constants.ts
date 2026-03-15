@@ -31,8 +31,8 @@ export const ZOOM_PADDING_PERCENT = 0.1;
 // Text tool configuration
 /** Default text height in nanometers (visual cap-height of characters). */
 export const TEXT_DEFAULT_HEIGHT = 100;
-/** Font family used for text rendering. */
-export const TEXT_FONT_FAMILY = "monospace";
+/** Font family used for text rendering (matches embedded WASM font for polygon conversion). */
+export const TEXT_FONT_FAMILY = "'Source Code Pro', monospace";
 /** Cursor blink interval in milliseconds. */
 export const TEXT_CURSOR_BLINK_MS = 530;
 /**

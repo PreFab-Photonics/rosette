@@ -40,16 +40,16 @@ Layers are defined in `rosette.toml` and loaded with `load_layer_map()`. **Alway
 from rosette import load_layer_map
 
 layers = load_layer_map()
-layer = layers.core.layer   # Layer(1, 0) - semantic access
+layer = layers.silicon.layer   # Layer(1, 0) - semantic access
 ```
 
 Check `rosette.toml` [layers] section to see available layer names and their GDS numbers. If you need a layer that doesn't exist, add it to `rosette.toml` first:
 
 ```toml
-[layers.metal]
-number = 10
-color = "#ffeb3b"
-description = "Metal routing"
+[layers.heater]
+number = 11
+color = "#f44336"
+description = "Heater traces"
 ```
 
 ## Design Rule Checking

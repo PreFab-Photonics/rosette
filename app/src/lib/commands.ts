@@ -2014,6 +2014,99 @@ export class SetTextHeightCommand implements Command {
   }
 }
 
+/**
+ * Command to convert text elements into polygon outlines.
+ *
+ * Accepts one or more text element IDs. Removes the text labels and replaces
+ * them with polygon contours extracted from the embedded font.
+ * Fully undoable as a single undo entry: undo restores all original texts.
+ */
+export class TextToPolygonsCommand implements Command {
+  readonly type = "text-to-polygons";
+  readonly description: string;
+
+  /** Snapshots of the original text elements (for undo). */
+  private snapshots: { snapshot: TextSnapshot; currentId: string }[] = [];
+  /** UUIDs of all created polygon elements. */
+  private resultIds: string[] = [];
+
+  constructor(private textElementIds: string[]) {
+    this.description =
+      textElementIds.length === 1 ? "Convert text to polygons" : `Convert ${textElementIds.length} texts to polygons`;
+  }
+
+  execute(ctx: CommandContext): void {
+    // Snapshot text elements on first execute (for undo).
+    if (this.snapshots.length === 0) {
+      for (const id of this.textElementIds) {
+        const info = ctx.library.get_text_element_info(id) as {
+          text: string;
+          x: number;
+          y: number;
+          height: number;
+          layer: number;
+          datatype: number;
+        } | null;
+        if (!info) continue;
+        this.snapshots.push({
+          snapshot: {
+            type: "text",
+            text: info.text,
+            x: info.x,
+            y: info.y,
+            height: info.height,
+            layer: info.layer,
+            datatype: info.datatype,
+          },
+          currentId: id,
+        });
+      }
+    }
+
+    // Convert each text element (removes text, adds polygon contours).
+    this.resultIds = [];
+    for (const entry of this.snapshots) {
+      const ids = ctx.library.text_to_polygons(entry.currentId);
+      this.resultIds.push(...ids);
+    }
+
+    if (this.resultIds.length > 0) {
+      useSelectionStore.getState().selectAll(this.resultIds);
+    } else {
+      useSelectionStore.getState().clearSelection();
+    }
+
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+
+  undo(ctx: CommandContext): void {
+    // Remove all result polygons.
+    if (this.resultIds.length > 0) {
+      ctx.library.remove_elements(this.resultIds);
+      this.resultIds = [];
+    }
+
+    // Restore all original text elements.
+    const restoredIds: string[] = [];
+    for (const entry of this.snapshots) {
+      const s = entry.snapshot;
+      const id = ctx.library.add_text(s.text, s.x, s.y, s.height, s.layer, s.datatype);
+      if (id) {
+        entry.currentId = id;
+        restoredIds.push(id);
+      }
+    }
+
+    if (restoredIds.length > 0) {
+      useSelectionStore.getState().selectAll(restoredIds);
+    }
+
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+}
+
 // =============================================================================
 // Alignment Commands
 // =============================================================================

@@ -1101,6 +1101,66 @@ impl WasmLibrary {
         )
     }
 
+    /// Convert a text element to polygon outlines.
+    ///
+    /// Removes the text element and replaces it with polygon contours extracted
+    /// from the embedded Source Code Pro font. Holes in glyphs (e.g. 'd', 'o')
+    /// are boolean-subtracted so they render correctly.
+    /// Returns UUIDs of the new polygons.
+    pub fn text_to_polygons(&mut self, id: &str) -> Vec<String> {
+        use crate::text_to_polygons::text_to_polygon_contours;
+
+        // Look up the text element.
+        let elem_ref = match self.element_refs.get(id) {
+            Some(r) => r.clone(),
+            None => return Vec::new(),
+        };
+        let cell = match self.library.cell(&elem_ref.cell_name) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        let (text, position, layer_num, datatype, height) =
+            match cell.elements().get(elem_ref.element_index) {
+                Some(Element::Text {
+                    text,
+                    position,
+                    layer,
+                    height,
+                }) => (
+                    text.clone(),
+                    *position,
+                    layer.number,
+                    layer.datatype,
+                    *height,
+                ),
+                _ => return Vec::new(),
+            };
+
+        // Generate polygon contours from the text glyphs.
+        let contours = text_to_polygon_contours(&text, position.x, position.y, height);
+        if contours.is_empty() {
+            return Vec::new();
+        }
+
+        // Remove the original text element.
+        self.remove_element(id);
+
+        // Add each contour as a polygon on the same layer, with hole indices.
+        let mut new_ids: Vec<String> = Vec::new();
+        for (flat_verts, hole_indices) in &contours {
+            if let Some(uuid) = self.add_polygon(flat_verts, layer_num, datatype) {
+                if !hole_indices.is_empty() {
+                    self.hole_indices_map
+                        .insert(uuid.clone(), hole_indices.clone());
+                }
+                new_ids.push(uuid);
+            }
+        }
+
+        self.dirty = true;
+        new_ids
+    }
+
     /// Remove an element by its UUID.
     ///
     /// Returns true if the element was removed, false if not found.
@@ -1702,10 +1762,21 @@ impl WasmLibrary {
                 continue;
             }
 
-            if let Some(Element::Polygon { polygon, .. }) =
-                cell.elements().get(elem_ref.element_index)
-            {
-                let bbox = polygon.bbox();
+            let bbox = match cell.elements().get(elem_ref.element_index) {
+                Some(Element::Polygon { polygon, .. }) => Some(polygon.bbox()),
+                Some(Element::Text {
+                    text,
+                    position,
+                    height,
+                    ..
+                }) => Some(text_bbox(text, position, *height)),
+                Some(Element::Path { points, width, .. }) => {
+                    offset_polygon(points, *width).map(|ribbon| ribbon.bbox())
+                }
+                _ => None,
+            };
+
+            if let Some(bbox) = bbox {
                 combined_bbox = Some(match combined_bbox {
                     Some(existing) => existing.merge(&bbox),
                     None => bbox,
@@ -1759,7 +1830,7 @@ impl WasmLibrary {
                 continue;
             }
 
-            // Regular element UUID (polygon or text)
+            // Regular element UUID (polygon, text, or path)
             let elem_ref = match self.element_refs.get(id.as_str()) {
                 Some(r) => r,
                 None => continue,
@@ -1777,6 +1848,9 @@ impl WasmLibrary {
                     height,
                     ..
                 }) => Some(text_bbox(text, position, *height)),
+                Some(Element::Path { points, width, .. }) => {
+                    offset_polygon(points, *width).map(|ribbon| ribbon.bbox())
+                }
                 _ => None,
             };
 
@@ -3105,6 +3179,21 @@ impl WasmLibrary {
                             });
                         }
                     }
+                    Element::Text {
+                        text,
+                        position,
+                        height,
+                        ..
+                    } => {
+                        let transformed_pos = transform.apply(*position);
+                        let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
+                        let scaled_height = *height * scale;
+                        let bbox = text_bbox(text, &transformed_pos, scaled_height);
+                        *combined = Some(match combined {
+                            Some(existing) => existing.merge(&bbox),
+                            None => bbox,
+                        });
+                    }
                     Element::CellRef(nested_ref) => {
                         for copy_transform in array_transforms(nested_ref) {
                             let nested_transform = transform.then(&copy_transform);
@@ -3115,7 +3204,6 @@ impl WasmLibrary {
                             );
                         }
                     }
-                    _ => {}
                 }
             }
         }
