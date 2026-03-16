@@ -4,6 +4,7 @@ import { useMarqueeStore } from "@/stores/marquee";
 import { useHistoryStore } from "@/stores/history";
 import { useViewportStore } from "@/stores/viewport";
 import { useRulerStore, type Ruler } from "@/stores/ruler";
+import { hitTestImages, hitTestImagesRect, isImageId } from "@/stores/image";
 import { MoveRulerEndpointCommand } from "@/lib/commands";
 import { calculateSnappedPoint, getSnapVertices } from "@/lib/snap";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
@@ -379,10 +380,11 @@ export function useSelection(
   // Track the last preview IDs to avoid unnecessary updates
   const lastPreviewIdsRef = useRef<string>("");
 
-  // Sync selection state to renderer
+  // Sync selection state to renderer (filter out image IDs — renderer only knows WASM elements)
   useEffect(() => {
     if (!renderer) return;
-    renderer.set_selection(Array.from(selectedIds));
+    const wasmIds = Array.from(selectedIds).filter((id) => !isImageId(id));
+    renderer.set_selection(wasmIds);
   }, [renderer, selectedIds]);
 
   // Sync hover state to renderer (single hover when not drawing marquee)
@@ -390,14 +392,16 @@ export function useSelection(
     if (!renderer) return;
 
     if (isDrawingMarquee) {
-      // During marquee drawing, use set_hover_multiple for preview
-      renderer.set_hover_multiple(Array.from(previewIds));
-    } else if (hoveredId && library) {
-      // Normal hover - expand to instance group for visual highlight
+      // During marquee drawing, use set_hover_multiple for preview (filter images)
+      const wasmIds = Array.from(previewIds).filter((id) => !isImageId(id));
+      renderer.set_hover_multiple(wasmIds);
+    } else if (hoveredId && !isImageId(hoveredId) && library) {
+      // Normal hover on WASM element - expand to instance group for visual highlight
       const groupIds = expandToGroup(library, hoveredId);
       renderer.set_hover_multiple(groupIds);
     } else {
-      renderer.set_hover(hoveredId ?? undefined);
+      // Image hover or no hover — clear renderer hover (image overlay handles its own)
+      renderer.set_hover(undefined);
     }
   }, [renderer, library, hoveredId, isDrawingMarquee, previewIds]);
 
@@ -449,13 +453,16 @@ export function useSelection(
       const world = screenToWorld(screenX, screenY);
       if (!world || !library) return;
 
-      const hitId = library.hit_test(world.x, world.y);
+      // Hit test: WASM elements first (higher priority), then image overlays
+      let hitId = library.hit_test(world.x, world.y);
+      if (!hitId) {
+        hitId = hitTestImages(world.x, world.y) ?? undefined;
+      }
 
       if (hitId) {
         // Expand to instance group (all polygons from the same cell ref).
-        // Use hitId as lastSelectedId so Tab cycling can locate it in the
-        // group representative list.
-        const groupIds = expandToGroup(library, hitId);
+        // Image IDs are standalone (no group expansion needed).
+        const groupIds = isImageId(hitId) ? [hitId] : expandToGroup(library, hitId);
 
         // Clicked on an element - handle selection immediately
         if (e.shiftKey) {
@@ -567,8 +574,8 @@ export function useSelection(
           );
           setMarqueePreviewIds(hitRulerIds);
 
-          // Check shapes in marquee for preview
-          if (library) {
+          // Check shapes + images in marquee for preview
+          {
             const worldX1 = (screenMinX - offset.x) / zoom;
             const worldX2 = (screenMaxX - offset.x) / zoom;
             const worldY1 = (screenMinY - offset.y) / zoom;
@@ -579,14 +586,18 @@ export function useSelection(
             const worldMinY = Math.min(worldY1, worldY2);
             const worldMaxY = Math.max(worldY1, worldY2);
 
-            const rawHitIds = library.hit_test_rect(worldMinX, worldMinY, worldMaxX, worldMaxY);
-            const hitIds = expandAllToGroups(library, rawHitIds);
+            const rawHitIds = library
+              ? library.hit_test_rect(worldMinX, worldMinY, worldMaxX, worldMaxY)
+              : [];
+            const hitIds = library ? expandAllToGroups(library, rawHitIds) : rawHitIds;
+            const imageHitIds = hitTestImagesRect(worldMinX, worldMinY, worldMaxX, worldMaxY);
+            const allHitIds = [...hitIds, ...imageHitIds];
 
             // Only update if the set of IDs changed (avoid unnecessary re-renders)
-            const hitIdsKey = hitIds.sort().join(",");
+            const hitIdsKey = allHitIds.sort().join(",");
             if (hitIdsKey !== lastPreviewIdsRef.current) {
               lastPreviewIdsRef.current = hitIdsKey;
-              setPreviewIds(hitIds);
+              setPreviewIds(allHitIds);
             }
           }
         }
@@ -632,8 +643,11 @@ export function useSelection(
 
       // Only update shape hover if not hovering a ruler
       if (!hitRulerId) {
-        const hitId = library.hit_test(world.x, world.y);
-        if (hitId !== hoveredId) {
+        let hitId = library.hit_test(world.x, world.y);
+        if (!hitId) {
+          hitId = hitTestImages(world.x, world.y) ?? undefined;
+        }
+        if ((hitId ?? null) !== hoveredId) {
           setHover(hitId ?? null);
         }
       } else if (hoveredId !== null) {
@@ -731,17 +745,21 @@ export function useSelection(
         : [];
       const hitIds = library ? expandAllToGroups(library, rawHitIds) : rawHitIds;
 
+      // Also hit-test image overlays in the marquee rect
+      const imageHitIds = hitTestImagesRect(worldMinX, worldMinY, worldMaxX, worldMaxY);
+
       // Add rulers to selection
       if (hitRulerIds.length > 0) {
         addRulerToSelection(hitRulerIds);
       }
 
-      // Add all hit shapes to selection in a single batch operation
+      // Add all hit shapes + images to selection in a single batch operation
       // (selection was already cleared on mouseDown for plain drag,
       // or preserved for shift+drag)
-      if (hitIds.length > 0) {
+      const allHitIds = [...hitIds, ...imageHitIds];
+      if (allHitIds.length > 0) {
         const currentSelection = useSelectionStore.getState().selectedIds;
-        const newSelection = new Set([...currentSelection, ...hitIds]);
+        const newSelection = new Set([...currentSelection, ...allHitIds]);
         useSelectionStore.getState().setSelection(newSelection);
       }
     }

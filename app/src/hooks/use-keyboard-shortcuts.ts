@@ -17,6 +17,7 @@ import {
 import {
   DeleteElementsCommand,
   DeleteRulersCommand,
+  RemoveImageCommand,
   PasteElementsCommand,
   DuplicateElementsCommand,
   placeRectangleInViewport,
@@ -24,6 +25,7 @@ import {
   placeTextInViewport,
   snapshotElements,
 } from "@/lib/commands";
+import { isImageId, imageIdToKey } from "@/stores/image";
 import { useCommandPaletteStore } from "@/stores/command-palette";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useUIStore } from "@/stores/ui";
@@ -228,7 +230,7 @@ export function useKeyboardShortcuts(
         return;
       }
 
-      // Delete/Backspace: Delete selected objects or rulers
+      // Delete/Backspace: Delete selected objects, rulers, or images
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
 
@@ -240,12 +242,32 @@ export function useKeyboardShortcuts(
           return;
         }
 
-        // Then check for selected shapes
+        // Then check for selected shapes and images
         if (library && renderer) {
           const { selectedIds } = useSelectionStore.getState();
           if (selectedIds.size > 0) {
-            const command = new DeleteElementsCommand([...selectedIds]);
-            useHistoryStore.getState().execute(command, { library, renderer });
+            // Separate image IDs from WASM element IDs
+            const imageIds: string[] = [];
+            const wasmIds: string[] = [];
+            for (const id of selectedIds) {
+              if (isImageId(id)) {
+                imageIds.push(id);
+              } else {
+                wasmIds.push(id);
+              }
+            }
+
+            // Delete images (single atomic command)
+            if (imageIds.length > 0) {
+              const cmd = new RemoveImageCommand(imageIds.map(imageIdToKey));
+              useHistoryStore.getState().execute(cmd, { library, renderer });
+            }
+
+            // Delete WASM elements
+            if (wasmIds.length > 0) {
+              const command = new DeleteElementsCommand(wasmIds);
+              useHistoryStore.getState().execute(command, { library, renderer });
+            }
           }
         }
         return;

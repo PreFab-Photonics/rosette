@@ -18,10 +18,13 @@ import {
   MoveTextCommand,
   SetTextHeightCommand,
   TextToPolygonsCommand,
+  MoveImageCommand,
+  ResizeImageCommand,
   type ArrayParams,
 } from "@/lib/commands";
 import { useExplorerStore, type CellNode } from "@/stores/explorer";
 import { usePathStore, type PathMetadata } from "@/stores/path";
+import { useImageStore, isImageId, imageIdToKey } from "@/stores/image";
 import { formatCoordinate, type UnitInfo } from "@/lib/format";
 import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
@@ -162,10 +165,18 @@ function NumberField({
 
   return (
     <div className="flex items-center justify-between gap-2 px-3 py-1" data-field={label}>
-      <span className={cn("text-xs select-none", readOnly
-        ? isDark ? "text-white/30" : "text-black/30"
-        : isDark ? "text-white/50" : "text-black/50",
-      )}>
+      <span
+        className={cn(
+          "text-xs select-none",
+          readOnly
+            ? isDark
+              ? "text-white/30"
+              : "text-black/30"
+            : isDark
+              ? "text-white/50"
+              : "text-black/50",
+        )}
+      >
         {label}
       </span>
       <div className="flex items-center gap-1">
@@ -215,9 +226,15 @@ function NumberField({
         )}
         {unit && (
           <span
-            className={cn("w-6 text-xs select-none", readOnly
-              ? isDark ? "text-white/20" : "text-black/20"
-              : isDark ? "text-white/40" : "text-black/40",
+            className={cn(
+              "w-6 text-xs select-none",
+              readOnly
+                ? isDark
+                  ? "text-white/20"
+                  : "text-black/20"
+                : isDark
+                  ? "text-white/40"
+                  : "text-black/40",
             )}
           >
             {unit}
@@ -812,8 +829,22 @@ function VertexRow({
         )}
       </div>
       {/* X / Y coordinate fields */}
-      <NumberField label="X" value={x} unit={unit} isDark={isDark} onChange={onChangeX} readOnly={readOnly} />
-      <NumberField label="Y" value={y} unit={unit} isDark={isDark} onChange={onChangeY} readOnly={readOnly} />
+      <NumberField
+        label="X"
+        value={x}
+        unit={unit}
+        isDark={isDark}
+        onChange={onChangeX}
+        readOnly={readOnly}
+      />
+      <NumberField
+        label="Y"
+        value={y}
+        unit={unit}
+        isDark={isDark}
+        onChange={onChangeY}
+        readOnly={readOnly}
+      />
     </div>
   );
 }
@@ -1139,6 +1170,19 @@ export function InspectorPanel() {
   // to satisfy React's Rules of Hooks.
   const pathMetadata = usePathStore((s) => s.pathMetadata);
 
+  // Image overlay selection — detected from the unified selection store.
+  // An image is selected when selectedIds contains exactly one "img:"-prefixed ID
+  // and no WASM element data is present.
+  const selectedIds = useSelectionStore((s) => s.selectedIds);
+  const allImages = useImageStore((s) => s.images);
+  const selectedImageId = useMemo(() => {
+    for (const id of selectedIds) {
+      if (isImageId(id)) return imageIdToKey(id);
+    }
+    return null;
+  }, [selectedIds]);
+  const selectedImage = selectedImageId ? (allImages.get(selectedImageId) ?? null) : null;
+
   // Read cell origin — not memoized because we need fresh data after undo/redo.
   // Only used when nothing is selected (cell inspector), so it's cheap.
   const cellOriginRaw = library?.get_cell_origin();
@@ -1302,7 +1346,6 @@ export function InspectorPanel() {
     useHistoryStore.getState().execute(cmd, { library, renderer });
   }, [data, library, renderer]);
 
-
   // Native keydown listener on the panel container.
   // - Tab/Shift+Tab: cycle through focusable fields with wrap-around.
   // - Escape: stop propagation so canvas shortcuts don't fire.
@@ -1357,7 +1400,9 @@ export function InspectorPanel() {
       if (focusField) {
         const fieldEl = el.querySelector<HTMLElement>(`[data-field="${focusField}"]`);
         if (fieldEl) {
-          target = fieldEl.querySelector<HTMLElement>("button:not([tabindex='-1']), input, textarea");
+          target = fieldEl.querySelector<HTMLElement>(
+            "button:not([tabindex='-1']), input, textarea",
+          );
         }
       }
       if (!target) {
@@ -1383,7 +1428,12 @@ export function InspectorPanel() {
       const worldWidth = displayValue * unitInfo.scale * GRID_SIZE;
       if (worldWidth <= 0) return;
 
-      const cmd = new EditPathCommand(elementId, meta, { ...meta, width: worldWidth }, "Change path width");
+      const cmd = new EditPathCommand(
+        elementId,
+        meta,
+        { ...meta, width: worldWidth },
+        "Change path width",
+      );
       useHistoryStore.getState().execute(cmd, { library, renderer });
     },
     [library, renderer, unitInfo],
@@ -1435,6 +1485,195 @@ export function InspectorPanel() {
     },
     [library, renderer, unitInfo],
   );
+
+  // Image inspector (image overlay selected, no WASM element selection)
+  if (!data && selectedImage) {
+    // Images are in world coordinates. Convert to display units.
+    // Image Y is top-left in world space; negate for user-facing display (Y-up).
+    const imgX = formatCoordinate(selectedImage.x / GRID_SIZE, unitInfo);
+    const imgY = formatCoordinate(-selectedImage.y / GRID_SIZE, unitInfo);
+    const imgW = formatCoordinate(selectedImage.width / GRID_SIZE, unitInfo);
+    const imgH = formatCoordinate(selectedImage.height / GRID_SIZE, unitInfo);
+    const isLocked = selectedImage.lockAspectRatio;
+
+    const handleImagePositionChange = (axis: "x" | "y", displayValue: number) => {
+      if (!library || !renderer || !selectedImageId) return;
+      const img = useImageStore.getState().images.get(selectedImageId);
+      if (!img) return;
+      const valueInNm = displayValue * unitInfo.scale;
+      const worldValue = axis === "y" ? -valueInNm * GRID_SIZE : valueInNm * GRID_SIZE;
+      const cmd = new MoveImageCommand(
+        selectedImageId,
+        img.x,
+        img.y,
+        axis === "x" ? worldValue : img.x,
+        axis === "y" ? worldValue : img.y,
+      );
+      useHistoryStore.getState().execute(cmd, { library, renderer });
+    };
+
+    const handleImageSizeChange = (dimension: "width" | "height", displayValue: number) => {
+      if (!library || !renderer || !selectedImageId) return;
+      const img = useImageStore.getState().images.get(selectedImageId);
+      if (!img) return;
+      const valueInNm = displayValue * unitInfo.scale;
+      const worldValue = valueInNm * GRID_SIZE;
+      if (worldValue <= 0) return;
+
+      let newWidth: number;
+      let newHeight: number;
+
+      if (img.lockAspectRatio) {
+        // Preserve aspect ratio: changing one dimension scales the other
+        const aspect = img.naturalHeight / img.naturalWidth;
+        if (dimension === "width") {
+          newWidth = worldValue;
+          newHeight = worldValue * aspect;
+        } else {
+          newHeight = worldValue;
+          newWidth = worldValue / aspect;
+        }
+      } else {
+        newWidth = dimension === "width" ? worldValue : img.width;
+        newHeight = dimension === "height" ? worldValue : img.height;
+      }
+
+      const cmd = new ResizeImageCommand(
+        selectedImageId,
+        img.width,
+        img.height,
+        newWidth,
+        newHeight,
+      );
+      useHistoryStore.getState().execute(cmd, { library, renderer });
+    };
+
+    const handleToggleLockAspectRatio = () => {
+      if (!selectedImageId) return;
+      useImageStore.getState().updateImage(selectedImageId, { lockAspectRatio: !isLocked });
+    };
+
+    return (
+      <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
+        {/* Image header */}
+        <div className="px-3 pt-2 pb-1">
+          <span
+            className={cn(
+              "text-xs font-medium select-none",
+              isDark ? "text-white/70" : "text-black/70",
+            )}
+          >
+            Image
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Filename */}
+        <SectionHeader label="File" isDark={isDark} />
+        <div className="flex items-center justify-between gap-2 px-3 py-1">
+          <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
+            Name
+          </span>
+          <span
+            className={cn(
+              "max-w-32 truncate text-right text-xs",
+              isDark ? "text-white/90" : "text-black/90",
+            )}
+            title={selectedImage.filename}
+          >
+            {selectedImage.filename}
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Position */}
+        <SectionHeader label="Position" isDark={isDark} />
+        <NumberField
+          label="X"
+          value={imgX}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={(v) => handleImagePositionChange("x", v)}
+        />
+        <NumberField
+          label="Y"
+          value={imgY}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={(v) => handleImagePositionChange("y", v)}
+        />
+
+        {/* Divider */}
+        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Size */}
+        <SectionHeader label="Size" isDark={isDark} />
+        <NumberField
+          label="W"
+          value={imgW}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={(v) => handleImageSizeChange("width", v)}
+        />
+        <NumberField
+          label="H"
+          value={imgH}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={(v) => handleImageSizeChange("height", v)}
+        />
+
+        {/* Lock aspect ratio toggle */}
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5">
+          <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
+            Lock ratio
+          </span>
+          <button
+            type="button"
+            onClick={handleToggleLockAspectRatio}
+            className={cn(
+              "flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-xs transition-colors",
+              isLocked
+                ? isDark
+                  ? "border-white/20 bg-white/10 text-white/80"
+                  : "border-black/20 bg-black/10 text-black/80"
+                : isDark
+                  ? "border-white/10 text-white/40 hover:text-white/60"
+                  : "border-black/10 text-black/40 hover:text-black/60",
+            )}
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              {isLocked ? (
+                <>
+                  <rect x="3" y="7" width="10" height="7" rx="1" />
+                  <path d="M5 7V5a3 3 0 0 1 6 0v2" />
+                </>
+              ) : (
+                <>
+                  <rect x="3" y="7" width="10" height="7" rx="1" />
+                  <path d="M5 7V5a3 3 0 0 1 6 0" />
+                </>
+              )}
+            </svg>
+            {isLocked ? "On" : "Off"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Cell inspector (no selection)
   if (!data) {
@@ -1814,11 +2053,16 @@ export function InspectorPanel() {
 
           {isMixed ? (
             <div className="flex items-center justify-between gap-2 px-3 py-1">
-              <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
+              <span
+                className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}
+              >
                 Layer
               </span>
               <span
-                className={cn("text-xs italic select-none", isDark ? "text-white/40" : "text-black/40")}
+                className={cn(
+                  "text-xs italic select-none",
+                  isDark ? "text-white/40" : "text-black/40",
+                )}
               >
                 Mixed
               </span>
@@ -1896,7 +2140,9 @@ export function InspectorPanel() {
                 onRemoveVertex={handleVertexRemove}
                 onAddVertex={handleVertexAdd}
                 readOnly
-                label={elements.length > 1 ? `Vertices (${elIdx + 1}/${elements.length})` : undefined}
+                label={
+                  elements.length > 1 ? `Vertices (${elIdx + 1}/${elements.length})` : undefined
+                }
               />
             ))
           ) : (

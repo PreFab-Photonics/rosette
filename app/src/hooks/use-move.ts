@@ -3,8 +3,9 @@ import { useSelectionStore } from "@/stores/selection";
 import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useRulerStore, type Ruler } from "@/stores/ruler";
+import { useImageStore, hitTestImages, isImageId, imageIdToKey } from "@/stores/image";
 import { useViewportStore } from "@/stores/viewport";
-import { MoveElementsCommand, MoveRulersCommand } from "@/lib/commands";
+import { MoveElementsCommand, MoveRulersCommand, MoveImagesCommand } from "@/lib/commands";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
 /**
@@ -174,25 +175,53 @@ export function useMove(
         return;
       }
 
-      if (!library) return;
-
-      // Hit test to see if we clicked on an element
-      const hitId = library.hit_test(world.x, world.y);
+      // Hit test: WASM elements first, then images
+      let hitId: string | undefined;
+      if (library) {
+        hitId = library.hit_test(world.x, world.y) ?? undefined;
+      }
+      if (!hitId) {
+        hitId = hitTestImages(world.x, world.y) ?? undefined;
+      }
       if (!hitId) return; // Clicked empty space, do nothing
 
-      // Expand to instance group
-      const groupIds = library.get_group_ids(hitId);
-
-      // Clear ruler selection when moving shapes
+      // Clear ruler selection when moving shapes/images
       selectRuler(null);
 
       // Determine which elements to move
       const { selectedIds } = useSelectionStore.getState();
+
+      if (isImageId(hitId)) {
+        // Image hit — images are always single-select for move
+        let imageIds: string[];
+        if (selectedIds.has(hitId)) {
+          // Move all selected images (filter out WASM IDs; mixed move not supported)
+          imageIds = [...selectedIds].filter((id) => isImageId(id));
+        } else {
+          imageIds = [hitId];
+          useSelectionStore.getState().select(hitId);
+        }
+
+        moveState.current = {
+          elementIds: imageIds,
+          rulerId: null,
+          startWorld: world,
+          currentDelta: { x: 0, y: 0 },
+        };
+        setIsMoving(true);
+        return;
+      }
+
+      if (!library) return;
+
+      // Expand to instance group
+      const groupIds = library.get_group_ids(hitId);
+
       let elementIds: string[];
 
       if (selectedIds.has(hitId)) {
-        // Clicked on a selected element - move all selected elements
-        elementIds = [...selectedIds];
+        // Clicked on a selected element - move all selected (filter out image IDs)
+        elementIds = [...selectedIds].filter((id) => !isImageId(id));
       } else {
         // Clicked on an unselected element - move the whole group
         elementIds = groupIds;
@@ -234,11 +263,17 @@ export function useMove(
           setHoveredRulerId(hitRulerId);
         }
 
-        // Check shape hover
-        if (library) {
-          const hitId = library.hit_test(world.x, world.y);
+        // Check shape + image hover
+        {
+          let hitId: string | null = null;
+          if (library) {
+            hitId = library.hit_test(world.x, world.y) ?? null;
+          }
+          if (!hitId) {
+            hitId = hitTestImages(world.x, world.y);
+          }
           if (hitId !== hoveredId) {
-            setHoveredId(hitId ?? null);
+            setHoveredId(hitId);
           }
         }
         return;
@@ -270,6 +305,19 @@ export function useMove(
               x: ruler.end.x + incrementalDeltaX,
               y: ruler.end.y + incrementalDeltaY,
             });
+          }
+        } else if (state.elementIds.length > 0 && isImageId(state.elementIds[0])) {
+          // Moving images — update image store directly
+          const imgStore = useImageStore.getState();
+          for (const imgId of state.elementIds) {
+            const key = imageIdToKey(imgId);
+            const entry = imgStore.images.get(key);
+            if (entry) {
+              imgStore.updateImage(key, {
+                x: entry.x + incrementalDeltaX,
+                y: entry.y + incrementalDeltaY,
+              });
+            }
           }
         } else if (library && renderer) {
           // Moving shapes
@@ -315,8 +363,16 @@ export function useMove(
       return;
     }
 
-    // For shapes, create a command for undo/redo
-    if (library && renderer && (currentDelta.x !== 0 || currentDelta.y !== 0)) {
+    // For images, push a single command for undo/redo (move already applied incrementally)
+    if (
+      elementIds.length > 0 &&
+      isImageId(elementIds[0]) &&
+      (currentDelta.x !== 0 || currentDelta.y !== 0)
+    ) {
+      const command = new MoveImagesCommand(elementIds, currentDelta.x, currentDelta.y);
+      useHistoryStore.getState().pushCommand(command);
+    } else if (library && renderer && (currentDelta.x !== 0 || currentDelta.y !== 0)) {
+      // For shapes, create a command for undo/redo
       // First, undo the real-time moves (we applied them incrementally)
       library.translate_elements(elementIds, -currentDelta.x, -currentDelta.y);
       renderer.sync_from_library(library);
@@ -355,6 +411,19 @@ export function useMove(
             x: ruler.end.x - state.currentDelta.x,
             y: ruler.end.y - state.currentDelta.y,
           });
+        }
+      } else if (state.elementIds.length > 0 && isImageId(state.elementIds[0])) {
+        // Undo image moves
+        const imgStore = useImageStore.getState();
+        for (const imgId of state.elementIds) {
+          const key = imageIdToKey(imgId);
+          const entry = imgStore.images.get(key);
+          if (entry) {
+            imgStore.updateImage(key, {
+              x: entry.x - state.currentDelta.x,
+              y: entry.y - state.currentDelta.y,
+            });
+          }
         }
       } else if (library && renderer) {
         // Undo shape moves

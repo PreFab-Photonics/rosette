@@ -36,6 +36,7 @@ import {
 import type { AlignType } from "@/lib/align";
 import type { BooleanOpType } from "@/lib/commands";
 import { useExplorerStore } from "@/stores/explorer";
+import { pickAndInsertImage } from "@/lib/image-ops";
 import { keys, getEffectiveViewport } from "@/lib/utils";
 
 // =============================================================================
@@ -513,6 +514,16 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Add text create label annotation place",
+    },
+    {
+      id: "insert-image",
+      type: "command",
+      name: "Insert: Image",
+      action: () => {
+        pickAndInsertImage();
+        close();
+      },
+      searchableText: "Insert image picture photo reference overlay annotation",
     },
 
     // =========================================================================

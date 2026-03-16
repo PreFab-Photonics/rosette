@@ -3,7 +3,7 @@ import { create } from "zustand";
 /**
  * Context menu variant determines which actions are shown.
  */
-export type ContextMenuVariant = "canvas" | "element" | "ruler" | "layer" | "cell";
+export type ContextMenuVariant = "canvas" | "element" | "ruler" | "layer" | "cell" | "image";
 
 /**
  * Context menu state for right-click menus.

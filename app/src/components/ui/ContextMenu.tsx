@@ -11,6 +11,7 @@ import { cn, keys, centerViewOnSelection } from "@/lib/utils";
 import {
   DeleteElementsCommand,
   DeleteRulersCommand,
+  RemoveImageCommand,
   PasteElementsCommand,
   DuplicateElementsCommand,
   AddLayerCommand,
@@ -19,6 +20,7 @@ import {
   DeleteCellCommand,
   snapshotElements,
 } from "@/lib/commands";
+import { isImageId, imageIdToKey } from "@/stores/image";
 import { useExplorerStore } from "@/stores/explorer";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
@@ -225,6 +227,42 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
       ];
     }
 
+    if (variant === "image") {
+      // Image context menu: Edit, Delete
+      const editImage = (): void => {
+        useUIStore.getState().requestInspectorFocus();
+        close();
+      };
+
+      const deleteImage = (): void => {
+        if (!library || !renderer) return;
+        const imageKeys = [...selectedIds].filter(isImageId).map(imageIdToKey);
+        if (imageKeys.length > 0) {
+          const cmd = new RemoveImageCommand(imageKeys);
+          useHistoryStore.getState().execute(cmd, { library, renderer });
+        }
+        close();
+      };
+
+      return [
+        {
+          id: "edit",
+          label: "Edit",
+          shortcut: { key: "E" },
+          action: editImage,
+          disabled: false,
+        },
+        { id: "sep0", separator: true },
+        {
+          id: "delete",
+          label: "Delete",
+          shortcut: { key: keys.backspace },
+          action: deleteImage,
+          disabled: false,
+        },
+      ];
+    }
+
     if (variant === "layer") {
       // Layer context menu: Add Layer, Rename, Toggle Visibility, ---, Delete
       const layerId = targetId ? Number(targetId) : null;
@@ -367,9 +405,7 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
         close();
       };
 
-      const isCellHidden = targetCellName
-        ? explorerStore.hiddenCells.has(targetCellName)
-        : false;
+      const isCellHidden = targetCellName ? explorerStore.hiddenCells.has(targetCellName) : false;
 
       const toggleCellVisibility = (): void => {
         if (targetCellName) {
@@ -379,12 +415,8 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
       };
 
       const allCells = explorerStore.cells;
-      const allCellsVisible = allCells.every(
-        (c) => !explorerStore.hiddenCells.has(c),
-      );
-      const allCellsHidden = allCells.every((c) =>
-        explorerStore.hiddenCells.has(c),
-      );
+      const allCellsVisible = allCells.every((c) => !explorerStore.hiddenCells.has(c));
+      const allCellsHidden = allCells.every((c) => explorerStore.hiddenCells.has(c));
 
       const showAllCells = (): void => {
         useExplorerStore.getState().showAllCells();

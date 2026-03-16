@@ -9,6 +9,7 @@ import { useRulerStore } from "@/stores/ruler";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useExplorerStore } from "@/stores/explorer";
 import { useCellDragStore } from "@/stores/cell-drag";
+import { hitTestImages } from "@/stores/image";
 
 // Note: useSelectionStore is used via getState() in handleContextMenu
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -37,6 +38,7 @@ import { RulerOverlay } from "@/components/canvas/RulerOverlay";
 import { InstanceLabels } from "@/components/canvas/InstanceLabels";
 import { TextOverlay } from "@/components/canvas/TextOverlay";
 import { PathSelectionOverlay } from "@/components/canvas/PathSelectionOverlay";
+import { ImageOverlay } from "@/components/canvas/ImageOverlay";
 import { ContextMenu } from "@/components/ui/ContextMenu";
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 
@@ -719,15 +721,14 @@ export function Canvas() {
         }
       }
 
-      // Hit test to check if right-clicking on an element
+      // Hit test: WASM elements first, then images
       if (library) {
         const hitId = library.hit_test(worldPos.x, worldPos.y);
 
         if (hitId) {
-          // Right-clicked on an element — expand to instance group
+          // Right-clicked on a WASM element — expand to instance group
           const groupIds = library.get_group_ids(hitId);
           const { selectedIds, setSelection } = useSelectionStore.getState();
-          // If the element's group isn't fully selected, select the group
           const allInSelection = groupIds.every((id: string) => selectedIds.has(id));
           if (!allInSelection) {
             setSelection(new Set(groupIds));
@@ -735,6 +736,17 @@ export function Canvas() {
           openContextMenu("element", { x: e.clientX, y: e.clientY }, hitId);
           return;
         }
+      }
+
+      // Check image overlays
+      const imageHitId = hitTestImages(worldPos.x, worldPos.y);
+      if (imageHitId) {
+        const { selectedIds } = useSelectionStore.getState();
+        if (!selectedIds.has(imageHitId)) {
+          useSelectionStore.getState().select(imageHitId);
+        }
+        openContextMenu("image", { x: e.clientX, y: e.clientY }, imageHitId);
+        return;
       }
 
       // Right-clicked on empty canvas
@@ -939,6 +951,7 @@ export function Canvas() {
           {cellDragName}
         </div>
       )}
+      <ImageOverlay />
       <PathSelectionOverlay />
       <InstanceLabels />
       <TextOverlay />

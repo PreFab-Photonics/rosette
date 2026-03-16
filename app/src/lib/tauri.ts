@@ -107,6 +107,31 @@ export async function pickSaveImageFile(defaultPath?: string): Promise<string | 
   });
 }
 
+/** Open a native file dialog to pick an image file. Returns the path or null. */
+export async function pickImageFile(): Promise<string | null> {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const result = await open({
+    title: "Insert Image",
+    filters: [
+      {
+        name: "Image Files",
+        extensions: ["png", "jpg", "jpeg", "svg", "webp", "gif", "bmp"],
+      },
+    ],
+    multiple: false,
+    directory: false,
+  });
+
+  if (result === null) return null;
+  return result as string;
+}
+
+/** Read raw file bytes via the Tauri backend. */
+export async function readFileBytes(path: string): Promise<Uint8Array> {
+  const buffer = await invoke<ArrayBuffer>("read_gds_bytes", { path });
+  return new Uint8Array(buffer);
+}
+
 /**
  * Listen for Tauri events. Returns an unlisten function.
  */
