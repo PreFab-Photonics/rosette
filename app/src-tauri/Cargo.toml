@@ -2,6 +2,7 @@
 name = "rosette-desktop"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 description = "Rosette GDS Viewer"
 default-run = "rosette-desktop"
 
@@ -12,6 +13,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 tauri-plugin-window-state = "2"
 rosette-core = { path = "../../crates/rosette-core", features = ["serde"] }
 rosette-io = { path = "../../crates/rosette-io" }

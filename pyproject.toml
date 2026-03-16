@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Agentic design system for photonic integrated circuits"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
 dependencies = [
     "watchfiles>=0.20",
 ]

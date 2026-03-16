@@ -77,11 +77,9 @@ function Hero() {
 
             {/* Download — Desktop app */}
             <div className="flex flex-col items-center gap-1.5">
-              <button
-                type="button"
-                disabled
-                className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 opacity-50 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
-                title="Coming soon"
+              <a
+                href="https://github.com/PreFab-Photonics/rosette/releases/latest/download/Rosette-aarch64.dmg"
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15 transition-colors hover:bg-brand-purple-light active:translate-y-px"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -100,9 +98,9 @@ function Hero() {
                   <line x1="12" x2="12" y1="15" y2="3" />
                 </svg>
                 Download
-              </button>
+              </a>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Desktop app &middot; coming soon
+                macOS &middot; Apple Silicon
               </span>
             </div>
 
@@ -375,11 +373,9 @@ function ClosingCTA() {
 
             {/* Download — Desktop app */}
             <div className="flex flex-col items-center gap-1.5">
-              <button
-                type="button"
-                disabled
-                className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 opacity-50 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
-                title="Coming soon"
+              <a
+                href="https://github.com/PreFab-Photonics/rosette/releases/latest/download/Rosette-aarch64.dmg"
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15 transition-colors hover:bg-brand-purple-light active:translate-y-px"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -398,9 +394,9 @@ function ClosingCTA() {
                   <line x1="12" x2="12" y1="15" y2="3" />
                 </svg>
                 Download
-              </button>
+              </a>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Desktop app &middot; coming soon
+                macOS &middot; Apple Silicon
               </span>
             </div>
 

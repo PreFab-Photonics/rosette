@@ -2,6 +2,7 @@
 name = "rosette-io"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "File I/O for photonic layout (GDS, etc.)"
 
 [dependencies]

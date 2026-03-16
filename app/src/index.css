@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* ── Brand palette ─────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-brand-purple: #4037C1;
+  --color-brand-purple-light: #5B52D6;
+  --color-brand-purple-dark: #302A9E;
+  --color-brand-yellow: #e6b01b;
+}
+
 /* Source Code Pro — used for text tool labels (matches the embedded WASM font
    so "Convert Text to Polygons" produces identical outlines). */
 @font-face {
@@ -55,4 +64,16 @@ body {
 #root {
   width: 100%;
   height: 100vh;
+}
+
+/* Update notification toast entrance */
+@keyframes update-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

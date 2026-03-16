@@ -53,11 +53,9 @@ export function Nav() {
               </Link>
             ),
           )}
-          <button
-            type="button"
-            disabled
-            className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-md border border-brand-purple-dark/50 bg-brand-purple px-3 opacity-50 text-xs font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
-            title="Coming soon"
+          <a
+            href="https://github.com/PreFab-Photonics/rosette/releases/latest/download/Rosette-aarch64.dmg"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-brand-purple-dark/50 bg-brand-purple px-3 text-xs font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15 transition-colors hover:bg-brand-purple-light active:translate-y-px"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -76,7 +74,7 @@ export function Nav() {
               <line x1="12" x2="12" y1="15" y2="3" />
             </svg>
             Download
-          </button>
+          </a>
         </div>
       </nav>
     </header>

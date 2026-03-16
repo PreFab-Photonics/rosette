@@ -6,6 +6,7 @@ import { Minimap } from "@/components/ui/Minimap";
 import { Sidebar } from "@/components/ui/Sidebar";
 import { StatusBar } from "@/components/ui/StatusBar";
 import { Toolbar } from "@/components/ui/Toolbar";
+import { UpdateNotification } from "@/components/ui/UpdateNotification";
 import { useUIStore } from "@/stores/ui";
 import {
   useTabsStore,
@@ -266,6 +267,9 @@ export default function App() {
 
       {/* Docked status bar */}
       <StatusBar compact={isMd || isSm} minimal={isSm} />
+
+      {/* In-app update toast (Tauri only) */}
+      <UpdateNotification />
     </div>
   );
 }
