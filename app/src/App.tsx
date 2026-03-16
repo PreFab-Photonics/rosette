@@ -10,6 +10,7 @@ import { useUIStore } from "@/stores/ui";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { isTauri, pickGdsFile } from "@/lib/tauri";
 import { emitOpenFile, handleSave, handleNewFile, confirmDiscardChanges } from "@/lib/file-ops";
+import { isEmbedMode, getEmbedPanelWidth } from "@/hooks/use-library";
 
 /**
  * Main application component.
@@ -22,6 +23,7 @@ export default function App() {
   const theme = useUIStore((s) => s.theme);
   const zenMode = useUIStore((s) => s.zenMode);
   const { isLg, isMd, isSm } = useBreakpoint();
+  const embed = isEmbedMode();
 
   // Sync panel collapsed state with breakpoint.
   // On initial load: if lg, ensure panels are expanded (overrides stale persisted state).
@@ -47,9 +49,19 @@ export default function App() {
     prevIsLg.current = isLg;
   }, [isLg]);
 
+  // Embed mode: apply custom panel width from ?panelWidth= URL parameter
+  useEffect(() => {
+    if (!embed) return;
+    const panelWidth = getEmbedPanelWidth();
+    if (panelWidth !== null) {
+      useUIStore.getState().setExplorerWidth(panelWidth);
+      useUIStore.getState().setSidebarWidth(panelWidth);
+    }
+  }, [embed]);
+
   // Tauri: Cmd+O to open, Cmd+S to save, Cmd+Shift+S to save as
   useEffect(() => {
-    if (!isTauri) return;
+    if (!isTauri || embed) return;
 
     const handleKeyDown = async (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -79,11 +91,11 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [embed]);
 
   // Tauri: listen for drag-drop events from the native webview
   useEffect(() => {
-    if (!isTauri) return;
+    if (!isTauri || embed) return;
 
     let unlisten: (() => void) | null = null;
     let cancelled = false;
@@ -120,7 +132,26 @@ export default function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [embed]);
+
+  // Embed mode: full app experience (Explorer, Sidebar, StatusBar, CommandPalette)
+  if (embed) {
+    return (
+      <div
+        className={`flex h-screen w-screen flex-col ${theme === "dark" ? "bg-black" : "bg-white"}`}
+      >
+        <div className="relative min-h-0 flex-1">
+          <Canvas />
+          {!zenMode && <Toolbar compact={false} minimal={false} />}
+          {!zenMode && <Explorer />}
+          {!zenMode && <Sidebar />}
+          <Minimap />
+          <CommandPalette />
+        </div>
+        <StatusBar compact={isMd || isSm} minimal={isSm} />
+      </div>
+    );
+  }
 
   return (
     <div

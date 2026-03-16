@@ -29,7 +29,7 @@ pub struct Shape {
     /// contains a single entry pointing to where the hole vertices begin.
     /// Used by `earcutr::earcut` for correct triangulation of cutouts.
     pub hole_indices: Vec<usize>,
-    /// Fill pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    /// Fill pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
     pub fill_pattern: u32,
     /// Whether this polygon is known to be non-self-intersecting.
     /// GDS polygons and rectangles are always simple, so we skip the
@@ -82,7 +82,7 @@ pub struct PolygonVertex {
     pub position: [f32; 2],
     /// RGBA color.
     pub color: [f32; 4],
-    /// Fill pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    /// Fill pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
     /// Stored as u32 (maps to WGSL u32). Padded to 8 bytes for alignment.
     pub fill_pattern: u32,
     pub _padding: u32,

@@ -11,7 +11,7 @@ use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 /// A rendered polygon: (uuid, vertices, color, fill_pattern).
-/// fill_pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+/// fill_pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
 type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4], u32);
 
 /// Iterate over all array copy transforms for a CellRef.
@@ -121,15 +121,10 @@ pub struct WasmLibrary {
     /// Layer colors for rendering (layer_key -> RGBA).
     layer_colors: HashMap<u32, [f32; 4]>,
     /// Layer fill patterns (layer_key -> pattern id).
-    /// 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    /// 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
     layer_fill_patterns: HashMap<u32, u32>,
     /// Whether the library has changed since last sync.
     dirty: bool,
-    /// Maps instance group ID → list of element UUIDs in that group.
-    /// Used for selecting entire cell instances in design mode.
-    group_map: HashMap<u32, Vec<String>>,
-    /// Maps element UUID → group ID it belongs to (reverse lookup).
-    uuid_to_group: HashMap<String, u32>,
     /// Maps element UUIDs to hole start indices for polygons with cutouts.
     ///
     /// Produced by `boolean_operation` when the result has interior rings.
@@ -140,11 +135,313 @@ pub struct WasmLibrary {
     /// 1 means only render direct elements of the active cell (instances shown as outlines only).
     /// N means resolve up to N levels of nesting.
     hierarchy_depth_limit: u32,
+    /// Set of cell names whose internal geometry is hidden.
+    /// Hidden cells still show bounding-box outlines and labels,
+    /// but their polygons/paths are not rendered.
+    hidden_cells: HashSet<String>,
+}
+
+/// Generate a constant-width ribbon polygon from a centerline.
+///
+/// At each interior vertex, computes the miter point that keeps the path
+/// edges at exactly `half_width` from the centerline. The miter length is
+/// clamped to `2 * half_width` to avoid spikes at very sharp bends.
+fn constant_width_path(centerline: &[Point], width: f64) -> Option<Polygon> {
+    if centerline.len() < 2 {
+        return None;
+    }
+
+    let hw = width / 2.0;
+    let n = centerline.len();
+    let mut left = Vec::with_capacity(n);
+    let mut right = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let (nx, ny) = if i == 0 {
+            // First point: perpendicular to first segment
+            let dx = centerline[1].x - centerline[0].x;
+            let dy = centerline[1].y - centerline[0].y;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 1e-12 {
+                continue;
+            }
+            (-dy / len, dx / len)
+        } else if i == n - 1 {
+            // Last point: perpendicular to last segment
+            let dx = centerline[n - 1].x - centerline[n - 2].x;
+            let dy = centerline[n - 1].y - centerline[n - 2].y;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 1e-12 {
+                continue;
+            }
+            (-dy / len, dx / len)
+        } else {
+            // Interior: compute miter from incoming and outgoing segment normals
+            let dx1 = centerline[i].x - centerline[i - 1].x;
+            let dy1 = centerline[i].y - centerline[i - 1].y;
+            let len1 = (dx1 * dx1 + dy1 * dy1).sqrt();
+            let dx2 = centerline[i + 1].x - centerline[i].x;
+            let dy2 = centerline[i + 1].y - centerline[i].y;
+            let len2 = (dx2 * dx2 + dy2 * dy2).sqrt();
+
+            if len1 < 1e-12 || len2 < 1e-12 {
+                continue;
+            }
+
+            // Per-segment unit normals (pointing left of travel direction)
+            let n1x = -dy1 / len1;
+            let n1y = dx1 / len1;
+            let n2x = -dy2 / len2;
+            let n2y = dx2 / len2;
+
+            // Miter direction = average of the two normals
+            let mx = n1x + n2x;
+            let my = n1y + n2y;
+            let mlen = (mx * mx + my * my).sqrt();
+
+            if mlen < 1e-12 {
+                // Normals are opposite (180° turn) — use first normal
+                (n1x, n1y)
+            } else {
+                // Miter scale: hw / dot(miter_unit, n1) keeps edges at half_width
+                let mux = mx / mlen;
+                let muy = my / mlen;
+                let dot = mux * n1x + muy * n1y;
+
+                if dot.abs() < 1e-6 {
+                    (n1x, n1y)
+                } else {
+                    let scale = (hw / dot).min(2.0 * hw).max(-2.0 * hw);
+                    // Return the pre-scaled offset (not unit normal * hw)
+                    left.push(Point::new(
+                        centerline[i].x + mux * scale,
+                        centerline[i].y + muy * scale,
+                    ));
+                    right.push(Point::new(
+                        centerline[i].x - mux * scale,
+                        centerline[i].y - muy * scale,
+                    ));
+                    continue;
+                }
+            }
+        };
+
+        left.push(Point::new(
+            centerline[i].x + nx * hw,
+            centerline[i].y + ny * hw,
+        ));
+        right.push(Point::new(
+            centerline[i].x - nx * hw,
+            centerline[i].y - ny * hw,
+        ));
+    }
+
+    if left.len() < 2 {
+        return None;
+    }
+
+    // Build closed polygon: left side forward, right side reversed
+    right.reverse();
+    left.append(&mut right);
+    Some(Polygon::new(left))
+}
+
+/// Densify a centerline by replacing sharp interior corners with circular arc points.
+///
+/// At each interior vertex the signed turn angle is computed. If a `corner_radius`
+/// is provided and the angle is non-trivial, the vertex is replaced by a sequence
+/// of arc points that smoothly connect the incoming and outgoing segments.
+///
+/// Uses a two-pass algorithm so adjacent corners sharing a segment split the
+/// available space fairly instead of the first corner greedily consuming it all.
+fn densify_centerline_with_arcs(
+    centerline: &[Point],
+    corner_radius: f64,
+    num_arc_points: u32,
+) -> Vec<Point> {
+    let n = centerline.len();
+    if n < 3 || corner_radius <= 0.0 {
+        return centerline.to_vec();
+    }
+
+    // Pre-compute segment lengths
+    let seg_lengths: Vec<f64> = (0..n - 1)
+        .map(|i| centerline[i].distance_to(centerline[i + 1]))
+        .collect();
+
+    let num_corners = n - 2; // interior vertices
+
+    // --- Pass 1: compute ideal setback for each corner ---
+    struct CornerInfo {
+        turn_angle: f64,
+        ideal_setback: f64,
+    }
+    let mut corners: Vec<Option<CornerInfo>> = Vec::with_capacity(num_corners);
+
+    for i in 1..n - 1 {
+        let prev = centerline[i - 1];
+        let curr = centerline[i];
+        let next = centerline[i + 1];
+
+        let incoming = (curr - prev).normalize();
+        let outgoing = (next - curr).normalize();
+
+        let cross = incoming.cross(outgoing);
+        let dot = incoming.dot(outgoing);
+        let turn_angle = cross.atan2(dot);
+
+        if turn_angle.abs() < 1e-6 {
+            corners.push(None); // straight through
+        } else {
+            let half_angle = turn_angle.abs() / 2.0;
+            let ideal_setback = corner_radius * half_angle.tan();
+            corners.push(Some(CornerInfo {
+                turn_angle,
+                ideal_setback,
+            }));
+        }
+    }
+
+    // --- Pass 2: resolve conflicts on shared segments ---
+    // Each segment seg[k] is shared between corner k-1 (outgoing) and corner k (incoming).
+    // Corner index c corresponds to centerline vertex c+1.
+    // Corner c claims seg[c] on its incoming side and seg[c+1] on its outgoing side.
+    let mut setbacks: Vec<f64> = corners
+        .iter()
+        .map(|c| c.as_ref().map(|ci| ci.ideal_setback).unwrap_or(0.0))
+        .collect();
+
+    // For each segment, check if the two adjacent corners' setbacks overlap.
+    // Segment seg[k] is claimed by corner k-1 (outgoing) and corner k (incoming).
+    // Iterate a few times so reductions on one segment propagate to neighbors.
+    for _iter in 0..3 {
+        for k in 0..seg_lengths.len() {
+            let capacity = seg_lengths[k] * 0.95; // leave 5% margin
+
+            // Corner whose outgoing side is seg[k] = corner k-1
+            // Corner whose incoming side is seg[k] = corner k
+            let out_corner = if k > 0 { Some(k - 1) } else { None };
+            let in_corner = if k < num_corners { Some(k) } else { None };
+
+            let out_claim = out_corner.map(|c| setbacks[c]).unwrap_or(0.0);
+            let in_claim = in_corner.map(|c| setbacks[c]).unwrap_or(0.0);
+
+            let total = out_claim + in_claim;
+            if total > capacity && total > 1e-10 {
+                // Scale both claims proportionally to fit
+                let scale = capacity / total;
+                if let Some(c) = out_corner {
+                    setbacks[c] = setbacks[c].min(out_claim * scale);
+                }
+                if let Some(c) = in_corner {
+                    setbacks[c] = setbacks[c].min(in_claim * scale);
+                }
+            }
+        }
+    }
+
+    // --- Pass 3: generate arc points ---
+    let mut result: Vec<Point> = Vec::with_capacity(n * 4);
+    result.push(centerline[0]);
+
+    for (c, corner) in corners.iter().enumerate() {
+        let i = c + 1; // centerline vertex index
+        let curr = centerline[i];
+
+        let corner = match corner {
+            Some(ci) => ci,
+            None => {
+                result.push(curr);
+                continue;
+            }
+        };
+
+        let setback = setbacks[c];
+        let half_angle = corner.turn_angle.abs() / 2.0;
+        let radius = if half_angle.tan().abs() > 1e-10 {
+            setback / half_angle.tan()
+        } else {
+            0.0
+        };
+
+        if radius < 1e-6 || setback < 1e-6 {
+            result.push(curr);
+            continue;
+        }
+
+        let prev = centerline[i - 1];
+        let next = centerline[i + 1];
+        let incoming = (curr - prev).normalize();
+        let outgoing = (next - curr).normalize();
+
+        // Turn sign: +1 for CCW, -1 for CW
+        let turn_sign = if corner.turn_angle > 0.0 { 1.0 } else { -1.0 };
+
+        // Tangent points on the centerline
+        let bend_start = curr + incoming * (-setback);
+        let bend_end = curr + outgoing * setback;
+
+        // Arc center: perpendicular to incoming at bend_start, offset by radius
+        let incoming_perp = incoming.perpendicular() * turn_sign;
+        let center = bend_start + incoming_perp * radius;
+
+        // Generate arc points
+        let num_segments =
+            ((corner.turn_angle.abs() * 180.0 / std::f64::consts::PI * 2.0).ceil() as u32).max(8);
+        let num_segments = num_segments.min(num_arc_points);
+
+        // Vector from center to bend_start (this gets rotated)
+        let start_vec = bend_start - center;
+
+        result.push(bend_start);
+        for j in 1..num_segments {
+            let t = j as f64 / num_segments as f64;
+            let angle = corner.turn_angle * t;
+            let rotated = start_vec.rotate(angle);
+            result.push(center + rotated);
+        }
+        result.push(bend_end);
+    }
+
+    result.push(centerline[n - 1]);
+    result
+}
+
+/// Generate a constant-width ribbon polygon with rounded corners.
+///
+/// First densifies the centerline by inserting circular arc points at each
+/// interior corner, then runs the standard miter-offset to produce the ribbon.
+fn constant_width_path_rounded(
+    centerline: &[Point],
+    width: f64,
+    corner_radius: f64,
+    num_arc_points: u32,
+) -> Option<Polygon> {
+    if corner_radius <= 0.0 {
+        return constant_width_path(centerline, width);
+    }
+    let smooth = densify_centerline_with_arcs(centerline, corner_radius, num_arc_points);
+    constant_width_path(&smooth, width)
 }
 
 /// Pack layer number and datatype into a single u32 key.
 fn layer_key(layer: u16, datatype: u16) -> u32 {
     ((layer as u32) << 16) | (datatype as u32)
+}
+
+/// Compute absolute area of a polygon using the shoelace formula.
+fn polygon_area(vertices: &[[f64; 2]]) -> f64 {
+    let n = vertices.len();
+    if n < 3 {
+        return 0.0;
+    }
+    let mut area = 0.0;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        area += vertices[i][0] * vertices[j][1];
+        area -= vertices[j][0] * vertices[i][1];
+    }
+    area.abs() * 0.5
 }
 
 /// Ratio of CSS em-size to visual cap-height for monospace fonts.
@@ -204,10 +501,9 @@ impl WasmLibrary {
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
             dirty: false,
-            group_map: HashMap::new(),
-            uuid_to_group: HashMap::new(),
             hole_indices_map: HashMap::new(),
             hierarchy_depth_limit: 0,
+            hidden_cells: HashSet::new(),
         }
     }
 
@@ -298,6 +594,30 @@ impl WasmLibrary {
         self.dirty = true;
     }
 
+    /// Set visibility of a cell's internal geometry.
+    ///
+    /// When a cell is hidden, its polygons and paths are not rendered inside
+    /// CellRef instances. Bounding-box outlines, labels, and hit-testing
+    /// remain active so the instance can still be selected and identified.
+    pub fn set_cell_visibility(&mut self, cell_name: &str, visible: bool) {
+        if visible {
+            self.hidden_cells.remove(cell_name);
+        } else {
+            self.hidden_cells.insert(cell_name.to_string());
+        }
+        self.dirty = true;
+    }
+
+    /// Check whether a cell's internal geometry is visible.
+    pub fn is_cell_visible(&self, cell_name: &str) -> bool {
+        !self.hidden_cells.contains(cell_name)
+    }
+
+    /// Get the list of currently hidden cell names.
+    pub fn get_hidden_cells(&self) -> Vec<String> {
+        self.hidden_cells.iter().cloned().collect()
+    }
+
     /// Get the origin of the active cell as [x, y].
     ///
     /// Returns None if no active cell exists.
@@ -350,7 +670,7 @@ impl WasmLibrary {
 
     /// Set the fill pattern for a layer.
     ///
-    /// Pattern IDs: 0=solid, 1=hatched, 2=crosshatched, 3=dotted.
+    /// Pattern IDs: 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
     pub fn set_layer_fill_pattern(&mut self, layer: u16, datatype: u16, pattern: u32) {
         let key = layer_key(layer, datatype);
         self.layer_fill_patterns.insert(key, pattern);
@@ -430,6 +750,109 @@ impl WasmLibrary {
             uuid.clone(),
             ElementRef {
                 cell_name: cell_name.clone(),
+                element_index,
+            },
+        );
+
+        self.dirty = true;
+        Some(uuid)
+    }
+
+    /// Create a path (waveguide) polygon from a centerline and width.
+    ///
+    /// Generates a constant-width ribbon polygon. At interior corners the
+    /// miter offset is clamped so the path edges stay at exactly half-width
+    /// from the centerline without flaring at bends.
+    ///
+    /// Points are provided as a flat array: [x0, y0, x1, y1, ...].
+    /// Returns the element's UUID, or None if generation fails.
+    ///
+    /// # Arguments
+    /// * `points` - Flat array of centerline coordinates in world units
+    /// * `width` - Path width in world units
+    /// * `layer` - GDS layer number
+    /// * `datatype` - GDS datatype number
+    pub fn create_path(
+        &mut self,
+        points: &[f64],
+        width: f64,
+        layer: u16,
+        datatype: u16,
+    ) -> Option<String> {
+        if points.len() < 4 {
+            return None; // Need at least 2 points
+        }
+
+        let cell_name = self.active_cell.as_ref()?;
+
+        let centerline: Vec<Point> = points
+            .chunks(2)
+            .map(|chunk| Point::new(chunk[0], chunk[1]))
+            .collect();
+
+        let polygon = constant_width_path(&centerline, width)?;
+
+        let layer_spec = Layer::new(layer, datatype);
+        let cell_name = cell_name.clone();
+        let cell = self.library.cell_mut(&cell_name)?;
+        cell.add_polygon(polygon, layer_spec);
+
+        let element_index = cell.elements().len() - 1;
+        let uuid = Uuid::new_v4().to_string();
+
+        self.element_refs.insert(
+            uuid.clone(),
+            ElementRef {
+                cell_name,
+                element_index,
+            },
+        );
+
+        self.dirty = true;
+        Some(uuid)
+    }
+
+    /// Create a path (waveguide) polygon with rounded corners from a centerline.
+    ///
+    /// Same as `create_path` but inserts circular arc points at interior corners
+    /// before generating the ribbon polygon. If `corner_radius` is 0 the result
+    /// is identical to `create_path`.
+    ///
+    /// Returns the element's UUID, or None if no active cell.
+    pub fn create_path_rounded(
+        &mut self,
+        points: &[f64],
+        width: f64,
+        corner_radius: f64,
+        num_arc_points: u32,
+        layer: u16,
+        datatype: u16,
+    ) -> Option<String> {
+        if points.len() < 4 {
+            return None; // Need at least 2 points
+        }
+
+        let cell_name = self.active_cell.as_ref()?;
+
+        let centerline: Vec<Point> = points
+            .chunks(2)
+            .map(|chunk| Point::new(chunk[0], chunk[1]))
+            .collect();
+
+        let polygon = constant_width_path_rounded(&centerline, width, corner_radius, num_arc_points)?;
+
+        let layer_spec = Layer::new(layer, datatype);
+        let cell_name = cell_name.clone();
+        let cell = self.library.cell_mut(&cell_name)?;
+        cell.add_polygon(polygon, layer_spec);
+
+        let element_index = cell.elements().len() - 1;
+        let uuid = Uuid::new_v4().to_string();
+
+        self.element_refs.insert(
+            uuid.clone(),
+            ElementRef {
+                cell_name,
                 element_index,
             },
         );
@@ -1004,6 +1427,26 @@ impl WasmLibrary {
                         hits.push((uuid.clone(), polygon.area()));
                     }
                 }
+                Some(Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                }) => {
+                    let key = layer_key(layer.number, layer.datatype);
+                    if let Some(color) = self.layer_colors.get(&key)
+                        && color[3] <= 0.0
+                    {
+                        continue;
+                    }
+
+                    if let Some(ribbon) = offset_polygon(points, *width) {
+                        let bbox = ribbon.bbox();
+                        if bbox.contains(point) && ribbon.contains(point) {
+                            hits.push((uuid.clone(), ribbon.area()));
+                        }
+                    }
+                }
                 Some(Element::Text {
                     text,
                     position,
@@ -1086,6 +1529,26 @@ impl WasmLibrary {
                         hits.push(uuid.clone());
                     }
                 }
+                Some(Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                }) => {
+                    let key = layer_key(layer.number, layer.datatype);
+                    if let Some(color) = self.layer_colors.get(&key)
+                        && color[3] <= 0.0
+                    {
+                        continue;
+                    }
+
+                    if let Some(ribbon) = offset_polygon(points, *width) {
+                        let bbox = ribbon.bbox();
+                        if bbox.overlaps(&query_bbox) {
+                            hits.push(uuid.clone());
+                        }
+                    }
+                }
                 Some(Element::Text {
                     text,
                     position,
@@ -1135,13 +1598,7 @@ impl WasmLibrary {
             return self.get_all_ref_uuids_for_element(elem_idx);
         }
 
-        // Check pre-flattened group membership (design mode)
-        if let Some(group_id) = self.uuid_to_group.get(uuid)
-            && let Some(ids) = self.group_map.get(group_id)
-        {
-            return ids.clone();
-        }
-        // Ungrouped — return just this element
+        // Regular element — return just this element
         vec![uuid.to_string()]
     }
 
@@ -1186,11 +1643,10 @@ impl WasmLibrary {
         ids
     }
 
-    /// Get one representative UUID per instance group, plus ungrouped UUIDs.
+    /// Get one representative UUID per element or CellRef instance.
     ///
     /// Used for Tab-cycling: each step in the cycle corresponds to one
-    /// cell instance (group) or one standalone polygon.
-    /// Includes CellRef instances (one representative per CellRef element).
+    /// cell instance (CellRef) or one standalone element (polygon, path, text).
     pub fn get_group_representative_ids(&self) -> Vec<String> {
         let cell_name = match &self.active_cell {
             Some(name) => name,
@@ -1202,35 +1658,23 @@ impl WasmLibrary {
             None => return Vec::new(),
         };
 
-        let mut seen_groups = std::collections::HashMap::new();
-        let mut ungrouped = Vec::new();
+        let mut result = Vec::new();
 
-        for (uuid, elem_ref) in &self.element_refs {
-            if elem_ref.cell_name != *cell_name {
-                continue;
-            }
-
-            // Skip CellRef elements — they are represented by synthetic UUIDs below
-            if matches!(
-                cell.elements().get(elem_ref.element_index),
-                Some(Element::CellRef(_))
-            ) {
-                continue;
-            }
-
-            if let Some(&group_id) = self.uuid_to_group.get(uuid) {
-                seen_groups.entry(group_id).or_insert_with(|| uuid.clone());
-            } else {
-                ungrouped.push(uuid.clone());
-            }
-        }
-
-        let mut groups: Vec<(u32, String)> = seen_groups.into_iter().collect();
-        groups.sort_by_key(|(id, _)| *id);
-
-        let mut result: Vec<String> = groups.into_iter().map(|(_, uuid)| uuid).collect();
-        ungrouped.sort();
-        result.extend(ungrouped);
+        // Collect non-CellRef element UUIDs (polygons, paths, text)
+        let mut direct_uuids: Vec<String> = self
+            .element_refs
+            .iter()
+            .filter(|(_, elem_ref)| {
+                elem_ref.cell_name == *cell_name
+                    && !matches!(
+                        cell.elements().get(elem_ref.element_index),
+                        Some(Element::CellRef(_))
+                    )
+            })
+            .map(|(uuid, _)| uuid.clone())
+            .collect();
+        direct_uuids.sort();
+        result.extend(direct_uuids);
 
         // Include one representative per CellRef instance
         for (elem_idx, element) in cell.elements().iter().enumerate() {
@@ -1374,6 +1818,19 @@ impl WasmLibrary {
                     .collect();
                 Some(vertices)
             }
+            Some(Element::Path { points, width, .. }) => {
+                // Convert path to ribbon polygon for outline rendering
+                if let Some(ribbon) = offset_polygon(points, *width) {
+                    let vertices: Vec<f64> = ribbon
+                        .vertices()
+                        .iter()
+                        .flat_map(|p| vec![p.x, p.y])
+                        .collect();
+                    Some(vertices)
+                } else {
+                    None
+                }
+            }
             Some(Element::Text {
                 text,
                 position,
@@ -1432,6 +1889,28 @@ impl WasmLibrary {
                     layer: layer.number,
                     datatype: layer.datatype,
                 })
+            }
+            Some(Element::Path {
+                points,
+                width,
+                layer,
+                ..
+            }) => {
+                // Convert path centerline to ribbon polygon for selection outlines
+                if let Some(ribbon) = offset_polygon(points, *width) {
+                    let vertices: Vec<f64> = ribbon
+                        .vertices()
+                        .iter()
+                        .flat_map(|p| vec![p.x, p.y])
+                        .collect();
+                    Some(ElementInfo {
+                        vertices,
+                        layer: layer.number,
+                        datatype: layer.datatype,
+                    })
+                } else {
+                    None
+                }
             }
             Some(Element::Text {
                 text,
@@ -1572,6 +2051,13 @@ impl WasmLibrary {
             Some(Element::Polygon { polygon, .. }) => {
                 let translation = Vector2::new(dx, dy);
                 *polygon = polygon.translate(translation);
+                self.dirty = true;
+                true
+            }
+            Some(Element::Path { points, .. }) => {
+                for point in points.iter_mut() {
+                    *point = Point::new(point.x + dx, point.y + dy);
+                }
                 self.dirty = true;
                 true
             }
@@ -2018,71 +2504,6 @@ impl WasmLibrary {
         Ok(wasm_lib)
     }
 
-    /// Load a library from pre-flattened JSON.
-    ///
-    /// This method parses JSON that has already been flattened by `to_flat_json()`.
-    /// The input format is:
-    /// ```json
-    /// {"polygons": [{"v": [x0,y0,x1,y1,...], "l": 1, "d": 0}, ...]}
-    /// ```
-    ///
-    /// This is faster than `from_json()` because:
-    /// - No hierarchy traversal needed
-    /// - No path-to-polygon conversion
-    /// - No scaling (already done server-side)
-    ///
-    /// # Arguments
-    /// * `json` - JSON string containing pre-flattened polygon data
-    ///
-    /// # Returns
-    /// A new WasmLibrary with a single cell containing all polygons.
-    ///
-    /// # Errors
-    /// Returns a JsValue error if parsing fails.
-    pub fn from_flat_json(json: &str) -> Result<WasmLibrary, JsValue> {
-        use rosette_core::FlatGeometry;
-
-        let flat: FlatGeometry = serde_json::from_str(json)
-            .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
-
-        // Create a new library with a single cell
-        let mut wasm_lib = WasmLibrary::new("design");
-        wasm_lib.add_cell("flattened")?;
-        wasm_lib.set_active_cell("flattened");
-
-        // The flat JSON contains coordinates in nanometers (from to_flat_json's UM_TO_NM
-        // scaling). The app's internal world coordinate system uses GRID_SIZE world units
-        // per nanometer (1 nm = GRID_SIZE world units), so we must scale up to match.
-        // Y is also negated: GDS/SDK use math convention (Y-up) while the app's
-        // renderer uses screen convention (Y-down).
-        const GRID_SIZE: f64 = 50.0;
-
-        // Add all polygons, scaling from nm to world units (with Y flip),
-        // and build group maps for instance-based selection
-        for poly in flat.polygons {
-            if poly.vertices.len() >= 6 {
-                let scaled: Vec<f64> = poly
-                    .vertices
-                    .chunks(2)
-                    .flat_map(|xy| [xy[0] * GRID_SIZE, -xy[1] * GRID_SIZE])
-                    .collect();
-                let uuid = wasm_lib.add_polygon(&scaled, poly.layer, poly.datatype);
-
-                // Track group membership
-                if let (Some(uuid), Some(group_id)) = (&uuid, poly.group) {
-                    wasm_lib
-                        .group_map
-                        .entry(group_id)
-                        .or_default()
-                        .push(uuid.clone());
-                    wasm_lib.uuid_to_group.insert(uuid.clone(), group_id);
-                }
-            }
-        }
-
-        Ok(wasm_lib)
-    }
-
     /// Export the library to JSON.
     ///
     /// # Returns
@@ -2229,10 +2650,9 @@ impl WasmLibrary {
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
             dirty: false,
-            group_map: HashMap::new(),
-            uuid_to_group: HashMap::new(),
             hole_indices_map: HashMap::new(),
             hierarchy_depth_limit: 0,
+            hidden_cells: HashSet::new(),
         }
     }
 
@@ -2627,6 +3047,10 @@ impl WasmLibrary {
                 Element::CellRef(nested_ref) => {
                     // Skip recursion if the next level would exceed the depth limit
                     if max_depth > 0 && current_depth + 1 >= max_depth {
+                        continue;
+                    }
+                    // Skip internal geometry for hidden cells
+                    if self.hidden_cells.contains(&nested_ref.cell_name) {
                         continue;
                     }
                     if let Some(ref_cell) = self.library.cell(&nested_ref.cell_name) {
@@ -3182,6 +3606,10 @@ impl WasmLibrary {
                 }
                 Element::CellRef(cell_ref) => {
                     if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
+                        // Skip internal geometry for hidden cells
+                        if self.hidden_cells.contains(&cell_ref.cell_name) {
+                            continue;
+                        }
                         let mut poly_counter: usize = 0;
                         for copy_transform in array_transforms(cell_ref) {
                             self.collect_render_polygons_recursive(
@@ -3203,9 +3631,8 @@ impl WasmLibrary {
                     layer,
                     ..
                 } => {
-                    // Render path as polygon ribbon (matches flatten_cell_recursive).
-                    // In from_flat_json mode paths are already polygons, but in
-                    // init_from_library (Tauri) mode they remain as Element::Path.
+                    // Render path as polygon ribbon.
+                    // In init_from_library mode paths remain as Element::Path.
                     if let Some(uuid) = index_to_uuid.get(&elem_idx) {
                         if let Some(ribbon) = offset_polygon(points, *width) {
                             let key = layer_key(layer.number, layer.datatype);
@@ -3226,6 +3653,17 @@ impl WasmLibrary {
                 _ => {}
             }
         }
+
+        // Sort by area descending so large shapes draw first and small shapes
+        // render on top. This ensures features like waveguides and vias are never
+        // hidden behind substrate or cladding polygons.
+        result.sort_by(|a, b| {
+            let area_a = polygon_area(&a.1);
+            let area_b = polygon_area(&b.1);
+            area_b
+                .partial_cmp(&area_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         result
     }

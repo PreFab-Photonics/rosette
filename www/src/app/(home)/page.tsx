@@ -1,82 +1,194 @@
 import Link from "next/link";
+import { CopyButton } from "./components/copy-button";
+import { HeroViewer } from "./components/hero-viewer";
+import { RedactedText } from "./components/redacted-text";
 
 /* -------------------------------------------------------------------------- */
 /*  Hero                                                                      */
 /* -------------------------------------------------------------------------- */
 
+const heroCodeFallback = `from rosette import Cell, Layer, Route, write_gds
+from components.mmi import mmi_1x2
+from components.grating_coupler import grating_coupler
+
+chip = Cell("splitter")
+gc = grating_coupler(layer=Layer(1, 0)).at(0, 0)
+mmi = mmi_1x2(layer=Layer(1, 0)).at(80, 0)
+chip.add_ref(gc)
+chip.add_ref(mmi)
+
+Route.through(gc.port("opt"), mmi.port("in"),
+    layer=Layer(1, 0), width=0.5, bend_radius=10.0)
+
+write_gds("splitter.gds", chip)`;
+
 function Hero() {
   return (
-    <section className="mx-auto max-w-5xl px-6 pb-24 pt-32 text-center">
-      <h1 className="text-5xl font-bold tracking-tight text-black/90 sm:text-6xl dark:text-white/90">
-        Design photonics with code
-      </h1>
+    <section className="relative">
+      <div className="mx-auto max-w-6xl px-6 pb-16 pt-20 sm:pt-24">
+        {/* Hero text */}
+        <div className="mx-auto max-w-2xl text-center">
+          {/* Tag line */}
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.03] px-4 py-1.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-wide text-black/50 uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/50">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-yellow" />
+            In beta
+          </div>
 
-      <p className="mx-auto mt-6 max-w-xl text-lg text-black/50 dark:text-white/50">
-        Python API. Rust core. Agentic from day one.
-      </p>
+          <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-black/90 sm:text-5xl lg:text-6xl dark:text-white">
+            A nice GDSII{" "}
+            <span className="text-brand-purple dark:text-brand-purple-light">
+              layout editor
+            </span>
+          </h1>
 
-      <div className="mt-10 flex items-center justify-center gap-4">
-        <Link
-          href="/docs"
-          className="inline-flex h-10 items-center rounded-lg bg-black px-5 text-sm font-medium text-white transition-colors hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
-        >
-          Get Started
-        </Link>
-        <a
-          href="https://github.com/prefab-photonics/rosette"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex h-10 items-center rounded-lg border border-black/10 px-5 text-sm font-medium text-black/70 transition-colors hover:bg-black/5 dark:border-white/10 dark:text-white/70 dark:hover:bg-white/5"
-        >
-          GitHub
-        </a>
-      </div>
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-black/50 dark:text-white/60">
+            <span className="font-medium text-black/80 dark:text-white/80">
+              Fast. Intelligent. Accessible.
+            </span>
+          </p>
 
-      <div className="mx-auto mt-12 max-w-sm rounded-xl border border-black/10 bg-black/5 p-4 dark:border-white/10 dark:bg-white/5">
-        <pre className="text-sm font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
-          <code>pip install rosette</code>
-        </pre>
+          <p className="mt-3 text-sm text-black/30 dark:text-white/30">
+            by{" "}
+            <a
+              href="https://prefabphotonics.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transition-colors hover:text-black/50 dark:hover:text-white/50"
+            >
+              PreFab Photonics
+            </a>
+          </p>
+
+          <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
+            {/* pip install — Python API */}
+            <div className="flex flex-col items-center gap-1.5">
+              <div className="inline-flex h-11 cursor-not-allowed items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 opacity-50 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
+                <span className="select-none text-black/30 dark:text-white/30">
+                  $&nbsp;
+                </span>
+                pip install{" "}
+                <RedactedText className="ml-1.5">rosette</RedactedText>
+                <CopyButton text="pip install rosette" disabled />
+              </div>
+              <span className="text-[11px] text-black/30 dark:text-white/30">
+                Python API &middot; coming soon
+              </span>
+            </div>
+
+            {/* Download — Desktop app */}
+            <div className="flex flex-col items-center gap-1.5">
+              <button
+                type="button"
+                disabled
+                className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 opacity-50 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
+                title="Coming soon"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" x2="12" y1="15" y2="3" />
+                </svg>
+                Download
+              </button>
+              <span className="text-[11px] text-black/30 dark:text-white/30">
+                Desktop app &middot; coming soon
+              </span>
+            </div>
+
+            {/* GitHub — Source code */}
+            <div className="flex flex-col items-center gap-1.5">
+              <Link
+                href="https://github.com/PreFab-Photonics/rosette"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-neutral-800"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+                </svg>
+                GitHub
+              </Link>
+              <span className="text-[11px] text-black/30 dark:text-white/30">
+                Source code
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Full-width viewer + synced background dot grid */}
+        <HeroViewer
+          src="/viewer/index.html?embed=true&src=showcase.json&colors=382165,5635a2,e6b01b&fills=solid,solid,solid&name=demo&zoom=0.8&panelWidth=200"
+          fallback={heroCodeFallback}
+        />
       </div>
     </section>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Feature Pillars                                                           */
+/*  Why Rosette                                                               */
 /* -------------------------------------------------------------------------- */
 
-const pillars = [
+const reasons = [
   {
-    title: "Rust-fast",
+    title: "Fast",
     description:
-      "Geometry, routing, DRC, and GDS I/O execute in compiled Rust. You write Python.",
+      "A Rust core and GPU rendering that keeps you in the flow. From geometry operations to live preview, every layer of the stack is built for speed.",
   },
   {
-    title: "Agentic",
+    title: "Intelligent",
     description:
-      "Built for AI workflows. Ships with agent instructions, type stubs, and feedback loops so AI tools can design circuits.",
+      "AI-native from the ground up. Built for models and agents to enhance the fabrication, simulation, and design capabilities of your workflow.",
   },
   {
-    title: "Own your components",
+    title: "Accessible",
     description:
-      "shadcn-style: components are plain Python functions copied to your project. Read, modify, extend.",
+      "A clean Python API, a modern desktop app, and documentation written for engineers. Professional tools without the learning cliff.",
   },
-] as const;
+];
 
-function Pillars() {
+function WhyRosette() {
   return (
-    <section className="mx-auto max-w-5xl px-6 py-24">
-      <div className="grid gap-6 sm:grid-cols-3">
-        {pillars.map((pillar) => (
-          <div
-            key={pillar.title}
-            className="rounded-xl border border-black/10 p-6 dark:border-white/10"
-          >
-            <h3 className="text-sm font-medium text-black/90 dark:text-white/90">
-              {pillar.title}
+    <section className="relative mx-auto max-w-6xl px-6 py-16">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="h-px w-8 bg-black/20 dark:bg-white/20" />
+        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-black/40 uppercase dark:text-white/40">
+          Principles
+        </span>
+      </div>
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-black/90 italic dark:text-white">
+        Why Rosette?
+      </h2>
+
+      <div className="mt-10 grid gap-x-10 gap-y-6 sm:grid-cols-3">
+        {reasons.map((reason, i) => (
+          <div key={reason.title}>
+            <span className="font-[family-name:var(--font-geist-mono)] text-xs text-black/20 dark:text-white/20">
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <h3 className="mt-1 text-sm font-semibold text-black/90 dark:text-white/90">
+              {reason.title}
             </h3>
-            <p className="mt-2 text-sm leading-relaxed text-black/50 dark:text-white/50">
-              {pillar.description}
+            <p className="mt-1.5 text-sm leading-relaxed text-black/50 dark:text-white/50">
+              {reason.description}
             </p>
           </div>
         ))}
@@ -86,80 +198,132 @@ function Pillars() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Feature Showcase                                                          */
+/*  What's Inside                                                             */
 /* -------------------------------------------------------------------------- */
 
-const features = [
+const capabilities = [
   {
-    title: "Automatic routing",
+    label: "app",
+    title: "Desktop app",
     description:
-      "Route.through() handles bends, tapers, and width transitions. Euler bends minimize loss. Radius auto-reduces when space is tight, with warnings.",
-    code: `route = Route.through(
-    mmi.port("out1"),
-    Point(200, 50),
-    ring.port("in"),
-    layer=layers.core,
-    width=0.5,
-    bend_radius=10.0,
-)`,
+      "A native app with a WebGPU-rendered viewer, hot-reloading preview, and design rule overlays. See your layout update in real time as you write code.",
   },
   {
-    title: "Built-in DRC",
+    label: "python",
+    title: "Python API",
     description:
-      "Seven check types: min width, min spacing, min area, enclosure, overlap rules, and allowed angles. Configurable in TOML. Runs at Rust speed.",
-    code: `[drc.layers.core]
-min_width = 0.15
-min_spacing = 0.15
-min_area = 0.01
-allowed_angles = [0, 45, 90, 135, 180]`,
+      "A clean, typed Python interface over a compiled Rust core. Ergonomic placement, automatic routing, and hierarchical cells.",
   },
   {
-    title: "Live viewer",
+    label: "fabrication",
+    title: "Fabrication awareness",
     description:
-      "rosette serve gives instant visual feedback with hot reload. WebGPU rendering handles millions of polygons. Also ships as a native desktop app.",
-    code: `$ rosette serve design.py
+      "Built on PreFab\u2019s process knowledge. Move beyond basic design rules with foundry models that have true predictive capabilities.",
+  },
+  {
+    label: "agents",
+    title: "Agentic workflows",
+    description:
+      "AI-native from day one. Agent instructions and direct code access gives LLM agents the context to design circuits alongside you.",
+  },
+  {
+    label: "docs",
+    title: "Documentation",
+    description:
+      "Guides, API references, and copy-paste recipes written for engineers. From first install to tapeout, every step is documented.",
+  },
+  {
+    label: "more",
+    title: "More to come",
+    description:
+      "Simulation integration, a component marketplace, cloud collaboration, and more. Rosette is actively developed and shaped by the community.",
+  },
+];
 
-  Watching design.py for changes...
-  Serving at http://localhost:8000`,
-  },
-  {
-    title: "13 photonic components",
-    description:
-      "Waveguides, Euler bends, MMIs, directional couplers, ring resonators, grating couplers, spirals, crossings, and more. All with consistent port conventions.",
-    code: `from components.ring import ring
-from components.grating_coupler import grating_coupler
-
-r = ring(
-    layer=layers.core,
-    radius=10.0,
-    coupling_gap=0.2,
-    style="add-drop",
-)`,
-  },
-] as const;
-
-function Features() {
+function WhatsInside() {
   return (
-    <section className="mx-auto max-w-5xl px-6 py-24">
-      <div className="space-y-20">
-        {features.map((feature) => (
-          <div
-            key={feature.title}
-            className="grid items-start gap-8 sm:grid-cols-2"
-          >
-            <div>
-              <h3 className="text-lg font-medium text-black/90 dark:text-white/90">
-                {feature.title}
-              </h3>
-              <p className="mt-3 text-sm leading-relaxed text-black/50 dark:text-white/50">
-                {feature.description}
+    <section className="relative mx-auto max-w-6xl px-6 py-16">
+      {/* Subtle divider */}
+      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-black/10 to-transparent dark:via-white/10" />
+
+      <div className="flex items-center gap-3 mb-3">
+        <div className="h-px w-8 bg-black/20 dark:bg-white/20" />
+        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-black/40 uppercase dark:text-white/40">
+          Features
+        </span>
+      </div>
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-black/90 italic dark:text-white">
+        What&rsquo;s inside
+      </h2>
+
+      <div className="mt-10 grid gap-px sm:grid-cols-2 lg:grid-cols-3">
+        {capabilities.map((cap) => (
+          <div key={cap.label} className="py-5 sm:pr-8 lg:pr-10">
+            <h3 className="text-sm font-semibold text-black/90 dark:text-white/90">
+              {cap.title}
+            </h3>
+            {cap.label === "more" ? (
+              <div className="mt-2.5 flex flex-wrap gap-x-2 gap-y-1.5 text-black/30 dark:text-white/20">
+                <RedactedText cols={14} rows={3} size={3}>
+                  Simulation
+                </RedactedText>
+                <RedactedText cols={16} rows={3} size={3}>
+                  integration
+                </RedactedText>
+                <RedactedText cols={10} rows={3} size={3}>
+                  component
+                </RedactedText>
+                <RedactedText cols={18} rows={3} size={3}>
+                  marketplace
+                </RedactedText>
+                <RedactedText cols={8} rows={3} size={3}>
+                  cloud
+                </RedactedText>
+                <RedactedText cols={20} rows={3} size={3}>
+                  collaboration
+                </RedactedText>
+                <RedactedText cols={12} rows={3} size={3}>
+                  and more
+                </RedactedText>
+                <RedactedText cols={14} rows={3} size={3}>
+                  actively
+                </RedactedText>
+                <RedactedText cols={16} rows={3} size={3}>
+                  developed
+                </RedactedText>
+                <RedactedText cols={10} rows={3} size={3}>
+                  shaped
+                </RedactedText>
+                <RedactedText cols={18} rows={3} size={3}>
+                  by community
+                </RedactedText>
+                <RedactedText cols={12} rows={3} size={3}>
+                  rosette
+                </RedactedText>
+                <RedactedText cols={16} rows={3} size={3}>
+                  open source
+                </RedactedText>
+                <RedactedText cols={10} rows={3} size={3}>
+                  tools
+                </RedactedText>
+                <RedactedText cols={14} rows={3} size={3}>
+                  platform
+                </RedactedText>
+                <RedactedText cols={8} rows={3} size={3}>
+                  next
+                </RedactedText>
+                <RedactedText cols={18} rows={3} size={3}>
+                  generation
+                </RedactedText>
+                <RedactedText cols={12} rows={3} size={3}>
+                  design
+                </RedactedText>
+              </div>
+            ) : (
+              <p className="mt-1.5 text-sm leading-relaxed text-black/50 dark:text-white/50">
+                {cap.description}
               </p>
-            </div>
-            <div className="overflow-x-auto rounded-xl border border-black/10 bg-black/5 p-5 dark:border-white/10 dark:bg-white/5">
-              <pre className="text-[13px] leading-relaxed font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
-                <code>{feature.code}</code>
-              </pre>
-            </div>
+            )}
           </div>
         ))}
       </div>
@@ -168,81 +332,104 @@ function Features() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Full Example                                                              */
+/*  Closing CTA                                                               */
 /* -------------------------------------------------------------------------- */
 
-const fullExample = `import rosette as ro
-from rosette import Point, Layer
-
-# Load project configuration
-layers = ro.load_layer_map()
-
-# Import components — you own these files
-from components.mmi import mmi_1x2
-from components.bend import bend
-from components.grating_coupler import grating_coupler
-
-# Create components
-splitter = mmi_1x2(layer=layers.core)
-gc_in = grating_coupler(layer=layers.core)
-gc_out = grating_coupler(layer=layers.core)
-
-# Assemble the design
-chip = ro.Cell("splitter_tree")
-
-gc = chip.place(gc_in).at(0, 0)
-mmi = chip.place(splitter).at(100, 0)
-
-ro.Route.through(gc.port("opt"), mmi.port("in"),
-    layer=layers.core, width=0.5, bend_radius=10.0)
-
-# Export
-ro.write_gds("splitter_tree.gds", chip)`;
-
-function FullExample() {
+function ClosingCTA() {
   return (
-    <section className="mx-auto max-w-5xl px-6 py-24">
-      <h2 className="text-center text-2xl font-bold tracking-tight text-black/90 dark:text-white/90">
-        From idea to GDS in one file
-      </h2>
-      <p className="mx-auto mt-4 max-w-lg text-center text-sm text-black/50 dark:text-white/50">
-        Components are plain Python functions. Place them, route between their
-        ports, and export. No GUI required.
-      </p>
-
-      <div className="mt-10 overflow-x-auto rounded-xl border border-black/10 bg-black/5 p-6 dark:border-white/10 dark:bg-white/5">
-        <pre className="text-[13px] leading-relaxed font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
-          <code>{fullExample}</code>
-        </pre>
-      </div>
-    </section>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Bottom CTA                                                                */
-/* -------------------------------------------------------------------------- */
-
-function BottomCTA() {
-  return (
-    <section className="mx-auto max-w-5xl px-6 py-24 text-center">
-      <h2 className="text-2xl font-bold tracking-tight text-black/90 dark:text-white/90">
-        Get started
-      </h2>
-
-      <div className="mx-auto mt-8 max-w-sm rounded-xl border border-black/10 bg-black/5 p-4 dark:border-white/10 dark:bg-white/5">
-        <pre className="text-sm font-[family-name:var(--font-geist-mono)] text-black/70 dark:text-white/70">
-          <code>pip install rosette</code>
-        </pre>
+    <section className="relative">
+      {/* Top divider */}
+      <div className="absolute inset-x-0 top-0 mx-auto max-w-6xl px-6">
+        <div className="h-px bg-gradient-to-r from-transparent via-black/10 to-transparent dark:via-white/10" />
       </div>
 
-      <div className="mt-8">
-        <Link
-          href="/docs"
-          className="inline-flex h-10 items-center rounded-lg bg-black px-5 text-sm font-medium text-white transition-colors hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
-        >
-          Read the docs
-        </Link>
+      <div className="mx-auto max-w-6xl px-6 pt-16 pb-32">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-black/90 sm:text-4xl dark:text-white">
+            Your GDSII{" "}
+            <span className="text-brand-purple dark:text-brand-purple-light">
+              layout editor
+            </span>
+          </h2>
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-black/50 dark:text-white/60">
+            Thousands of geometry operations, routing decisions, and design
+            checks &mdash; compiled to native code and wrapped in an accessible
+            interface.{" "}
+          </p>
+
+          <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
+            {/* pip install — Python API */}
+            <div className="flex flex-col items-center gap-1.5">
+              <div className="inline-flex h-11 cursor-not-allowed items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 opacity-50 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
+                <span className="select-none text-black/30 dark:text-white/30">
+                  $&nbsp;
+                </span>
+                pip install{" "}
+                <RedactedText className="ml-1.5">rosette</RedactedText>
+                <CopyButton text="pip install rosette" disabled />
+              </div>
+              <span className="text-[11px] text-black/30 dark:text-white/30">
+                Python API &middot; coming soon
+              </span>
+            </div>
+
+            {/* Download — Desktop app */}
+            <div className="flex flex-col items-center gap-1.5">
+              <button
+                type="button"
+                disabled
+                className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 opacity-50 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15"
+                title="Coming soon"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" x2="12" y1="15" y2="3" />
+                </svg>
+                Download
+              </button>
+              <span className="text-[11px] text-black/30 dark:text-white/30">
+                Desktop app &middot; coming soon
+              </span>
+            </div>
+
+            {/* GitHub — Source code */}
+            <div className="flex flex-col items-center gap-1.5">
+              <Link
+                href="https://github.com/PreFab-Photonics/rosette"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-neutral-800"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+                </svg>
+                GitHub
+              </Link>
+              <span className="text-[11px] text-black/30 dark:text-white/30">
+                Source code
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -256,10 +443,9 @@ export default function HomePage() {
   return (
     <>
       <Hero />
-      <Pillars />
-      <Features />
-      <FullExample />
-      <BottomCTA />
+      <WhyRosette />
+      <WhatsInside />
+      <ClosingCTA />
     </>
   );
 }

@@ -166,6 +166,85 @@ class TestModifyVertices:
         assert "Point(10, 15)" in code
         assert "core" in code
 
+    def test_variable_reference(self, tmp_path, patcher):
+        """add_polygon(var, layer) should rewrite the variable assignment."""
+        src = write_source(tmp_path, """\
+            from rosette import *
+            cell = Cell("ring")
+            outer = Polygon.regular(Point(0, 0), radius=40, sides=6)
+            cell.add_polygon(outer, core)
+        """)
+        # Hexagon vertices (new positions)
+        verts = []
+        for x, y in [(10, 0), (5, 8), (-5, 8), (-10, 0), (-5, -8), (5, -8)]:
+            wx, wy = um_to_world(x, y)
+            verts.extend([wx, wy])
+
+        result = patcher.apply(ModifyVertices(
+            file=str(src), line=4, old_code=None, vertices=verts,
+        ))
+
+        assert result.success
+        code = src.read_text()
+        # Variable assignment should be rewritten to explicit Polygon
+        assert "Polygon.regular" not in code
+        assert "outer = Polygon([" in code
+        assert "Point(10, 0)" in code
+        assert "Point(-10, 0)" in code
+        # The add_polygon call should be unchanged
+        assert "cell.add_polygon(outer, core)" in code
+
+    def test_variable_reference_preserves_regular(self, tmp_path, patcher):
+        """If edited vertices still form a regular polygon, keep Polygon.regular() format."""
+        import math
+        src = write_source(tmp_path, """\
+            from rosette import *
+            cell = Cell("ring")
+            outer = Polygon.regular(Point(0, 0), radius=40, sides=6)
+            cell.add_polygon(outer, core)
+        """)
+        # Regular hexagon centered at (5, 3) with radius 20
+        verts = []
+        for i in range(6):
+            angle = 2 * math.pi * i / 6
+            x = 5 + 20 * math.cos(angle)
+            y = 3 + 20 * math.sin(angle)
+            wx, wy = um_to_world(x, y)
+            verts.extend([wx, wy])
+
+        result = patcher.apply(ModifyVertices(
+            file=str(src), line=4, old_code=None, vertices=verts,
+        ))
+
+        assert result.success
+        code = src.read_text()
+        assert "Polygon.regular(" in code
+        assert "radius=20" in code
+        assert "sides=6" in code
+        assert "cell.add_polygon(outer, core)" in code
+
+    def test_inline_polygon_regular(self, tmp_path, patcher):
+        """add_polygon(Polygon.regular(...), layer) should replace inline."""
+        src = write_source(tmp_path, """\
+            from rosette import *
+            cell = Cell("ring")
+            cell.add_polygon(Polygon.regular(Point(0, 0), radius=40, sides=6), core)
+        """)
+        verts = []
+        for x, y in [(10, 0), (5, 8), (-5, 8), (-10, 0), (-5, -8), (5, -8)]:
+            wx, wy = um_to_world(x, y)
+            verts.extend([wx, wy])
+
+        result = patcher.apply(ModifyVertices(
+            file=str(src), line=3, old_code=None, vertices=verts,
+        ))
+
+        assert result.success
+        code = src.read_text()
+        assert "Polygon.regular" not in code
+        assert "Polygon([Point(10, 0)" in code
+        assert "core" in code
+
     def test_add_path_vertices(self, tmp_path, patcher):
         src = write_source(tmp_path, """\
             from rosette import *

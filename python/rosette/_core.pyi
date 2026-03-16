@@ -560,47 +560,22 @@ def write_gds(
     """
     ...
 
-def to_flat_json(
+def to_json(
     design: Cell | Library,
     cells: list[Cell] | None = None,
 ) -> str:
-    """Serialize a Cell or Library to flattened JSON for the web viewer.
+    """Serialize a Cell or Library to compact JSON.
 
-    Flattens the design hierarchy into a simple list of polygons:
-    - Expands all cell references with their transforms applied
-    - Converts path elements to polygon ribbons
-    - Scales coordinates from micrometers to nanometers (x1000)
-    - Skips text elements
-
-    This is used internally by `rosette serve` for fast live preview.
+    Preserves the full hierarchical structure including cells, cell references,
+    paths, text, and ports. Used internally by `rosette serve` to send the
+    complete design to the web viewer.
 
     Args:
         design: Cell or Library to serialize
         cells: Child cells (only valid when design is a Cell with references)
 
     Returns:
-        JSON string with format: {"polygons": [{"v": [...], "l": 1, "d": 0}, ...]}
-    """
-    ...
-
-def to_flat_json_cell(
-    cell_name: str,
-    top_cell: Cell,
-    child_cells: list[Cell],
-) -> str | None:
-    """Flatten a specific cell (by name) from a hierarchy to JSON.
-
-    Used by `rosette serve` to support navigating into nested cells.
-    Builds a library from the top cell and children, then flattens
-    only the requested cell.
-
-    Args:
-        cell_name: Name of the cell to flatten
-        top_cell: The top-level cell (used to build the library)
-        child_cells: All child cells referenced by the hierarchy
-
-    Returns:
-        JSON string with flattened polygon data, or None if cell not found.
+        Compact JSON string representation of the library
     """
     ...
 

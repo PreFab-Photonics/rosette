@@ -7,10 +7,12 @@ import {
   hexToRgba,
   FILL_PATTERN_IDS,
   LAYER_PALETTE,
+  type FillPattern,
   type Layer,
 } from "@/stores/layer";
 import { isTauri, readGdsBytes, listenTauri, getPendingFile } from "@/lib/tauri";
 import { useWasmContextStore } from "@/stores/wasm-context";
+import { useSelectionStore } from "@/stores/selection";
 import { useViewportStore } from "@/stores/viewport";
 
 // Module-level singleton for library
@@ -32,12 +34,53 @@ export interface SourceInfo {
 /** UUID → SourceInfo mapping, built after each design update. */
 let currentSourceMap: Map<string, SourceInfo> | null = null;
 
+/** Stored child source maps for lazy lookup when in a child cell. */
+let storedChildSourceMaps: Record<string, (SourceInfo | null)[]> | null = null;
+/** Stored server source map (top cell, element-indexed). */
+let storedServerSourceMap: (SourceInfo | null)[] | null = null;
+/**
+ * Cache UUID → element index so lookups survive library replacement (SSE updates
+ * create a new WasmLibrary with fresh UUIDs, making old UUIDs return -1 from
+ * get_element_index). The element index within a cell doesn't change across
+ * re-executions of the same design.
+ */
+const elemIdxCache = new Map<string, number>();
+
 /**
  * Get source info for an element by UUID.
  * Returns null if no source tracking is available or the element has no source.
  */
 export function getSourceInfo(uuid: string): SourceInfo | null {
-  return currentSourceMap?.get(uuid) ?? null;
+  // Fast path: pre-built source map
+  const cached = currentSourceMap?.get(uuid) ?? null;
+  if (cached) return cached;
+
+  // Fallback: when navigated into a child cell, element v4 UUIDs
+  // aren't in the source map (which was built for the top cell).
+  // Look up child source maps using element index.
+  if (!uuid.startsWith("ref:") && libraryInstance) {
+    const activeCellName = libraryInstance.active_cell_name();
+    let elemIdx = libraryInstance.get_element_index(uuid);
+    // If UUID is stale (library was replaced by SSE), use cached index
+    if (elemIdx < 0 && elemIdxCache.has(uuid)) {
+      elemIdx = elemIdxCache.get(uuid)!;
+    }
+    if (elemIdx >= 0) {
+      elemIdxCache.set(uuid, elemIdx);
+      if (storedChildSourceMaps && activeCellName && storedChildSourceMaps[activeCellName]) {
+        const childMap = storedChildSourceMaps[activeCellName];
+        if (elemIdx < childMap.length && childMap[elemIdx]) {
+          return childMap[elemIdx];
+        }
+      }
+      if (storedServerSourceMap && elemIdx < storedServerSourceMap.length) {
+        const source = storedServerSourceMap[elemIdx];
+        if (source) return source;
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -71,14 +114,18 @@ export async function sendEdit(edit: {
 export async function sendSemanticEdit(
   edit: Record<string, unknown>,
 ): Promise<boolean> {
+  console.log("[edit] sendSemanticEdit →", JSON.stringify(edit, null, 2));
   try {
     const res = await fetch("/api/design/edit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(edit),
     });
+    const text = await res.text();
+    console.log("[edit] sendSemanticEdit response:", res.status, text);
     return res.ok;
-  } catch {
+  } catch (e) {
+    console.error("[edit] sendSemanticEdit error:", e);
     return false;
   }
 }
@@ -92,8 +139,23 @@ export function sendVertexEdit(
   newVertices: Float64Array,
 ): void {
   const source = getSourceInfo(elementId);
-  if (!source) return;
-  if (source.type !== "polygon" && source.type !== "path") return;
+  if (!source) {
+    const acn = libraryInstance?.active_cell_name() ?? null;
+    const eidx = libraryInstance?.get_element_index(elementId) ?? -1;
+    console.warn("[edit] sendVertexEdit BAIL: no source for", elementId.slice(0, 8), {
+      activeCellName: acn,
+      elemIdx: eidx,
+      hasChildMaps: storedChildSourceMaps !== null,
+      childMapKeys: storedChildSourceMaps ? Object.keys(storedChildSourceMaps) : [],
+      childMapForCell: storedChildSourceMaps && acn ? (storedChildSourceMaps[acn]?.length ?? "missing") : "n/a",
+      childEntry: storedChildSourceMaps && acn && storedChildSourceMaps[acn] ? storedChildSourceMaps[acn][eidx] : "n/a",
+      hasServerMap: storedServerSourceMap !== null,
+      serverMapLen: storedServerSourceMap?.length ?? 0,
+      serverEntry: storedServerSourceMap && eidx >= 0 ? storedServerSourceMap[eidx] : "n/a",
+    });
+    return;
+  }
+  if (source.type !== "polygon" && source.type !== "path") { console.warn("[edit] sendVertexEdit BAIL: wrong type", source.type, "for", elementId); return; }
 
   sendSemanticEdit({
     op: "modify_vertices",
@@ -114,8 +176,18 @@ export function sendRefMove(
   dy: number,
 ): void {
   const source = getSourceInfo(elementId);
-  if (!source) return;
-  if (source.type !== "ref") return;
+  if (!source) {
+    const acn = libraryInstance?.active_cell_name() ?? null;
+    const eidx = libraryInstance?.get_element_index(elementId) ?? -1;
+    console.warn("[edit] sendRefMove BAIL: no source for", elementId.slice(0, 8), {
+      activeCellName: acn, elemIdx: eidx,
+      hasChildMaps: storedChildSourceMaps !== null,
+      childMapKeys: storedChildSourceMaps ? Object.keys(storedChildSourceMaps) : [],
+      childEntry: storedChildSourceMaps && acn && storedChildSourceMaps[acn] ? storedChildSourceMaps[acn][eidx] : "n/a",
+    });
+    return;
+  }
+  if (source.type !== "ref") { console.warn("[edit] sendRefMove BAIL: wrong type", source.type, "for", elementId); return; }
 
   sendSemanticEdit({
     op: "move_ref",
@@ -136,8 +208,9 @@ export function sendLayerEdit(
   datatype: number,
 ): void {
   const source = getSourceInfo(elementId);
-  if (!source) return;
-  if (source.type !== "polygon" && source.type !== "path") return;
+  console.log("[edit] sendLayerEdit", { elementId, source });
+  if (!source) { console.warn("[edit] sendLayerEdit BAIL: no source for", elementId); return; }
+  if (source.type !== "polygon" && source.type !== "path") { console.warn("[edit] sendLayerEdit BAIL: wrong type", source.type, "for", elementId); return; }
 
   sendSemanticEdit({
     op: "modify_layer",
@@ -207,14 +280,24 @@ export function sendAddEdit(
 }
 
 /**
- * Build UUID → SourceInfo mapping from render polygon order.
- * The render polygons are in the same order as the flat JSON polygons,
- * so we can correlate by index.
+ * Build UUID → SourceInfo mapping using element indices.
+ *
+ * The server sends source_map indexed by element position in the top cell,
+ * plus child_source_maps keyed by cell name for elements inside components.
+ *
+ * For direct element UUIDs we look up source_map[element_index].
+ * For ref UUIDs ("ref:N:M") we resolve the child cell name via
+ * get_cell_ref_info and look up child_source_maps[cell_name][M].
  */
 function buildSourceMap(
   lib: WasmLibrary,
   serverSourceMap: (SourceInfo | null)[] | null,
+  childSourceMaps?: Record<string, (SourceInfo | null)[]> | null,
 ): void {
+  // Store raw data for lazy lookups (e.g., when navigated into child cell)
+  storedServerSourceMap = serverSourceMap;
+  storedChildSourceMaps = childSourceMaps ?? null;
+
   if (!serverSourceMap || serverSourceMap.length === 0) {
     currentSourceMap = null;
     return;
@@ -223,17 +306,38 @@ function buildSourceMap(
   const map = new Map<string, SourceInfo>();
   try {
     const renderPolygons = lib.get_render_polygons() as [string, unknown, unknown, unknown][];
-    for (let i = 0; i < renderPolygons.length && i < serverSourceMap.length; i++) {
-      const uuid = renderPolygons[i][0];
-      const source = serverSourceMap[i];
-      if (uuid && source) {
-        map.set(uuid, source);
+    for (const rp of renderPolygons) {
+      const uuid = rp[0];
+      if (!uuid) continue;
+
+      if (uuid.startsWith("ref:")) {
+        // ref:N:M — map to the parent cell's add_ref line (type: "ref")
+        // so that dragging sends move_ref, not modify_vertices.
+        // Child source maps are only used for non-ref UUIDs (inside child cells).
+        const colonPos = uuid.indexOf(":", 4);
+        const elemIdx = parseInt(uuid.substring(4, colonPos > 0 ? colonPos : undefined), 10);
+
+        if (elemIdx >= 0 && elemIdx < serverSourceMap.length) {
+          const source = serverSourceMap[elemIdx];
+          if (source) {
+            map.set(uuid, source);
+          }
+        }
+      } else {
+        const elemIdx = lib.get_element_index(uuid);
+        if (elemIdx >= 0 && elemIdx < serverSourceMap.length) {
+          const source = serverSourceMap[elemIdx];
+          if (source) {
+            map.set(uuid, source);
+          }
+        }
       }
     }
-  } catch {
-    // WASM call failed, no source map
+  } catch (e) {
+    console.error("[sourceMap] buildSourceMap error:", e);
   }
 
+  console.log("[sourceMap] built:", map.size, "entries, children:", childSourceMaps ? Object.keys(childSourceMaps).join(",") : "none");
   currentSourceMap = map.size > 0 ? map : null;
 }
 
@@ -248,10 +352,96 @@ export function isDesignMode(): boolean {
 }
 
 /**
+ * Check if running in embed mode.
+ * Embed mode loads a static JSON file and hides all chrome.
+ * Activated by `?embed=true&src=path/to/design.json`.
+ */
+export function isEmbedMode(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("embed") === "true";
+}
+
+/**
+ * Get the static JSON source URL for embed mode.
+ */
+function getEmbedSrc(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("src");
+}
+
+/**
+ * Get custom layer colors from the URL for embed mode.
+ *
+ * Accepts a `?colors=` parameter with comma-separated hex colors (without #).
+ * Colors are applied in order to auto-discovered layers.
+ * Example: `?colors=4037C1,F3CD49` assigns purple to layer 1, gold to layer 2.
+ */
+function getEmbedColors(): string[] | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("colors");
+  if (!raw) return null;
+  return raw.split(",").map((c) => `#${c.trim()}`);
+}
+
+/**
+ * Get custom layer fill patterns from the URL for embed mode.
+ *
+ * Accepts a `?fills=` parameter with comma-separated fill pattern names.
+ * Fills are applied in order to auto-discovered layers.
+ * Valid values: solid, hatched, crosshatched, dotted.
+ * Example: `?fills=solid,hatched` assigns solid to layer 1, hatched to layer 2.
+ */
+function getEmbedFills(): string[] | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("fills");
+  if (!raw) return null;
+  return raw.split(",").map((f) => f.trim());
+}
+
+/**
+ * Get a custom project name from the URL for embed mode.
+ * Example: `?name=my-design`
+ */
+function getEmbedName(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("name");
+}
+
+/**
+ * Get a custom panel width from the URL for embed mode.
+ *
+ * Sets the Explorer and Sidebar panel widths in CSS pixels.
+ * Example: `?panelWidth=200` makes both panels 200px wide.
+ */
+export function getEmbedPanelWidth(): number | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("panelWidth");
+  if (!raw) return null;
+  const value = Number.parseInt(raw, 10);
+  if (Number.isNaN(value) || value <= 0) return null;
+  return value;
+}
+
+/**
+ * Get a custom zoom multiplier from the URL for embed mode.
+ *
+ * Applied after zoom-to-fit: values < 1 zoom out, values > 1 zoom in.
+ * Example: `?zoom=0.8` zooms out 20% from the default fit view.
+ */
+export function getEmbedZoom(): number | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("zoom");
+  if (!raw) return null;
+  const value = Number.parseFloat(raw);
+  if (Number.isNaN(value) || value <= 0) return null;
+  return value;
+}
+
+/**
  * Check if running in Tauri desktop mode.
  */
 function isTauriMode(): boolean {
-  return isTauri && !isDesignMode();
+  return isTauri && !isDesignMode() && !isEmbedMode();
 }
 
 /**
@@ -276,20 +466,14 @@ interface DesignResponse {
   json: string | null;
   /** Cell hierarchy tree (design mode) or flat list (legacy). */
   cells: CellNode | string[] | null;
-  /** Source map for two-way editing (parallel to flat JSON polygons). */
+  /** Source map for two-way editing (indexed by element position in top cell). */
   source_map: (SourceInfo | null)[] | null;
+  /** Source maps for child cells: {cell_name: [source, ...]} indexed by render polygon order. */
+  child_source_maps: Record<string, (SourceInfo | null)[]> | null;
   /** Layer definitions from rosette.toml (if available). */
   layers: ServerLayerDef[] | null;
   /** Source filename (e.g., "layout.py" or "mmi.gds"). */
   filename: string | null;
-}
-
-/**
- * Response from /api/design/navigate.
- */
-interface NavigateResponse {
-  json: string;
-  source_map: (SourceInfo | null)[] | null;
 }
 
 /** Type guard: is the cells payload a hierarchy tree? */
@@ -414,8 +598,10 @@ function discoverLayers(lib: WasmLibrary): void {
  *
  * Creates a singleton library with a default cell and syncs layer colors.
  * In design mode (`?design=true`), connects to `/api/design/events` SSE
- * for live updates from `rosette serve`, and supports navigating into
- * nested cells via `/api/design/navigate`.
+ * for live updates from `rosette serve`. The full hierarchical library
+ * is sent over SSE and loaded via `from_library_json`, giving design
+ * mode the same instance handling as Tauri mode (cell navigation,
+ * hierarchy depth control, instance transforms in inspector).
  *
  * In Tauri mode, loads full hierarchical GDS files via the backend and
  * manages them locally in the WASM library.
@@ -433,8 +619,6 @@ export function useLibrary(
   const layersRef = useRef(layers);
   const designVersionRef = useRef(0);
   const wasmRef = useRef(wasm);
-  // Track which cell the current library was loaded for (design mode only)
-  const loadedCellRef = useRef<string | null>(null);
 
   // Keep refs in sync
   useEffect(() => {
@@ -448,8 +632,8 @@ export function useLibrary(
   useEffect(() => {
     if (!wasm || !isWasmReady) return;
 
-    // In design mode, don't create default library - wait for server data
-    if (isDesignMode()) {
+    // In design mode or embed mode, don't create default library - wait for server/static data
+    if (isDesignMode() || isEmbedMode()) {
       return;
     }
 
@@ -470,8 +654,6 @@ export function useLibrary(
     } else {
       useExplorerStore.getState().setCells(["top"]);
     }
-    // Mark the initial cell as loaded so the navigate effect doesn't fire
-    loadedCellRef.current = "top";
     setLibrary(libraryInstance);
     setIsReady(true);
   }, [wasm, isWasmReady]);
@@ -569,7 +751,6 @@ export function useLibrary(
       libraryInstance = newLib;
       setLibrary(newLib);
       setIsReady(true);
-      loadedCellRef.current = "top";
 
       // Reset explorer
       useExplorerStore.getState().setProjectName("untitled-project");
@@ -614,8 +795,8 @@ export function useLibrary(
         // Check if version changed and we have JSON
         if (data.version !== designVersionRef.current && data.json) {
           try {
-            // Create library from pre-flattened JSON (fast path)
-            const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
+            // Create library from hierarchical JSON (same path as Tauri/GDS)
+            const newLibrary = wasm.WasmLibrary.from_library_json(data.json);
 
             // Apply server-provided layer definitions, or fall back to auto-discovery
             if (data.layers && data.layers.length > 0) {
@@ -636,6 +817,24 @@ export function useLibrary(
             setIsReady(true);
             designVersionRef.current = data.version;
 
+            // Save selection state before clearing — we'll re-select equivalent
+            // elements in the new library after it's ready.
+            const prevSelectedIds = [...useSelectionStore.getState().selectedIds];
+            const prevElemIndices: { elemIdx: number; refId: string }[] = [];
+            for (const id of prevSelectedIds) {
+              if (id.startsWith("ref:")) {
+                // Synthetic ref:N:M IDs are stable across library replacements
+                prevElemIndices.push({ elemIdx: -1, refId: id });
+              } else if (oldLib) {
+                let idx = oldLib.get_element_index(id);
+                if (idx < 0) idx = elemIdxCache.get(id) ?? -1;
+                if (idx >= 0) elemIdxCache.set(id, idx);
+                prevElemIndices.push({ elemIdx: idx, refId: "" });
+              }
+            }
+
+            useSelectionStore.getState().clearSelection();
+
             if (oldLib) {
               requestAnimationFrame(() => {
                 try { oldLib.free(); } catch { /* already freed */ }
@@ -643,17 +842,27 @@ export function useLibrary(
             }
 
             // Build UUID → SourceInfo mapping for two-way editing
-            buildSourceMap(newLibrary, data.source_map ?? null);
+            buildSourceMap(newLibrary, data.source_map ?? null, data.child_source_maps ?? null);
 
-            // Update explorer with cell hierarchy from the server
-            if (data.cells) {
+            // Build cell tree from the WASM library (same as Tauri mode)
+            const tree = newLibrary.get_cell_tree();
+            if (tree) {
+              // Preserve current active cell if it still exists in the new tree
+              const prevActiveCell = useExplorerStore.getState().activeCell;
+              useExplorerStore.getState().setCellTree(tree);
+              if (prevActiveCell) {
+                const cells = useExplorerStore.getState().cells;
+                if (cells.includes(prevActiveCell)) {
+                  // Restore previous cell — setCellTree may have kept it,
+                  // but also sync the WASM library to match
+                  newLibrary.set_active_cell(prevActiveCell);
+                }
+              }
+            } else if (data.cells) {
+              // Fallback to server-provided cell tree
               if (isCellTree(data.cells)) {
-                // SSE always delivers the top cell's geometry
-                loadedCellRef.current = data.cells.name;
                 useExplorerStore.getState().setCellTree([data.cells]);
               } else {
-                // Legacy flat list fallback
-                loadedCellRef.current = data.cells[0] ?? null;
                 useExplorerStore.getState().setCells(data.cells);
               }
             }
@@ -661,6 +870,34 @@ export function useLibrary(
             // Set project name from source filename (e.g., "layout.py" or "mmi.gds")
             if (data.filename) {
               useExplorerStore.getState().setProjectName(data.filename);
+            }
+
+            // Re-select equivalent elements in the new library
+            if (prevElemIndices.length > 0) {
+              const newIds = new Set<string>();
+              const allNewIds = newLibrary.get_all_ids();
+
+              // Build index→UUID lookup for the new library
+              const idxToNewUuid = new Map<number, string>();
+              for (const id of allNewIds) {
+                if (!id.startsWith("ref:")) {
+                  const idx = newLibrary.get_element_index(id);
+                  if (idx >= 0) idxToNewUuid.set(idx, id);
+                }
+              }
+
+              for (const entry of prevElemIndices) {
+                if (entry.refId) {
+                  newIds.add(entry.refId);
+                } else if (entry.elemIdx >= 0) {
+                  const newId = idxToNewUuid.get(entry.elemIdx);
+                  if (newId) newIds.add(newId);
+                }
+              }
+
+              if (newIds.size > 0) {
+                useSelectionStore.getState().setSelection(newIds);
+              }
             }
           } catch (parseError) {
             console.error("Failed to parse design:", parseError);
@@ -681,67 +918,80 @@ export function useLibrary(
     };
   }, [wasm, isWasmReady]);
 
-  // Design mode: navigate into a cell when activeCell changes
-  const activeCell = useExplorerStore((s) => s.activeCell);
-  const cellTree = useExplorerStore((s) => s.cellTree);
-
+  // Embed mode: load a static JSON file once
   useEffect(() => {
-    if (!wasm || !isWasmReady || !isDesignMode() || !cellTree || !activeCell) return;
+    if (!wasm || !isWasmReady || !isEmbedMode()) return;
 
-    // Don't navigate if we haven't loaded the initial design yet
-    if (!libraryInstance) return;
-
-    // Skip if the current library already has geometry for this cell
-    if (loadedCellRef.current === activeCell) return;
+    const src = getEmbedSrc();
+    if (!src || src.startsWith("//") || /^https?:\/\//i.test(src)) {
+      console.error("Embed mode requires a relative ?src= parameter pointing to a JSON file");
+      return;
+    }
 
     let cancelled = false;
 
-    const navigateToCell = async () => {
+    (async () => {
       try {
-        // Design mode: use HTTP API
-        const res = await fetch("/api/design/navigate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cell: activeCell }),
-        });
+        const response = await fetch(src);
+        if (!response.ok) throw new Error(`Failed to fetch ${src}: ${response.status}`);
+        const json = await response.text();
+        if (cancelled) return;
 
-        if (!res.ok || cancelled) return;
-
-        const data: NavigateResponse = await res.json();
-        if (cancelled || !data.json) return;
-
-        const newLibrary = wasm.WasmLibrary.from_flat_json(data.json);
+        const newLibrary = wasm.WasmLibrary.from_library_json(json);
         discoverLayers(newLibrary);
+
+        // Apply custom embed colors and fills if provided via ?colors= / ?fills= parameters
+        const embedColors = getEmbedColors();
+        const embedFills = getEmbedFills();
+        if (embedColors || embedFills) {
+          const layerMap = useLayerStore.getState().layers;
+          const layerArray = Array.from(layerMap.values());
+          const updated = layerArray.map((layer, i) => {
+            let patched = layer;
+            if (embedColors && i < embedColors.length) {
+              patched = { ...patched, color: embedColors[i] };
+            }
+            if (embedFills && i < embedFills.length && embedFills[i] in FILL_PATTERN_IDS) {
+              patched = { ...patched, fillPattern: embedFills[i] as FillPattern };
+            }
+            return patched;
+          });
+          useLayerStore.getState().resetLayers(updated);
+        }
+
         syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
-        // Defer freeing old library so React re-renders first
-        const oldLib = libraryInstance;
+        if (libraryInstance) {
+          libraryInstance.free();
+        }
 
         libraryInstance = newLibrary;
-        loadedCellRef.current = activeCell;
         setLibrary(newLibrary);
+        setIsReady(true);
 
-        if (oldLib) {
-          requestAnimationFrame(() => {
-            try { oldLib.free(); } catch { /* already freed */ }
-          });
+        // Set project name from ?name= parameter or fall back to library name
+        const embedName = getEmbedName();
+        if (embedName) {
+          useExplorerStore.getState().setProjectName(embedName);
         }
 
-        // Build source map for the navigated cell
-        buildSourceMap(newLibrary, data.source_map ?? null);
+        const tree = newLibrary.get_cell_tree();
+        if (tree) {
+          useExplorerStore.getState().setCellTree(tree);
+          const topCellName = newLibrary.active_cell_name();
+          if (topCellName) {
+            useExplorerStore.getState().setActiveCell(topCellName);
+          }
+        }
       } catch (err) {
-        if (!cancelled) {
-          console.error("Failed to navigate to cell:", err);
-        }
+        console.error("Failed to load embed design:", err);
       }
-    };
-
-    navigateToCell();
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [wasm, isWasmReady, activeCell, cellTree]);
+  }, [wasm, isWasmReady]);
 
   // Sync layer colors and fill patterns to library (hidden layers get alpha=0 so they don't render)
   useEffect(() => {

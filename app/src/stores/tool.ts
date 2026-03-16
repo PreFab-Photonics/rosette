@@ -11,6 +11,7 @@ export type ToolType =
   | "rectangle"
   | "move"
   | "polygon"
+  | "path"
   | "ruler"
   | "text";
 

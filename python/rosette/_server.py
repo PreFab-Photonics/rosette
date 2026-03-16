@@ -16,7 +16,6 @@ import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 
 log = logging.getLogger("rosette.server")
@@ -49,12 +48,8 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     design_filename: str | None = None  # Source filename (e.g., "layout.py" or "mmi.gds")
     design_version: int = 0
     design_source_map: list[dict | None] | None = None  # Source map for two-way editing
-    design_file_path: str | None = None  # Absolute path to design .py file
+    design_child_source_maps: dict | None = None  # {cell_name: [source, ...]} for child cells
     on_error: Callable[[str], None] | None = None
-
-    # Design cell data for navigation (flatten-on-demand)
-    _top_cell: Any = None
-    _child_cells_list: list[Any] | None = None
 
     # Condition variable for SSE notifications
     _condition: threading.Condition = threading.Condition()
@@ -98,76 +93,11 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
-        if path == "/api/design/navigate":
-            self.handle_navigate()
-            return
-
         if path == "/api/design/edit":
             self.handle_edit()
             return
 
         self.send_error(404, "Not Found")
-
-    def handle_navigate(self) -> None:
-        """Handle POST /api/design/navigate — flatten a specific cell.
-
-        Request body: {"cell": "cell_name"}
-        Response: {"json": "...flattened polygon data...", "source_map": [...]}
-        """
-        from rosette._core import to_flat_json_cell
-        from rosette.cli import _build_source_map
-
-        try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
-            data = json.loads(body)
-            cell_name = data.get("cell")
-
-            if not cell_name:
-                self.send_error(400, "Missing 'cell' field")
-                return
-
-            top_cell = self.__class__._top_cell
-            child_cells_list = self.__class__._child_cells_list
-
-            if top_cell is None:
-                self.send_error(404, "No design loaded")
-                return
-
-            # If navigating to the top cell, use the pre-flattened JSON and cached source map
-            if cell_name == top_cell.name:
-                response = {
-                    "json": self.__class__.design_json,
-                    "source_map": self.__class__.design_source_map,
-                }
-            else:
-                # Flatten the requested cell on demand
-                inner_children = [c._inner for c in child_cells_list] if child_cells_list else []
-                flat_json = to_flat_json_cell(cell_name, top_cell._inner, inner_children)
-                if flat_json is None:
-                    self.send_error(404, f"Cell '{cell_name}' not found")
-                    return
-
-                # Build source map for the child cell
-                source_map = None
-                if child_cells_list:
-                    for c in child_cells_list:
-                        if c.name == cell_name:
-                            source_map = _build_source_map(flat_json, c)
-                            break
-
-                response = {"json": flat_json, "source_map": source_map}
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(json.dumps(response).encode("utf-8"))
-
-        except (json.JSONDecodeError, ValueError) as e:
-            self.send_error(400, f"Invalid request: {e}")
-        except Exception as e:
-            self.send_error(500, f"Internal error: {e}")
 
     def handle_edit(self) -> None:
         """Handle POST /api/design/edit — patch source code from the viewer.
@@ -183,6 +113,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
             data = json.loads(body)
+            log.info("[edit] Received edit request: %s", json.dumps(data, default=str)[:500])
 
             op_type = data.get("op")
 
@@ -253,7 +184,9 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             return
 
         patcher = SemanticPatcher()
+        log.info("[edit] Applying semantic op: %s on %s:%s", op_type, getattr(op, 'file', '?'), getattr(op, 'line', '?'))
         result = patcher.apply(op)
+        log.info("[edit] Semantic result: success=%s error=%s", result.success, result.error)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -320,6 +253,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                 "json": self.__class__.design_json,
                 "cells": self.__class__.design_cells,
                 "source_map": self.__class__.design_source_map,
+                "child_source_maps": self.__class__.design_child_source_maps,
                 "layers": self.__class__.design_layers,
                 "filename": self.__class__.design_filename,
             },
@@ -342,6 +276,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                             "json": self.__class__.design_json,
                             "cells": self.__class__.design_cells,
                             "source_map": self.__class__.design_source_map,
+                            "child_source_maps": self.__class__.design_child_source_maps,
                             "layers": self.__class__.design_layers,
                             "filename": self.__class__.design_filename,
                         },
@@ -369,6 +304,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             "json": self.__class__.design_json,
             "cells": self.__class__.design_cells,
             "source_map": self.__class__.design_source_map,
+            "child_source_maps": self.__class__.design_child_source_maps,
             "layers": self.__class__.design_layers,
             "filename": self.__class__.design_filename,
         }
@@ -461,6 +397,7 @@ class RosetteServer:
         layers: list[dict] | None = None,
         filename: str | None = None,
         source_map: list[dict | None] | None = None,
+        child_source_maps: dict | None = None,
     ) -> None:
         """Update the design JSON and increment version.
 
@@ -469,36 +406,20 @@ class RosetteServer:
             cells: Optional cell hierarchy tree: {name, children}
             layers: Optional layer definitions from rosette.toml (LayerMap.to_dict_list())
             filename: Optional source filename (e.g., "layout.py" or "mmi.gds")
-            source_map: Optional source map for two-way editing (parallel to flat polygons)
+            source_map: Optional source map for two-way editing (indexed by element position)
+            child_source_maps: Optional {cell_name: [source, ...]} for child cell elements
         """
         RosetteHandler.design_json = json_str
         RosetteHandler.design_cells = cells
         RosetteHandler.design_layers = layers
         RosetteHandler.design_filename = filename
         RosetteHandler.design_source_map = source_map
+        RosetteHandler.design_child_source_maps = child_source_maps
         RosetteHandler.design_version += 1
 
         # Notify all SSE connections of the change
         with RosetteHandler._condition:
             RosetteHandler._condition.notify_all()
-
-    def set_design_file(self, file_path: str) -> None:
-        """Store the design file path for the edit endpoint.
-
-        Args:
-            file_path: Absolute path to the design .py file
-        """
-        RosetteHandler.design_file_path = file_path
-
-    def set_design_cells(self, top_cell, child_cells_list) -> None:
-        """Store the design cells for on-demand cell navigation.
-
-        Args:
-            top_cell: The top-level Cell (Python wrapper)
-            child_cells_list: List of child Cell objects, or None
-        """
-        RosetteHandler._top_cell = top_cell
-        RosetteHandler._child_cells_list = child_cells_list
 
     def get_design_version(self) -> int:
         """Get the current design version number."""

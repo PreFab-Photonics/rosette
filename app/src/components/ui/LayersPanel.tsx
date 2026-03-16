@@ -27,6 +27,10 @@ const FILL_PATTERNS: { id: FillPattern; label: string }[] = [
   { id: "hatched", label: "Hatched" },
   { id: "crosshatched", label: "Cross" },
   { id: "dotted", label: "Dotted" },
+  { id: "horizontal", label: "Horiz" },
+  { id: "vertical", label: "Vert" },
+  { id: "zigzag", label: "Zigzag" },
+  { id: "brick", label: "Brick" },
 ];
 
 // =============================================================================
@@ -82,6 +86,39 @@ function FillPatternIcon({ pattern, className }: { pattern: FillPattern; classNa
           <circle cx="3.5" cy="10.5" r="1" />
           <circle cx="10.5" cy="10.5" r="1" />
           <circle cx="7" cy="7" r="1" />
+        </g>
+      )}
+      {pattern === "horizontal" && (
+        <g stroke="currentColor" strokeWidth="1" opacity="0.6">
+          <line x1="0" y1="3.5" x2="14" y2="3.5" />
+          <line x1="0" y1="7" x2="14" y2="7" />
+          <line x1="0" y1="10.5" x2="14" y2="10.5" />
+        </g>
+      )}
+      {pattern === "vertical" && (
+        <g stroke="currentColor" strokeWidth="1" opacity="0.6">
+          <line x1="3.5" y1="0" x2="3.5" y2="14" />
+          <line x1="7" y1="0" x2="7" y2="14" />
+          <line x1="10.5" y1="0" x2="10.5" y2="14" />
+        </g>
+      )}
+      {pattern === "zigzag" && (
+        <g stroke="currentColor" strokeWidth="1" opacity="0.6" fill="none">
+          <polyline points="0,5 3.5,2 7,5 10.5,2 14,5" />
+          <polyline points="0,10 3.5,7 7,10 10.5,7 14,10" />
+        </g>
+      )}
+      {pattern === "brick" && (
+        <g stroke="currentColor" strokeWidth="1" opacity="0.6">
+          <line x1="0" y1="3.5" x2="14" y2="3.5" />
+          <line x1="0" y1="7" x2="14" y2="7" />
+          <line x1="0" y1="10.5" x2="14" y2="10.5" />
+          <line x1="3.5" y1="0" x2="3.5" y2="3.5" />
+          <line x1="10.5" y1="0" x2="10.5" y2="3.5" />
+          <line x1="7" y1="3.5" x2="7" y2="7" />
+          <line x1="3.5" y1="7" x2="3.5" y2="10.5" />
+          <line x1="10.5" y1="7" x2="10.5" y2="10.5" />
+          <line x1="7" y1="10.5" x2="7" y2="14" />
         </g>
       )}
     </svg>
@@ -184,7 +221,7 @@ function ColorPicker({
           onClick={(e) => e.stopPropagation()}
           tabIndex={-1}
           className={cn(
-            "h-6 flex-1 rounded border px-1.5 font-mono text-xs outline-none",
+            "h-6 min-w-0 flex-1 rounded border px-1.5 font-mono text-xs outline-none",
             isDark
               ? "border-white/10 bg-white/5 text-white/90"
               : "border-black/10 bg-black/5 text-black/90",
@@ -210,7 +247,7 @@ function FillTypeSelector({
   baseTabIdx?: number;
 }) {
   return (
-    <div className="flex gap-1">
+    <div className="grid grid-cols-4 gap-1">
       {FILL_PATTERNS.map((pattern, i) => {
         const isActive = value === pattern.id;
         return (
@@ -223,7 +260,7 @@ function FillTypeSelector({
               onChange(pattern.id);
             }}
             className={cn(
-              "flex flex-1 flex-col items-center gap-0.5 rounded-lg border px-1 py-1 text-[10px] outline-none transition-colors",
+              "flex flex-col items-center gap-0.5 rounded-lg border px-1 py-1 text-[10px] outline-none transition-colors",
               isActive
                 ? isDark
                   ? "border-white/20 bg-white/10 text-white/90"

@@ -36,6 +36,8 @@ interface ExplorerState {
   hierarchyLevelLimit: number;
   /** Deepest nesting level in the current cellTree (0 when no tree). */
   maxTreeDepth: number;
+  /** Set of cell names whose internal geometry is hidden. */
+  hiddenCells: Set<string>;
 
   /** Set the project name. */
   setProjectName: (name: string) => void;
@@ -57,6 +59,12 @@ interface ExplorerState {
   removeCell: (name: string) => void;
   /** Add a cell to the local list. */
   addCell: (name: string) => void;
+  /** Toggle visibility of a cell's internal geometry. */
+  toggleCellVisibility: (name: string) => void;
+  /** Show all cells (clear all hidden). */
+  showAllCells: () => void;
+  /** Hide all cells. */
+  hideAllCells: () => void;
 }
 
 /** Collect all cell names from a single tree node into a flat list. */
@@ -124,6 +132,7 @@ export const useExplorerStore = create<ExplorerState>()(
       cellsLoaded: false,
       hierarchyLevelLimit: Infinity,
       maxTreeDepth: 0,
+      hiddenCells: new Set<string>(),
 
       setProjectName: (name) => set({ projectName: name }),
       setCells: (cells) =>
@@ -174,19 +183,39 @@ export const useExplorerStore = create<ExplorerState>()(
         set((state) => {
           const cells = state.cells.map((c) => (c === oldName ? newName : c));
           const activeCell = state.activeCell === oldName ? newName : state.activeCell;
-          return { cells, activeCell };
+          const hiddenCells = new Set(state.hiddenCells);
+          if (hiddenCells.has(oldName)) {
+            hiddenCells.delete(oldName);
+            hiddenCells.add(newName);
+          }
+          return { cells, activeCell, hiddenCells };
         }),
       removeCell: (name) =>
         set((state) => {
           const cells = state.cells.filter((c) => c !== name);
           const activeCell = state.activeCell === name ? (cells[0] ?? null) : state.activeCell;
-          return { cells, activeCell };
+          const hiddenCells = new Set(state.hiddenCells);
+          hiddenCells.delete(name);
+          return { cells, activeCell, hiddenCells };
         }),
       addCell: (name) =>
         set((state) => {
           if (state.cells.includes(name)) return state;
           return { cells: [...state.cells, name] };
         }),
+      toggleCellVisibility: (name) =>
+        set((state) => {
+          const next = new Set(state.hiddenCells);
+          if (next.has(name)) {
+            next.delete(name);
+          } else {
+            next.add(name);
+          }
+          return { hiddenCells: next };
+        }),
+      showAllCells: () => set({ hiddenCells: new Set<string>() }),
+      hideAllCells: () =>
+        set((state) => ({ hiddenCells: new Set(state.cells) })),
     }),
     {
       name: "rosette-explorer",

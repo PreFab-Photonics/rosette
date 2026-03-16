@@ -80,8 +80,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(io::read_gds, m)?)?;
     m.add_function(wrap_pyfunction!(io::write_gds, m)?)?;
     m.add_function(wrap_pyfunction!(io::to_json, m)?)?;
-    m.add_function(wrap_pyfunction!(io::to_flat_json, m)?)?;
-    m.add_function(wrap_pyfunction!(io::to_flat_json_cell, m)?)?;
 
     // Connection helpers
     m.add_function(wrap_pyfunction!(py_connect_transform, m)?)?;

@@ -127,6 +127,37 @@ def _is_polygon_rect(func: cst.BaseExpression) -> bool:
     return False
 
 
+def _vertices_to_regular(
+    vertices_um: list[tuple[float, float]],
+) -> tuple[float, float, float, int] | None:
+    """If vertices form a regular polygon, return (cx, cy, radius, sides). Else None."""
+    n = len(vertices_um)
+    if n < 3:
+        return None
+
+    cx = sum(p[0] for p in vertices_um) / n
+    cy = sum(p[1] for p in vertices_um) / n
+
+    distances = [((p[0] - cx) ** 2 + (p[1] - cy) ** 2) ** 0.5 for p in vertices_um]
+    avg_r = sum(distances) / n
+    if avg_r < 1e-6:
+        return None
+
+    tol = avg_r * 0.01  # 1% tolerance
+    if all(abs(d - avg_r) < tol for d in distances):
+        return (round(cx, 6), round(cy, 6), round(avg_r, 6), n)
+
+    return None
+
+
+def _format_regular(cx: float, cy: float, radius: float, sides: int) -> str:
+    """Format a Polygon.regular() call."""
+    return (
+        f"Polygon.regular(Point({_format_num(cx)}, {_format_num(cy)}), "
+        f"radius={_format_num(radius)}, sides={sides})"
+    )
+
+
 def _vertices_to_rect(
     vertices_um: list[tuple[float, float]],
 ) -> tuple[float, float, float, float] | None:
@@ -171,6 +202,7 @@ class _VertexReplacer(cst.CSTTransformer):
         self.new_points_code = new_points_code
         self.vertices_um = vertices_um
         self.replaced = False
+        self.var_name: str | None = None  # set when add_polygon references a variable
 
     def leave_Call(
         self, original_node: cst.Call, updated_node: cst.Call
@@ -223,6 +255,11 @@ class _VertexReplacer(cst.CSTTransformer):
             self.replaced = True
             return node.with_changes(args=new_args)
 
+        # Variable reference: add_polygon(var_name, layer)
+        if isinstance(first_arg, cst.Name):
+            self.var_name = first_arg.value
+            return node
+
         if not isinstance(first_arg, cst.Call):
             return node
 
@@ -243,6 +280,25 @@ class _VertexReplacer(cst.CSTTransformer):
         # Polygon.rect(Point(x,y), w, h) — update rect params or convert
         if _is_polygon_rect(first_arg.func):
             return self._replace_rect(node, first_arg)
+
+        # Polygon.regular() or other Polygon factory methods inline
+        if isinstance(first_arg.func, cst.Attribute):
+            if (
+                isinstance(first_arg.func.value, cst.Name)
+                and first_arg.func.value.value == "Polygon"
+            ):
+                # Try to preserve Polygon.regular() format
+                regular = _vertices_to_regular(self.vertices_um)
+                if regular:
+                    cx, cy, radius, sides = regular
+                    new_code = _format_regular(cx, cy, radius, sides)
+                else:
+                    new_code = f"Polygon({self.new_points_code})"
+                new_polygon_expr = cst.parse_expression(new_code)
+                new_args = list(node.args)
+                new_args[0] = node.args[0].with_changes(value=new_polygon_expr)
+                self.replaced = True
+                return node.with_changes(args=new_args)
 
         return node
 
@@ -458,6 +514,39 @@ class _RefPositionUpdater(cst.CSTTransformer):
         return None
 
 
+class _AssignmentReplacer(cst.CSTTransformer):
+    """Replace the RHS of a variable assignment (e.g. `outer = Polygon.regular(...)`)
+    with an explicit Polygon([Point(...)]) call."""
+
+    def __init__(self, var_name: str, new_rhs_code: str) -> None:
+        super().__init__()
+        self.var_name = var_name
+        self.new_rhs_code = new_rhs_code
+        self.replaced = False
+
+    def leave_SimpleStatementLine(
+        self,
+        original_node: cst.SimpleStatementLine,
+        updated_node: cst.SimpleStatementLine,
+    ) -> cst.BaseStatement:
+        if self.replaced:
+            return updated_node
+        if len(updated_node.body) != 1:
+            return updated_node
+        stmt = updated_node.body[0]
+        if not isinstance(stmt, cst.Assign):
+            return updated_node
+        if len(stmt.targets) != 1:
+            return updated_node
+        target = stmt.targets[0].target
+        if isinstance(target, cst.Name) and target.value == self.var_name:
+            new_value = cst.parse_expression(self.new_rhs_code)
+            new_stmt = stmt.with_changes(value=new_value)
+            self.replaced = True
+            return updated_node.with_changes(body=[new_stmt])
+        return updated_node
+
+
 # =============================================================================
 # SemanticPatcher
 # =============================================================================
@@ -536,11 +625,38 @@ class SemanticPatcher:
         except cst.ParserSyntaxError as e:
             return PatchResult(success=False, error=f"Failed to parse file: {e}")
 
+        if not transformer.replaced and transformer.var_name:
+            # add_polygon(var, layer) — rewrite the variable assignment instead
+            # Try to preserve Polygon.regular() format
+            regular = _vertices_to_regular(vertices_um)
+            if regular:
+                cx, cy, radius, sides = regular
+                polygon_code = _format_regular(cx, cy, radius, sides)
+            else:
+                polygon_code = f"Polygon({points_code})"
+            try:
+                tree = cst.parse_module(source)
+                assign_transformer = _AssignmentReplacer(transformer.var_name, polygon_code)
+                new_tree = tree.visit(assign_transformer)
+            except cst.ParserSyntaxError as e:
+                return PatchResult(success=False, error=f"Failed to parse file: {e}")
+
+            if not assign_transformer.replaced:
+                return PatchResult(
+                    success=False,
+                    error=f"Could not find assignment for variable '{transformer.var_name}' "
+                    f"referenced at line {op.line}.",
+                )
+
+            Path(op.file).write_text(new_tree.code)
+            return PatchResult(success=True)
+
         if not transformer.replaced:
             return PatchResult(
                 success=False,
                 error=f"Could not find editable geometry at line {op.line}. "
-                "Supported patterns: Polygon([Point(...)]), Polygon.rect(), add_path([...]).",
+                "Supported patterns: Polygon([Point(...)]), Polygon.rect(), "
+                "Polygon.regular(), add_path([...]), or variable reference.",
             )
 
         Path(op.file).write_text(new_tree.code)

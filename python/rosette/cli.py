@@ -8,12 +8,15 @@ Commands:
 
 import argparse
 import importlib.util
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import webbrowser
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # Template directory location (relative to this file)
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -661,76 +664,81 @@ def build_design(design: str, output_dir: str, verbose: bool = False):
     print(f"ok {gds_output}")
 
 
-def _build_source_map(json_str: str, cell) -> list[dict | None] | None:
-    """Build a source map parallel to the flat JSON polygon array.
 
-    Maps each flat polygon to the source location (file, line, function, code)
-    of the Python call that created it. Ungrouped polygons map to direct
-    add_polygon/add_path calls; grouped polygons map to add_ref calls.
+def _source_to_dict(src) -> dict:
+    """Convert a SourceLocation to a JSON-serialisable dict."""
+    return {
+        "file": src.file,
+        "line": src.line,
+        "fn": src.function,
+        "code": src.code,
+        "type": src.element_type,
+    }
+
+
+def _build_source_map(cell) -> list[dict | None] | None:
+    """Build a source map indexed by element position.
+
+    Each entry corresponds to the element at the same index in the cell's
+    elements list.  The WASM viewer correlates entries by element index
+    (extracted from the UUID), so the order here must match the order
+    elements were added to the cell.
 
     Returns None if source tracking was not active during design execution.
     """
-    import json
-
     sources = getattr(cell, "_element_sources", None)
     if not sources:
         return None
 
-    data = json.loads(json_str)
-    polygons = data.get("polygons", [])
-    if not polygons:
+    source_map: list[dict | None] = [
+        _source_to_dict(src) if src is not None else None
+        for src in sources
+    ]
+
+    return source_map if any(s is not None for s in source_map) else None
+
+
+def _build_child_source_maps(cell) -> dict[str, list[dict | None]] | None:
+    """Build source maps for child cells (for editing shapes inside components).
+
+    The WASM renderer assigns ref sub-polygon UUIDs as ``ref:N:M`` where N is
+    the CellRef element index and M is a flat polygon counter that increments
+    for each polygon/path encountered while recursively traversing the child
+    cell.  Text elements do not produce render polygons, so they are skipped
+    here to keep the counter aligned.
+
+    Returns ``{cell_name: [source_or_null, ...]}`` where the list is indexed
+    by the WASM poly_counter (i.e. render polygon order within that cell).
+    Returns None if no child cells have source tracking.
+    """
+    child_cells = list(cell.get_child_cells()) if hasattr(cell, "get_child_cells") else []
+    log.info("[sourceMap] _build_child_source_maps: %d child cells", len(child_cells))
+    if not child_cells:
         return None
 
-    # Separate direct element sources (polygon/path) from ref sources, in order.
-    # Texts don't produce flat polygons. Refs produce grouped polygons.
-    direct_sources = []
-    ref_sources = {}  # group_id (order of ref elements) -> SourceLocation
-    ref_counter = 0
-    for src in sources:
-        if src is None:
+    result: dict[str, list[dict | None]] = {}
+    for child in child_cells:
+        sources = getattr(child, "_element_sources", None)
+        log.info("[sourceMap]   child '%s': %d sources", child.name, len(sources) if sources else 0)
+        if not sources:
             continue
-        if src.element_type in ("polygon", "path"):
-            direct_sources.append(src)
-        elif src.element_type == "ref":
-            ref_sources[ref_counter] = src
-            ref_counter += 1
-        # "text" elements don't produce flat polygons
 
-    # Walk the flat polygon list and assign sources
-    source_map = []
-    direct_idx = 0
+        # Build list matching WASM poly_counter order: skip text elements
+        # since they don't produce render polygons.
+        render_sources: list[dict | None] = []
+        for i, src in enumerate(sources):
+            if src is not None and src.element_type == "text":
+                log.info("[sourceMap]     [%d] SKIP text: %s", i, src.code[:60] if src.code else "?")
+                continue
+            render_sources.append(_source_to_dict(src) if src is not None else None)
+            if src is not None:
+                log.info("[sourceMap]     [%d] → render[%d]: type=%s line=%d code=%s", i, len(render_sources)-1, src.element_type, src.line, src.code[:60] if src.code else "?")
 
-    for poly in polygons:
-        group = poly.get("g")
-        if group is None:
-            # Direct polygon/path element
-            if direct_idx < len(direct_sources):
-                src = direct_sources[direct_idx]
-                source_map.append({
-                    "file": src.file,
-                    "line": src.line,
-                    "fn": src.function,
-                    "code": src.code,
-                    "type": src.element_type,
-                })
-                direct_idx += 1
-            else:
-                source_map.append(None)
-        else:
-            # Grouped polygon from a cell ref
-            src = ref_sources.get(group)
-            if src:
-                source_map.append({
-                    "file": src.file,
-                    "line": src.line,
-                    "fn": src.function,
-                    "code": src.code,
-                    "type": "ref",
-                })
-            else:
-                source_map.append(None)
+        if any(s is not None for s in render_sources):
+            result[child.name] = render_sources
 
-    return source_map
+    log.info("[sourceMap] _build_child_source_maps result: %s", {k: len(v) for k, v in result.items()} if result else None)
+    return result if result else None
 
 
 def _build_cell_tree(cell, child_cells_list):
@@ -776,47 +784,47 @@ def _build_cell_tree(cell, child_cells_list):
 
 
 def _prepare_design(cell):
-    """Load child cells, flatten geometry, and build hierarchy tree.
+    """Serialize cell hierarchy and build explorer tree.
 
     Returns:
-        Tuple of (json_str, cell_tree, child_cells_list, source_map) where:
-        - json_str: Flattened polygon JSON for the top cell
+        Tuple of (json_str, cell_tree, source_map) where:
+        - json_str: Hierarchical library JSON (micrometers, full structure)
         - cell_tree: Hierarchy tree dict for the explorer panel
-        - child_cells_list: List of child Cell objects (or None)
-        - source_map: List of source info dicts parallel to flat polygons (or None)
+        - source_map: Source info list indexed by element position (or None)
     """
-    from rosette._core import to_flat_json
+    from rosette._core import to_json
 
     # Collect child cells
     child_cells_list = list(cell.get_child_cells()) if hasattr(cell, "get_child_cells") else None
 
-    # Serialize to flattened JSON for fast rendering
+    # Serialize to hierarchical JSON (preserves cells, refs, paths, text)
     if child_cells_list:
         inner_cells = [c._inner for c in child_cells_list]
-        json_str = to_flat_json(cell._inner, inner_cells)
+        json_str = to_json(cell._inner, inner_cells)
     else:
-        json_str = to_flat_json(cell._inner, None)
+        json_str = to_json(cell._inner, None)
 
     # Build hierarchy tree for the explorer panel
     cell_tree = _build_cell_tree(cell, child_cells_list)
 
-    # Build source map for two-way editing
-    source_map = _build_source_map(json_str, cell)
+    # Build source maps for two-way editing
+    source_map = _build_source_map(cell)
+    child_source_maps = _build_child_source_maps(cell)
 
-    return json_str, cell_tree, child_cells_list, source_map
+    return json_str, cell_tree, source_map, child_source_maps
 
 
 def _prepare_design_from_library(library):
-    """Flatten a Library (e.g. from read_gds) for the viewer.
+    """Serialize a Library (e.g. from read_gds) for the viewer.
 
     The Library already contains the full cell hierarchy, so we serialize
     it directly rather than collecting child cells from Python wrappers.
 
     Returns:
-        Tuple of (cell, json_str, cell_tree, child_cells_list)
+        Tuple of (json_str, cell_tree)
     """
     from rosette import Library as LibWrapper
-    from rosette._core import to_flat_json
+    from rosette._core import to_json
 
     # Wrap into Python types
     if not isinstance(library, LibWrapper):
@@ -829,13 +837,13 @@ def _prepare_design_from_library(library):
     all_cells = library.cells()
     child_cells_list = [c for c in all_cells if c.name != top.name]
 
-    # Flatten the whole library (preserves hierarchy for rendering)
-    json_str = to_flat_json(library._inner)
+    # Serialize the full hierarchical library
+    json_str = to_json(library._inner)
 
     # Build hierarchy tree
     cell_tree = _build_cell_tree(top, child_cells_list)
 
-    return top, json_str, cell_tree, child_cells_list
+    return json_str, cell_tree
 
 
 def _start_server(port: int):
@@ -1039,7 +1047,7 @@ def serve_design(
         enable_source_tracking()
 
         cell, file_path, _ = load_design(design)
-        json_str, cell_tree, child_cells_list, source_map = _prepare_design(cell)
+        json_str, cell_tree, source_map, child_source_maps = _prepare_design(cell)
         layer_defs = _load_layer_map_safe()
 
         server.set_design_json(
@@ -1048,9 +1056,8 @@ def serve_design(
             layers=layer_defs,
             filename=Path(design).name,
             source_map=source_map,
+            child_source_maps=child_source_maps,
         )
-        server.set_design_cells(cell, child_cells_list)
-        server.set_design_file(str(file_path.resolve()))
 
         if not no_open:
             tauri_proc = _open_viewer(
@@ -1097,7 +1104,7 @@ def serve_design(
                     linecache.clearcache()
 
                     cell, _, _ = load_design(design)
-                    json_str, cell_tree, child_cells_list, source_map = _prepare_design(cell)
+                    json_str, cell_tree, source_map, child_source_maps = _prepare_design(cell)
                     layer_defs = _load_layer_map_safe()
 
                     server.set_design_json(
@@ -1106,8 +1113,8 @@ def serve_design(
                         layers=layer_defs,
                         filename=Path(design).name,
                         source_map=source_map,
+                        child_source_maps=child_source_maps,
                     )
-                    server.set_design_cells(cell, child_cells_list)
                 except Exception as e:
                     print(f"error: {e}")
 
@@ -1164,11 +1171,10 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
     tauri_proc = None
 
     inner_lib = read_gds(str(file_path))
-    cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(inner_lib)
+    json_str, cell_tree = _prepare_design_from_library(inner_lib)
     layer_defs = _load_layer_map_safe()
 
     server.set_design_json(json_str, cells=cell_tree, layers=layer_defs, filename=file_path.name)
-    server.set_design_cells(cell, child_cells_list)
 
     if not no_open:
         tauri_proc = _open_viewer(
@@ -1188,9 +1194,7 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
         for _changes in watch(file_path):
             try:
                 inner_lib = read_gds(str(file_path))
-                cell, json_str, cell_tree, child_cells_list = _prepare_design_from_library(
-                    inner_lib
-                )
+                json_str, cell_tree = _prepare_design_from_library(inner_lib)
                 layer_defs = _load_layer_map_safe()
                 server.set_design_json(
                     json_str,
@@ -1198,7 +1202,6 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
                     layers=layer_defs,
                     filename=file_path.name,
                 )
-                server.set_design_cells(cell, child_cells_list)
             except Exception as e:
                 print(f"error: {e}")
 

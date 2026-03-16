@@ -1,0 +1,102 @@
+name: Release Desktop App
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.2.0, without 'v' prefix)"
+        required: true
+        type: string
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app/src-tauri/target
+          key: macos-arm64-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            macos-arm64-cargo-
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.8"
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Set version
+        run: |
+          VERSION="${{ inputs.version }}"
+
+          # Update tauri.conf.json
+          cd app/src-tauri
+          jq --arg v "$VERSION" '.version = $v' tauri.conf.json > tmp.json && mv tmp.json tauri.conf.json
+
+          # Update Cargo.toml (package version only)
+          sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+
+          # Update app/package.json
+          cd ..
+          jq --arg v "$VERSION" '.version = $v' package.json > tmp.json && mv tmp.json package.json
+
+      - name: Build Tauri app
+        working-directory: app
+        run: bun run tauri build --bundles dmg
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rosette-${{ inputs.version }}-aarch64.dmg
+          path: app/src-tauri/target/release/bundle/dmg/*.dmg
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          TAG="desktop-v${VERSION}"
+
+          # Find the DMG file
+          DMG=$(ls app/src-tauri/target/release/bundle/dmg/*.dmg)
+          DMG_NAME="Rosette-${VERSION}-aarch64.dmg"
+
+          # Copy with consistent naming
+          cp "$DMG" "$DMG_NAME"
+
+          cat > release-notes.md <<'EOF'
+          ## Installation (macOS Apple Silicon)
+
+          1. Download the DMG file
+          2. Open the DMG and drag Rosette to Applications
+          3. On first launch: right-click the app > **Open** (required for unsigned apps)
+
+          ## Requirements
+
+          - macOS 15.0 (Sequoia) or later
+          - Apple Silicon (M1/M2/M3/M4)
+          EOF
+          # Strip leading whitespace from heredoc
+          sed -i '' 's/^          //' release-notes.md
+
+          gh release create "$TAG" "$DMG_NAME" \
+            --title "Rosette Desktop v${VERSION}" \
+            --notes-file release-notes.md \
+            --latest

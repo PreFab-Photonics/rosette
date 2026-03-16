@@ -21,6 +21,9 @@ import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 import { computeAlignmentDeltas, type AlignType, type AlignmentDelta } from "@/lib/align";
 import { getSourceInfo, sendDeleteEdit, sendAddEdit } from "@/hooks/use-library";
+import { usePathStore, DEFAULT_NUM_ARC_POINTS, type PathMetadata } from "@/stores/path";
+import { useStatusMessageStore } from "@/stores/status-message";
+import { checkBendRadiusReductions } from "@/lib/path";
 
 /**
  * Context passed to commands for executing operations.
@@ -488,6 +491,208 @@ export class CreatePolygonCommand implements Command {
   /** Get the created element ID (available after execute). */
   getElementId(): string | null {
     return this.elementId;
+  }
+}
+
+/**
+ * Convert world units to micrometers for display in status messages.
+ * World units are nm * GRID_SIZE, so: µm = world / GRID_SIZE / 1000.
+ */
+function worldToUm(world: number): string {
+  const um = world / GRID_SIZE / 1000;
+  return um.toFixed(um >= 10 ? 1 : um >= 1 ? 2 : 3);
+}
+
+/**
+ * Show a status bar warning if any corners had their bend radius auto-reduced.
+ */
+function warnBendRadiusReductions(
+  waypoints: { x: number; y: number }[],
+  cornerRadius: number,
+): void {
+  if (cornerRadius <= 0) return;
+  const reductions = checkBendRadiusReductions(waypoints, cornerRadius);
+  if (reductions.length === 0) return;
+
+  const requestedUm = worldToUm(cornerRadius);
+  const minActual = Math.min(...reductions.map((r) => r.actual));
+  const minActualUm = worldToUm(minActual);
+
+  const msg =
+    reductions.length === 1
+      ? `Bend radius reduced to ${minActualUm} µm at corner ${reductions[0].cornerIndex} (requested ${requestedUm} µm)`
+      : `Bend radius reduced at ${reductions.length} corners (min ${minActualUm} µm, requested ${requestedUm} µm)`;
+
+  useStatusMessageStore.getState().show(msg, "warn");
+}
+
+/**
+ * Command to create a path (waveguide) polygon from a centerline and width.
+ *
+ * Uses the Rust WASM `create_path_rounded` to generate a ribbon polygon with
+ * circular-arc bends at interior corners when `cornerRadius > 0`.
+ */
+export class CreatePathCommand implements Command {
+  readonly type = "create-path";
+  readonly description: string;
+
+  /** Created element ID (populated after execute). */
+  private elementId: string | null = null;
+
+  /** Path metadata for undo/redo management. */
+  private metadata: PathMetadata | null = null;
+
+  constructor(
+    private readonly points: Float64Array,
+    private readonly width: number,
+    private readonly layer: number,
+    private readonly datatype: number = 0,
+    private readonly waypoints?: { x: number; y: number }[],
+    private readonly cornerRadius: number = 0,
+    private readonly numArcPoints: number = DEFAULT_NUM_ARC_POINTS,
+  ) {
+    this.description = `Create path with ${points.length / 2} waypoints`;
+  }
+
+  execute(ctx: CommandContext): void {
+    const id = ctx.library.create_path_rounded(
+      this.points,
+      this.width,
+      this.cornerRadius,
+      this.numArcPoints,
+      this.layer,
+      this.datatype,
+    );
+
+    if (id) {
+      this.elementId = id;
+
+      // Restore path metadata on redo (metadata is set after first execute by the caller,
+      // or by the command itself on redo if waypoints were provided).
+      if (this.metadata) {
+        usePathStore.getState().setPathMetadata(id, this.metadata);
+      } else if (this.waypoints) {
+        this.metadata = {
+          waypoints: this.waypoints,
+          width: this.width,
+          cornerRadius: this.cornerRadius,
+          numArcPoints: this.numArcPoints,
+          layer: this.layer,
+          datatype: this.datatype,
+        };
+        usePathStore.getState().setPathMetadata(id, this.metadata);
+      }
+
+      ctx.renderer.sync_from_library(ctx.library);
+      ctx.renderer.mark_dirty();
+      useSelectionStore.getState().select(id);
+
+      // Warn if any corners had their bend radius auto-reduced
+      if (this.waypoints) {
+        warnBendRadiusReductions(this.waypoints, this.cornerRadius);
+      }
+    }
+  }
+
+  undo(ctx: CommandContext): void {
+    if (this.elementId) {
+      // Snapshot metadata before removing so redo can restore it
+      if (!this.metadata) {
+        this.metadata =
+          usePathStore.getState().pathMetadata.get(this.elementId) ?? null;
+      }
+
+      usePathStore.getState().removePathMetadata(this.elementId);
+      ctx.library.remove_element(this.elementId);
+      ctx.renderer.sync_from_library(ctx.library);
+      ctx.renderer.mark_dirty();
+
+      const { selectedIds, removeFromSelection } = useSelectionStore.getState();
+      if (selectedIds.has(this.elementId)) {
+        removeFromSelection(this.elementId);
+      }
+    }
+  }
+
+  /** Get the created element ID (available after execute). */
+  getElementId(): string | null {
+    return this.elementId;
+  }
+}
+
+/**
+ * Command to edit a path's properties (width, waypoints, or waypoint removal).
+ *
+ * Uses snapshot-delete-recreate: removes the old path element, creates a new one
+ * with updated parameters, and manages path metadata for undo/redo.
+ */
+export class EditPathCommand implements Command {
+  readonly type = "edit-path";
+  readonly description: string;
+
+  /** Current element ID (changes on each execute/undo cycle). */
+  private currentId: string;
+
+  /** Original metadata (for undo). */
+  private readonly oldMeta: PathMetadata;
+
+  /** New metadata (for execute/redo). */
+  private readonly newMeta: PathMetadata;
+
+  constructor(
+    elementId: string,
+    oldMeta: PathMetadata,
+    newMeta: PathMetadata,
+    description: string,
+  ) {
+    this.currentId = elementId;
+    this.oldMeta = oldMeta;
+    this.newMeta = newMeta;
+    this.description = description;
+  }
+
+  execute(ctx: CommandContext): void {
+    this.currentId = this.rebuildPath(ctx, this.currentId, this.newMeta);
+  }
+
+  undo(ctx: CommandContext): void {
+    this.currentId = this.rebuildPath(ctx, this.currentId, this.oldMeta);
+  }
+
+  private rebuildPath(ctx: CommandContext, oldId: string, meta: PathMetadata): string {
+    const flatPoints = new Float64Array(meta.waypoints.length * 2);
+    for (let i = 0; i < meta.waypoints.length; i++) {
+      flatPoints[i * 2] = meta.waypoints[i].x;
+      flatPoints[i * 2 + 1] = meta.waypoints[i].y;
+    }
+
+    ctx.library.remove_element(oldId);
+    const newId = ctx.library.create_path_rounded(
+      flatPoints,
+      meta.width,
+      meta.cornerRadius,
+      meta.numArcPoints ?? DEFAULT_NUM_ARC_POINTS,
+      meta.layer,
+      meta.datatype,
+    );
+
+    if (newId) {
+      usePathStore.getState().removePathMetadata(oldId);
+      usePathStore.getState().setPathMetadata(newId, { ...meta });
+      ctx.renderer.sync_from_library(ctx.library);
+      ctx.renderer.mark_dirty();
+      useSelectionStore.getState().select(newId);
+
+      // Warn if any corners had their bend radius auto-reduced
+      warnBendRadiusReductions(meta.waypoints, meta.cornerRadius);
+
+      return newId;
+    }
+
+    // Fallback: sync even if create failed
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+    return oldId;
   }
 }
 
@@ -1377,11 +1582,11 @@ export class SetInstanceArrayCommand implements Command {
  * Called after any command that changes cell structure (add, delete, rename)
  * or cell references (add/remove instance). This keeps the Explorer's
  * hierarchical tree in sync with the library in standalone mode.
- * In design mode the tree comes from the server, but calling this is harmless.
+ * In design mode the tree comes from the WASM library, same as standalone.
  */
 export function syncCellTree(library: WasmLibrary): void {
-  // In design mode, the cell tree comes from the server via SSE.
-  // The WASM library (from from_flat_json) only has "flattened" — don't overwrite.
+  // In design mode, the server rebuilds the tree on each reload via SSE.
+  // Skip local sync to avoid overwriting the server-authoritative tree.
   const params = new URLSearchParams(window.location.search);
   if (params.get("design") === "true") return;
 

@@ -8,18 +8,18 @@ const footerLinks = [
     external: true,
   },
   {
-    label: "Prefab Photonics",
-    href: "https://prefab-photonics.com",
+    label: "PreFab",
+    href: "https://prefabphotonics.com",
     external: true,
   },
 ] as const;
 
 export function Footer() {
   return (
-    <footer className="border-t border-black/10 dark:border-white/10">
+    <footer className="border-t border-black/[0.06] bg-black/[0.02] dark:border-white/[0.08] dark:bg-white/[0.02]">
       <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 px-6 py-8 sm:flex-row sm:justify-between">
         <p className="text-xs text-black/40 dark:text-white/40">
-          Prefab Photonics
+          &copy; {new Date().getFullYear()} PreFab Photonics Inc.
         </p>
 
         <div className="flex items-center gap-6">

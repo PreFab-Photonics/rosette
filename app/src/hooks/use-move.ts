@@ -330,7 +330,10 @@ export function useMove(
       const syncedRefLines = new Set<string>();
       for (const id of elementIds) {
         const source = getSourceInfo(id);
-        if (!source) continue;
+        if (!source) {
+          console.warn("[move] no source for", id.slice(0, 8), "— edit skipped");
+          continue;
+        }
         if (source.type === "ref") {
           // All polygons in a ref group share the same source line — send once
           const key = `${source.file}:${source.line}`;
