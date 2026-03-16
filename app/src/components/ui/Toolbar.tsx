@@ -490,9 +490,6 @@ export function Toolbar({
 // Shape operations (boolean + alignment)
 // =============================================================================
 
-/** Delay (ms) before long-press opens the shape ops menu. */
-const PRESS_DELAY = 300;
-
 /** A shape operation entry (boolean or alignment). */
 interface ShapeOp {
   id: string;
@@ -557,65 +554,65 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const Icon = lastOp.icon;
 
-  // Click outside / Escape closes the menu
+  // Escape closes the menu
   useEffect(() => {
     if (!menuOpen) return;
 
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) {
-        setMenuOpen(false);
-      }
-    };
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") setMenuOpen(false);
     };
 
-    document.addEventListener("mousedown", handleClick, true);
     document.addEventListener("keydown", handleEscape);
     return () => {
-      document.removeEventListener("mousedown", handleClick, true);
       document.removeEventListener("keydown", handleEscape);
     };
   }, [menuOpen]);
 
-  const openMenu = useCallback(() => {
-    setMenuOpen(true);
+  /** Schedule a close after a short grace period (covers the gap between button and menu). */
+  const scheduleClose = useCallback(() => {
+    closeTimerRef.current = setTimeout(() => setMenuOpen(false), 150);
   }, []);
 
-  const handleClick = useCallback(() => {
-    if (!menuOpen) {
-      executeShapeOp(lastOp);
+  /** Cancel any pending close – called when pointer re-enters either element. */
+  const cancelClose = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
     }
-  }, [lastOp, menuOpen]);
+  }, []);
+
+  const handleButtonEnter = useCallback(() => {
+    cancelClose();
+    setMenuOpen(true);
+  }, [cancelClose]);
+
+  const handleButtonLeave = useCallback(() => {
+    scheduleClose();
+  }, [scheduleClose]);
+
+  const handleMenuEnter = useCallback(() => {
+    cancelClose();
+  }, [cancelClose]);
+
+  const handleMenuLeave = useCallback(() => {
+    scheduleClose();
+  }, [scheduleClose]);
+
+  const handleClick = useCallback(() => {
+    executeShapeOp(lastOp);
+  }, [lastOp]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      openMenu();
+      setMenuOpen(true);
     },
-    [openMenu],
+    [],
   );
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.button === 0) {
-        pressTimerRef.current = setTimeout(openMenu, PRESS_DELAY);
-      }
-    },
-    [openMenu],
-  );
-
-  const clearPressTimer = useCallback(() => {
-    if (pressTimerRef.current) {
-      clearTimeout(pressTimerRef.current);
-      pressTimerRef.current = null;
-    }
-  }, []);
 
   const handleOpClick = useCallback((op: ShapeOp) => {
     setLastOp(op);
@@ -647,9 +644,8 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
           ref={buttonRef}
           onClick={handleClick}
           onContextMenu={handleContextMenu}
-          onMouseDown={handleMouseDown}
-          onMouseUp={clearPressTimer}
-          onMouseLeave={clearPressTimer}
+          onMouseEnter={handleButtonEnter}
+          onMouseLeave={handleButtonLeave}
           className={cn(
             "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
             isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
@@ -665,6 +661,8 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
         createPortal(
           <div
             ref={menuRef}
+            onMouseEnter={handleMenuEnter}
+            onMouseLeave={handleMenuLeave}
             className={cn(
               "fixed z-[9999] rounded-xl border p-2 backdrop-blur-xl",
               isDark
