@@ -75,8 +75,6 @@ fn main() {
             commands::save_gds,
             commands::save_bytes,
             commands::get_pending_file,
-            commands::get_current_file,
-            commands::set_current_file,
         ])
         .setup(move |app| {
             // If --url was passed, navigate the main window to that URL.
@@ -179,11 +177,7 @@ fn main() {
                         // The frontend polls getPendingFile() on mount to
                         // catch this.
                         if let Ok(mut pending) = state.pending_file.lock() {
-                            *pending = Some(path_str.clone());
-                        }
-
-                        if let Ok(mut current) = state.current_file.lock() {
-                            *current = Some(path_str);
+                            *pending = Some(path_str);
                         }
                         break;
                     }

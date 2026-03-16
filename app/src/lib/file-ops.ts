@@ -1,20 +1,8 @@
-import {
-  isTauri,
-  pickSaveFile,
-  pickSaveImageFile,
-  saveGds,
-  saveBytes,
-  getCurrentFile,
-  setCurrentFile,
-} from "@/lib/tauri";
+import { isTauri, pickSaveFile, pickSaveImageFile, saveGds, saveBytes } from "@/lib/tauri";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { useDocumentStore } from "@/stores/document";
-import { useHistoryStore } from "@/stores/history";
-import { useSelectionStore } from "@/stores/selection";
-import { useRulerStore } from "@/stores/ruler";
-import { useClipboardStore } from "@/stores/clipboard";
-import { useLayerStore } from "@/stores/layer";
+import { useTabsStore } from "@/stores/tabs";
 
 /**
  * Emit an open-file event for the Tauri backend to process.
@@ -30,6 +18,8 @@ export async function emitOpenFile(path: string) {
  *
  * If `forceDialog` is true or no current file path exists, prompts with Save As.
  * Otherwise saves to the current file path (Cmd+S behavior).
+ *
+ * File paths are now tracked per-tab in the tabs store.
  */
 export async function handleSave(forceDialog: boolean) {
   const library = useWasmContextStore.getState().library;
@@ -39,8 +29,9 @@ export async function handleSave(forceDialog: boolean) {
     let path: string | null = null;
 
     if (!forceDialog) {
-      // Try to get the current file path (Save)
-      path = await getCurrentFile();
+      // Get the active tab's file path (per-tab tracking)
+      const activeTab = useTabsStore.getState().getActiveTab();
+      path = activeTab?.filePath ?? null;
     }
 
     if (!path) {
@@ -62,6 +53,18 @@ export async function handleSave(forceDialog: boolean) {
     await saveGds(path, bytes);
 
     useDocumentStore.getState().markClean();
+
+    // Update the active tab with the file path and mark as clean
+    const activeTabId = useTabsStore.getState().activeTabId;
+    if (activeTabId) {
+      const basename = path.split(/[/\\]/).pop() ?? "untitled";
+      useTabsStore.getState().updateTab(activeTabId, {
+        filePath: path,
+        title: basename,
+        isDirty: false,
+      });
+    }
+
     useStatusMessageStore.getState().show(`Saved to ${path.split("/").pop()}`);
   } catch (err) {
     console.error("Failed to save GDS file:", err);
@@ -95,31 +98,14 @@ export async function confirmDiscardChanges(): Promise<boolean> {
 }
 
 /**
- * Create a new empty file, resetting the editor to a blank state.
+ * Create a new empty file in a new tab.
  *
- * Checks for unsaved changes, then dispatches a DOM event that
- * `use-library.ts` listens for. The actual library replacement
- * happens inside the hook (which owns the singleton and local state).
+ * Checks for unsaved changes in the current tab, then dispatches
+ * a DOM event that `use-library.ts` listens for. The actual library
+ * creation happens inside the hook (which manages tabs and WASM).
  */
 export async function handleNewFile(): Promise<void> {
-  // Guard: check unsaved changes
-  const confirmed = await confirmDiscardChanges();
-  if (!confirmed) return;
-
-  // Reset stores that don't depend on the library
-  useHistoryStore.getState().clear();
-  useSelectionStore.getState().clearSelection();
-  useRulerStore.getState().clearAllRulers();
-  useClipboardStore.getState().clear();
-  useLayerStore.getState().resetLayers([]);
-  useDocumentStore.getState().markClean();
-
-  // Clear current file path in Tauri
-  if (isTauri) {
-    await setCurrentFile(null);
-  }
-
-  // Dispatch event for use-library to handle (it owns the WASM singleton)
+  // Dispatch event for use-library to handle (creates a new tab)
   window.dispatchEvent(new CustomEvent("rosette-new-file"));
 }
 

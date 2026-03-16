@@ -7,15 +7,26 @@ import {
   hexToRgba,
   FILL_PATTERN_IDS,
   LAYER_PALETTE,
+  DEFAULT_LAYERS,
   type FillPattern,
   type Layer,
 } from "@/stores/layer";
 import { isTauri, readGdsBytes, listenTauri, getPendingFile } from "@/lib/tauri";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useViewportStore } from "@/stores/viewport";
-
-// Module-level singleton for library
-let libraryInstance: WasmLibrary | null = null;
+import { useHistoryStore } from "@/stores/history";
+import { useSelectionStore } from "@/stores/selection";
+import { useRulerStore } from "@/stores/ruler";
+import { useClipboardStore } from "@/stores/clipboard";
+import { useDocumentStore } from "@/stores/document";
+import {
+  useTabsStore,
+  setTabLibrary,
+  getTabLibrary,
+  saveTabSnapshot,
+  initNewTab,
+  switchTab,
+} from "@/stores/tabs";
 
 /**
  * Check if running in design preview mode.
@@ -266,6 +277,37 @@ function discoverLayers(lib: WasmLibrary): void {
 }
 
 /**
+ * Reset per-document stores to a clean state (for new tabs).
+ */
+function resetDocumentStores(): void {
+  useHistoryStore.getState().clear();
+  useSelectionStore.getState().clearSelection();
+  useRulerStore.getState().clearAllRulers();
+  useClipboardStore.getState().clear();
+  useDocumentStore.getState().markClean();
+}
+
+/**
+ * Set up a library in the global stores and explorer tree.
+ */
+function setupLibraryInStores(lib: WasmLibrary, projectName?: string): void {
+  const tree = lib.get_cell_tree();
+  if (tree) {
+    useExplorerStore.getState().setCellTree(tree);
+    const topCellName = lib.active_cell_name();
+    if (topCellName) {
+      useExplorerStore.getState().setActiveCell(topCellName);
+    }
+  } else {
+    useExplorerStore.getState().setCells(["top"]);
+  }
+
+  if (projectName) {
+    useExplorerStore.getState().setProjectName(projectName);
+  }
+}
+
+/**
  * Hook to manage the WasmLibrary instance.
  *
  * Creates a singleton library with a default cell and syncs layer colors.
@@ -278,6 +320,8 @@ function discoverLayers(lib: WasmLibrary): void {
  * In Tauri mode, loads full hierarchical GDS files via the backend and
  * manages them locally in the WASM library.
  *
+ * Manages tabs: each open file gets its own tab with isolated state.
+ *
  * @param wasm - The loaded WASM module
  * @param isWasmReady - Whether the WASM module is ready
  */
@@ -285,8 +329,8 @@ export function useLibrary(
   wasm: typeof import("@/wasm/rosette_wasm") | null,
   isWasmReady: boolean,
 ) {
-  const [library, setLibrary] = useState<WasmLibrary | null>(libraryInstance);
-  const [isReady, setIsReady] = useState(!!libraryInstance);
+  const [library, setLibrary] = useState<WasmLibrary | null>(null);
+  const [isReady, setIsReady] = useState(false);
   const layers = useLayerStore((s) => s.layers);
   const layersRef = useRef(layers);
   const designVersionRef = useRef(0);
@@ -300,7 +344,24 @@ export function useLibrary(
     wasmRef.current = wasm;
   }, [wasm]);
 
-  // Initialize library once WASM is ready
+  // ===== Sync local library state when active tab changes =====
+  // When a tab switch happens (via switchTab()), restoreTabSnapshot sets
+  // the library in the wasm-context store. But Canvas.tsx gets library from
+  // this hook's local React state, so we need to update it here too.
+  useEffect(() => {
+    const unsub = useTabsStore.subscribe((state, prevState) => {
+      if (state.activeTabId && state.activeTabId !== prevState.activeTabId) {
+        const lib = getTabLibrary(state.activeTabId);
+        if (lib) {
+          setLibrary(lib);
+          setIsReady(true);
+        }
+      }
+    });
+    return unsub;
+  }, []);
+
+  // ===== Create initial tab on first load =====
   useEffect(() => {
     if (!wasm || !isWasmReady) return;
 
@@ -309,28 +370,81 @@ export function useLibrary(
       return;
     }
 
-    if (!libraryInstance) {
-      const lib = new wasm.WasmLibrary("rosette");
-      try {
-        lib.add_cell("top");
-      } catch {
-        // "top" is a valid cell name; this should never fail
+    // Check if we already have tabs (e.g., from a hot reload)
+    const { tabs } = useTabsStore.getState();
+    if (tabs.length > 0) {
+      // Re-attach to existing active tab's library
+      const activeTabId = useTabsStore.getState().activeTabId;
+      if (activeTabId) {
+        const existingLib = getTabLibrary(activeTabId);
+        if (existingLib) {
+          setLibrary(existingLib);
+          setIsReady(true);
+          return;
+        }
       }
-      lib.set_active_cell("top");
-      libraryInstance = lib;
     }
 
-    const tree = libraryInstance.get_cell_tree();
+    // Create the first tab with a fresh library
+    const projectName = useExplorerStore.getState().projectName;
+    const tabId = useTabsStore.getState().addTab({ title: projectName });
+    const lib = initNewTab(tabId, wasm);
+
+    // Set up explorer
+    const tree = lib.get_cell_tree();
     if (tree) {
       useExplorerStore.getState().setCellTree(tree);
     } else {
       useExplorerStore.getState().setCells(["top"]);
     }
-    setLibrary(libraryInstance);
+
+    setLibrary(lib);
     setIsReady(true);
   }, [wasm, isWasmReady]);
 
-  // Tauri mode: listen for file-open events from native menu / drag-drop / CLI args
+  // ===== Listen for "new tab" events =====
+  useEffect(() => {
+    if (!wasm || !isWasmReady) return;
+
+    const handleNewTab = () => {
+      // Create a new tab with a fresh library
+      const tabId = useTabsStore.getState().addTab({ title: "untitled-project" });
+      const lib = initNewTab(tabId, wasm);
+
+      // Reset stores for the new tab
+      resetDocumentStores();
+      useLayerStore.getState().resetLayers(DEFAULT_LAYERS);
+
+      // Set up explorer
+      useExplorerStore.getState().setProjectName("untitled-project");
+      const tree = lib.get_cell_tree();
+      if (tree) {
+        useExplorerStore.getState().setCellTree(tree);
+      } else {
+        useExplorerStore.getState().setCells(["top"]);
+      }
+      useExplorerStore.getState().setActiveCell("top");
+
+      // Reset viewport to center origin on screen
+      const canvas = document.getElementById("rosette-canvas");
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect();
+        useViewportStore.getState().reset(rect.width, rect.height);
+      }
+
+      // Install the library
+      setLibrary(lib);
+      setIsReady(true);
+
+      // Notify overlays that library state changed
+      useWasmContextStore.getState().bumpSyncGeneration();
+    };
+
+    window.addEventListener("rosette-new-tab", handleNewTab);
+    return () => window.removeEventListener("rosette-new-tab", handleNewTab);
+  }, [wasm, isWasmReady]);
+
+  // ===== Tauri: listen for file-open events =====
   useEffect(() => {
     if (!wasm || !isWasmReady || !isTauriMode()) return;
 
@@ -340,38 +454,71 @@ export function useLibrary(
       if (cancelled) return;
 
       try {
+        // Check if this file is already open in another tab
+        const existingTab = useTabsStore.getState().findTabByPath(path);
+        if (existingTab) {
+          // Switch to the existing tab instead of opening a new one
+          const currentId = useTabsStore.getState().activeTabId;
+          if (currentId && currentId !== existingTab.id) {
+            switchTab(currentId, existingTab.id);
+            useTabsStore.getState().setActiveTab(existingTab.id);
+            const existingLib = getTabLibrary(existingTab.id);
+            if (existingLib) {
+              setLibrary(existingLib);
+              setIsReady(true);
+            }
+          }
+          return;
+        }
+
         // Read raw GDS bytes and parse directly in WASM (avoids JSON round-trip)
         const bytes = await readGdsBytes(path);
         if (cancelled) return;
 
         const newLibrary = wasm.WasmLibrary.from_gds_bytes(bytes);
+
+        // Save current tab's state before switching
+        const currentTabId = useTabsStore.getState().activeTabId;
+        if (currentTabId) {
+          saveTabSnapshot(currentTabId);
+          const currentLib = useWasmContextStore.getState().library;
+          if (currentLib) {
+            setTabLibrary(currentTabId, currentLib);
+          }
+        }
+
+        // Create a new tab for the file
+        const basename = path.split(/[/\\]/).pop() ?? "untitled";
+        const tabId = useTabsStore.getState().addTab({
+          title: basename,
+          filePath: path,
+        });
+
+        // Set up layers and colors for the new library
         discoverLayers(newLibrary);
         syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
-        if (libraryInstance) {
-          libraryInstance.free();
+        // Store the library in the tab
+        setTabLibrary(tabId, newLibrary);
+
+        // Reset per-document stores
+        resetDocumentStores();
+
+        // Set up explorer tree
+        setupLibraryInStores(newLibrary, basename);
+
+        // Reset viewport for the new file
+        const canvas = document.getElementById("rosette-canvas");
+        if (canvas) {
+          const rect = canvas.getBoundingClientRect();
+          useViewportStore.getState().reset(rect.width, rect.height);
         }
 
-        libraryInstance = newLibrary;
+        // Install the new library
         setLibrary(newLibrary);
         setIsReady(true);
 
-        // Set project name from the opened file's basename
-        const basename = path.split(/[/\\]/).pop();
-        if (basename) {
-          useExplorerStore.getState().setProjectName(basename);
-        }
-
-        // Build the cell tree from the WASM library itself
-        const tree = newLibrary.get_cell_tree();
-        if (tree) {
-          useExplorerStore.getState().setCellTree(tree);
-          // Set active cell to the top cell (first root in the tree)
-          const topCellName = newLibrary.active_cell_name();
-          if (topCellName) {
-            useExplorerStore.getState().setActiveCell(topCellName);
-          }
-        }
+        useWasmContextStore.getState().bumpSyncGeneration();
       } catch (err) {
         console.error("Failed to open GDS file:", err);
       }
@@ -400,31 +547,30 @@ export function useLibrary(
     };
   }, [wasm, isWasmReady]);
 
-  // Listen for "new file" events (from Cmd+N, menu, or command palette)
+  // ===== Listen for "new file" events (Cmd+N) =====
   useEffect(() => {
     if (!wasm || !isWasmReady) return;
 
     const handleNewFile = () => {
-      // Create a fresh library with one "top" cell
-      const newLib = new wasm.WasmLibrary("rosette");
-      try {
-        newLib.add_cell("top");
-      } catch {
-        // "top" is a valid cell name; this should never fail
-      }
-      newLib.set_active_cell("top");
-
-      // Free old library
-      if (libraryInstance) {
-        libraryInstance.free();
+      // Save current tab's state before creating new tab
+      const currentTabId = useTabsStore.getState().activeTabId;
+      if (currentTabId) {
+        saveTabSnapshot(currentTabId);
+        const currentLib = useWasmContextStore.getState().library;
+        if (currentLib) {
+          setTabLibrary(currentTabId, currentLib);
+        }
       }
 
-      // Install the new library (both module singleton and React state)
-      libraryInstance = newLib;
-      setLibrary(newLib);
-      setIsReady(true);
+      // Create a new tab with a fresh library
+      const tabId = useTabsStore.getState().addTab({ title: "untitled-project" });
+      const newLib = initNewTab(tabId, wasm);
 
-      // Reset explorer
+      // Reset stores for the new tab
+      resetDocumentStores();
+      useLayerStore.getState().resetLayers(DEFAULT_LAYERS);
+
+      // Set up explorer
       useExplorerStore.getState().setProjectName("untitled-project");
       const tree = newLib.get_cell_tree();
       if (tree) {
@@ -441,6 +587,10 @@ export function useLibrary(
         useViewportStore.getState().reset(rect.width, rect.height);
       }
 
+      // Install the library
+      setLibrary(newLib);
+      setIsReady(true);
+
       // Notify overlays that library state changed
       useWasmContextStore.getState().bumpSyncGeneration();
     };
@@ -449,7 +599,7 @@ export function useLibrary(
     return () => window.removeEventListener("rosette-new-file", handleNewFile);
   }, [wasm, isWasmReady]);
 
-  // Design mode: SSE for live design updates from server
+  // ===== Design mode: SSE for live design updates from server =====
   useEffect(() => {
     if (!wasm || !isWasmReady || !isDesignMode()) return;
 
@@ -479,11 +629,11 @@ export function useLibrary(
             syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
             // Free old library to prevent memory leak
-            if (libraryInstance) {
-              libraryInstance.free();
+            const oldLib = useWasmContextStore.getState().library;
+            if (oldLib) {
+              oldLib.free();
             }
 
-            libraryInstance = newLibrary;
             setLibrary(newLibrary);
             setIsReady(true);
             designVersionRef.current = data.version;
@@ -528,7 +678,7 @@ export function useLibrary(
     };
   }, [wasm, isWasmReady]);
 
-  // Embed mode: load a static JSON file once
+  // ===== Embed mode: load a static JSON file once =====
   useEffect(() => {
     if (!wasm || !isWasmReady || !isEmbedMode()) return;
 
@@ -571,11 +721,12 @@ export function useLibrary(
 
         syncLayerColors(newLibrary, useLayerStore.getState().layers);
 
-        if (libraryInstance) {
-          libraryInstance.free();
+        // Free old library to prevent memory leak
+        const oldLib = useWasmContextStore.getState().library;
+        if (oldLib) {
+          oldLib.free();
         }
 
-        libraryInstance = newLibrary;
         setLibrary(newLibrary);
         setIsReady(true);
 
@@ -603,7 +754,7 @@ export function useLibrary(
     };
   }, [wasm, isWasmReady]);
 
-  // Sync layer colors and fill patterns to library (hidden layers get alpha=0 so they don't render)
+  // ===== Sync layer colors and fill patterns to library =====
   useEffect(() => {
     if (!library) return;
 

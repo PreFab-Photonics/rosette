@@ -7,10 +7,19 @@ import { Sidebar } from "@/components/ui/Sidebar";
 import { StatusBar } from "@/components/ui/StatusBar";
 import { Toolbar } from "@/components/ui/Toolbar";
 import { useUIStore } from "@/stores/ui";
+import {
+  useTabsStore,
+  switchTab,
+  saveTabSnapshot,
+  setTabLibrary,
+  deleteTabSnapshot,
+} from "@/stores/tabs";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { isTauri, pickGdsFile } from "@/lib/tauri";
 import { emitOpenFile, handleSave, handleNewFile, confirmDiscardChanges } from "@/lib/file-ops";
+import { useDocumentStore } from "@/stores/document";
 import { isEmbedMode, getEmbedPanelWidth } from "@/hooks/use-library";
+import { useWasmContextStore } from "@/stores/wasm-context";
 
 /**
  * Main application component.
@@ -59,7 +68,7 @@ export default function App() {
     }
   }, [embed]);
 
-  // Tauri: Cmd+O to open, Cmd+S to save, Cmd+Shift+S to save as
+  // Tauri: Cmd+O to open, Cmd+S to save, Cmd+Shift+S to save as, tab shortcuts
   useEffect(() => {
     if (!isTauri || embed) return;
 
@@ -72,8 +81,7 @@ export default function App() {
         await handleNewFile();
       } else if (e.key === "o") {
         e.preventDefault();
-        const confirmed = await confirmDiscardChanges();
-        if (!confirmed) return;
+        // Open in a new tab (no discard confirmation needed)
         const path = await pickGdsFile();
         if (path) {
           await emitOpenFile(path);
@@ -82,15 +90,105 @@ export default function App() {
         // Cmd+Shift+S: Save As (always show dialog)
         e.preventDefault();
         await handleSave(true);
-      } else if (e.key === "s") {
+      } else if (e.key === "s" && !e.shiftKey) {
         // Cmd+S: Save (to current file, or Save As if none)
         e.preventDefault();
         await handleSave(false);
+      } else if (e.key === "t") {
+        // Cmd+T: New tab
+        e.preventDefault();
+        // Save current tab, then create new empty tab
+        const currentId = useTabsStore.getState().activeTabId;
+        if (currentId) {
+          saveTabSnapshot(currentId);
+          const lib = useWasmContextStore.getState().library;
+          if (lib) setTabLibrary(currentId, lib);
+        }
+        window.dispatchEvent(new CustomEvent("rosette-new-tab"));
+      } else if (e.key === "w") {
+        // Cmd+W: Close current tab
+        e.preventDefault();
+        const currentId = useTabsStore.getState().activeTabId;
+        if (currentId) {
+          // Simulate close button click via event
+          window.dispatchEvent(new CustomEvent("rosette-close-tab", { detail: currentId }));
+        }
+      } else if (e.key === "[" && e.shiftKey) {
+        // Cmd+Shift+[: Previous tab
+        e.preventDefault();
+        const { tabs, activeTabId: currentActiveId } = useTabsStore.getState();
+        if (tabs.length > 1 && currentActiveId) {
+          const idx = tabs.findIndex((t) => t.id === currentActiveId);
+          const prevIdx = (idx - 1 + tabs.length) % tabs.length;
+          switchTab(currentActiveId, tabs[prevIdx].id);
+          useTabsStore.getState().setActiveTab(tabs[prevIdx].id);
+        }
+      } else if (e.key === "]" && e.shiftKey) {
+        // Cmd+Shift+]: Next tab
+        e.preventDefault();
+        const { tabs, activeTabId: currentActiveId } = useTabsStore.getState();
+        if (tabs.length > 1 && currentActiveId) {
+          const idx = tabs.findIndex((t) => t.id === currentActiveId);
+          const nextIdx = (idx + 1) % tabs.length;
+          switchTab(currentActiveId, tabs[nextIdx].id);
+          useTabsStore.getState().setActiveTab(tabs[nextIdx].id);
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [embed]);
+
+  // Listen for close-tab events (from Cmd+W keyboard shortcut)
+  useEffect(() => {
+    if (embed) return;
+
+    const handleCloseTab = async (e: Event) => {
+      const tabId = (e as CustomEvent).detail as string;
+      if (!tabId) return;
+
+      const tab = useTabsStore.getState().getTab(tabId);
+      if (!tab) return;
+
+      // Check dirty state: for the active tab, also check the live document
+      // store (the tab store's isDirty may lag by a microtask on first edit).
+      const isActive = useTabsStore.getState().activeTabId === tabId;
+      const isDirty = isActive ? tab.isDirty || useDocumentStore.getState().isDirty : tab.isDirty;
+
+      if (isDirty) {
+        const confirmed = await confirmDiscardChanges();
+        if (!confirmed) return;
+      }
+
+      const state = useTabsStore.getState();
+      const tabIndex = state.tabs.findIndex((t) => t.id === tabId);
+
+      if (isActive && state.tabs.length > 1) {
+        const newTabs = state.tabs.filter((t) => t.id !== tabId);
+        const newActiveId =
+          tabIndex < newTabs.length ? newTabs[tabIndex].id : newTabs[newTabs.length - 1].id;
+        switchTab(tabId, newActiveId);
+        useTabsStore.getState().closeTab(tabId);
+        deleteTabSnapshot(tabId);
+      } else if (isActive && state.tabs.length === 1) {
+        // Closing the last tab: create a new empty tab first, then clean up
+        // the old one. This avoids freeing the library before the replacement
+        // is installed.
+        useTabsStore.getState().closeTab(tabId);
+        window.dispatchEvent(new CustomEvent("rosette-new-tab"));
+        // Delete snapshot after the new tab event has synchronously installed
+        // a new library (the event handler runs synchronously via dispatchEvent).
+        deleteTabSnapshot(tabId);
+      } else {
+        // Non-active tab — just remove it
+        useTabsStore.getState().closeTab(tabId);
+        deleteTabSnapshot(tabId);
+      }
+    };
+
+    window.addEventListener("rosette-close-tab", handleCloseTab);
+    return () => window.removeEventListener("rosette-close-tab", handleCloseTab);
   }, [embed]);
 
   // Tauri: listen for drag-drop events from the native webview
@@ -112,8 +210,6 @@ export default function App() {
               (p: string) => p.endsWith(".gds") || p.endsWith(".gds2") || p.endsWith(".gdsii"),
             );
             if (gdsPath) {
-              const confirmed = await confirmDiscardChanges();
-              if (!confirmed) return;
               await emitOpenFile(gdsPath);
             }
           }

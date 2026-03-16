@@ -55,16 +55,6 @@ export async function getPendingFile(): Promise<string | null> {
   return invoke<string | null>("get_pending_file");
 }
 
-/** Get the current file path (last opened or saved). */
-export async function getCurrentFile(): Promise<string | null> {
-  return invoke<string | null>("get_current_file");
-}
-
-/** Set the current file path. */
-export async function setCurrentFile(path: string | null): Promise<void> {
-  return invoke<void>("set_current_file", { path });
-}
-
 /** Open a native file dialog to pick a GDS file. Returns the path or null. */
 export async function pickGdsFile(): Promise<string | null> {
   const { open } = await import("@tauri-apps/plugin-dialog");

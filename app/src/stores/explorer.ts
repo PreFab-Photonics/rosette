@@ -214,8 +214,7 @@ export const useExplorerStore = create<ExplorerState>()(
           return { hiddenCells: next };
         }),
       showAllCells: () => set({ hiddenCells: new Set<string>() }),
-      hideAllCells: () =>
-        set((state) => ({ hiddenCells: new Set(state.cells) })),
+      hideAllCells: () => set((state) => ({ hiddenCells: new Set(state.cells) })),
     }),
     {
       name: "rosette-explorer",
@@ -223,3 +222,24 @@ export const useExplorerStore = create<ExplorerState>()(
     },
   ),
 );
+
+/**
+ * Sync project name changes to the active tab title.
+ *
+ * When the user renames the project in the Explorer header, update the
+ * corresponding tab's display title to match (unless the tab has a file
+ * path, in which case the filename is used instead).
+ */
+useExplorerStore.subscribe((state, prevState) => {
+  if (state.projectName !== prevState.projectName) {
+    import("@/stores/tabs").then(({ useTabsStore }) => {
+      const { activeTabId, getActiveTab, updateTab } = useTabsStore.getState();
+      if (!activeTabId) return;
+      const tab = getActiveTab();
+      // Only sync if the tab doesn't have a saved file path (file-based tabs use filename)
+      if (tab && !tab.filePath) {
+        updateTab(activeTabId, { title: state.projectName });
+      }
+    });
+  }
+});

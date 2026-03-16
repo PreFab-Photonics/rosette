@@ -78,7 +78,7 @@ export interface Layer {
 /**
  * Default layers matching the rosette.toml template.
  */
-const DEFAULT_LAYERS: Layer[] = [
+export const DEFAULT_LAYERS: Layer[] = [
   {
     id: 1,
     layerNumber: 1,

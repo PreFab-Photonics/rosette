@@ -117,9 +117,7 @@ export function getCommands(): CommandItem[] {
           shortcut: { modifiers: [keys.mod], key: "O" },
           action: async () => {
             close();
-            const { confirmDiscardChanges, emitOpenFile } = await import("@/lib/file-ops");
-            const confirmed = await confirmDiscardChanges();
-            if (!confirmed) return;
+            const { emitOpenFile } = await import("@/lib/file-ops");
             const { pickGdsFile } = await import("@/lib/tauri");
             const path = await pickGdsFile();
             if (path) {
