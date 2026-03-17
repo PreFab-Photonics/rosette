@@ -1,6 +1,6 @@
 # Rosette
 
-A nice GDSII layout editor for photonic integrated circuits. Fast. Intelligent. Accessible.
+A modern GDSII layout editor for integrated circuits. Fast. Intelligent. Accessible.
 
 By [PreFab Photonics](https://prefabphotonics.com).
 
