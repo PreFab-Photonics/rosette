@@ -1,3 +1,6 @@
+# Development DRC rules for the example designs in this directory.
+# User projects get their own rosette.toml via `rosette init`.
+
 [project]
 name = "librosette"
 version = "0.1.0"
