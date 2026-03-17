@@ -1,0 +1,2 @@
+# Mark generated build artifacts so GitHub Linguist excludes them from language stats
+www/public/viewer/assets/** linguist-generated=true
