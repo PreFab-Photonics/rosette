@@ -1,7 +1,6 @@
 # AGENTS.md
 
-Library development for rosette — an agentic design system for ICs.
-For design work in user projects, use the **rosette** agent (Tab).
+Library development for rosette — a fast, intelligent, and accessible layout editor for integrated circuits.
 
 ## Architecture
 

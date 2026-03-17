@@ -32,4 +32,4 @@ output/*.svg
 # Project (user .rosette/ dirs, but not template ones)
 .rosette/
 !python/rosette/templates/**/.rosette
-.env
+.env*
