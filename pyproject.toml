@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "rosette"
 version = "0.1.0"
-description = "AI-native design system for integrated circuits"
+description = "A fast, intelligent, and accessible layout editor"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
