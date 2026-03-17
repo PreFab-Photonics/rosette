@@ -24,14 +24,8 @@ struct OutlineUniforms {
     _padding: vec3<f32>,
 }
 
-struct OutlineSegment {
-    p0: vec2<f32>,  // Start point (SCREEN coords - pixels)
-    p1: vec2<f32>,  // End point (SCREEN coords - pixels)
-}
-
 @group(0) @binding(0) var<uniform> viewport: Viewport;
 @group(0) @binding(1) var<uniform> outline: OutlineUniforms;
-@group(0) @binding(2) var<storage, read> segments: array<OutlineSegment>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -50,13 +44,12 @@ const QUAD_VERTICES: array<vec2<f32>, 4> = array<vec2<f32>, 4>(
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_idx: u32,
-    @builtin(instance_index) instance_idx: u32,
+    @location(0) seg_p0: vec2<f32>,
+    @location(1) seg_p1: vec2<f32>,
 ) -> VertexOutput {
-    let seg = segments[instance_idx];
-
     // Points are already in screen coordinates (computed on CPU with f64 precision)
-    let screen_p0 = seg.p0;
-    let screen_p1 = seg.p1;
+    let screen_p0 = seg_p0;
+    let screen_p1 = seg_p1;
 
     let delta = screen_p1 - screen_p0;
     let segment_length = length(delta);

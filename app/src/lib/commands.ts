@@ -20,6 +20,7 @@ import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 import { computeAlignmentDeltas, type AlignType, type AlignmentDelta } from "@/lib/align";
+import { getSourceInfo, sendDeleteEdit, sendAddEdit } from "@/hooks/use-library";
 import { usePathStore, DEFAULT_NUM_ARC_POINTS, type PathMetadata } from "@/stores/path";
 import { useImageStore, imageKeyToId, imageIdToKey, type ImageEntry } from "@/stores/image";
 import { useStatusMessageStore } from "@/stores/status-message";
@@ -92,6 +93,15 @@ export class CreateRectangleCommand implements Command {
       ctx.renderer.sync_from_library(ctx.library);
       ctx.renderer.mark_dirty();
       useSelectionStore.getState().select(id);
+
+      // Sync to Python source (no-op in standalone mode)
+      const vertices = new Float64Array([
+        this.x, this.y,
+        this.x + this.width, this.y,
+        this.x + this.width, this.y + this.height,
+        this.x, this.y + this.height,
+      ]);
+      sendAddEdit(vertices, this.layer, this.datatype);
     }
   }
 
@@ -264,6 +274,19 @@ export class DeleteElementsCommand implements Command {
       this.snapshots = snapshotElements(ctx.library, idsToDelete);
     }
 
+    // Collect source info BEFORE deletion (source map is separate from WASM)
+    // Deduplicate by file:line to avoid deleting the same ref line twice
+    const sourceEdits = new Map<string, string>(); // "file:line" → elementId
+    for (const id of idsToDelete) {
+      const source = getSourceInfo(id);
+      if (source) {
+        const key = `${source.file}:${source.line}`;
+        if (!sourceEdits.has(key)) {
+          sourceEdits.set(key, id);
+        }
+      }
+    }
+
     // Delete elements in a single batch operation (much faster for large selections)
     ctx.library.remove_elements(idsToDelete);
 
@@ -276,6 +299,11 @@ export class DeleteElementsCommand implements Command {
 
     // Clear selection
     useSelectionStore.getState().clearSelection();
+
+    // Sync deletions to Python source (no-op if no source map / standalone mode)
+    for (const elementId of sourceEdits.values()) {
+      sendDeleteEdit(elementId);
+    }
   }
 
   undo(ctx: CommandContext): void {
@@ -441,6 +469,9 @@ export class CreatePolygonCommand implements Command {
       ctx.renderer.sync_from_library(ctx.library);
       ctx.renderer.mark_dirty();
       useSelectionStore.getState().select(id);
+
+      // Sync to Python source (no-op in standalone mode)
+      sendAddEdit(this.points, this.layer, this.datatype);
     }
   }
 
@@ -1554,6 +1585,11 @@ export class SetInstanceArrayCommand implements Command {
  * In design mode the tree comes from the WASM library, same as standalone.
  */
 export function syncCellTree(library: WasmLibrary): void {
+  // In design mode, the server rebuilds the tree on each reload via SSE.
+  // Skip local sync to avoid overwriting the server-authoritative tree.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("design") === "true") return;
+
   const tree = library.get_cell_tree();
   if (tree) {
     useExplorerStore.getState().setCellTree(tree);

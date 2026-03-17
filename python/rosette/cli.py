@@ -8,12 +8,15 @@ Commands:
 
 import argparse
 import importlib.util
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import webbrowser
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # Template directory location (relative to this file)
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -663,6 +666,83 @@ def build_design(design: str, output_dir: str, verbose: bool = False):
     print(f"ok {gds_output}")
 
 
+
+def _source_to_dict(src) -> dict:
+    """Convert a SourceLocation to a JSON-serialisable dict."""
+    return {
+        "file": src.file,
+        "line": src.line,
+        "fn": src.function,
+        "code": src.code,
+        "type": src.element_type,
+    }
+
+
+def _build_source_map(cell) -> list[dict | None] | None:
+    """Build a source map indexed by element position.
+
+    Each entry corresponds to the element at the same index in the cell's
+    elements list.  The WASM viewer correlates entries by element index
+    (extracted from the UUID), so the order here must match the order
+    elements were added to the cell.
+
+    Returns None if source tracking was not active during design execution.
+    """
+    sources = getattr(cell, "_element_sources", None)
+    if not sources:
+        return None
+
+    source_map: list[dict | None] = [
+        _source_to_dict(src) if src is not None else None
+        for src in sources
+    ]
+
+    return source_map if any(s is not None for s in source_map) else None
+
+
+def _build_child_source_maps(cell) -> dict[str, list[dict | None]] | None:
+    """Build source maps for child cells (for editing shapes inside components).
+
+    The WASM renderer assigns ref sub-polygon UUIDs as ``ref:N:M`` where N is
+    the CellRef element index and M is a flat polygon counter that increments
+    for each polygon/path encountered while recursively traversing the child
+    cell.  Text elements do not produce render polygons, so they are skipped
+    here to keep the counter aligned.
+
+    Returns ``{cell_name: [source_or_null, ...]}`` where the list is indexed
+    by the WASM poly_counter (i.e. render polygon order within that cell).
+    Returns None if no child cells have source tracking.
+    """
+    child_cells = list(cell.get_child_cells()) if hasattr(cell, "get_child_cells") else []
+    log.info("[sourceMap] _build_child_source_maps: %d child cells", len(child_cells))
+    if not child_cells:
+        return None
+
+    result: dict[str, list[dict | None]] = {}
+    for child in child_cells:
+        sources = getattr(child, "_element_sources", None)
+        log.info("[sourceMap]   child '%s': %d sources", child.name, len(sources) if sources else 0)
+        if not sources:
+            continue
+
+        # Build list matching WASM poly_counter order: skip text elements
+        # since they don't produce render polygons.
+        render_sources: list[dict | None] = []
+        for i, src in enumerate(sources):
+            if src is not None and src.element_type == "text":
+                log.info("[sourceMap]     [%d] SKIP text: %s", i, src.code[:60] if src.code else "?")
+                continue
+            render_sources.append(_source_to_dict(src) if src is not None else None)
+            if src is not None:
+                log.info("[sourceMap]     [%d] → render[%d]: type=%s line=%d code=%s", i, len(render_sources)-1, src.element_type, src.line, src.code[:60] if src.code else "?")
+
+        if any(s is not None for s in render_sources):
+            result[child.name] = render_sources
+
+    log.info("[sourceMap] _build_child_source_maps result: %s", {k: len(v) for k, v in result.items()} if result else None)
+    return result if result else None
+
+
 def _build_cell_tree(cell, child_cells_list):
     """Build a hierarchy tree from a cell and its children.
 
@@ -709,9 +789,10 @@ def _prepare_design(cell):
     """Serialize cell hierarchy and build explorer tree.
 
     Returns:
-        Tuple of (json_str, cell_tree) where:
+        Tuple of (json_str, cell_tree, source_map) where:
         - json_str: Hierarchical library JSON (micrometers, full structure)
         - cell_tree: Hierarchy tree dict for the explorer panel
+        - source_map: Source info list indexed by element position (or None)
     """
     from rosette._core import to_json
 
@@ -728,7 +809,11 @@ def _prepare_design(cell):
     # Build hierarchy tree for the explorer panel
     cell_tree = _build_cell_tree(cell, child_cells_list)
 
-    return json_str, cell_tree
+    # Build source maps for two-way editing
+    source_map = _build_source_map(cell)
+    child_source_maps = _build_child_source_maps(cell)
+
+    return json_str, cell_tree, source_map, child_source_maps
 
 
 def _prepare_design_from_library(library):
@@ -942,6 +1027,14 @@ def serve_design(
         native: True to force native window, False to force browser,
                 None to auto-detect (use native if Tauri binary/source available)
     """
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     server, url = _start_server(port)
 
     # Resolve native mode: auto-detect if not explicitly set.
@@ -953,12 +1046,22 @@ def serve_design(
     tauri_proc = None
 
     if design:
+        # Enable source tracking for two-way editing
+        from rosette import enable_source_tracking
+
+        enable_source_tracking()
+
         cell, file_path, _ = load_design(design)
-        json_str, cell_tree = _prepare_design(cell)
+        json_str, cell_tree, source_map, child_source_maps = _prepare_design(cell)
         layer_defs = _load_layer_map_safe()
 
         server.set_design_json(
-            json_str, cells=cell_tree, layers=layer_defs, filename=Path(design).name
+            json_str,
+            cells=cell_tree,
+            layers=layer_defs,
+            filename=Path(design).name,
+            source_map=source_map,
+            child_source_maps=child_source_maps,
         )
 
         if not no_open:
@@ -1000,8 +1103,13 @@ def serve_design(
                     for name in stale:
                         del sys.modules[name]
 
+                    # Also clear linecache so source tracking picks up changes
+                    import linecache
+
+                    linecache.clearcache()
+
                     cell, _, _ = load_design(design)
-                    json_str, cell_tree = _prepare_design(cell)
+                    json_str, cell_tree, source_map, child_source_maps = _prepare_design(cell)
                     layer_defs = _load_layer_map_safe()
 
                     server.set_design_json(
@@ -1009,6 +1117,8 @@ def serve_design(
                         cells=cell_tree,
                         layers=layer_defs,
                         filename=Path(design).name,
+                        source_map=source_map,
+                        child_source_maps=child_source_maps,
                     )
                 except Exception as e:
                     print(f"error: {e}")

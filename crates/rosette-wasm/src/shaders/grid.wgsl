@@ -17,14 +17,7 @@ struct Viewport {
     _padding2: vec2<f32>,
 }
 
-struct GridPoint {
-    screen_pos: vec2<f32>,  // Screen position in pixels (computed on CPU)
-    opacity: f32,           // Point opacity (includes theme adjustment)
-    _padding: f32,
-}
-
 @group(0) @binding(0) var<uniform> viewport: Viewport;
-@group(0) @binding(1) var<storage, read> points: array<GridPoint>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -46,9 +39,9 @@ const BASE_POINT_SIZE: f32 = 2.0;
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_idx: u32,
-    @builtin(instance_index) instance_idx: u32,
+    @location(0) screen_pos: vec2<f32>,
+    @location(1) opacity: f32,
 ) -> VertexOutput {
-    let point = points[instance_idx];
     let quad_pos = QUAD_VERTICES[vertex_idx];
 
     // Scale point size by DPR to maintain consistent visual size on HiDPI displays
@@ -56,7 +49,7 @@ fn vs_main(
 
     // Screen position is pre-computed on CPU in f64 for precision
     // Add quad offset (in pixels)
-    let final_pos = point.screen_pos + quad_pos * point_size;
+    let final_pos = screen_pos + quad_pos * point_size;
 
     // Convert to NDC (-1 to 1)
     let ndc = vec2<f32>(
@@ -66,7 +59,7 @@ fn vs_main(
 
     var out: VertexOutput;
     out.position = vec4<f32>(ndc, 0.0, 1.0);
-    out.opacity = point.opacity;
+    out.opacity = opacity;
     out.local_pos = quad_pos;
     return out;
 }

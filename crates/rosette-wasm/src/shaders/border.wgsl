@@ -25,15 +25,8 @@ struct BorderUniforms {
     _pad3: f32,
 }
 
-struct ColoredSegment {
-    p0: vec2<f32>,      // Start point (WORLD coords)
-    p1: vec2<f32>,      // End point (WORLD coords)
-    color: vec4<f32>,   // RGBA color for this segment
-}
-
 @group(0) @binding(0) var<uniform> viewport: Viewport;
 @group(0) @binding(1) var<uniform> border: BorderUniforms;
-@group(0) @binding(2) var<storage, read> segments: array<ColoredSegment>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -53,14 +46,14 @@ const QUAD_VERTICES: array<vec2<f32>, 4> = array<vec2<f32>, 4>(
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_idx: u32,
-    @builtin(instance_index) instance_idx: u32,
+    @location(0) seg_p0: vec2<f32>,
+    @location(1) seg_p1: vec2<f32>,
+    @location(2) seg_color: vec4<f32>,
 ) -> VertexOutput {
-    let seg = segments[instance_idx];
-
     // Transform world coordinates to screen coordinates
     // screen = world * zoom + offset
-    let screen_p0 = seg.p0 * viewport.zoom + viewport.offset;
-    let screen_p1 = seg.p1 * viewport.zoom + viewport.offset;
+    let screen_p0 = seg_p0 * viewport.zoom + viewport.offset;
+    let screen_p1 = seg_p1 * viewport.zoom + viewport.offset;
 
     let delta = screen_p1 - screen_p0;
     let segment_length = length(delta);
@@ -97,7 +90,7 @@ fn vs_main(
     out.position = vec4<f32>(ndc, 0.0, 1.0);
     out.local_pos = vec2<f32>(along, across);
     out.segment_length = segment_length;
-    out.color = seg.color;
+    out.color = seg_color;
     return out;
 }
 

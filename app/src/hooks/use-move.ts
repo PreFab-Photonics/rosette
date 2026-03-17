@@ -6,6 +6,7 @@ import { useRulerStore, type Ruler } from "@/stores/ruler";
 import { useImageStore, hitTestImages, isImageId, imageIdToKey } from "@/stores/image";
 import { useViewportStore } from "@/stores/viewport";
 import { MoveElementsCommand, MoveRulersCommand, MoveImagesCommand } from "@/lib/commands";
+import { getSourceInfo, sendVertexEdit, sendRefMove } from "@/hooks/use-library";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
 /**
@@ -380,6 +381,30 @@ export function useMove(
       // Now create and execute the command (which will apply the move again)
       const command = new MoveElementsCommand(elementIds, currentDelta.x, currentDelta.y);
       useHistoryStore.getState().execute(command, { library, renderer });
+
+      // Sync updated vertices back to Python source for each moved element
+      const syncedRefLines = new Set<string>();
+      for (const id of elementIds) {
+        const source = getSourceInfo(id);
+        if (!source) {
+          console.warn("[move] no source for", id.slice(0, 8), "— edit skipped");
+          continue;
+        }
+        if (source.type === "ref") {
+          // All polygons in a ref group share the same source line — send once
+          const key = `${source.file}:${source.line}`;
+          if (!syncedRefLines.has(key)) {
+            syncedRefLines.add(key);
+            sendRefMove(id, currentDelta.x, currentDelta.y);
+          }
+        } else {
+          const info = library.get_element_info(id);
+          if (info) {
+            sendVertexEdit(id, new Float64Array(info.vertices));
+            info.free();
+          }
+        }
+      }
     }
 
     // Reset state

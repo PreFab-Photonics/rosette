@@ -1,7 +1,7 @@
 // Laser pointer shader for rosette-wasm
 //
 // Renders laser trail as thick line segments with glow effect.
-// Points are in screen coordinates (computed on CPU).
+// Each instance receives a segment (p0, p1) in screen coordinates.
 // Each line segment is rendered as an instanced quad.
 
 struct Viewport {
@@ -23,14 +23,8 @@ struct LaserUniforms {
     _padding: vec2<f32>,
 }
 
-struct LaserPoint {
-    screen_pos: vec2<f32>,  // Screen position in pixels
-    _padding: vec2<f32>,
-}
-
 @group(0) @binding(0) var<uniform> viewport: Viewport;
 @group(0) @binding(1) var<uniform> laser: LaserUniforms;
-@group(0) @binding(2) var<storage, read> points: array<LaserPoint>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -49,16 +43,16 @@ const QUAD_VERTICES: array<vec2<f32>, 4> = array<vec2<f32>, 4>(
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_idx: u32,
-    @builtin(instance_index) instance_idx: u32,
+    @location(0) seg_p0: vec2<f32>,
+    @location(1) seg_p1: vec2<f32>,
 ) -> VertexOutput {
-    // Each instance draws a line segment between points[i] and points[i+1]
-    let p0 = points[instance_idx].screen_pos;
-    let p1 = points[instance_idx + 1u].screen_pos;
+    let p0 = seg_p0;
+    let p1 = seg_p1;
 
     // Calculate segment direction and perpendicular
     let delta = p1 - p0;
     let segment_length = length(delta);
-    
+
     // Handle zero-length segments
     var dir: vec2<f32>;
     var perp: vec2<f32>;
@@ -71,19 +65,19 @@ fn vs_main(
     }
 
     let quad_pos = QUAD_VERTICES[vertex_idx];
-    
+
     // Total width includes glow
     let total_width = laser.line_width + laser.glow_size * 2.0;
-    
+
     // Extend segment slightly at ends for rounded caps
     let cap_extension = total_width * 0.5;
-    
+
     // Calculate screen position
     // quad_pos.x: 0 = start, 1 = end (along segment)
     // quad_pos.y: -0.5 to 0.5 (perpendicular to segment)
     let along = mix(-cap_extension, segment_length + cap_extension, quad_pos.x);
     let across = quad_pos.y * total_width;
-    
+
     let screen_pos = p0 + dir * along + perp * across;
 
     // Convert to NDC
@@ -103,10 +97,10 @@ fn vs_main(
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let half_line = laser.line_width * 0.5;
-    
+
     // Calculate distance from the line center
     var dist_from_line: f32;
-    
+
     if in.local_pos.x < 0.0 {
         // In the start cap region - distance from start point
         dist_from_line = length(in.local_pos);

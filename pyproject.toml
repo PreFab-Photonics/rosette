@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
     "watchfiles>=0.20",
+    "libcst>=1.0",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
