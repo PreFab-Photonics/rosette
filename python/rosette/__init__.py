@@ -417,7 +417,7 @@ class Cell:
     All other methods delegate to the underlying Rust Cell.
     """
 
-    __slots__ = ("_child_cells", "_element_sources", "_inner")
+    __slots__ = ("_child_cells", "_def_source", "_element_sources", "_inner")
 
     def __init__(self, name: str) -> None:
         """Create a new empty cell.
@@ -428,6 +428,10 @@ class Cell:
         self._inner = _Cell(name)
         self._child_cells: set[Cell] = set()
         self._element_sources: list[SourceLocation | None] = []
+        if _SOURCE_TRACKING:
+            self._def_source: SourceLocation | None = _capture_source("cell_def")
+        else:
+            self._def_source = None
 
     @classmethod
     def _from_inner(cls, inner: _Cell) -> Cell:
@@ -436,6 +440,7 @@ class Cell:
         cell._inner = inner
         cell._child_cells = set()
         cell._element_sources = []
+        cell._def_source = None
         return cell
 
     # --- Delegated properties ---

@@ -74,6 +74,17 @@ export class WasmLibrary {
      */
     add_cell_ref(ref_cell_name: string, x: number, y: number): string | undefined;
     /**
+     * Add a cell reference to a specific parent cell (without changing active cell).
+     */
+    add_cell_ref_to(parent_cell: string, ref_cell_name: string, x: number, y: number): string | undefined;
+    /**
+     * Add a CellRef to a specific parent cell with a full affine transform.
+     *
+     * Like `add_cell_ref_to` but accepts a full [a, b, c, d, tx, ty] transform
+     * instead of just (x, y). Used by DeleteCellCommand undo to restore parent refs.
+     */
+    add_cell_ref_to_with_transform(parent_cell: string, ref_cell_name: string, transform: Float64Array): string | undefined;
+    /**
      * Add a CellRef element with a full affine transform (for undo/redo).
      *
      * The transform is given as [a, b, c, d, tx, ty].
@@ -257,6 +268,10 @@ export class WasmLibrary {
      */
     get_cell_bounds(cell_name: string): Float64Array | undefined;
     /**
+     * Get the names of all cells in the library.
+     */
+    get_cell_names(): string[];
+    /**
      * Get the origin of the active cell as [x, y].
      *
      * Returns None if no active cell exists.
@@ -289,6 +304,12 @@ export class WasmLibrary {
      * Returns None if the element is not a CellRef.
      */
     get_cell_ref_info(id: string): CellRefInfo | undefined;
+    /**
+     * Get all parent cells that reference a given cell, with their transforms.
+     *
+     * Returns a JS array of `{parent: string, transform: [a, b, c, d, tx, ty]}`.
+     */
+    get_cell_ref_parents(name: string): any;
     /**
      * Get the cell hierarchy as a forest of tree roots for the Explorer panel.
      *
@@ -436,6 +457,12 @@ export class WasmLibrary {
      * If the removed cell is the active cell, the active cell is cleared.
      */
     remove_cell(name: string): boolean;
+    /**
+     * Remove a cell and all CellRefs that reference it from other cells.
+     *
+     * Returns the number of removed references (0 if cell didn't exist).
+     */
+    remove_cell_cascade(name: string): number;
     /**
      * Remove an element by its UUID.
      *
@@ -890,6 +917,8 @@ export interface InitOutput {
     readonly wasmlibrary_active_cell_name: (a: number) => [number, number];
     readonly wasmlibrary_add_cell: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_add_cell_ref: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_add_cell_ref_to: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_add_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly wasmlibrary_add_cell_ref_with_transform: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly wasmlibrary_add_polygon: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly wasmlibrary_add_rectangle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
@@ -909,11 +938,13 @@ export interface InitOutput {
     readonly wasmlibrary_get_all_vertices: (a: number) => [number, number];
     readonly wasmlibrary_get_bounds_for_ids: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_cell_bounds: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_names: (a: number) => [number, number];
     readonly wasmlibrary_get_cell_origin: (a: number) => [number, number];
     readonly wasmlibrary_get_cell_origin_by_name: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_cell_preview_polygons: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly wasmlibrary_get_cell_ref_array: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_cell_ref_info: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_get_cell_ref_parents: (a: number, b: number, c: number) => any;
     readonly wasmlibrary_get_cell_tree: (a: number) => any;
     readonly wasmlibrary_get_element_index: (a: number, b: number, c: number) => number;
     readonly wasmlibrary_get_element_info: (a: number, b: number, c: number) => number;
@@ -935,6 +966,7 @@ export interface InitOutput {
     readonly wasmlibrary_mark_clean: (a: number) => void;
     readonly wasmlibrary_new: (a: number, b: number) => number;
     readonly wasmlibrary_remove_cell: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_cell_cascade: (a: number, b: number, c: number) => number;
     readonly wasmlibrary_remove_element: (a: number, b: number, c: number) => number;
     readonly wasmlibrary_remove_elements: (a: number, b: number, c: number) => number;
     readonly wasmlibrary_remove_elements_on_layer: (a: number, b: number, c: number) => number;

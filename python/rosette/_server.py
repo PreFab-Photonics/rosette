@@ -49,6 +49,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     design_version: int = 0
     design_source_map: list[dict | None] | None = None  # Source map for two-way editing
     design_child_source_maps: dict | None = None  # {cell_name: [source, ...]} for child cells
+    design_cell_vars: dict | None = None  # {cell_name: {var_name, file, line}} for cell definitions
     on_error: Callable[[str], None] | None = None
 
     # Condition variable for SSE notifications
@@ -113,8 +114,6 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
             data = json.loads(body)
-            log.info("[edit] Received edit request: %s", json.dumps(data, default=str)[:500])
-
             op_type = data.get("op")
 
             if op_type:
@@ -134,7 +133,10 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     def _handle_semantic_edit(self, op_type: str, data: dict) -> None:
         """Dispatch a semantic edit operation to SemanticPatcher."""
         from rosette._patcher import (
+            AddCell,
             AddElement,
+            AddRef,
+            DeleteCell,
             DeleteElement,
             ModifyLayer,
             ModifyPathWidth,
@@ -170,6 +172,20 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                 file=d["file"], line=d["line"],
                 old_code=d.get("old_code"), dx=d["dx"], dy=d["dy"],
             ),
+            "add_cell": lambda d: AddCell(
+                file=d["file"], def_after_line=d["def_after_line"],
+                ref_after_line=d["ref_after_line"],
+                cell_name=d["cell_name"], parent_var=d["parent_var"],
+            ),
+            "add_ref": lambda d: AddRef(
+                file=d["file"], after_line=d["after_line"],
+                cell_name=d["cell_name"], parent_var=d["parent_var"],
+                transform=d["transform"],
+            ),
+            "delete_cell": lambda d: DeleteCell(
+                file=d["file"], cell_name=d["cell_name"],
+                var_name=d["var_name"],
+            ),
         }
 
         builder = op_map.get(op_type)
@@ -184,9 +200,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             return
 
         patcher = SemanticPatcher()
-        log.info("[edit] Applying semantic op: %s on %s:%s", op_type, getattr(op, 'file', '?'), getattr(op, 'line', '?'))
         result = patcher.apply(op)
-        log.info("[edit] Semantic result: success=%s error=%s", result.success, result.error)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -254,6 +268,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                 "cells": self.__class__.design_cells,
                 "source_map": self.__class__.design_source_map,
                 "child_source_maps": self.__class__.design_child_source_maps,
+                "cell_vars": self.__class__.design_cell_vars,
                 "layers": self.__class__.design_layers,
                 "filename": self.__class__.design_filename,
             },
@@ -277,6 +292,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                             "cells": self.__class__.design_cells,
                             "source_map": self.__class__.design_source_map,
                             "child_source_maps": self.__class__.design_child_source_maps,
+                            "cell_vars": self.__class__.design_cell_vars,
                             "layers": self.__class__.design_layers,
                             "filename": self.__class__.design_filename,
                         },
@@ -398,6 +414,7 @@ class RosetteServer:
         filename: str | None = None,
         source_map: list[dict | None] | None = None,
         child_source_maps: dict | None = None,
+        cell_vars: dict | None = None,
     ) -> None:
         """Update the design JSON and increment version.
 
@@ -408,6 +425,7 @@ class RosetteServer:
             filename: Optional source filename (e.g., "layout.py" or "mmi.gds")
             source_map: Optional source map for two-way editing (indexed by element position)
             child_source_maps: Optional {cell_name: [source, ...]} for child cell elements
+            cell_vars: Optional {cell_name: {var_name, file, line}} for cell definitions
         """
         RosetteHandler.design_json = json_str
         RosetteHandler.design_cells = cells
@@ -415,6 +433,7 @@ class RosetteServer:
         RosetteHandler.design_filename = filename
         RosetteHandler.design_source_map = source_map
         RosetteHandler.design_child_source_maps = child_source_maps
+        RosetteHandler.design_cell_vars = cell_vars
         RosetteHandler.design_version += 1
 
         # Notify all SSE connections of the change

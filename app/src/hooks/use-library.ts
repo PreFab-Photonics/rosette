@@ -11,8 +11,10 @@ import {
   type Layer,
 } from "@/stores/layer";
 import { isTauri, readGdsBytes, listenTauri, getPendingFile } from "@/lib/tauri";
+import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useSelectionStore } from "@/stores/selection";
+import { useStatusMessageStore } from "@/stores/status-message";
 import { useViewportStore } from "@/stores/viewport";
 
 // Module-level singleton for library
@@ -38,6 +40,8 @@ let currentSourceMap: Map<string, SourceInfo> | null = null;
 let storedChildSourceMaps: Record<string, (SourceInfo | null)[]> | null = null;
 /** Stored server source map (top cell, element-indexed). */
 let storedServerSourceMap: (SourceInfo | null)[] | null = null;
+/** Stored cell variable metadata: {cell_name: {var_name, file, line}} */
+let storedCellVars: Record<string, { var_name: string; file: string; line: number }> | null = null;
 /**
  * Cache UUID → element index so lookups survive library replacement (SSE updates
  * create a new WasmLibrary with fresh UUIDs, making old UUIDs return -1 from
@@ -114,7 +118,6 @@ export async function sendEdit(edit: {
 export async function sendSemanticEdit(
   edit: Record<string, unknown>,
 ): Promise<boolean> {
-  console.log("[edit] sendSemanticEdit →", JSON.stringify(edit, null, 2));
   try {
     const res = await fetch("/api/design/edit", {
       method: "POST",
@@ -122,10 +125,35 @@ export async function sendSemanticEdit(
       body: JSON.stringify(edit),
     });
     const text = await res.text();
-    console.log("[edit] sendSemanticEdit response:", res.status, text);
-    return res.ok;
-  } catch (e) {
-    console.error("[edit] sendSemanticEdit error:", e);
+    if (!res.ok) {
+      useStatusMessageStore.getState().show(
+        `Source edit failed (HTTP ${res.status}): ${edit.op}`,
+        "error",
+        5000,
+      );
+      return false;
+    }
+    // Check patcher result — server returns 200 even on patcher failure
+    try {
+      const body = JSON.parse(text);
+      if (!body.ok) {
+        useStatusMessageStore.getState().show(
+          `Source edit failed: ${body.error || edit.op}`,
+          "error",
+          5000,
+        );
+        return false;
+      }
+    } catch {
+      // Non-JSON response, treat as success if HTTP was ok
+    }
+    return true;
+  } catch {
+    useStatusMessageStore.getState().show(
+      `Source edit failed: could not reach server`,
+      "error",
+      5000,
+    );
     return false;
   }
 }
@@ -139,23 +167,8 @@ export function sendVertexEdit(
   newVertices: Float64Array,
 ): void {
   const source = getSourceInfo(elementId);
-  if (!source) {
-    const acn = libraryInstance?.active_cell_name() ?? null;
-    const eidx = libraryInstance?.get_element_index(elementId) ?? -1;
-    console.warn("[edit] sendVertexEdit BAIL: no source for", elementId.slice(0, 8), {
-      activeCellName: acn,
-      elemIdx: eidx,
-      hasChildMaps: storedChildSourceMaps !== null,
-      childMapKeys: storedChildSourceMaps ? Object.keys(storedChildSourceMaps) : [],
-      childMapForCell: storedChildSourceMaps && acn ? (storedChildSourceMaps[acn]?.length ?? "missing") : "n/a",
-      childEntry: storedChildSourceMaps && acn && storedChildSourceMaps[acn] ? storedChildSourceMaps[acn][eidx] : "n/a",
-      hasServerMap: storedServerSourceMap !== null,
-      serverMapLen: storedServerSourceMap?.length ?? 0,
-      serverEntry: storedServerSourceMap && eidx >= 0 ? storedServerSourceMap[eidx] : "n/a",
-    });
-    return;
-  }
-  if (source.type !== "polygon" && source.type !== "path") { console.warn("[edit] sendVertexEdit BAIL: wrong type", source.type, "for", elementId); return; }
+  if (!source) return;
+  if (source.type !== "polygon" && source.type !== "path") return;
 
   sendSemanticEdit({
     op: "modify_vertices",
@@ -176,18 +189,8 @@ export function sendRefMove(
   dy: number,
 ): void {
   const source = getSourceInfo(elementId);
-  if (!source) {
-    const acn = libraryInstance?.active_cell_name() ?? null;
-    const eidx = libraryInstance?.get_element_index(elementId) ?? -1;
-    console.warn("[edit] sendRefMove BAIL: no source for", elementId.slice(0, 8), {
-      activeCellName: acn, elemIdx: eidx,
-      hasChildMaps: storedChildSourceMaps !== null,
-      childMapKeys: storedChildSourceMaps ? Object.keys(storedChildSourceMaps) : [],
-      childEntry: storedChildSourceMaps && acn && storedChildSourceMaps[acn] ? storedChildSourceMaps[acn][eidx] : "n/a",
-    });
-    return;
-  }
-  if (source.type !== "ref") { console.warn("[edit] sendRefMove BAIL: wrong type", source.type, "for", elementId); return; }
+  if (!source) return;
+  if (source.type !== "ref") return;
 
   sendSemanticEdit({
     op: "move_ref",
@@ -208,9 +211,8 @@ export function sendLayerEdit(
   datatype: number,
 ): void {
   const source = getSourceInfo(elementId);
-  console.log("[edit] sendLayerEdit", { elementId, source });
-  if (!source) { console.warn("[edit] sendLayerEdit BAIL: no source for", elementId); return; }
-  if (source.type !== "polygon" && source.type !== "path") { console.warn("[edit] sendLayerEdit BAIL: wrong type", source.type, "for", elementId); return; }
+  if (!source) return;
+  if (source.type !== "polygon" && source.type !== "path") return;
 
   sendSemanticEdit({
     op: "modify_layer",
@@ -240,15 +242,73 @@ export function sendDeleteEdit(elementId: string): void {
 /**
  * Send an add operation for a new polygon element.
  * Inserts a new add_polygon call after the last source-tracked element.
+ *
+ * When the active cell is a child cell, uses child source maps or cell_vars
+ * metadata to target the correct Python variable.
  */
 export function sendAddEdit(
   vertices: Float64Array,
   layer: number,
   datatype: number,
 ): void {
+  const activeCellName = libraryInstance?.active_cell_name();
+  const topCellName = useExplorerStore.getState().cells[0] ?? null;
+
+  // If active cell is a child cell, use child-specific source info
+  if (activeCellName && topCellName && activeCellName !== topCellName) {
+    // Try child source maps first (cell has existing elements with source tracking)
+    if (storedChildSourceMaps && storedChildSourceMaps[activeCellName]) {
+      const childMap = storedChildSourceMaps[activeCellName];
+      let lastLine = 0;
+      let file = "";
+      let cellVar = activeCellName;
+
+      for (const source of childMap) {
+        if (source && source.line > lastLine) {
+          lastLine = source.line;
+          file = source.file;
+          const dotIdx = source.code.indexOf(".");
+          if (dotIdx > 0) {
+            cellVar = source.code.substring(0, dotIdx).trim();
+          }
+        }
+      }
+
+      if (file && lastLine > 0) {
+        sendSemanticEdit({
+          op: "add_element",
+          file,
+          after_line: lastLine,
+          element_type: "polygon",
+          vertices: Array.from(vertices),
+          layer,
+          datatype,
+          cell_var: cellVar,
+        });
+        return;
+      }
+    }
+
+    // Fall back to cell_vars metadata (empty cell, just the definition exists)
+    if (storedCellVars && storedCellVars[activeCellName]) {
+      const cv = storedCellVars[activeCellName];
+      sendSemanticEdit({
+        op: "add_element",
+        file: cv.file,
+        after_line: cv.line,
+        element_type: "polygon",
+        vertices: Array.from(vertices),
+        layer,
+        datatype,
+        cell_var: cv.var_name,
+      });
+      return;
+    }
+  }
+
+  // Default: use top cell's source map
   if (!currentSourceMap || currentSourceMap.size === 0) return;
 
-  // Find the last source entry to determine file, insertion point, and cell variable.
   let lastLine = 0;
   let file = "";
   let cellVar = "cell";
@@ -276,6 +336,204 @@ export function sendAddEdit(
     layer,
     datatype,
     cell_var: cellVar,
+  });
+}
+
+/**
+ * Send an add_cell operation to the Python server.
+ * Creates a cell definition near the other cell definitions and an add_ref
+ * near the other references, matching the file's existing convention.
+ */
+export function sendAddCellEdit(
+  cellName: string,
+  parentCellName: string,
+): void {
+  // Insertion point priority:
+  //   Cell definition: child source maps (last element line) → cell_vars → fallback to ref line
+  //   Add-ref: parent source map ref entries → last source entry → fallback to def line
+  //   Parent var: source code extraction (dotIdx) → cell_vars → default "design"
+  const topCellName = useExplorerStore.getState().cells[0] ?? null;
+  let file = "";
+  let parentVar = "design";
+
+  // --- Determine where to insert the cell definition ---
+  // After the last child cell's last source-tracked element
+  let defAfterLine = 0;
+  if (storedChildSourceMaps) {
+    for (const entries of Object.values(storedChildSourceMaps)) {
+      for (const entry of entries) {
+        if (entry && entry.line > defAfterLine) {
+          defAfterLine = entry.line;
+          if (!file) file = entry.file;
+        }
+      }
+    }
+  }
+  // Fall back to the last child cell definition line
+  if (!defAfterLine && storedCellVars) {
+    for (const [name, cv] of Object.entries(storedCellVars)) {
+      if (name !== topCellName && cv.line > defAfterLine) {
+        defAfterLine = cv.line;
+        if (!file) file = cv.file;
+      }
+    }
+  }
+
+  // --- Determine where to insert the add_ref ---
+  // After the last ref-type entry in the parent's source map
+  let refAfterLine = 0;
+  if (parentCellName === topCellName && currentSourceMap) {
+    for (const source of currentSourceMap.values()) {
+      if (!file) file = source.file;
+      // Find parent variable from any source entry
+      const dotIdx = source.code.indexOf(".");
+      if (dotIdx > 0) {
+        parentVar = source.code.substring(0, dotIdx).trim();
+      }
+      // Prefer ref-type entries for the insertion point
+      if (source.type === "ref" && source.line > refAfterLine) {
+        refAfterLine = source.line;
+      }
+    }
+  } else if (storedChildSourceMaps && storedChildSourceMaps[parentCellName]) {
+    for (const source of storedChildSourceMaps[parentCellName]) {
+      if (source && source.type === "ref" && source.line > refAfterLine) {
+        refAfterLine = source.line;
+        if (!file) file = source.file;
+        const dotIdx = source.code.indexOf(".");
+        if (dotIdx > 0) parentVar = source.code.substring(0, dotIdx).trim();
+      }
+    }
+  }
+
+  // Fall back: use cell_vars for parent variable name if source map didn't provide
+  if (storedCellVars && storedCellVars[parentCellName]) {
+    const cv = storedCellVars[parentCellName];
+    if (!file) { file = cv.file; parentVar = cv.var_name; }
+  }
+
+  // If no ref entries found, fall back to after the last source entry overall
+  if (!refAfterLine && currentSourceMap) {
+    for (const source of currentSourceMap.values()) {
+      if (source.line > refAfterLine) {
+        refAfterLine = source.line;
+        if (!file) file = source.file;
+      }
+    }
+  }
+
+  // If still no def line, use the ref line as fallback
+  if (!defAfterLine) defAfterLine = refAfterLine;
+  if (!refAfterLine) refAfterLine = defAfterLine;
+
+  if (!file || !defAfterLine || !refAfterLine) return;
+
+  // Optimistically update storedCellVars so sendAddEdit can target this cell
+  // immediately without waiting for the SSE reload round-trip.
+  if (!storedCellVars) storedCellVars = {};
+  storedCellVars[cellName] = {
+    var_name: cellName,
+    file,
+    line: defAfterLine + 1,
+  };
+
+  sendSemanticEdit({
+    op: "add_cell",
+    file,
+    def_after_line: defAfterLine,
+    ref_after_line: refAfterLine,
+    cell_name: cellName,
+    parent_var: parentVar,
+  });
+}
+
+/**
+ * Send an add_ref operation to the Python server.
+ * Inserts `parent.add_ref(cell.at(x, y).rotate(...).mirror_x()...)` into the source file.
+ * Transform is [a, b, c, d, tx, ty] in WASM world coordinates.
+ */
+export function sendAddRefEdit(
+  cellName: string,
+  parentCellName: string,
+  transform: number[],
+): void {
+  const topCellName = useExplorerStore.getState().cells[0] ?? null;
+  let file = "";
+  let parentVar = "design";
+  let afterLine = 0;
+
+  // Find the parent's last ref line (same logic as sendAddCellEdit ref insertion)
+  if (parentCellName === topCellName && currentSourceMap) {
+    for (const source of currentSourceMap.values()) {
+      if (!file) file = source.file;
+      const dotIdx = source.code.indexOf(".");
+      if (dotIdx > 0) {
+        parentVar = source.code.substring(0, dotIdx).trim();
+      }
+      if (source.type === "ref" && source.line > afterLine) {
+        afterLine = source.line;
+      }
+    }
+  } else if (storedChildSourceMaps && storedChildSourceMaps[parentCellName]) {
+    for (const source of storedChildSourceMaps[parentCellName]) {
+      if (source && source.type === "ref" && source.line > afterLine) {
+        afterLine = source.line;
+        if (!file) file = source.file;
+        const dotIdx = source.code.indexOf(".");
+        if (dotIdx > 0) parentVar = source.code.substring(0, dotIdx).trim();
+      }
+    }
+  }
+
+  // Fall back to cell_vars if source map didn't provide file/line/parentVar
+  if (storedCellVars && storedCellVars[parentCellName]) {
+    const cv = storedCellVars[parentCellName];
+    if (!file) file = cv.file;
+    if (!afterLine) { afterLine = cv.line; parentVar = cv.var_name; }
+  }
+
+  // Fall back to last source entry overall
+  if (!afterLine && currentSourceMap) {
+    for (const source of currentSourceMap.values()) {
+      if (source.line > afterLine) {
+        afterLine = source.line;
+        if (!file) file = source.file;
+      }
+    }
+  }
+
+  if (!file || !afterLine) return;
+
+  // Resolve cell variable name (e.g., "rectangle" → "rect_cell")
+  const cellVar = (storedCellVars && storedCellVars[cellName])
+    ? storedCellVars[cellName].var_name
+    : cellName;
+
+  sendSemanticEdit({
+    op: "add_ref",
+    file,
+    after_line: afterLine,
+    cell_name: cellVar,
+    parent_var: parentVar,
+    transform,
+  });
+}
+
+/**
+ * Send a delete_cell operation to the Python server.
+ * Removes the cell definition, its method calls, and all add_ref lines
+ * referencing this cell from the source file.
+ */
+export function sendDeleteCellEdit(cellName: string): void {
+  // Find the file and variable name from cell_vars metadata
+  if (!storedCellVars || !storedCellVars[cellName]) return;
+  const cv = storedCellVars[cellName];
+
+  sendSemanticEdit({
+    op: "delete_cell",
+    file: cv.file,
+    cell_name: cellName,
+    var_name: cv.var_name,
   });
 }
 
@@ -333,11 +591,10 @@ function buildSourceMap(
         }
       }
     }
-  } catch (e) {
-    console.error("[sourceMap] buildSourceMap error:", e);
+  } catch {
+    // Parse error — source map will be incomplete
   }
 
-  console.log("[sourceMap] built:", map.size, "entries, children:", childSourceMaps ? Object.keys(childSourceMaps).join(",") : "none");
   currentSourceMap = map.size > 0 ? map : null;
 }
 
@@ -470,6 +727,8 @@ interface DesignResponse {
   source_map: (SourceInfo | null)[] | null;
   /** Source maps for child cells: {cell_name: [source, ...]} indexed by render polygon order. */
   child_source_maps: Record<string, (SourceInfo | null)[]> | null;
+  /** Cell variable metadata: {cell_name: {var_name, file, line}} for cell definitions. */
+  cell_vars: Record<string, { var_name: string; file: string; line: number }> | null;
   /** Layer definitions from rosette.toml (if available). */
   layers: ServerLayerDef[] | null;
   /** Source filename (e.g., "layout.py" or "mmi.gds"). */
@@ -817,6 +1076,10 @@ export function useLibrary(
             setIsReady(true);
             designVersionRef.current = data.version;
 
+            // Clear undo/redo history — the library was rebuilt from source,
+            // so old commands reference stale UUIDs and would silently fail.
+            useHistoryStore.getState().clear();
+
             // Save selection state before clearing — we'll re-select equivalent
             // elements in the new library after it's ready.
             const prevSelectedIds = [...useSelectionStore.getState().selectedIds];
@@ -843,6 +1106,7 @@ export function useLibrary(
 
             // Build UUID → SourceInfo mapping for two-way editing
             buildSourceMap(newLibrary, data.source_map ?? null, data.child_source_maps ?? null);
+            storedCellVars = data.cell_vars ?? null;
 
             // Build cell tree from the WASM library (same as Tauri mode)
             const tree = newLibrary.get_cell_tree();

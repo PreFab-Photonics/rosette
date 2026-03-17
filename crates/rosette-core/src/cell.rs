@@ -466,6 +466,13 @@ impl Cell {
     pub fn elements_mut(&mut self) -> &mut Vec<Element> {
         &mut self.elements
     }
+
+    /// Remove all CellRef elements that reference the given cell name.
+    pub fn remove_refs_by_name(&mut self, name: &str) {
+        self.elements.retain(|e| {
+            !matches!(e, Element::CellRef(r) if r.cell_name == name)
+        });
+    }
 }
 
 /// A library containing multiple cells.

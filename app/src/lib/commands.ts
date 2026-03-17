@@ -20,7 +20,7 @@ import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 import { computeAlignmentDeltas, type AlignType, type AlignmentDelta } from "@/lib/align";
-import { getSourceInfo, sendDeleteEdit, sendAddEdit } from "@/hooks/use-library";
+import { getSourceInfo, sendDeleteEdit, sendDeleteCellEdit, sendAddEdit, sendAddCellEdit, sendAddRefEdit } from "@/hooks/use-library";
 import { usePathStore, DEFAULT_NUM_ARC_POINTS, type PathMetadata } from "@/stores/path";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { checkBendRadiusReductions } from "@/lib/path";
@@ -245,6 +245,24 @@ function restoreSnapshots(library: WasmLibrary, snapshots: ClipboardSnapshot[]):
 }
 
 /**
+ * Persist cell-ref snapshots to Python source in design mode.
+ * Called after paste/duplicate to ensure new CellRefs are written to code.
+ */
+function persistCellRefSnapshots(ctx: CommandContext, snapshots: ClipboardSnapshot[]): void {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("design") !== "true") return;
+
+  const activeCellName = ctx.library.active_cell_name();
+  if (!activeCellName) return;
+
+  for (const snapshot of snapshots) {
+    if (snapshot.type === "cell-ref") {
+      sendAddRefEdit(snapshot.cellName, activeCellName, Array.from(snapshot.transform));
+    }
+  }
+}
+
+/**
  * Command to delete one or more elements.
  *
  * Handles both regular polygon UUIDs and synthetic ref UUIDs (from CellRef instances).
@@ -266,7 +284,54 @@ export class DeleteElementsCommand implements Command {
 
   execute(ctx: CommandContext): void {
     // If this is a redo, we need to use restoredIds instead of original elementIds
-    const idsToDelete = this.restoredIds.length > 0 ? this.restoredIds : this.elementIds;
+    let idsToDelete = this.restoredIds.length > 0 ? this.restoredIds : this.elementIds;
+
+    // Guard: block deletion of last CellRef(s) to a cell — user must delete
+    // the cell itself from the Explorer to avoid orphaning cell definitions.
+    const blockedCells = new Set<string>();
+    const blockedIds = new Set<string>();
+    // Collect which child cells are being dereferenced, deduplicating by CellRef
+    // element index (a cell with 2 polygons produces ref:N:0 and ref:N:1 but
+    // they're the same CellRef and count as 1 deletion, not 2).
+    const refDeleteUnique = new Map<string, Set<string>>(); // cellName → set of element indices
+    for (const id of idsToDelete) {
+      const refInfo = ctx.library.get_cell_ref_info(id);
+      if (refInfo) {
+        const cellName = refInfo.cell_name;
+        const elemKey = id.startsWith("ref:") ? id.split(":")[1] : id;
+        refInfo.free();
+        if (!refDeleteUnique.has(cellName)) refDeleteUnique.set(cellName, new Set());
+        refDeleteUnique.get(cellName)!.add(elemKey);
+      }
+    }
+    // For each affected child cell, check total parent ref count
+    for (const [cellName, deletedRefs] of refDeleteUnique) {
+      const parents = ctx.library.get_cell_ref_parents(cellName);
+      const totalRefs = Array.isArray(parents) ? parents.length : 0;
+      if (totalRefs > 0 && deletedRefs.size >= totalRefs) {
+        blockedCells.add(cellName);
+        // Mark the CellRef IDs pointing to this cell as blocked
+        for (const id of idsToDelete) {
+          const refInfo = ctx.library.get_cell_ref_info(id);
+          if (refInfo) {
+            if (refInfo.cell_name === cellName) blockedIds.add(id);
+            refInfo.free();
+          }
+        }
+      }
+    }
+
+    if (blockedIds.size > 0) {
+      // Filter out blocked IDs — delete the rest if any remain
+      idsToDelete = idsToDelete.filter((id) => !blockedIds.has(id));
+      const cellNames = [...blockedCells].map((n) => `"${n}"`).join(", ");
+      useStatusMessageStore.getState().show(
+        `Cannot delete last reference to ${cellNames}. Delete the cell from the Explorer instead.`,
+        "warn",
+        5000,
+      );
+      if (idsToDelete.length === 0) return;
+    }
 
     // Snapshot elements before deleting (only on first execute)
     if (this.snapshots.length === 0) {
@@ -275,7 +340,9 @@ export class DeleteElementsCommand implements Command {
 
     // Collect source info BEFORE deletion (source map is separate from WASM)
     // Deduplicate by file:line to avoid deleting the same ref line twice
+    const isDesign = new URLSearchParams(window.location.search).get("design") === "true";
     const sourceEdits = new Map<string, string>(); // "file:line" → elementId
+    let missingSourceCount = 0;
     for (const id of idsToDelete) {
       const source = getSourceInfo(id);
       if (source) {
@@ -283,7 +350,16 @@ export class DeleteElementsCommand implements Command {
         if (!sourceEdits.has(key)) {
           sourceEdits.set(key, id);
         }
+      } else if (isDesign) {
+        missingSourceCount++;
       }
+    }
+    if (missingSourceCount > 0 && isDesign) {
+      useStatusMessageStore.getState().show(
+        `${missingSourceCount} element(s) deleted from viewer only — no source tracking available. Changes may revert on reload.`,
+        "warn",
+        5000,
+      );
     }
 
     // Delete elements in a single batch operation (much faster for large selections)
@@ -372,6 +448,9 @@ export class PasteElementsCommand implements Command {
     if (this.createdIds.length > 0) {
       useSelectionStore.getState().setSelection(new Set(this.createdIds));
     }
+
+    // In design mode, persist cell-ref snapshots to Python source
+    persistCellRefSnapshots(ctx, this.snapshots);
   }
 
   undo(ctx: CommandContext): void {
@@ -423,6 +502,9 @@ export class DuplicateElementsCommand implements Command {
     if (this.createdIds.length > 0) {
       useSelectionStore.getState().setSelection(new Set(this.createdIds));
     }
+
+    // In design mode, persist cell-ref snapshots to Python source
+    persistCellRefSnapshots(ctx, this.snapshots);
   }
 
   undo(ctx: CommandContext): void {
@@ -1585,11 +1667,6 @@ export class SetInstanceArrayCommand implements Command {
  * In design mode the tree comes from the WASM library, same as standalone.
  */
 export function syncCellTree(library: WasmLibrary): void {
-  // In design mode, the server rebuilds the tree on each reload via SSE.
-  // Skip local sync to avoid overwriting the server-authoritative tree.
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("design") === "true") return;
-
   const tree = library.get_cell_tree();
   if (tree) {
     useExplorerStore.getState().setCellTree(tree);
@@ -1628,16 +1705,65 @@ export class AddCellCommand implements Command {
 }
 
 /**
+ * Command to add a new child cell under a parent.
+ *
+ * Creates a cell with the given name and adds a CellRef to it from the
+ * parent cell. On undo, removes both the reference and the cell.
+ */
+export class AddChildCellCommand implements Command {
+  readonly type = "add-child-cell";
+  readonly description: string;
+
+  constructor(
+    private readonly cellName: string,
+    private readonly parentCellName: string,
+  ) {
+    this.description = `Add child cell "${cellName}" to "${parentCellName}"`;
+  }
+
+  execute(ctx: CommandContext): void {
+    // Create the new cell in WASM for immediate UI feedback
+    ctx.library.add_cell(this.cellName);
+    ctx.library.add_cell_ref_to(this.parentCellName, this.cellName, 0, 0);
+
+    syncCellTree(ctx.library);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+
+    // In design mode, persist to Python source (SSE reload will confirm)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("design") === "true") {
+      sendAddCellEdit(this.cellName, this.parentCellName);
+    }
+  }
+
+  // Undo is WASM-local only; the Python source edit (sendAddCellEdit) is not
+  // reversed here. SSE reload handles eventual consistency, matching the
+  // pattern used by all other semantic edit commands.
+  undo(ctx: CommandContext): void {
+    // remove_cell_cascade removes the cell and all CellRefs pointing to it
+    ctx.library.remove_cell_cascade(this.cellName);
+
+    syncCellTree(ctx.library);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+}
+
+/**
  * Command to delete a cell.
  *
- * On undo, re-adds the cell (as an empty cell — element restoration
- * is not supported since cells in the explorer are server-managed).
+ * Snapshots the cell's elements, origin, and parent CellRefs on first execute
+ * so that undo fully restores the cell with all its content and references.
  */
 export class DeleteCellCommand implements Command {
   readonly type = "delete-cell";
   readonly description: string;
 
   private cellName: string;
+  private elementSnapshots: ClipboardSnapshot[] = [];
+  private cellOrigin: [number, number] = [0, 0];
+  private parentRefs: Array<{parent: string, transform: Float64Array}> = [];
 
   constructor(name: string) {
     this.cellName = name;
@@ -1645,14 +1771,72 @@ export class DeleteCellCommand implements Command {
   }
 
   execute(ctx: CommandContext): void {
-    ctx.library.remove_cell(this.cellName);
+    // Snapshot on first execute only (same pattern as DeleteElementsCommand)
+    if (this.elementSnapshots.length === 0 && this.parentRefs.length === 0) {
+      // Save origin
+      const origin = ctx.library.get_cell_origin_by_name(this.cellName);
+      if (origin) {
+        this.cellOrigin = [origin[0], origin[1]];
+      }
+
+      // Save parent CellRefs that point to this cell
+      const parents = ctx.library.get_cell_ref_parents(this.cellName);
+      if (Array.isArray(parents)) {
+        this.parentRefs = parents.map((p: {parent: string, transform: number[]}) => ({
+          parent: p.parent,
+          transform: new Float64Array(p.transform),
+        }));
+      }
+
+      // Snapshot elements: temporarily switch active cell to target,
+      // grab all IDs, snapshot them, then switch back
+      const prevActive = ctx.library.active_cell_name();
+      ctx.library.set_active_cell(this.cellName);
+      const allIds = ctx.library.get_all_ids();
+      if (allIds.length > 0) {
+        this.elementSnapshots = snapshotElements(ctx.library, allIds);
+      }
+      if (prevActive) {
+        ctx.library.set_active_cell(prevActive);
+      }
+    }
+
+    ctx.library.remove_cell_cascade(this.cellName);
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
+
+    // In design mode, cascade deletion to Python source
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("design") === "true") {
+      sendDeleteCellEdit(this.cellName);
+    }
   }
 
   undo(ctx: CommandContext): void {
+    // Re-create the cell
     ctx.library.add_cell(this.cellName);
+
+    // Restore origin
+    const prevActive = ctx.library.active_cell_name();
+    ctx.library.set_active_cell(this.cellName);
+    ctx.library.set_cell_origin(this.cellOrigin[0], this.cellOrigin[1]);
+
+    // Restore elements
+    if (this.elementSnapshots.length > 0) {
+      restoreSnapshots(ctx.library, this.elementSnapshots);
+    }
+
+    // Switch back before restoring parent refs
+    if (prevActive) {
+      ctx.library.set_active_cell(prevActive);
+    }
+
+    // Restore parent CellRefs
+    for (const ref of this.parentRefs) {
+      ctx.library.add_cell_ref_to_with_transform(ref.parent, this.cellName, ref.transform);
+    }
+
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
@@ -1706,6 +1890,11 @@ export class RenameCellCommand implements Command {
   }
 
   execute(ctx: CommandContext): void {
+    // Update explorer active cell before tree sync so setCellTree finds it
+    const explorer = useExplorerStore.getState();
+    if (explorer.activeCell === this.oldName) {
+      explorer.setActiveCell(this.newName);
+    }
     ctx.library.rename_cell(this.oldName, this.newName);
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
@@ -1713,6 +1902,10 @@ export class RenameCellCommand implements Command {
   }
 
   undo(ctx: CommandContext): void {
+    const explorer = useExplorerStore.getState();
+    if (explorer.activeCell === this.newName) {
+      explorer.setActiveCell(this.oldName);
+    }
     ctx.library.rename_cell(this.newName, this.oldName);
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
@@ -1760,6 +1953,15 @@ export class AddCellRefCommand implements Command {
       const elemIdx = ctx.library.get_element_index(id);
       if (elemIdx >= 0) {
         useSelectionStore.getState().select(`ref:${elemIdx}:0`);
+      }
+
+      // In design mode, persist to Python source
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("design") === "true") {
+        const activeCellName = ctx.library.active_cell_name();
+        if (activeCellName) {
+          sendAddRefEdit(this.cellName, activeCellName, [1, 0, 0, 1, this.x, this.y]);
+        }
       }
     }
   }
