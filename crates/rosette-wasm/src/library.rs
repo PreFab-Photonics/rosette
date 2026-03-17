@@ -566,6 +566,59 @@ impl WasmLibrary {
         }
     }
 
+    /// Remove a cell and all CellRefs that reference it from other cells.
+    ///
+    /// Returns the number of removed references (0 if cell didn't exist).
+    pub fn remove_cell_cascade(&mut self, name: &str) -> u32 {
+        let mut removed_count = 0u32;
+
+        // Collect which cells had CellRefs removed (need index rebuild)
+        let mut affected_cells: Vec<String> = Vec::new();
+
+        for cell in self.library.cells_mut() {
+            let before = cell.elements().len();
+            cell.remove_refs_by_name(name);
+            let after = cell.elements().len();
+            if before > after {
+                removed_count += (before - after) as u32;
+                affected_cells.push(cell.name().to_string());
+            }
+        }
+
+        // Remove element_refs that belong to the deleted cell
+        self.element_refs.retain(|_, r| r.cell_name != name);
+
+        // Rebuild element_refs for affected cells (indices shifted)
+        for cell_name in &affected_cells {
+            // Remove old refs for this cell
+            self.element_refs.retain(|_, r| r.cell_name != *cell_name);
+            // Rebuild with correct indices
+            if let Some(cell) = self.library.cell(cell_name) {
+                for i in 0..cell.elements().len() {
+                    let uuid = Uuid::new_v4().to_string();
+                    self.element_refs.insert(
+                        uuid,
+                        ElementRef {
+                            cell_name: cell_name.clone(),
+                            element_index: i,
+                        },
+                    );
+                }
+            }
+        }
+
+        // Now remove the cell itself
+        self.library.remove_cell(name);
+
+        // Clear active cell if it was removed
+        if self.active_cell.as_deref() == Some(name) {
+            self.active_cell = self.library.cells().first().map(|c| c.name().to_string());
+        }
+
+        self.dirty = true;
+        removed_count
+    }
+
     /// Set the active cell by name.
     ///
     /// Returns false if the cell doesn't exist.
@@ -657,6 +710,11 @@ impl WasmLibrary {
     /// Get the number of cells in the library.
     pub fn cell_count(&self) -> usize {
         self.library.cells().len()
+    }
+
+    /// Get the names of all cells in the library.
+    pub fn get_cell_names(&self) -> Vec<String> {
+        self.library.cells().iter().map(|c| c.name().to_string()).collect()
     }
 
     /// Set the color for a layer.
@@ -2350,8 +2408,12 @@ impl WasmLibrary {
     /// Returns the element index of the CellRef (used for undo), or -1 on failure.
     pub fn add_cell_ref(&mut self, ref_cell_name: &str, x: f64, y: f64) -> Option<String> {
         let active_name = self.active_cell.as_ref()?.clone();
+        self.add_cell_ref_to(&active_name.clone(), ref_cell_name, x, y)
+    }
 
-        if active_name == ref_cell_name {
+    /// Add a cell reference to a specific parent cell (without changing active cell).
+    pub fn add_cell_ref_to(&mut self, parent_cell: &str, ref_cell_name: &str, x: f64, y: f64) -> Option<String> {
+        if parent_cell == ref_cell_name {
             return None;
         }
 
@@ -2359,14 +2421,14 @@ impl WasmLibrary {
             return None;
         }
 
-        if !self.can_instance_cell(&active_name, ref_cell_name) {
+        if !self.can_instance_cell(parent_cell, ref_cell_name) {
             return None;
         }
 
         let cell_ref =
             CellRef::with_transform(ref_cell_name.to_string(), Transform::translate(x, y));
 
-        let cell = self.library.cell_mut(&active_name)?;
+        let cell = self.library.cell_mut(parent_cell)?;
         cell.add_ref(cell_ref);
         let element_index = cell.elements().len() - 1;
 
@@ -2374,7 +2436,7 @@ impl WasmLibrary {
         self.element_refs.insert(
             uuid.clone(),
             ElementRef {
-                cell_name: active_name,
+                cell_name: parent_cell.to_string(),
                 element_index,
             },
         );
@@ -2384,6 +2446,81 @@ impl WasmLibrary {
     }
 
     // CellRef removal is handled by `remove_element(uuid)` — no separate method needed.
+
+    /// Get all parent cells that reference a given cell, with their transforms.
+    ///
+    /// Returns a JS array of `{parent: string, transform: [a, b, c, d, tx, ty]}`.
+    pub fn get_cell_ref_parents(&self, name: &str) -> JsValue {
+        #[derive(serde::Serialize)]
+        struct ParentRef {
+            parent: String,
+            transform: Vec<f64>,
+        }
+
+        let mut entries: Vec<ParentRef> = Vec::new();
+
+        for cell in self.library.cells() {
+            for element in cell.elements() {
+                if let Element::CellRef(cell_ref) = element {
+                    if cell_ref.cell_name == name {
+                        let t = &cell_ref.transform;
+                        entries.push(ParentRef {
+                            parent: cell.name().to_string(),
+                            transform: vec![t.a, t.b, t.c, t.d, t.tx, t.ty],
+                        });
+                    }
+                }
+            }
+        }
+
+        serde_wasm_bindgen::to_value(&entries).unwrap_or(JsValue::NULL)
+    }
+
+    /// Add a CellRef to a specific parent cell with a full affine transform.
+    ///
+    /// Like `add_cell_ref_to` but accepts a full [a, b, c, d, tx, ty] transform
+    /// instead of just (x, y). Used by DeleteCellCommand undo to restore parent refs.
+    pub fn add_cell_ref_to_with_transform(
+        &mut self,
+        parent_cell: &str,
+        ref_cell_name: &str,
+        transform: Vec<f64>,
+    ) -> Option<String> {
+        if transform.len() != 6 {
+            return None;
+        }
+        if parent_cell == ref_cell_name {
+            return None;
+        }
+        if !self.library.contains(ref_cell_name) {
+            return None;
+        }
+        if !self.can_instance_cell(parent_cell, ref_cell_name) {
+            return None;
+        }
+
+        let t = Transform::new(
+            transform[0], transform[1], transform[2],
+            transform[3], transform[4], transform[5],
+        );
+        let cell_ref = CellRef::with_transform(ref_cell_name.to_string(), t);
+
+        let cell = self.library.cell_mut(parent_cell)?;
+        cell.add_ref(cell_ref);
+        let element_index = cell.elements().len() - 1;
+
+        let uuid = Uuid::new_v4().to_string();
+        self.element_refs.insert(
+            uuid.clone(),
+            ElementRef {
+                cell_name: parent_cell.to_string(),
+                element_index,
+            },
+        );
+
+        self.dirty = true;
+        Some(uuid)
+    }
 
     /// Get the element index for a UUID.
     ///

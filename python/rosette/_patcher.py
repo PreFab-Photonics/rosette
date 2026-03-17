@@ -36,6 +36,50 @@ def _format_num(n: float) -> str:
     return f"{rounded:g}"
 
 
+import math
+
+
+def _build_ref_chain(cell_name: str, transform: list[float]) -> str:
+    """Build a CellRef chain like `cell.at(x, y).rotate(180).mirror_x()` from a [a,b,c,d,tx,ty] transform.
+
+    Decomposition: the affine 2×2 part [a,b,c,d] encodes rotation, mirror, and scale.
+    - det < 0 → mirror_x (reflection across X axis)
+    - After removing mirror: angle = atan2(b, a) in degrees
+    - scale = sqrt(a² + b²) after removing mirror
+    - tx, ty → .at(x, y) in µm with Y-flip
+    """
+    if len(transform) != 6:
+        x_um, y_um = 0.0, 0.0
+        return f"{cell_name}.at({_format_num(x_um)}, {_format_num(y_um)})"
+
+    a, b, c, d, tx, ty = transform
+    x_um, y_um = world_to_um(tx, ty)
+
+    chain = f"{cell_name}.at({_format_num(x_um)}, {_format_num(y_um)})"
+
+    # Detect mirror: det(matrix) < 0
+    det = a * d - b * c
+    mirrored = det < 0
+
+    # Extract rotation angle (degrees) — atan2(b, a) works for both mirrored and non-mirrored
+    # because mirror_x * rotate(θ) = [cosθ, sinθ, sinθ, -cosθ] has the same (a, b) as rotate(θ)
+    angle_rad = math.atan2(b, a)
+    angle_deg = round(math.degrees(angle_rad), 6)
+
+    # Extract uniform scale
+    scale = math.sqrt(a * a + b * b)
+
+    # Build chain: mirror first (applied before rotation in rosette API)
+    if mirrored:
+        chain += ".mirror_x()"
+    if abs(angle_deg) > 0.001:
+        chain += f".rotate({_format_num(angle_deg)})"
+    if abs(scale - 1.0) > 1e-6:
+        chain += f".scale({_format_num(scale)})"
+
+    return chain
+
+
 # =============================================================================
 # Edit operation dataclasses
 # =============================================================================
@@ -92,6 +136,31 @@ class MoveRef:
     old_code: str | None
     dx: float  # delta X in WASM world coords
     dy: float  # delta Y in WASM world coords
+
+
+@dataclass
+class AddCell:
+    file: str
+    def_after_line: int  # insert cell definition after this line
+    ref_after_line: int  # insert add_ref after this line
+    cell_name: str
+    parent_var: str  # e.g., "design" or "top"
+
+
+@dataclass
+class AddRef:
+    file: str
+    after_line: int
+    cell_name: str  # child cell variable, e.g. "cell1"
+    parent_var: str  # e.g., "design" or "top"
+    transform: list[float]  # [a, b, c, d, tx, ty] in WASM world coords
+
+
+@dataclass
+class DeleteCell:
+    file: str
+    cell_name: str
+    var_name: str  # Python variable name, e.g. "cell1"
 
 
 # =============================================================================
@@ -547,6 +616,90 @@ class _AssignmentReplacer(cst.CSTTransformer):
         return updated_node
 
 
+class _CellStatementDeleter(cst.CSTTransformer):
+    """Delete all statements related to a cell variable.
+
+    Matches:
+    - ``var_name = Cell(...)`` — cell definition assignment
+    - ``var_name.xxx(...)`` — method calls on the cell variable
+    - ``xxx.add_ref(var_name.at(...))`` — add_ref calls referencing this cell
+    """
+
+    def __init__(self, var_name: str) -> None:
+        super().__init__()
+        self.var_name = var_name
+        self.deleted_count = 0
+
+    def leave_SimpleStatementLine(
+        self,
+        original_node: cst.SimpleStatementLine,
+        updated_node: cst.SimpleStatementLine,
+    ) -> cst.BaseStatement | cst.RemovalSentinel:
+        if len(updated_node.body) != 1:
+            return updated_node
+        stmt = updated_node.body[0]
+
+        # Pattern 1: var_name = Cell(...)
+        if isinstance(stmt, cst.Assign) and self._is_cell_assignment(stmt):
+            self.deleted_count += 1
+            return cst.RemovalSentinel.REMOVE
+
+        # Patterns 2 & 3: expression statements with calls
+        if isinstance(stmt, cst.Expr) and isinstance(stmt.value, cst.Call):
+            # Pattern 2: var_name.xxx(...)
+            if self._call_starts_with_var(stmt.value):
+                self.deleted_count += 1
+                return cst.RemovalSentinel.REMOVE
+            # Pattern 3: xxx.add_ref(var_name...)
+            if self._is_add_ref_of_var(stmt.value):
+                self.deleted_count += 1
+                return cst.RemovalSentinel.REMOVE
+
+        return updated_node
+
+    def _is_cell_assignment(self, stmt: cst.Assign) -> bool:
+        if len(stmt.targets) != 1:
+            return False
+        target = stmt.targets[0].target
+        if not isinstance(target, cst.Name) or target.value != self.var_name:
+            return False
+        if isinstance(stmt.value, cst.Call):
+            return _get_func_name(stmt.value.func) == "Cell"
+        return False
+
+    def _call_starts_with_var(self, call: cst.Call) -> bool:
+        """Check if the call chain starts with var_name (e.g. var_name.add_polygon(...))."""
+        node = call.func
+        while isinstance(node, cst.Attribute):
+            node = node.value
+            if isinstance(node, cst.Call):
+                node = node.func
+        return isinstance(node, cst.Name) and node.value == self.var_name
+
+    def _is_add_ref_of_var(self, call: cst.Call) -> bool:
+        """Check if call is xxx.add_ref(var_name...) — var_name appears in args."""
+        func_name = _get_func_name(call.func)
+        if func_name != "add_ref":
+            return False
+        for arg in call.args:
+            if self._expr_contains_var(arg.value):
+                return True
+        return False
+
+    def _expr_contains_var(self, node: cst.BaseExpression) -> bool:
+        if isinstance(node, cst.Name):
+            return node.value == self.var_name
+        if isinstance(node, cst.Attribute):
+            return self._expr_contains_var(node.value)
+        if isinstance(node, cst.Call):
+            if self._expr_contains_var(node.func):
+                return True
+            for arg in node.args:
+                if self._expr_contains_var(arg.value):
+                    return True
+        return False
+
+
 # =============================================================================
 # SemanticPatcher
 # =============================================================================
@@ -569,6 +722,12 @@ class SemanticPatcher:
             return self._modify_path_width(op)
         elif isinstance(op, MoveRef):
             return self._move_ref(op)
+        elif isinstance(op, AddCell):
+            return self._add_cell(op)
+        elif isinstance(op, AddRef):
+            return self._add_ref(op)
+        elif isinstance(op, DeleteCell):
+            return self._delete_cell(op)
         else:
             return PatchResult(success=False, error=f"Unknown operation type: {type(op).__name__}")
 
@@ -822,6 +981,135 @@ class SemanticPatcher:
             )
 
         Path(op.file).write_text(new_tree.code)
+        return PatchResult(success=True)
+
+    def _add_ref(self, op: AddRef) -> PatchResult:
+        if not op.cell_name.isidentifier():
+            return PatchResult(success=False, error=f"Invalid cell name: {op.cell_name!r}")
+        if not op.parent_var.isidentifier():
+            return PatchResult(success=False, error=f"Invalid parent var: {op.parent_var!r}")
+
+        path = Path(op.file)
+        if not path.exists():
+            return PatchResult(success=False, error=f"File not found: {op.file}")
+
+        source = path.read_text()
+        lines = source.splitlines(keepends=True)
+        n = len(lines)
+
+        if op.after_line < 1 or op.after_line > n:
+            return PatchResult(
+                success=False,
+                error=f"after_line {op.after_line} out of range (file has {n} lines)",
+            )
+
+        # Resolve multi-line statements
+        insert_after = op.after_line
+        try:
+            wrapper = MetadataWrapper(cst.parse_module(source))
+            positions = wrapper.resolve(PositionProvider)
+            for node, pos in positions.items():
+                if isinstance(node, (cst.SimpleStatementLine, cst.BaseCompoundStatement)):
+                    if pos.start.line <= op.after_line <= pos.end.line:
+                        insert_after = pos.end.line
+                        break
+        except Exception:
+            pass
+
+        # Detect indentation from target line
+        target_line = lines[op.after_line - 1]
+        indent = target_line[: len(target_line) - len(target_line.lstrip())]
+
+        # Decompose [a, b, c, d, tx, ty] into .at(x, y) + optional .rotate() / .mirror_x() / .scale()
+        add_ref = f"{indent}{op.parent_var}.add_ref({_build_ref_chain(op.cell_name, op.transform)})\n"
+
+        lines.insert(insert_after, add_ref)
+        path.write_text("".join(lines))
+        return PatchResult(success=True)
+
+    def _add_cell(self, op: AddCell) -> PatchResult:
+        if not op.cell_name.isidentifier():
+            return PatchResult(success=False, error=f"Invalid cell name: {op.cell_name!r}")
+        if not op.parent_var.isidentifier():
+            return PatchResult(success=False, error=f"Invalid parent var: {op.parent_var!r}")
+
+        path = Path(op.file)
+        if not path.exists():
+            return PatchResult(success=False, error=f"File not found: {op.file}")
+
+        source = path.read_text()
+        lines = source.splitlines(keepends=True)
+        n = len(lines)
+
+        def_line = op.def_after_line
+        ref_line = op.ref_after_line
+
+        if def_line < 1 or def_line > n or ref_line < 1 or ref_line > n:
+            return PatchResult(
+                success=False,
+                error=f"Line out of range (file has {n} lines): "
+                f"def_after_line={def_line}, ref_after_line={ref_line}",
+            )
+
+        # Resolve multi-line statements using libcst
+        def_insert = def_line
+        ref_insert = ref_line
+        try:
+            wrapper = MetadataWrapper(cst.parse_module(source))
+            positions = wrapper.resolve(PositionProvider)
+            for node, pos in positions.items():
+                if isinstance(node, (cst.SimpleStatementLine, cst.BaseCompoundStatement)):
+                    if pos.start.line <= def_line <= pos.end.line:
+                        def_insert = pos.end.line
+                    if pos.start.line <= ref_line <= pos.end.line:
+                        ref_insert = pos.end.line
+        except Exception:
+            pass
+
+        # Detect indentation from target lines
+        def_target = lines[def_line - 1]
+        def_indent = def_target[: len(def_target) - len(def_target.lstrip())]
+        ref_target = lines[ref_line - 1]
+        ref_indent = ref_target[: len(ref_target) - len(ref_target.lstrip())]
+
+        cell_def = f"\n{def_indent}{op.cell_name} = Cell(\"{op.cell_name}\")\n"
+        add_ref = f"{ref_indent}{op.parent_var}.add_ref({op.cell_name}.at(0, 0))\n"
+
+        # Insert ref first (later line) so earlier line numbers don't shift
+        if ref_insert >= def_insert:
+            lines.insert(ref_insert, add_ref)
+            lines.insert(def_insert, cell_def)
+        else:
+            lines.insert(def_insert, cell_def)
+            lines.insert(ref_insert, add_ref)
+
+        path.write_text("".join(lines))
+        return PatchResult(success=True)
+
+    def _delete_cell(self, op: DeleteCell) -> PatchResult:
+        if not op.var_name.isidentifier():
+            return PatchResult(success=False, error=f"Invalid var name: {op.var_name!r}")
+
+        path = Path(op.file)
+        if not path.exists():
+            return PatchResult(success=False, error=f"File not found: {op.file}")
+
+        source = path.read_text()
+
+        try:
+            tree = cst.parse_module(source)
+            transformer = _CellStatementDeleter(op.var_name)
+            new_tree = tree.visit(transformer)
+        except cst.ParserSyntaxError as e:
+            return PatchResult(success=False, error=f"Failed to parse file: {e}")
+
+        if transformer.deleted_count == 0:
+            return PatchResult(
+                success=False,
+                error=f"Could not find any statements for cell variable '{op.var_name}'.",
+            )
+
+        path.write_text(new_tree.code)
         return PatchResult(success=True)
 
 

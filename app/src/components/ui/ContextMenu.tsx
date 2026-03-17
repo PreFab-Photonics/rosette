@@ -16,12 +16,12 @@ import {
   DuplicateElementsCommand,
   AddLayerCommand,
   DeleteLayerCommand,
-  AddCellCommand,
+  AddChildCellCommand,
   DeleteCellCommand,
   snapshotElements,
 } from "@/lib/commands";
 import { isImageId, imageIdToKey } from "@/stores/image";
-import { useExplorerStore } from "@/stores/explorer";
+import { useExplorerStore, type CellNode } from "@/stores/explorer";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
 /**
@@ -376,17 +376,40 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
       const explorerStore = useExplorerStore.getState();
       const isLastCell = explorerStore.cells.length <= 1;
 
-      const addCell = (): void => {
-        if (!library || !renderer) return;
-        // Generate a unique name with "cell{n}" schema
-        const existing = explorerStore.cells;
+      const generateUniqueCellName = (): string => {
+        const existing: string[] = library!.get_cell_names?.() ?? explorerStore.cells;
         let n = 1;
         let name = `cell${n}`;
         while (existing.includes(name)) {
           n++;
           name = `cell${n}`;
         }
-        const command = new AddCellCommand(name);
+        return name;
+      };
+
+      // Find the parent of a cell in the tree. Returns null for root cells.
+      const findParent = (name: string): string | null => {
+        const tree = explorerStore.cellTree;
+        if (!tree) return null;
+        const search = (nodes: CellNode[], parent: string | null): string | null => {
+          for (const node of nodes) {
+            if (node.name === name) return parent;
+            const found = search(node.children, node.name);
+            if (found !== undefined && found !== null) return found;
+          }
+          return null;
+        };
+        return search(tree, null);
+      };
+
+      // IDE-style: right-click a root → add child to it.
+      // Right-click a non-root → add sibling (child to its parent).
+      const addCell = (): void => {
+        if (!library || !renderer || !targetCellName) return;
+        const name = generateUniqueCellName();
+        const parent = findParent(targetCellName);
+        const containerCell = parent ?? targetCellName;
+        const command = new AddChildCellCommand(name, containerCell);
         useHistoryStore.getState().execute(command, { library, renderer });
         close();
       };
@@ -433,7 +456,7 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
           id: "addCell",
           label: "Add Cell",
           action: addCell,
-          disabled: false,
+          disabled: !targetCellName,
         },
         {
           id: "rename",

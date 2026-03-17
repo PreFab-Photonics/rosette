@@ -714,14 +714,12 @@ def _build_child_source_maps(cell) -> dict[str, list[dict | None]] | None:
     Returns None if no child cells have source tracking.
     """
     child_cells = list(cell.get_child_cells()) if hasattr(cell, "get_child_cells") else []
-    log.info("[sourceMap] _build_child_source_maps: %d child cells", len(child_cells))
     if not child_cells:
         return None
 
     result: dict[str, list[dict | None]] = {}
     for child in child_cells:
         sources = getattr(child, "_element_sources", None)
-        log.info("[sourceMap]   child '%s': %d sources", child.name, len(sources) if sources else 0)
         if not sources:
             continue
 
@@ -730,16 +728,40 @@ def _build_child_source_maps(cell) -> dict[str, list[dict | None]] | None:
         render_sources: list[dict | None] = []
         for i, src in enumerate(sources):
             if src is not None and src.element_type == "text":
-                log.info("[sourceMap]     [%d] SKIP text: %s", i, src.code[:60] if src.code else "?")
                 continue
             render_sources.append(_source_to_dict(src) if src is not None else None)
-            if src is not None:
-                log.info("[sourceMap]     [%d] → render[%d]: type=%s line=%d code=%s", i, len(render_sources)-1, src.element_type, src.line, src.code[:60] if src.code else "?")
 
         if any(s is not None for s in render_sources):
             result[child.name] = render_sources
 
-    log.info("[sourceMap] _build_child_source_maps result: %s", {k: len(v) for k, v in result.items()} if result else None)
+    return result if result else None
+
+
+def _build_cell_vars(cell, child_cells_list):
+    """Build cell variable metadata: {cell_name: {var_name, file, line}}.
+
+    Extracts the Python variable name from the Cell definition source line
+    (e.g. ``triangle_cell = Cell("triangle")`` → var_name = "triangle_cell").
+    This metadata enables the web viewer to target the correct cell variable
+    when adding elements to child cells.
+    """
+    result = {}
+    all_cells = [cell] + (child_cells_list or [])
+    for c in all_cells:
+        def_source = getattr(c, "_def_source", None)
+        if def_source is None:
+            continue
+        code = def_source.code
+        eq_idx = code.find("=")
+        if eq_idx > 0:
+            var_name = code[:eq_idx].strip()
+        else:
+            var_name = c.name
+        result[c.name] = {
+            "var_name": var_name,
+            "file": def_source.file,
+            "line": def_source.line,
+        }
     return result if result else None
 
 
@@ -812,8 +834,9 @@ def _prepare_design(cell):
     # Build source maps for two-way editing
     source_map = _build_source_map(cell)
     child_source_maps = _build_child_source_maps(cell)
+    cell_vars = _build_cell_vars(cell, child_cells_list)
 
-    return json_str, cell_tree, source_map, child_source_maps
+    return json_str, cell_tree, source_map, child_source_maps, cell_vars
 
 
 def _prepare_design_from_library(library):
@@ -1030,7 +1053,7 @@ def serve_design(
     import logging
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.WARNING,
         format="%(asctime)s %(name)s %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
     )
@@ -1052,7 +1075,7 @@ def serve_design(
         enable_source_tracking()
 
         cell, file_path, _ = load_design(design)
-        json_str, cell_tree, source_map, child_source_maps = _prepare_design(cell)
+        json_str, cell_tree, source_map, child_source_maps, cell_vars = _prepare_design(cell)
         layer_defs = _load_layer_map_safe()
 
         server.set_design_json(
@@ -1062,6 +1085,7 @@ def serve_design(
             filename=Path(design).name,
             source_map=source_map,
             child_source_maps=child_source_maps,
+            cell_vars=cell_vars,
         )
 
         if not no_open:
@@ -1109,7 +1133,7 @@ def serve_design(
                     linecache.clearcache()
 
                     cell, _, _ = load_design(design)
-                    json_str, cell_tree, source_map, child_source_maps = _prepare_design(cell)
+                    json_str, cell_tree, source_map, child_source_maps, cell_vars = _prepare_design(cell)
                     layer_defs = _load_layer_map_safe()
 
                     server.set_design_json(
@@ -1119,6 +1143,7 @@ def serve_design(
                         filename=Path(design).name,
                         source_map=source_map,
                         child_source_maps=child_source_maps,
+                        cell_vars=cell_vars,
                     )
                 except Exception as e:
                     print(f"error: {e}")
