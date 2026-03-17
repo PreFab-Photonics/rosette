@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef } from "react";
-import { ViewerEmbed } from "./viewer-embed";
 import { SyncedDotGrid } from "./synced-dot-grid";
+import { ViewerEmbed } from "./viewer-embed";
 
 /**
  * Client wrapper that pairs the ViewerEmbed with the SyncedDotGrid.

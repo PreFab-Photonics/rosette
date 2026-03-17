@@ -3,9 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
-const navLinks = [
-  { label: "Docs", href: "/docs", external: false },
-] as const;
+const navLinks = [{ label: "Docs", href: "/docs", external: false }] as const;
 
 export function Nav() {
   return (
@@ -28,7 +26,9 @@ export function Nav() {
             height={28}
             className=""
           />
-          <span className="text-2xl font-[family-name:var(--font-instrument-serif)]">Rosette</span>
+          <span className="text-2xl font-[family-name:var(--font-instrument-serif)]">
+            Rosette
+          </span>
         </a>
 
         <div className="flex items-center gap-6">

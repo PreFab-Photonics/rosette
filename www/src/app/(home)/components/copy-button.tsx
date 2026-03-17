@@ -5,7 +5,10 @@ import { useState } from "react";
 export function CopyButton({
   text,
   disabled = false,
-}: { text: string; disabled?: boolean }) {
+}: {
+  text: string;
+  disabled?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
 
   return (

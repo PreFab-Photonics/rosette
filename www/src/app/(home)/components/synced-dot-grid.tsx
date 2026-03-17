@@ -17,7 +17,7 @@ const DOT_RADIUS = 1.2;
 function calculateSkipFactor(zoom: number): number {
   if (zoom >= 1) return 1;
   const zoomLevel = Math.floor(Math.log(1 / zoom) / Math.log(5));
-  return Math.pow(5, Math.max(0, zoomLevel));
+  return 5 ** Math.max(0, zoomLevel);
 }
 
 /** Smooth fade between LOD levels (0..1). */
@@ -134,12 +134,10 @@ export function SyncedDotGrid({
 
     const alignedStartX =
       Math.floor(worldStartX / alignedSpacing) * alignedSpacing;
-    const alignedEndX =
-      Math.ceil(worldEndX / alignedSpacing) * alignedSpacing;
+    const alignedEndX = Math.ceil(worldEndX / alignedSpacing) * alignedSpacing;
     const alignedStartY =
       Math.floor(worldStartY / alignedSpacing) * alignedSpacing;
-    const alignedEndY =
-      Math.ceil(worldEndY / alignedSpacing) * alignedSpacing;
+    const alignedEndY = Math.ceil(worldEndY / alignedSpacing) * alignedSpacing;
 
     // Count to cap
     const countX =
