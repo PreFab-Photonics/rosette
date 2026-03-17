@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "rosette"
 version = "0.1.0"
-description = "Agentic design system for photonic integrated circuits"
+description = "AI-native design system for integrated circuits"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -21,7 +21,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
     "Typing :: Typed",
 ]
-keywords = ["photonics", "gds", "gdsii", "layout", "chip", "design", "silicon-photonics", "pic", "integrated-circuits", "eda", "pdk", "agentic", "ai"]
+keywords = ["photonics", "gdsii", "layout", "silicon-photonics", "eda", "pdk"]
 
 [project.scripts]
 rosette = "rosette.cli:main"
