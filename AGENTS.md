@@ -38,6 +38,13 @@ uv run ruff check python/ && uv run ruff format python/
 bun install && bun dev           # Dev server
 bun lint && bun fmt              # Lint + format (oxlint/oxfmt)
 bun run build:wasm               # Rebuild WASM after crates/rosette-wasm changes
+
+# Packaging scripts (run from repo root)
+python scripts/bundle_source.py  # Bundle Rust source into python/rosette/_source/ (before wheel build)
+python scripts/bundle_webapp.py  # Build viewer app into python/rosette/_webapp/ (before publish)
+
+# Docs site scripts
+./scripts/build_landing_viewer.sh  # Build viewer embed for www/ landing page (calls generate_showcase.py)
 ```
 
 ## Where Things Live
