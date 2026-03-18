@@ -4,7 +4,9 @@
   "categories": {
     "correctness": "error"
   },
-  "rules": {},
+  "rules": {
+    "jsx-a11y/no-autofocus": "off"
+  },
   "settings": {
     "jsx-a11y": {
       "polymorphicPropName": null,

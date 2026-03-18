@@ -194,7 +194,7 @@ export function densifyCenterlineWithArcs(
     const startVecY = bendStartY - centerY;
 
     const numSegments = Math.min(
-      Math.max(Math.ceil(Math.abs(turnAngle) * 180 / Math.PI * 2), 8),
+      Math.max(Math.ceil(((Math.abs(turnAngle) * 180) / Math.PI) * 2), 8),
       numArcPoints,
     );
 
@@ -354,7 +354,9 @@ export function createRibbonPreview(
 ): Point[] {
   // Densify centerline if corner radius is set
   const smoothed =
-    cornerRadius > 0 ? densifyCenterlineWithArcs(pathPoints, cornerRadius, numArcPoints) : pathPoints;
+    cornerRadius > 0
+      ? densifyCenterlineWithArcs(pathPoints, cornerRadius, numArcPoints)
+      : pathPoints;
   if (smoothed.length < 2) return [];
 
   const hw = width / 2;

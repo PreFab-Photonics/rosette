@@ -127,9 +127,7 @@ export async function sendEdit(edit: {
  * The server applies the edit using libcst, the file watcher detects the
  * change, and the design is re-executed automatically.
  */
-export async function sendSemanticEdit(
-  edit: Record<string, unknown>,
-): Promise<boolean> {
+export async function sendSemanticEdit(edit: Record<string, unknown>): Promise<boolean> {
   try {
     const res = await fetch("/api/design/edit", {
       method: "POST",
@@ -138,22 +136,18 @@ export async function sendSemanticEdit(
     });
     const text = await res.text();
     if (!res.ok) {
-      useStatusMessageStore.getState().show(
-        `Source edit failed (HTTP ${res.status}): ${edit.op}`,
-        "error",
-        5000,
-      );
+      useStatusMessageStore
+        .getState()
+        .show(`Source edit failed (HTTP ${res.status}): ${edit.op}`, "error", 5000);
       return false;
     }
     // Check patcher result — server returns 200 even on patcher failure
     try {
       const body = JSON.parse(text);
       if (!body.ok) {
-        useStatusMessageStore.getState().show(
-          `Source edit failed: ${body.error || edit.op}`,
-          "error",
-          5000,
-        );
+        useStatusMessageStore
+          .getState()
+          .show(`Source edit failed: ${body.error || edit.op}`, "error", 5000);
         return false;
       }
     } catch {
@@ -161,11 +155,9 @@ export async function sendSemanticEdit(
     }
     return true;
   } catch {
-    useStatusMessageStore.getState().show(
-      `Source edit failed: could not reach server`,
-      "error",
-      5000,
-    );
+    useStatusMessageStore
+      .getState()
+      .show(`Source edit failed: could not reach server`, "error", 5000);
     return false;
   }
 }
@@ -174,10 +166,7 @@ export async function sendSemanticEdit(
  * Send a vertex edit for a polygon or path element.
  * Vertices are in WASM world coordinates — the server handles conversion to µm.
  */
-export function sendVertexEdit(
-  elementId: string,
-  newVertices: Float64Array,
-): void {
+export function sendVertexEdit(elementId: string, newVertices: Float64Array): void {
   const source = getSourceInfo(elementId);
   if (!source) return;
   if (source.type !== "polygon" && source.type !== "path") return;
@@ -195,11 +184,7 @@ export function sendVertexEdit(
  * Send a move_ref edit to update .at(x, y) for a cell reference.
  * dx/dy are in WASM world coordinates.
  */
-export function sendRefMove(
-  elementId: string,
-  dx: number,
-  dy: number,
-): void {
+export function sendRefMove(elementId: string, dx: number, dy: number): void {
   const source = getSourceInfo(elementId);
   if (!source) return;
   if (source.type !== "ref") return;
@@ -217,11 +202,7 @@ export function sendRefMove(
 /**
  * Send a layer change for an element.
  */
-export function sendLayerEdit(
-  elementId: string,
-  layer: number,
-  datatype: number,
-): void {
+export function sendLayerEdit(elementId: string, layer: number, datatype: number): void {
   const source = getSourceInfo(elementId);
   if (!source) return;
   if (source.type !== "polygon" && source.type !== "path") return;
@@ -258,11 +239,7 @@ export function sendDeleteEdit(elementId: string): void {
  * When the active cell is a child cell, uses child source maps or cell_vars
  * metadata to target the correct Python variable.
  */
-export function sendAddEdit(
-  vertices: Float64Array,
-  layer: number,
-  datatype: number,
-): void {
+export function sendAddEdit(vertices: Float64Array, layer: number, datatype: number): void {
   const activeCellName = libraryInstance?.active_cell_name();
   const topCellName = useExplorerStore.getState().cells[0] ?? null;
 
@@ -356,10 +333,7 @@ export function sendAddEdit(
  * Creates a cell definition near the other cell definitions and an add_ref
  * near the other references, matching the file's existing convention.
  */
-export function sendAddCellEdit(
-  cellName: string,
-  parentCellName: string,
-): void {
+export function sendAddCellEdit(cellName: string, parentCellName: string): void {
   // Insertion point priority:
   //   Cell definition: child source maps (last element line) → cell_vars → fallback to ref line
   //   Add-ref: parent source map ref entries → last source entry → fallback to def line
@@ -421,7 +395,10 @@ export function sendAddCellEdit(
   // Fall back: use cell_vars for parent variable name if source map didn't provide
   if (storedCellVars && storedCellVars[parentCellName]) {
     const cv = storedCellVars[parentCellName];
-    if (!file) { file = cv.file; parentVar = cv.var_name; }
+    if (!file) {
+      file = cv.file;
+      parentVar = cv.var_name;
+    }
   }
 
   // If no ref entries found, fall back to after the last source entry overall
@@ -501,7 +478,10 @@ export function sendAddRefEdit(
   if (storedCellVars && storedCellVars[parentCellName]) {
     const cv = storedCellVars[parentCellName];
     if (!file) file = cv.file;
-    if (!afterLine) { afterLine = cv.line; parentVar = cv.var_name; }
+    if (!afterLine) {
+      afterLine = cv.line;
+      parentVar = cv.var_name;
+    }
   }
 
   // Fall back to last source entry overall
@@ -517,9 +497,8 @@ export function sendAddRefEdit(
   if (!file || !afterLine) return;
 
   // Resolve cell variable name (e.g., "rectangle" → "rect_cell")
-  const cellVar = (storedCellVars && storedCellVars[cellName])
-    ? storedCellVars[cellName].var_name
-    : cellName;
+  const cellVar =
+    storedCellVars && storedCellVars[cellName] ? storedCellVars[cellName].var_name : cellName;
 
   sendSemanticEdit({
     op: "add_ref",
@@ -953,7 +932,7 @@ export function useLibrary(
       }
     });
     return unsub;
-  }, []);
+  }, [setLibrary]);
 
   // ===== Create initial tab on first load =====
   useEffect(() => {
@@ -994,7 +973,7 @@ export function useLibrary(
 
     setLibrary(lib);
     setIsReady(true);
-  }, [wasm, isWasmReady]);
+  }, [wasm, isWasmReady, setLibrary]);
 
   // ===== Listen for "new tab" events =====
   useEffect(() => {
@@ -1036,7 +1015,7 @@ export function useLibrary(
 
     window.addEventListener("rosette-new-tab", handleNewTab);
     return () => window.removeEventListener("rosette-new-tab", handleNewTab);
-  }, [wasm, isWasmReady]);
+  }, [wasm, isWasmReady, setLibrary]);
 
   // ===== Tauri: listen for file-open events =====
   useEffect(() => {
@@ -1139,7 +1118,7 @@ export function useLibrary(
       cancelled = true;
       unlisten?.();
     };
-  }, [wasm, isWasmReady]);
+  }, [wasm, isWasmReady, setLibrary]);
 
   // ===== Listen for "new file" events (Cmd+N) =====
   useEffect(() => {
@@ -1191,7 +1170,7 @@ export function useLibrary(
 
     window.addEventListener("rosette-new-file", handleNewFile);
     return () => window.removeEventListener("rosette-new-file", handleNewFile);
-  }, [wasm, isWasmReady]);
+  }, [wasm, isWasmReady, setLibrary]);
 
   // ===== Design mode: SSE for live design updates from server =====
   useEffect(() => {
@@ -1256,7 +1235,11 @@ export function useLibrary(
 
             if (oldLib) {
               requestAnimationFrame(() => {
-                try { oldLib.free(); } catch { /* already freed */ }
+                try {
+                  oldLib.free();
+                } catch {
+                  /* already freed */
+                }
               });
             }
 
@@ -1336,7 +1319,7 @@ export function useLibrary(
     return () => {
       eventSource.close();
     };
-  }, [wasm, isWasmReady]);
+  }, [wasm, isWasmReady, setLibrary]);
 
   // ===== Embed mode: load a static JSON file once =====
   useEffect(() => {
@@ -1412,7 +1395,7 @@ export function useLibrary(
     return () => {
       cancelled = true;
     };
-  }, [wasm, isWasmReady]);
+  }, [wasm, isWasmReady, setLibrary]);
 
   // ===== Sync layer colors and fill patterns to library =====
   useEffect(() => {

@@ -78,23 +78,25 @@ export function UpdateNotification() {
       let downloaded = 0;
       let contentLength = 1; // avoid division by zero
 
-      await update.downloadAndInstall((event: { event: string; data: { contentLength?: number; chunkLength?: number } }) => {
-        switch (event.event) {
-          case "Started":
-            contentLength = event.data.contentLength ?? 1;
-            break;
-          case "Progress":
-            downloaded += event.data.chunkLength ?? 0;
-            setState({
-              status: "downloading",
-              version,
-              progress: Math.min(downloaded / contentLength, 1),
-            });
-            break;
-          case "Finished":
-            break;
-        }
-      });
+      await update.downloadAndInstall(
+        (event: { event: string; data: { contentLength?: number; chunkLength?: number } }) => {
+          switch (event.event) {
+            case "Started":
+              contentLength = event.data.contentLength ?? 1;
+              break;
+            case "Progress":
+              downloaded += event.data.chunkLength ?? 0;
+              setState({
+                status: "downloading",
+                version,
+                progress: Math.min(downloaded / contentLength, 1),
+              });
+              break;
+            case "Finished":
+              break;
+          }
+        },
+      );
 
       setState({ status: "ready", version });
     } catch (err) {
@@ -142,7 +144,15 @@ export function UpdateNotification() {
             isDark ? "hover:bg-white/10 text-white/40" : "hover:bg-black/10 text-black/40",
           )}
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          >
             <path d="M1 1l8 8M9 1l-8 8" />
           </svg>
         </button>
@@ -164,7 +174,12 @@ export function UpdateNotification() {
 
       {/* Progress bar */}
       {state.status === "downloading" && (
-        <div className={cn("h-1 w-full overflow-hidden rounded-full", isDark ? "bg-white/10" : "bg-black/10")}>
+        <div
+          className={cn(
+            "h-1 w-full overflow-hidden rounded-full",
+            isDark ? "bg-white/10" : "bg-black/10",
+          )}
+        >
           <div
             className="h-full rounded-full bg-brand-purple transition-[width] duration-300 ease-out"
             style={{ width: `${Math.round(state.progress * 100)}%` }}

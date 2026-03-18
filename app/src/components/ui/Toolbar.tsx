@@ -606,13 +606,10 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
     executeShapeOp(lastOp);
   }, [lastOp]);
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setMenuOpen(true);
-    },
-    [],
-  );
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setMenuOpen(true);
+  }, []);
 
   const handleOpClick = useCallback((op: ShapeOp) => {
     setLastOp(op);

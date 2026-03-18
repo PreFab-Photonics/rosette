@@ -28,7 +28,13 @@ import { useImageStore, isImageId, imageIdToKey } from "@/stores/image";
 import { formatCoordinate, type UnitInfo } from "@/lib/format";
 import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
-import { getSourceInfo, sendEdit, sendVertexEdit, sendLayerEdit, type SourceInfo } from "@/hooks/use-library";
+import {
+  getSourceInfo,
+  sendEdit,
+  sendVertexEdit,
+  sendLayerEdit,
+  type SourceInfo,
+} from "@/hooks/use-library";
 
 // =============================================================================
 // Types
@@ -665,6 +671,7 @@ function LayerSelector({
         createPortal(
           <div
             ref={dropdownRef}
+            role="listbox"
             tabIndex={-1}
             onKeyDown={handleDropdownKeyDown}
             className={cn(
@@ -754,13 +761,7 @@ function LayerSelector({
  * Shows the source file:line and code that created the selected element.
  * Allows inline editing of the source line.
  */
-function SourceSection({
-  sourceInfo,
-  isDark,
-}: {
-  sourceInfo: SourceInfo;
-  isDark: boolean;
-}) {
+function SourceSection({ sourceInfo, isDark }: { sourceInfo: SourceInfo; isDark: boolean }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(sourceInfo.code);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -1922,9 +1923,10 @@ export function InspectorPanel() {
   // 1. Hierarchical mode: UUIDs start with "ref:"
   // 2. Design mode (multi-polygon refs): group has multiple members
   // 3. Design mode (single-polygon refs): source map type is "ref"
-  const isFromRef = elements.every((e) => e.id.startsWith("ref:"))
-    || (library != null && library.get_group_ids(first.id).length > 1)
-    || getSourceInfo(first.id)?.type === "ref";
+  const isFromRef =
+    elements.every((e) => e.id.startsWith("ref:")) ||
+    (library != null && library.get_group_ids(first.id).length > 1) ||
+    getSourceInfo(first.id)?.type === "ref";
 
   // Text inspector (single text element selected)
   if (isSingle && library && library.is_text_element(first.id)) {

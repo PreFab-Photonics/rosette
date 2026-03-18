@@ -758,18 +758,13 @@ function CellRow({
     >
       {/* Expand/collapse chevron (or spacer for leaves) */}
       {hasChildren ? (
-        <span
-          className="mr-0.5 flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center"
+        <button
+          type="button"
+          className="mr-0.5 flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center bg-transparent border-none p-0"
           onClick={handleChevronClick}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.stopPropagation();
-              onToggleExpand();
-            }
-          }}
         >
           <ChevronIcon expanded={isExpanded} isDark={isDark} />
-        </span>
+        </button>
       ) : (
         <span className="mr-0.5 h-4 w-4 flex-shrink-0" />
       )}

@@ -559,6 +559,14 @@ export class WasmLibrary {
      */
     set_layer_fill_pattern(layer: number, datatype: number, pattern: number): void;
     /**
+     * Convert a text element to polygon contours.
+     *
+     * Removes the text element and replaces it with polygon contours
+     * generated from the embedded Source Code Pro font.
+     * Returns UUIDs of the new polygons.
+     */
+    text_to_polygons(id: string): string[];
+    /**
      * Update the height of a text element.
      *
      * Returns true if the element was found and updated.

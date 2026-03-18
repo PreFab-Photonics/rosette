@@ -59,9 +59,7 @@ export function PathSelectionOverlay() {
     <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
       {allPaths.map(({ meta, color }, pathIdx) => {
         const screenPoints = meta.waypoints.map(worldToScreen);
-        const lineD = screenPoints
-          .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`)
-          .join(" ");
+        const lineD = screenPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
 
         return (
           <g key={pathIdx}>
@@ -78,14 +76,7 @@ export function PathSelectionOverlay() {
 
             {/* Waypoint dots */}
             {screenPoints.map((p, i) => (
-              <circle
-                key={i}
-                cx={p.x}
-                cy={p.y}
-                r={3}
-                fill={color}
-                fillOpacity={0.9}
-              />
+              <circle key={i} cx={p.x} cy={p.y} r={3} fill={color} fillOpacity={0.9} />
             ))}
           </g>
         );

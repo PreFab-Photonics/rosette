@@ -20,7 +20,14 @@ import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 import { computeAlignmentDeltas, type AlignType, type AlignmentDelta } from "@/lib/align";
-import { getSourceInfo, sendDeleteEdit, sendDeleteCellEdit, sendAddEdit, sendAddCellEdit, sendAddRefEdit } from "@/hooks/use-library";
+import {
+  getSourceInfo,
+  sendDeleteEdit,
+  sendDeleteCellEdit,
+  sendAddEdit,
+  sendAddCellEdit,
+  sendAddRefEdit,
+} from "@/hooks/use-library";
 import { usePathStore, DEFAULT_NUM_ARC_POINTS, type PathMetadata } from "@/stores/path";
 import { useImageStore, imageKeyToId, imageIdToKey, type ImageEntry } from "@/stores/image";
 import { useStatusMessageStore } from "@/stores/status-message";
@@ -96,10 +103,14 @@ export class CreateRectangleCommand implements Command {
 
       // Sync to Python source (no-op in standalone mode)
       const vertices = new Float64Array([
-        this.x, this.y,
-        this.x + this.width, this.y,
-        this.x + this.width, this.y + this.height,
-        this.x, this.y + this.height,
+        this.x,
+        this.y,
+        this.x + this.width,
+        this.y,
+        this.x + this.width,
+        this.y + this.height,
+        this.x,
+        this.y + this.height,
       ]);
       sendAddEdit(vertices, this.layer, this.datatype);
     }
@@ -326,11 +337,13 @@ export class DeleteElementsCommand implements Command {
       // Filter out blocked IDs — delete the rest if any remain
       idsToDelete = idsToDelete.filter((id) => !blockedIds.has(id));
       const cellNames = [...blockedCells].map((n) => `"${n}"`).join(", ");
-      useStatusMessageStore.getState().show(
-        `Cannot delete last reference to ${cellNames}. Delete the cell from the Explorer instead.`,
-        "warn",
-        5000,
-      );
+      useStatusMessageStore
+        .getState()
+        .show(
+          `Cannot delete last reference to ${cellNames}. Delete the cell from the Explorer instead.`,
+          "warn",
+          5000,
+        );
       if (idsToDelete.length === 0) return;
     }
 
@@ -356,11 +369,13 @@ export class DeleteElementsCommand implements Command {
       }
     }
     if (missingSourceCount > 0 && isDesign) {
-      useStatusMessageStore.getState().show(
-        `${missingSourceCount} element(s) deleted from viewer only — no source tracking available. Changes may revert on reload.`,
-        "warn",
-        5000,
-      );
+      useStatusMessageStore
+        .getState()
+        .show(
+          `${missingSourceCount} element(s) deleted from viewer only — no source tracking available. Changes may revert on reload.`,
+          "warn",
+          5000,
+        );
     }
 
     // Delete elements in a single batch operation (much faster for large selections)
@@ -1763,7 +1778,7 @@ export class DeleteCellCommand implements Command {
   private cellName: string;
   private elementSnapshots: ClipboardSnapshot[] = [];
   private cellOrigin: [number, number] = [0, 0];
-  private parentRefs: Array<{parent: string, transform: Float64Array}> = [];
+  private parentRefs: Array<{ parent: string; transform: Float64Array }> = [];
 
   constructor(name: string) {
     this.cellName = name;
@@ -1782,7 +1797,7 @@ export class DeleteCellCommand implements Command {
       // Save parent CellRefs that point to this cell
       const parents = ctx.library.get_cell_ref_parents(this.cellName);
       if (Array.isArray(parents)) {
-        this.parentRefs = parents.map((p: {parent: string, transform: number[]}) => ({
+        this.parentRefs = parents.map((p: { parent: string; transform: number[] }) => ({
           parent: p.parent,
           transform: new Float64Array(p.transform),
         }));
