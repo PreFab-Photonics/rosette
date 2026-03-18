@@ -10,5 +10,5 @@
 pub mod gds;
 pub mod json;
 
-pub use gds::{read, read_bytes, write, write_bytes, write_library, GdsError};
+pub use gds::{GdsError, read, read_bytes, write, write_bytes, write_library};
 pub use json::JsonError;

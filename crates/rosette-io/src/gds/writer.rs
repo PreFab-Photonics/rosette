@@ -8,41 +8,12 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use byteorder::{BigEndian, WriteBytesExt};
-use thiserror::Error;
 
 use rosette_core::cell::{CellRef, Element, PathEndType};
 use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform};
 
-/// Errors that can occur during GDS reading or writing.
-#[derive(Error, Debug)]
-pub enum GdsError {
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("Invalid cell name: {0}")]
-    InvalidCellName(#[from] rosette_core::CellNameError),
-
-    #[error("Cell name too long: {0} (max 32 characters)")]
-    CellNameTooLong(String),
-
-    #[error("Polygon has too many vertices: {0} (max 8191)")]
-    TooManyVertices(usize),
-
-    #[error("Path has too many points: {0} (max 8191)")]
-    TooManyPathPoints(usize),
-
-    #[error("Path has too few points: {0} (minimum 2)")]
-    TooFewPathPoints(usize),
-
-    #[error("Text string too long: {0} (max 512 characters)")]
-    TextTooLong(usize),
-
-    #[error("Unexpected end of file")]
-    UnexpectedEof,
-
-    #[error("Invalid record at offset {offset}: {message}")]
-    InvalidRecord { offset: usize, message: String },
-}
+use super::constants::*;
+use super::error::GdsError;
 
 /// Write a single cell to a GDS file.
 ///
@@ -70,42 +41,6 @@ pub fn write_bytes(library: &Library) -> Result<Vec<u8>, GdsError> {
     writer.write_library(library)?;
     Ok(output)
 }
-
-// GDS Record Types
-const HEADER: u8 = 0x00;
-const BGNLIB: u8 = 0x01;
-const LIBNAME: u8 = 0x02;
-const UNITS: u8 = 0x03;
-const ENDLIB: u8 = 0x04;
-const BGNSTR: u8 = 0x05;
-const STRNAME: u8 = 0x06;
-const ENDSTR: u8 = 0x07;
-const BOUNDARY: u8 = 0x08;
-const PATH: u8 = 0x09;
-const SREF: u8 = 0x0A;
-const AREF: u8 = 0x0B;
-const TEXT: u8 = 0x0C;
-const ENDEL: u8 = 0x11;
-const LAYER: u8 = 0x0D;
-const DATATYPE: u8 = 0x0E;
-const TEXTTYPE: u8 = 0x16;
-const XY: u8 = 0x10;
-const SNAME: u8 = 0x12;
-const STRING: u8 = 0x19;
-const STRANS: u8 = 0x1A;
-const MAG: u8 = 0x1B;
-const ANGLE: u8 = 0x1C;
-const COLROW: u8 = 0x13;
-const PATHTYPE: u8 = 0x21;
-const WIDTH: u8 = 0x0F;
-
-// Data Types
-const NO_DATA: u8 = 0x00;
-const BIT_ARRAY: u8 = 0x01;
-const INT16: u8 = 0x02;
-const INT32: u8 = 0x03;
-const REAL64: u8 = 0x05;
-const ASCII: u8 = 0x06;
 
 /// GDS database unit in meters (1nm).
 const DB_UNIT_M: f64 = 1e-9;

@@ -3,7 +3,7 @@
 use geo::BooleanOps;
 use rosette_core::{Layer, Polygon};
 
-use crate::convert::polygon_to_geo;
+use crate::convert::{polygon_area, polygon_to_geo};
 use crate::violation::{DrcViolation, RuleType, Severity};
 
 /// Check that two polygons do not overlap (forbidden overlap).
@@ -21,8 +21,8 @@ pub fn check_forbid_overlap(
 
     // Check if intersection has any area
     let has_overlap = intersection.0.iter().any(|p| {
-        let area = polygon_area(p.exterior().coords().map(|c| (c.x, c.y)).collect());
-        area.abs() > 1e-10
+        let coords: Vec<_> = p.exterior().coords().map(|c| (c.x, c.y)).collect();
+        polygon_area(&coords).abs() > 1e-10
     });
 
     if has_overlap {
@@ -65,8 +65,8 @@ pub fn check_require_overlap(
 
     // Check if intersection has any area
     let has_overlap = intersection.0.iter().any(|p| {
-        let area = polygon_area(p.exterior().coords().map(|c| (c.x, c.y)).collect());
-        area.abs() > 1e-10
+        let coords: Vec<_> = p.exterior().coords().map(|c| (c.x, c.y)).collect();
+        polygon_area(&coords).abs() > 1e-10
     });
 
     if !has_overlap {
@@ -90,23 +90,6 @@ pub fn check_require_overlap(
     } else {
         None
     }
-}
-
-/// Calculate polygon area using shoelace formula.
-fn polygon_area(vertices: Vec<(f64, f64)>) -> f64 {
-    let n = vertices.len();
-    if n < 3 {
-        return 0.0;
-    }
-
-    let mut area = 0.0;
-    for i in 0..n {
-        let j = (i + 1) % n;
-        area += vertices[i].0 * vertices[j].1;
-        area -= vertices[j].0 * vertices[i].1;
-    }
-
-    area / 2.0
 }
 
 #[cfg(test)]

@@ -38,6 +38,23 @@ pub fn geo_to_polygon(geo_poly: &GeoPolygon<f64>) -> Polygon {
     Polygon::new(points)
 }
 
+/// Calculate polygon area using the shoelace formula.
+pub(crate) fn polygon_area(vertices: &[(f64, f64)]) -> f64 {
+    let n = vertices.len();
+    if n < 3 {
+        return 0.0;
+    }
+
+    let mut area = 0.0;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        area += vertices[i].0 * vertices[j].1;
+        area -= vertices[j].0 * vertices[i].1;
+    }
+
+    area / 2.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

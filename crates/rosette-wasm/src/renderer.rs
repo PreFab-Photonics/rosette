@@ -303,8 +303,7 @@ impl WasmRenderer {
                         // high-DPI / Retina displays (default WebGL2 limit is 2048,
                         // but most GPUs support 4096–16384).
                         let adapter_limits = adapter.limits();
-                        limits.max_texture_dimension_2d =
-                            adapter_limits.max_texture_dimension_2d;
+                        limits.max_texture_dimension_2d = adapter_limits.max_texture_dimension_2d;
                         limits
                     },
                     memory_hints: wgpu::MemoryHints::default(),
@@ -396,29 +395,25 @@ impl WasmRenderer {
         let grid_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("grid-bind-group-layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                ],
+                    count: None,
+                }],
             });
 
         let grid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("grid-bind-group"),
             layout: &grid_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: viewport_buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: viewport_buffer.as_entire_binding(),
+            }],
         });
 
         // Create grid pipeline

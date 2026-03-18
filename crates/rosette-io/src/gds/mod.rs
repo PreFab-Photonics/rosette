@@ -17,8 +17,11 @@
 //! let lib = gds::read("output.gds").unwrap();
 //! ```
 
+pub(crate) mod constants;
+mod error;
 mod reader;
-pub(crate) mod writer;
+mod writer;
 
+pub use error::GdsError;
 pub use reader::{read, read_bytes};
-pub use writer::{write, write_bytes, write_library, GdsError};
+pub use writer::{write, write_bytes, write_library};

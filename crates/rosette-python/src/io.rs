@@ -292,5 +292,3 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
         "design must be a Cell or Library",
     ))
 }
-
-

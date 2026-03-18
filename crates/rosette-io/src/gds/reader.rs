@@ -11,44 +11,8 @@ use byteorder::{BigEndian, ReadBytesExt};
 use rosette_core::cell::{CellRef, PathEndType, Repetition};
 use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform};
 
-use super::writer::GdsError;
-
-// GDS Record Types (same as writer)
-const HEADER: u8 = 0x00;
-const BGNLIB: u8 = 0x01;
-const LIBNAME: u8 = 0x02;
-const UNITS: u8 = 0x03;
-const ENDLIB: u8 = 0x04;
-const BGNSTR: u8 = 0x05;
-const STRNAME: u8 = 0x06;
-const ENDSTR: u8 = 0x07;
-const BOUNDARY: u8 = 0x08;
-const PATH: u8 = 0x09;
-const SREF: u8 = 0x0A;
-const AREF: u8 = 0x0B;
-const TEXT: u8 = 0x0C;
-const LAYER: u8 = 0x0D;
-const DATATYPE: u8 = 0x0E;
-const WIDTH: u8 = 0x0F;
-const XY: u8 = 0x10;
-const ENDEL: u8 = 0x11;
-const SNAME: u8 = 0x12;
-const COLROW: u8 = 0x13;
-const TEXTTYPE: u8 = 0x16;
-const STRING: u8 = 0x19;
-const STRANS: u8 = 0x1A;
-const MAG: u8 = 0x1B;
-const ANGLE: u8 = 0x1C;
-const PATHTYPE: u8 = 0x21;
-
-// Additional record types we skip gracefully
-const NODE: u8 = 0x15;
-const BOX: u8 = 0x2D;
-#[allow(dead_code)]
-const BOXTYPE: u8 = 0x2E;
-const PROPATTR: u8 = 0x2B;
-const PROPVALUE: u8 = 0x2C;
-const PRESENTATION: u8 = 0x17;
+use super::constants::*;
+use super::error::GdsError;
 
 /// Read a GDS file from disk into a [`Library`].
 ///
@@ -546,11 +510,7 @@ fn gds_real_to_f64(bytes: &[u8]) -> f64 {
     // result = mantissa / 2^56 * 16^exponent
     let value = (mantissa as f64) / ((1u64 << 56) as f64) * 16.0_f64.powi(exponent);
 
-    if negative {
-        -value
-    } else {
-        value
-    }
+    if negative { -value } else { value }
 }
 
 /// Parse a big-endian INT16 from record data.

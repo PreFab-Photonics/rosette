@@ -469,9 +469,8 @@ impl Cell {
 
     /// Remove all CellRef elements that reference the given cell name.
     pub fn remove_refs_by_name(&mut self, name: &str) {
-        self.elements.retain(|e| {
-            !matches!(e, Element::CellRef(r) if r.cell_name == name)
-        });
+        self.elements
+            .retain(|e| !matches!(e, Element::CellRef(r) if r.cell_name == name));
     }
 }
 
