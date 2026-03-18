@@ -17,7 +17,6 @@ import { useWasmContextStore } from "@/stores/wasm-context";
 import { useSelectionStore } from "@/stores/selection";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { useViewportStore } from "@/stores/viewport";
-import { useHistoryStore } from "@/stores/history";
 import { useRulerStore } from "@/stores/ruler";
 import { useClipboardStore } from "@/stores/clipboard";
 import { useDocumentStore } from "@/stores/document";
