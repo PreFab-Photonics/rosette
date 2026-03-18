@@ -147,43 +147,63 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
 
         op_map = {
             "modify_vertices": lambda d: ModifyVertices(
-                file=d["file"], line=d["line"],
-                old_code=d.get("old_code"), vertices=d["vertices"],
+                file=d["file"],
+                line=d["line"],
+                old_code=d.get("old_code"),
+                vertices=d["vertices"],
             ),
             "modify_layer": lambda d: ModifyLayer(
-                file=d["file"], line=d["line"],
-                old_code=d.get("old_code"), layer=d["layer"], datatype=d.get("datatype", 0),
+                file=d["file"],
+                line=d["line"],
+                old_code=d.get("old_code"),
+                layer=d["layer"],
+                datatype=d.get("datatype", 0),
             ),
             "delete_element": lambda d: DeleteElement(
-                file=d["file"], line=d["line"], old_code=d.get("old_code"),
+                file=d["file"],
+                line=d["line"],
+                old_code=d.get("old_code"),
             ),
             "add_element": lambda d: AddElement(
-                file=d["file"], after_line=d["after_line"],
+                file=d["file"],
+                after_line=d["after_line"],
                 element_type=d.get("element_type", "polygon"),
-                vertices=d["vertices"], layer=d["layer"],
-                datatype=d.get("datatype", 0), width=d.get("width"),
+                vertices=d["vertices"],
+                layer=d["layer"],
+                datatype=d.get("datatype", 0),
+                width=d.get("width"),
                 cell_var=d.get("cell_var", "cell"),
             ),
             "modify_path_width": lambda d: ModifyPathWidth(
-                file=d["file"], line=d["line"],
-                old_code=d.get("old_code"), width=d["width"],
+                file=d["file"],
+                line=d["line"],
+                old_code=d.get("old_code"),
+                width=d["width"],
             ),
             "move_ref": lambda d: MoveRef(
-                file=d["file"], line=d["line"],
-                old_code=d.get("old_code"), dx=d["dx"], dy=d["dy"],
+                file=d["file"],
+                line=d["line"],
+                old_code=d.get("old_code"),
+                dx=d["dx"],
+                dy=d["dy"],
             ),
             "add_cell": lambda d: AddCell(
-                file=d["file"], def_after_line=d["def_after_line"],
+                file=d["file"],
+                def_after_line=d["def_after_line"],
                 ref_after_line=d["ref_after_line"],
-                cell_name=d["cell_name"], parent_var=d["parent_var"],
+                cell_name=d["cell_name"],
+                parent_var=d["parent_var"],
             ),
             "add_ref": lambda d: AddRef(
-                file=d["file"], after_line=d["after_line"],
-                cell_name=d["cell_name"], parent_var=d["parent_var"],
+                file=d["file"],
+                after_line=d["after_line"],
+                cell_name=d["cell_name"],
+                parent_var=d["parent_var"],
                 transform=d["transform"],
             ),
             "delete_cell": lambda d: DeleteCell(
-                file=d["file"], cell_name=d["cell_name"],
+                file=d["file"],
+                cell_name=d["cell_name"],
                 var_name=d["var_name"],
             ),
         }
@@ -210,9 +230,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
         if result.success:
             self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
         else:
-            self.wfile.write(
-                json.dumps({"ok": False, "error": result.error}).encode("utf-8")
-            )
+            self.wfile.write(json.dumps({"ok": False, "error": result.error}).encode("utf-8"))
 
     def _handle_raw_edit(self, data: dict) -> None:
         """Handle a raw line-replacement edit from the SourceSection editor."""
@@ -238,9 +256,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
         else:
-            self.send_error(
-                409, "Patch failed — source may have changed since last reload"
-            )
+            self.send_error(409, "Patch failed — source may have changed since last reload")
 
     def handle_design_events(self) -> None:
         """Handle SSE endpoint for live design updates.

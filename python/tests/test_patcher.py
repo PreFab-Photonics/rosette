@@ -8,15 +8,14 @@ from pathlib import Path
 import pytest
 
 from rosette._patcher import (
+    WORLD_PER_UM,
     AddElement,
     CodePatcher,
     DeleteElement,
     ModifyLayer,
     ModifyPathWidth,
     ModifyVertices,
-    PatchResult,
     SemanticPatcher,
-    WORLD_PER_UM,
 )
 
 
@@ -44,20 +43,27 @@ def write_source(tmp_path: Path, code: str) -> Path:
 
 class TestModifyVertices:
     def test_single_line_polygon(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon(Polygon([Point(0, 0), Point(10, 0), Point(5, 8)]), core)
-        """)
+        """,
+        )
         # New vertices: triangle with different coords
         x0, y0 = um_to_world(0, 0)
         x1, y1 = um_to_world(20, 0)
         x2, y2 = um_to_world(10, 15)
 
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=3, old_code=None,
-            vertices=[x0, y0, x1, y1, x2, y2],
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=3,
+                old_code=None,
+                vertices=[x0, y0, x1, y1, x2, y2],
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -68,22 +74,29 @@ class TestModifyVertices:
         assert "core" in code
 
     def test_multiline_polygon(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon(
                 Polygon([Point(0, 0), Point(30, 0), Point(15, 25)]),
                 clad,
             )
-        """)
+        """,
+        )
         x0, y0 = um_to_world(1, 1)
         x1, y1 = um_to_world(2, 2)
         x2, y2 = um_to_world(3, 3)
 
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=3, old_code=None,
-            vertices=[x0, y0, x1, y1, x2, y2],
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=3,
+                old_code=None,
+                vertices=[x0, y0, x1, y1, x2, y2],
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -94,18 +107,25 @@ class TestModifyVertices:
 
     def test_bare_list_in_add_polygon(self, tmp_path, patcher):
         """add_polygon([Point(...)], layer) without Polygon wrapper."""
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon([Point(0, 0), Point(10, 0), Point(5, 8)], core)
-        """)
+        """,
+        )
         x0, y0 = um_to_world(100, 200)
         x1, y1 = um_to_world(300, 400)
 
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=3, old_code=None,
-            vertices=[x0, y0, x1, y1],
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=3,
+                old_code=None,
+                vertices=[x0, y0, x1, y1],
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -114,11 +134,14 @@ class TestModifyVertices:
 
     def test_polygon_rect_stays_rect(self, tmp_path, patcher):
         """Polygon.rect() should update params when result is still a rectangle."""
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon(Polygon.rect(Point(0, 0), 20, 10), core)
-        """)
+        """,
+        )
         # New rectangle: origin (5, 5), width 30, height 15
         # As vertices: (5,5), (35,5), (35,20), (5,20)
         verts = []
@@ -126,9 +149,14 @@ class TestModifyVertices:
             wx, wy = um_to_world(x, y)
             verts.extend([wx, wy])
 
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=3, old_code=None, vertices=verts,
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=3,
+                old_code=None,
+                vertices=verts,
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -141,20 +169,28 @@ class TestModifyVertices:
 
     def test_polygon_rect_converts_to_points(self, tmp_path, patcher):
         """Polygon.rect() converts to Polygon([...]) when result is not a rectangle."""
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon(Polygon.rect(Point(0, 0), 20, 10), core)
-        """)
+        """,
+        )
         # Triangle (not a rectangle)
         verts = []
         for x, y in [(0, 0), (20, 0), (10, 15)]:
             wx, wy = um_to_world(x, y)
             verts.extend([wx, wy])
 
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=3, old_code=None, vertices=verts,
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=3,
+                old_code=None,
+                vertices=verts,
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -168,21 +204,29 @@ class TestModifyVertices:
 
     def test_variable_reference(self, tmp_path, patcher):
         """add_polygon(var, layer) should rewrite the variable assignment."""
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("ring")
             outer = Polygon.regular(Point(0, 0), radius=40, sides=6)
             cell.add_polygon(outer, core)
-        """)
+        """,
+        )
         # Hexagon vertices (new positions)
         verts = []
         for x, y in [(10, 0), (5, 8), (-5, 8), (-10, 0), (-5, -8), (5, -8)]:
             wx, wy = um_to_world(x, y)
             verts.extend([wx, wy])
 
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=4, old_code=None, vertices=verts,
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=4,
+                old_code=None,
+                vertices=verts,
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -197,12 +241,16 @@ class TestModifyVertices:
     def test_variable_reference_preserves_regular(self, tmp_path, patcher):
         """If edited vertices still form a regular polygon, keep Polygon.regular() format."""
         import math
-        src = write_source(tmp_path, """\
+
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("ring")
             outer = Polygon.regular(Point(0, 0), radius=40, sides=6)
             cell.add_polygon(outer, core)
-        """)
+        """,
+        )
         # Regular hexagon centered at (5, 3) with radius 20
         verts = []
         for i in range(6):
@@ -212,9 +260,14 @@ class TestModifyVertices:
             wx, wy = um_to_world(x, y)
             verts.extend([wx, wy])
 
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=4, old_code=None, vertices=verts,
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=4,
+                old_code=None,
+                vertices=verts,
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -225,19 +278,27 @@ class TestModifyVertices:
 
     def test_inline_polygon_regular(self, tmp_path, patcher):
         """add_polygon(Polygon.regular(...), layer) should replace inline."""
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("ring")
             cell.add_polygon(Polygon.regular(Point(0, 0), radius=40, sides=6), core)
-        """)
+        """,
+        )
         verts = []
         for x, y in [(10, 0), (5, 8), (-5, 8), (-10, 0), (-5, -8), (5, -8)]:
             wx, wy = um_to_world(x, y)
             verts.extend([wx, wy])
 
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=3, old_code=None, vertices=verts,
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=3,
+                old_code=None,
+                vertices=verts,
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -246,18 +307,25 @@ class TestModifyVertices:
         assert "core" in code
 
     def test_add_path_vertices(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_path([Point(0, 0), Point(10, 0)], core, width=0.5)
-        """)
+        """,
+        )
         x0, y0 = um_to_world(5, 5)
         x1, y1 = um_to_world(15, 5)
 
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=3, old_code=None,
-            vertices=[x0, y0, x1, y1],
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=3,
+                old_code=None,
+                vertices=[x0, y0, x1, y1],
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -266,30 +334,46 @@ class TestModifyVertices:
         assert "width=0.5" in code
 
     def test_old_code_mismatch(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell.add_polygon(Polygon([Point(0, 0)]), core)
-        """)
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=2, old_code="cell.add_polygon(WRONG)",
-            vertices=[0, 0],
-        ))
+        """,
+        )
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=2,
+                old_code="cell.add_polygon(WRONG)",
+                vertices=[0, 0],
+            )
+        )
         assert not result.success
         assert "mismatch" in result.error
 
     def test_file_not_found(self, tmp_path, patcher):
-        result = patcher.apply(ModifyVertices(
-            file=str(tmp_path / "nonexistent.py"), line=1,
-            old_code=None, vertices=[0, 0],
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(tmp_path / "nonexistent.py"),
+                line=1,
+                old_code=None,
+                vertices=[0, 0],
+            )
+        )
         assert not result.success
         assert "not found" in result.error
 
     def test_line_out_of_range(self, tmp_path, patcher):
         src = write_source(tmp_path, "x = 1\n")
-        result = patcher.apply(ModifyVertices(
-            file=str(src), line=99, old_code=None, vertices=[0, 0],
-        ))
+        result = patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=99,
+                old_code=None,
+                vertices=[0, 0],
+            )
+        )
         assert not result.success
         assert "out of range" in result.error
 
@@ -301,14 +385,23 @@ class TestModifyVertices:
 
 class TestModifyLayer:
     def test_replace_variable_layer(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon(Polygon([Point(0, 0), Point(10, 0), Point(5, 8)]), core)
-        """)
-        result = patcher.apply(ModifyLayer(
-            file=str(src), line=3, old_code=None, layer=5, datatype=2,
-        ))
+        """,
+        )
+        result = patcher.apply(
+            ModifyLayer(
+                file=str(src),
+                line=3,
+                old_code=None,
+                layer=5,
+                datatype=2,
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -317,27 +410,44 @@ class TestModifyLayer:
         assert "Point(0, 0)" in code
 
     def test_replace_layer_literal(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon(Polygon([Point(0, 0)]), Layer(1, 0))
-        """)
-        result = patcher.apply(ModifyLayer(
-            file=str(src), line=3, old_code=None, layer=3, datatype=1,
-        ))
+        """,
+        )
+        result = patcher.apply(
+            ModifyLayer(
+                file=str(src),
+                line=3,
+                old_code=None,
+                layer=3,
+                datatype=1,
+            )
+        )
 
         assert result.success
         code = src.read_text()
         assert "Layer(3, 1)" in code
 
     def test_no_add_call_at_line(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             x = 42
-        """)
-        result = patcher.apply(ModifyLayer(
-            file=str(src), line=2, old_code=None, layer=1,
-        ))
+        """,
+        )
+        result = patcher.apply(
+            ModifyLayer(
+                file=str(src),
+                line=2,
+                old_code=None,
+                layer=1,
+            )
+        )
         assert not result.success
 
 
@@ -348,15 +458,22 @@ class TestModifyLayer:
 
 class TestDeleteElement:
     def test_delete_single_line(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon(Polygon([Point(0, 0), Point(10, 0), Point(5, 8)]), core)
             cell.add_polygon(Polygon([Point(20, 20)]), clad)
-        """)
-        result = patcher.apply(DeleteElement(
-            file=str(src), line=3, old_code=None,
-        ))
+        """,
+        )
+        result = patcher.apply(
+            DeleteElement(
+                file=str(src),
+                line=3,
+                old_code=None,
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -365,15 +482,22 @@ class TestDeleteElement:
         assert "Point(20, 20)" in code
 
     def test_delete_preserves_other_lines(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon(Polygon([Point(0, 0)]), core)
             x = 42
-        """)
-        result = patcher.apply(DeleteElement(
-            file=str(src), line=3, old_code=None,
-        ))
+        """,
+        )
+        result = patcher.apply(
+            DeleteElement(
+                file=str(src),
+                line=3,
+                old_code=None,
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -387,20 +511,29 @@ class TestDeleteElement:
 
 class TestAddElement:
     def test_add_polygon_after_line(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_polygon(Polygon([Point(0, 0)]), Layer(1, 0))
-        """)
+        """,
+        )
         x0, y0 = um_to_world(10, 10)
         x1, y1 = um_to_world(20, 20)
         x2, y2 = um_to_world(30, 10)
 
-        result = patcher.apply(AddElement(
-            file=str(src), after_line=3, element_type="polygon",
-            vertices=[x0, y0, x1, y1, x2, y2], layer=2, datatype=0,
-            cell_var="cell",
-        ))
+        result = patcher.apply(
+            AddElement(
+                file=str(src),
+                after_line=3,
+                element_type="polygon",
+                vertices=[x0, y0, x1, y1, x2, y2],
+                layer=2,
+                datatype=0,
+                cell_var="cell",
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -411,18 +544,27 @@ class TestAddElement:
         assert "Layer(2, 0)" in lines[3]
 
     def test_add_path(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
-        """)
+        """,
+        )
         x0, y0 = um_to_world(0, 0)
         x1, y1 = um_to_world(100, 0)
 
-        result = patcher.apply(AddElement(
-            file=str(src), after_line=2, element_type="path",
-            vertices=[x0, y0, x1, y1], layer=1, width=um_to_world(0.5, 0)[0],
-            cell_var="cell",
-        ))
+        result = patcher.apply(
+            AddElement(
+                file=str(src),
+                after_line=2,
+                element_type="path",
+                vertices=[x0, y0, x1, y1],
+                layer=1,
+                width=um_to_world(0.5, 0)[0],
+                cell_var="cell",
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -430,17 +572,26 @@ class TestAddElement:
         assert "width=0.5" in code
 
     def test_preserves_indentation(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
                 cell.add_polygon(Polygon([Point(0, 0)]), Layer(1, 0))
-        """)
+        """,
+        )
         x0, y0 = um_to_world(5, 5)
 
-        result = patcher.apply(AddElement(
-            file=str(src), after_line=3, element_type="polygon",
-            vertices=[x0, y0], layer=1, cell_var="cell",
-        ))
+        result = patcher.apply(
+            AddElement(
+                file=str(src),
+                after_line=3,
+                element_type="polygon",
+                vertices=[x0, y0],
+                layer=1,
+                cell_var="cell",
+            )
+        )
 
         assert result.success
         lines = src.read_text().splitlines()
@@ -455,33 +606,49 @@ class TestAddElement:
 
 class TestModifyPathWidth:
     def test_modify_keyword_width(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_path([Point(0, 0), Point(10, 0)], core, width=0.5)
-        """)
+        """,
+        )
         # New width: 2.0 µm in world coords
         new_width_world = 2.0 * WORLD_PER_UM
 
-        result = patcher.apply(ModifyPathWidth(
-            file=str(src), line=3, old_code=None, width=new_width_world,
-        ))
+        result = patcher.apply(
+            ModifyPathWidth(
+                file=str(src),
+                line=3,
+                old_code=None,
+                width=new_width_world,
+            )
+        )
 
         assert result.success
         code = src.read_text()
         assert "width=2" in code
 
     def test_modify_positional_width(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell = Cell("top")
             cell.add_path([Point(0, 0), Point(10, 0)], core, 0.5)
-        """)
+        """,
+        )
         new_width_world = 3.0 * WORLD_PER_UM
 
-        result = patcher.apply(ModifyPathWidth(
-            file=str(src), line=3, old_code=None, width=new_width_world,
-        ))
+        result = patcher.apply(
+            ModifyPathWidth(
+                file=str(src),
+                line=3,
+                old_code=None,
+                width=new_width_world,
+            )
+        )
 
         assert result.success
         code = src.read_text()
@@ -489,13 +656,21 @@ class TestModifyPathWidth:
         assert ", 3)" in code or ", 3," in code
 
     def test_not_add_path(self, tmp_path, patcher):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             from rosette import *
             cell.add_polygon(Polygon([Point(0, 0)]), core)
-        """)
-        result = patcher.apply(ModifyPathWidth(
-            file=str(src), line=2, old_code=None, width=50000,
-        ))
+        """,
+        )
+        result = patcher.apply(
+            ModifyPathWidth(
+                file=str(src),
+                line=2,
+                old_code=None,
+                width=50000,
+            )
+        )
         assert not result.success
 
 
@@ -522,10 +697,14 @@ class TestFormattingPreservation:
         x1, y1 = um_to_world(2, 2)
         x2, y2 = um_to_world(3, 3)
 
-        patcher.apply(ModifyVertices(
-            file=str(src), line=5, old_code=None,
-            vertices=[x0, y0, x1, y1, x2, y2],
-        ))
+        patcher.apply(
+            ModifyVertices(
+                file=str(src),
+                line=5,
+                old_code=None,
+                vertices=[x0, y0, x1, y1, x2, y2],
+            )
+        )
 
         new_lines = src.read_text().splitlines()
         original_lines = original.splitlines()
@@ -545,19 +724,25 @@ class TestFormattingPreservation:
 
 class TestCodePatcher:
     def test_patch_line(self, tmp_path):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             x = 1
             y = 2
-        """)
+        """,
+        )
         patcher = CodePatcher()
         result = patcher.patch_line(str(src), 1, old_code="x = 1", new_code="x = 42")
         assert result
         assert "x = 42" in src.read_text()
 
     def test_patch_line_old_code_mismatch(self, tmp_path):
-        src = write_source(tmp_path, """\
+        src = write_source(
+            tmp_path,
+            """\
             x = 1
-        """)
+        """,
+        )
         patcher = CodePatcher()
         result = patcher.patch_line(str(src), 1, old_code="x = 999", new_code="x = 42")
         assert not result

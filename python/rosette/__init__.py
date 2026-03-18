@@ -27,6 +27,7 @@ For library development, import from rosette.components:
 from __future__ import annotations
 
 import linecache
+import math
 import os
 import re
 import sys
@@ -34,7 +35,6 @@ import tomllib
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from rosette._core import (
     # Geometry
@@ -66,9 +66,6 @@ from rosette._core import Route as _Route
 from rosette._core import read_gds as _read_gds
 from rosette._core import run_drc as _run_drc
 from rosette._core import write_gds as _write_gds
-
-if TYPE_CHECKING:
-    pass
 
 __version__ = "0.1.0"
 
@@ -288,8 +285,6 @@ class Instance:
         unit_x = self._transform.apply(Point(1.0, 0.0))
         dx = unit_x.x - origin.x
         dy = unit_x.y - origin.y
-        import math
-
         # Account for mirroring in angle calculation
         scale_x = math.sqrt(dx * dx + dy * dy)
         if scale_x > 0:
@@ -1135,7 +1130,7 @@ _VALID_FILL_PATTERNS = {"solid", "hatched", "crosshatched", "dotted"}
 
 # Default layer definitions — single source of truth for templates and app.
 # These are used as the fallback when rosette.toml has no [layers] section
-# and are mirrored in the blank/generic templates and the desktop app.
+# and are mirrored in the templates and the desktop app.
 DEFAULT_LAYERS: list[dict] = [
     {
         "name": "silicon",

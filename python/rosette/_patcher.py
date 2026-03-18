@@ -7,12 +7,12 @@ of untouched code (libcst guarantee).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
 import libcst as cst
 from libcst.metadata import MetadataWrapper, PositionProvider
-
 
 # =============================================================================
 # Coordinate conversion: WASM world coords → Python µm
@@ -36,13 +36,10 @@ def _format_num(n: float) -> str:
     return f"{rounded:g}"
 
 
-import math
-
-
 def _build_ref_chain(cell_name: str, transform: list[float]) -> str:
     """Build a CellRef chain like `cell.at(x, y).rotate(180).mirror_x()` from a [a,b,c,d,tx,ty] transform.
 
-    Decomposition: the affine 2×2 part [a,b,c,d] encodes rotation, mirror, and scale.
+    Decomposition: the affine 2x2 part [a,b,c,d] encodes rotation, mirror, and scale.
     - det < 0 → mirror_x (reflection across X axis)
     - After removing mirror: angle = atan2(b, a) in degrees
     - scale = sqrt(a² + b²) after removing mirror
@@ -273,9 +270,7 @@ class _VertexReplacer(cst.CSTTransformer):
         self.replaced = False
         self.var_name: str | None = None  # set when add_polygon references a variable
 
-    def leave_Call(
-        self, original_node: cst.Call, updated_node: cst.Call
-    ) -> cst.BaseExpression:
+    def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.BaseExpression:
         if self.replaced:
             return updated_node
 
@@ -415,9 +410,7 @@ class _LayerReplacer(cst.CSTTransformer):
         self.datatype = datatype
         self.replaced = False
 
-    def leave_Call(
-        self, original_node: cst.Call, updated_node: cst.Call
-    ) -> cst.BaseExpression:
+    def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.BaseExpression:
         if self.replaced:
             return updated_node
 
@@ -480,9 +473,7 @@ class _PathWidthReplacer(cst.CSTTransformer):
         self.width_um = width_um
         self.replaced = False
 
-    def leave_Call(
-        self, original_node: cst.Call, updated_node: cst.Call
-    ) -> cst.BaseExpression:
+    def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.BaseExpression:
         if self.replaced:
             return updated_node
 
@@ -531,9 +522,7 @@ class _RefPositionUpdater(cst.CSTTransformer):
         self.dy_um = dy_um
         self.replaced = False
 
-    def leave_Call(
-        self, original_node: cst.Call, updated_node: cst.Call
-    ) -> cst.BaseExpression:
+    def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.BaseExpression:
         if self.replaced:
             return updated_node
 
@@ -575,9 +564,7 @@ class _RefPositionUpdater(cst.CSTTransformer):
             return float(node.evaluated_value)
         if isinstance(node, cst.Float):
             return float(node.evaluated_value)
-        if isinstance(node, cst.UnaryOperation) and isinstance(
-            node.operator, cst.Minus
-        ):
+        if isinstance(node, cst.UnaryOperation) and isinstance(node.operator, cst.Minus):
             inner = _RefPositionUpdater._eval_num(node.expression)
             return -inner if inner is not None else None
         return None
@@ -925,8 +912,7 @@ class SemanticPatcher:
             else:
                 geom = f"Polygon({points_code})"
             new_line = (
-                f"{indent_str}{cell_var}.add_polygon("
-                f"{geom}, Layer({op.layer}, {op.datatype}))\n"
+                f"{indent_str}{cell_var}.add_polygon({geom}, Layer({op.layer}, {op.datatype}))\n"
             )
 
         # Insert after the end of the statement
@@ -1021,7 +1007,9 @@ class SemanticPatcher:
         indent = target_line[: len(target_line) - len(target_line.lstrip())]
 
         # Decompose [a, b, c, d, tx, ty] into .at(x, y) + optional .rotate() / .mirror_x() / .scale()
-        add_ref = f"{indent}{op.parent_var}.add_ref({_build_ref_chain(op.cell_name, op.transform)})\n"
+        add_ref = (
+            f"{indent}{op.parent_var}.add_ref({_build_ref_chain(op.cell_name, op.transform)})\n"
+        )
 
         lines.insert(insert_after, add_ref)
         path.write_text("".join(lines))
@@ -1072,7 +1060,7 @@ class SemanticPatcher:
         ref_target = lines[ref_line - 1]
         ref_indent = ref_target[: len(ref_target) - len(ref_target.lstrip())]
 
-        cell_def = f"\n{def_indent}{op.cell_name} = Cell(\"{op.cell_name}\")\n"
+        cell_def = f'\n{def_indent}{op.cell_name} = Cell("{op.cell_name}")\n'
         add_ref = f"{ref_indent}{op.parent_var}.add_ref({op.cell_name}.at(0, 0))\n"
 
         # Insert ref first (later line) so earlier line numbers don't shift
