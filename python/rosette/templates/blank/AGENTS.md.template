@@ -9,15 +9,12 @@ Components are Python functions in `components/` that you own and can customize.
 ## Example
 
 ```python
-import os
-from rosette import Cell, CellRef, Layer, Route, load_layer_map, write_gds
+from rosette import Cell, CellRef, Layer, Route
 
 # Import components from local components/ directory
 from components import waveguide, bend, grating_coupler, mmi_1x2
 
-# Load named layers from rosette.toml (preferred over hardcoded numbers)
-layers = load_layer_map()
-layer = layers.silicon.layer  # Layer(1, 0)
+layer = Layer(1, 0)
 
 # Components are functions that return Cells
 wg_cell = waveguide(length=10.0, width=0.5, layer=layer)
@@ -39,9 +36,6 @@ top.add_ref(CellRef(route_cell.name))
 # Place GC at route input port
 gc_opt = gc_cell.port("opt")
 top.add_ref(top.place_at_port(CellRef(gc_cell.name), gc_opt, route_cell.port("in")))
-
-# Write output with child cells
-write_gds(os.environ.get("ROSETTE_OUTPUT", "output.gds"), top, [route_cell, gc_cell])
 ```
 
 ## API
@@ -79,13 +73,8 @@ Polygon.rect(origin, w, h)
 Polygon.rect_centered(center, w, h)
 Polygon.regular(center, radius, n_sides)
 
-# Layers (from rosette.toml)
-load_layer_map() -> LayerMap          # Load from rosette.toml
-  .silicon -> LayerInfo               # Attribute access by name
-  .silicon.layer -> Layer(1, 0)       # Underlying Layer
-  .silicon.color -> "#ff69b4"         # Hex color
-  .silicon.number, .silicon.datatype  # GDS numbers
-Layer(number, datatype=0)             # Direct layer (fallback)
+# Layers
+Layer(number, datatype=0)
 
 # Layout
 Cell(name)
@@ -141,5 +130,4 @@ DrcRules()
 ## Reference
 
 - `.rosette/api.pyi` - Full Python API with types (start here)
-- `.rosette/patterns.md` - Copy-paste recipes for common structures
 - `components/` - Editable component implementations (customize these!)

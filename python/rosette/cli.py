@@ -59,7 +59,7 @@ def _apply_template(
         if tools is not None:
             rel_str = str(rel_path)
             # OpenCode-specific files
-            if rel_str.startswith(".opencode") or rel_str == "AGENTS.md.template":
+            if rel_str == "AGENTS.md.template":
                 if "opencode" not in tools:
                     continue
             # Claude Code-specific files
@@ -520,25 +520,13 @@ def update_project():
 
     # Detect which tools are configured by checking for their files
     tools = []
-    if (project_dir / "AGENTS.md").exists() or (project_dir / ".opencode").exists():
+    if (project_dir / "AGENTS.md").exists():
         tools.append("opencode")
     if (project_dir / "CLAUDE.md").exists():
         tools.append("claude")
     # If neither detected (legacy project), default to opencode for backwards compat
     if not tools:
         tools.append("opencode")
-
-    # Rosette-managed directories: replace entirely from template
-    managed_dirs = [".rosette"]
-    if "opencode" in tools:
-        managed_dirs.append(".opencode")
-    for dir_name in managed_dirs:
-        src = template_dir / dir_name
-        if src.exists():
-            dst = project_dir / dir_name
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
 
     # Template files at root: process with {{name}} substitution (filtered by tools)
     for template_file in template_dir.glob("*.template"):

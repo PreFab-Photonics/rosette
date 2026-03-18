@@ -5,15 +5,12 @@ This example demonstrates the fundamental rosette primitives without
 any photonic-specific components. Great for learning the core API.
 """
 
-from rosette import Cell, Layer, Point, Polygon, Port, Vector2, load_layer_map, write_gds
+from rosette import Cell, Layer, Point, Polygon, Port, Vector2, write_gds
 
-# Load layer definitions from rosette.toml
-layers = load_layer_map()
-
-# Use named layers from the layer map
-silicon = layers.silicon.layer  # Layer(1, 0) - silicon waveguides
-metal = layers.metal.layer  # Layer(10, 0) - metal routing
-marker = Layer(200, 0)  # Additional layers can still use Layer() directly
+# Define layers directly (add named layers to rosette.toml for load_layer_map())
+silicon = Layer(1, 0)
+metal = Layer(10, 0)
+marker = Layer(200, 0)
 
 # =============================================================================
 # Basic Polygons

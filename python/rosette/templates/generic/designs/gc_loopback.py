@@ -3,9 +3,12 @@
 
 from components import grating_coupler
 
-from rosette import Cell, Layer, Route, write_gds
+from rosette import Cell, Route, load_layer_map, write_gds
 
-layer = Layer(1, 0)
+# Load layer definitions from rosette.toml
+layers = load_layer_map()
+layer = layers.silicon.layer  # Layer(1, 0)
+
 gc_spacing = 127.0  # Standard fiber array pitch
 
 # Create grating coupler component
@@ -26,9 +29,16 @@ route = Route.through(
 )
 
 # Assemble top cell
-top = Cell("gc_loopback")
-top.add_ref(gc_in)
-top.add_ref(gc_out)
-top.add_ref(route.to_cell("loopback_wg"))
+# Use 'design' as the conventional name for `rosette serve` and `rosette build`
+design = Cell("gc_loopback")
+design.add_ref(gc_in)
+design.add_ref(gc_out)
+design.add_ref(route.to_cell("loopback_wg"))
 
-write_gds("output/gc_loopback.gds", top)
+# =============================================================================
+# Output (only when run directly, not when imported by rosette serve)
+# =============================================================================
+
+if __name__ == "__main__":
+    write_gds("output/gc_loopback.gds", design)
+    print("Wrote output/gc_loopback.gds")
