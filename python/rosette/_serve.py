@@ -276,6 +276,28 @@ def _load_layer_map_safe() -> list[dict] | None:
 # =============================================================================
 
 
+def _find_installed_app() -> Path | None:
+    """Find an installed Rosette.app bundle on macOS.
+
+    Checks common installation locations. Using the .app bundle ensures
+    macOS shows the correct app icon and identity in the Dock, rather
+    than a generic executable icon.
+    """
+    if sys.platform != "darwin":
+        return None
+
+    candidates = [
+        Path("/Applications/Rosette.app"),
+        Path.home() / "Applications" / "Rosette.app",
+    ]
+
+    for app in candidates:
+        if app.exists() and app.is_dir():
+            return app
+
+    return None
+
+
 def _find_tauri_binary() -> Path | None:
     """Find a pre-built Tauri binary, or None if not available.
 
@@ -311,15 +333,35 @@ def _find_tauri_source() -> Path | None:
 def _launch_tauri(url: str, allow_build: bool = False) -> subprocess.Popen | None:
     """Launch the Tauri desktop app pointing at the given URL.
 
-    Tries a pre-built binary first. Only falls back to `cargo run`
-    when allow_build is True (explicit --native flag), since building
-    from source takes minutes.
+    On macOS, prefers the binary inside an installed Rosette.app bundle
+    so the Dock shows the correct icon and app identity. Falls back to
+    a raw binary from target/, then to ``cargo run`` when *allow_build*
+    is True (explicit ``--native`` flag), since building from source
+    takes minutes.
 
     Returns the subprocess handle, or None on failure.
     """
     design_url = f"{url}?design=true" if "?" not in url else url
 
-    # Try pre-built binary first (instant startup)
+    # On macOS, prefer the installed .app bundle so the Dock shows the
+    # correct icon and app identity instead of a generic "exec" icon.
+    # Launch the inner binary directly (Contents/MacOS/Rosette) so we
+    # get a real process handle for cleanup on Ctrl+C.
+    installed_app = _find_installed_app()
+    if installed_app:
+        inner_binary = installed_app / "Contents" / "MacOS" / "Rosette"
+        if inner_binary.exists() and inner_binary.is_file():
+            try:
+                proc = subprocess.Popen(
+                    [str(inner_binary), "--url", design_url],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return proc
+            except OSError:
+                pass  # Binary exists but failed to run, try raw binary
+
+    # Try pre-built binary (instant startup)
     binary = _find_tauri_binary()
     if binary:
         try:
@@ -434,9 +476,13 @@ def serve_design(
     server, url = _start_server(port)
 
     # Resolve native mode: auto-detect if not explicitly set.
-    # Auto-detect only uses a pre-built binary (instant). Building from
-    # source (cargo run) only happens with explicit --native.
-    use_native = bool(native) if native is not None else _find_tauri_binary() is not None
+    # Auto-detect only uses a pre-built binary or installed app (instant).
+    # Building from source (cargo run) only happens with explicit --native.
+    use_native = (
+        bool(native)
+        if native is not None
+        else _find_installed_app() is not None or _find_tauri_binary() is not None
+    )
     allow_build = native is True  # only build from source if explicitly requested
 
     tauri_proc = None
@@ -569,8 +615,12 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
 
     server, url = _start_server(port)
 
-    # Resolve native mode (auto-detect only uses pre-built binary)
-    use_native = bool(native) if native is not None else _find_tauri_binary() is not None
+    # Resolve native mode (auto-detect uses installed app or pre-built binary)
+    use_native = (
+        bool(native)
+        if native is not None
+        else _find_installed_app() is not None or _find_tauri_binary() is not None
+    )
     allow_build = native is True
 
     tauri_proc = None
