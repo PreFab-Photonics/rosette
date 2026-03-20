@@ -136,8 +136,8 @@ def main():
     init_parser.add_argument(
         "-t",
         "--template",
-        default="blank",
-        help="Project template to use (default: blank)",
+        default=None,
+        help="Project template to use (blank, generic). Interactive if omitted.",
     )
     init_parser.add_argument(
         "--tools",
@@ -207,7 +207,8 @@ def main():
 
     if args.command == "init":
         tools = args.tools.split(",") if args.tools else None
-        init_project(args.name, args.template, tools=tools)
+        template = args.template  # None means interactive
+        init_project(args.name, template=template, tools=tools)
     elif args.command == "update":
         update_project()
     elif args.command == "build":
@@ -337,7 +338,115 @@ def _simple_select(options: list[tuple[str, str]]) -> list[str]:
     return selected or [key for key, _ in options]
 
 
-def init_project(name: str | None, template: str = "blank", tools: list[str] | None = None):
+def _select_template_interactive() -> str:
+    """Interactive single-select for project template.
+
+    Uses arrow keys + enter in TTY mode, falls back to numbered prompt.
+    """
+    options = [
+        ("blank", "Blank", "Empty config, define your own layers"),
+        ("generic", "Generic", "Pre-configured silicon photonics layers & DRC"),
+    ]
+
+    if not sys.stdin.isatty():
+        return "blank"
+
+    try:
+        return _interactive_radio(options)
+    except Exception:
+        return _simple_template_select(options)
+
+
+def _interactive_radio(options: list[tuple[str, str, str]]) -> str:
+    """Radio selector using terminal raw mode (Unix)."""
+    import termios
+    import tty
+
+    cursor = 0
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    drawn = False
+
+    def render():
+        nonlocal drawn
+        if drawn:
+            sys.stdout.write(f"\033[{len(options) + 1}A\033[J")
+        sys.stdout.write(
+            "Select a template (\033[1m\u2191\u2193\033[0m move, \033[1menter\033[0m confirm):\r\n"
+        )
+        for i, (_, label, desc) in enumerate(options):
+            dot = "\033[32m\u25cf\033[0m" if i == cursor else "\u25cb"
+            arrow = "\033[36m\u203a\033[0m " if i == cursor else "  "
+            sys.stdout.write(f"  {arrow}{dot} {label} \033[2m- {desc}\033[0m\r\n")
+        sys.stdout.flush()
+        drawn = True
+
+    try:
+        tty.setraw(fd)
+        sys.stdout.write("\r\n")
+        render()
+
+        while True:
+            ch = sys.stdin.read(1)
+            if ch in ("\r", "\n"):
+                break
+            elif ch == "\x1b":
+                ch2 = sys.stdin.read(1)
+                if ch2 == "[":
+                    ch3 = sys.stdin.read(1)
+                    if ch3 == "A":  # Up
+                        cursor = (cursor - 1) % len(options)
+                        render()
+                    elif ch3 == "B":  # Down
+                        cursor = (cursor + 1) % len(options)
+                        render()
+            elif ch == "\x03":  # Ctrl+C
+                raise KeyboardInterrupt
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+    sys.stdout.write("\n")
+    return options[cursor][0]
+
+
+def _simple_template_select(options: list[tuple[str, str, str]]) -> str:
+    """Fallback numbered prompt for template selection."""
+    print()
+    for i, (_, label, desc) in enumerate(options, 1):
+        print(f"  {i}. {label} - {desc}")
+
+    choice = input("Choice (default: 1): ").strip()
+    if not choice or choice == "1":
+        return options[0][0]
+    if choice.isdigit():
+        idx = int(choice) - 1
+        if 0 <= idx < len(options):
+            return options[idx][0]
+    return options[0][0]
+
+
+def _init_git(project_dir: Path):
+    """Initialize a git repository if git is available and not already in one."""
+    try:
+        # Check if already inside a git repo
+        result = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=project_dir,
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            return  # Already in a git repo
+
+        subprocess.run(
+            ["git", "init"],
+            cwd=project_dir,
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        pass  # git not installed
+
+
+def init_project(name: str | None, template: str | None = None, tools: list[str] | None = None):
     """Initialize a rosette project.
 
     If name is provided, creates a new directory with that name.
@@ -359,6 +468,10 @@ def init_project(name: str | None, template: str = "blank", tools: list[str] | N
     if (project_dir / "rosette.toml").exists():
         print("Error: rosette.toml already exists (project already initialized)")
         sys.exit(1)
+
+    # Select template if not specified
+    if template is None:
+        template = _select_template_interactive()
 
     # Select AI tools if not specified
     if tools is None:
@@ -382,7 +495,8 @@ def init_project(name: str | None, template: str = "blank", tools: list[str] | N
 
     _apply_template(template_dir, project_dir, name, tools=tools)
 
-    # Create output directory (runtime, not part of template)
+    # Create directories (not part of template)
+    (project_dir / "designs").mkdir(exist_ok=True)
     (project_dir / "output").mkdir(exist_ok=True)
 
     # Copy components for user customization (shadcn-style)
@@ -391,6 +505,9 @@ def init_project(name: str | None, template: str = "blank", tools: list[str] | N
     # Copy source files for agent reference
     _copy_source_files(project_dir / ".rosette")
 
+    # Initialize git repository
+    _init_git(project_dir)
+
     # Set up venv with rosette for LSP support
     _setup_venv(project_dir)
 
@@ -398,13 +515,14 @@ def init_project(name: str | None, template: str = "blank", tools: list[str] | N
     print(f"Initialized rosette project '{name}' (template: {template}, tools: {tool_names})")
     print()
     print("Next steps:")
-    print("  rosette build designs/basic_shapes.py")
+    print("  Create a design in designs/ and build it:")
+    print("  rosette build designs/<name>.py")
     print()
     print("Or use an AI agent:")
     if "opencode" in tools:
-        print("  opencode       # reads AGENTS.md for instructions")
+        print("  opencode       # reads AGENTS.md")
     if "claude" in tools:
-        print("  claude         # reads CLAUDE.md for instructions")
+        print("  claude         # reads CLAUDE.md")
 
 
 def _copy_source_files(rosette_dir: Path):
@@ -506,16 +624,18 @@ def update_project():
         print("Error: Not a rosette project (rosette.toml not found)")
         sys.exit(1)
 
-    # Get project name from rosette.toml
+    # Get project name and template from rosette.toml
     import tomllib
 
     with open(project_dir / "rosette.toml", "rb") as f:
         config = tomllib.load(f)
-    name = config.get("project", {}).get("name", project_dir.name)
+    project_config = config.get("project", {})
+    name = project_config.get("name", project_dir.name)
+    template_name = project_config.get("template", "blank")
 
-    template_dir = _get_template_dir("blank")
+    template_dir = _get_template_dir(template_name)
     if template_dir is None:
-        print("Error: Template 'blank' not found")
+        print(f"Error: Template '{template_name}' not found")
         sys.exit(1)
 
     # Detect which tools are configured by checking for their files
@@ -606,14 +726,30 @@ def load_design(path_spec: str) -> tuple:
 
     # Get the target attribute
     if not hasattr(module, target_name):
-        print(f"Error: No '{target_name}' found in {file_path}")
-        print()
-        print("Add a Cell named 'design':")
-        print('    design = Cell("my_design")')
-        print()
-        print("Or specify explicitly:")
-        print(f"rosette build {file_path}:my_cell_name")
-        sys.exit(1)
+        # Auto-detect: find all Cell objects in the module
+        cell_vars = {
+            name: obj
+            for name, obj in vars(module).items()
+            if isinstance(obj, Cell) and not name.startswith("_")
+        }
+
+        if len(cell_vars) == 1:
+            # Exactly one Cell found -- use it
+            target_name = next(iter(cell_vars))
+        else:
+            print(f"Error: No variable named '{target_name}' found in {file_path}")
+            if cell_vars:
+                names = ", ".join(cell_vars)
+                print(f"  Found cells: {names}")
+                print()
+                print("Specify which one to build:")
+                first = next(iter(cell_vars))
+                print(f"    rosette build {file_path}:{first}")
+            else:
+                print()
+                print(f"Define a Cell in your script:")
+                print(f'    design = Cell("{file_path.stem}")')
+            sys.exit(1)
 
     target = getattr(module, target_name)
 

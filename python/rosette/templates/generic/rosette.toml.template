@@ -1,6 +1,7 @@
 [project]
 name = "{{name}}"
 version = "0.1.0"
+template = "generic"
 
 [build]
 output_dir = "output"

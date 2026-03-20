@@ -12,11 +12,11 @@ import pytest
 from rosette.cli import build_design, init_project, main, update_project
 
 
-# Mock _setup_venv globally for all CLI tests (venv creation is slow)
+# Mock _setup_venv and _init_git globally for all CLI tests
 @pytest.fixture(autouse=True)
-def skip_venv_setup():
-    """Skip venv setup in all CLI tests."""
-    with patch("rosette.cli._setup_venv"):
+def skip_slow_setup():
+    """Skip venv setup and git init in all CLI tests."""
+    with patch("rosette.cli._setup_venv"), patch("rosette.cli._init_git"):
         yield
 
 
@@ -43,12 +43,8 @@ class TestRosetteInit:
         assert (project_dir / "output").is_dir()
         assert (project_dir / ".rosette").is_dir()
 
-        # Example design
-        example = project_dir / "designs" / "basic_shapes.py"
-        assert example.exists()
-        content = example.read_text()
-        assert "rosette" in content
-        assert "Polygon" in content
+        # designs/ starts empty (no example files)
+        assert list((project_dir / "designs").iterdir()) == []
 
         # Config content
         toml_content = (project_dir / "rosette.toml").read_text()
@@ -85,11 +81,9 @@ class TestRosetteInit:
         assert (components_dir / "bend.py").exists()
         assert (components_dir / "mmi.py").exists()
 
-        # Patterns doc
-        patterns = project_dir / ".rosette" / "patterns.md"
-        assert patterns.exists()
-        patterns_content = patterns.read_text()
-        assert "Rosette Patterns" in patterns_content
+        # Source files for agent reference
+        src_dir = project_dir / ".rosette" / "src"
+        assert src_dir.is_dir()
 
     def test_init_uses_dir_name_as_default(self, tmp_path: Path, monkeypatch):
         """rosette init uses directory name when no name given."""
@@ -139,6 +133,27 @@ class TestRosetteInit:
         captured = capsys.readouterr()
         assert "template: blank" in captured.out
 
+    def test_init_generic_template(self, tmp_path: Path, monkeypatch):
+        """rosette init --template generic creates project with pre-configured layers."""
+        monkeypatch.chdir(tmp_path)
+
+        init_project("my_project", "generic")
+
+        project_dir = tmp_path / "my_project"
+        toml_content = (project_dir / "rosette.toml").read_text()
+        assert 'template = "generic"' in toml_content
+        assert "[layers.silicon]" in toml_content
+
+    def test_init_stores_template_in_toml(self, tmp_path: Path, monkeypatch):
+        """rosette init records the template name in rosette.toml."""
+        monkeypatch.chdir(tmp_path)
+
+        init_project("my_project", "blank")
+
+        project_dir = tmp_path / "my_project"
+        toml_content = (project_dir / "rosette.toml").read_text()
+        assert 'template = "blank"' in toml_content
+
     def test_init_with_invalid_template(self, tmp_path: Path, monkeypatch, capsys):
         """rosette init --template nonexistent fails with helpful message."""
         monkeypatch.chdir(tmp_path)
@@ -155,8 +170,8 @@ class TestRosetteInit:
 class TestRosetteBuild:
     """Tests for 'rosette build' command."""
 
-    def test_build_example_design(self, tmp_path: Path, monkeypatch):
-        """rosette build compiles example design to GDS."""
+    def test_build_design(self, tmp_path: Path, monkeypatch):
+        """rosette build compiles a design to GDS."""
         monkeypatch.chdir(tmp_path)
 
         # Initialize project (creates test/ subdirectory)
@@ -165,10 +180,18 @@ class TestRosetteBuild:
         project_dir = tmp_path / "test"
         monkeypatch.chdir(project_dir)
 
-        # Build example design
-        build_design("designs/basic_shapes.py", "output", verbose=False)
+        # Create a minimal design
+        (project_dir / "designs" / "test_design.py").write_text("""
+from rosette import Cell, Layer, Polygon, Point
 
-        assert (project_dir / "output" / "basic_shapes.gds").exists()
+design = Cell("test")
+design.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
+""")
+
+        # Build design
+        build_design("designs/test_design.py", "output", verbose=False)
+
+        assert (project_dir / "output" / "test_design.gds").exists()
 
     def test_build_custom_output_directory(self, tmp_path: Path, monkeypatch):
         """rosette build respects output directory argument."""
@@ -206,13 +229,103 @@ design.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
         project_dir = tmp_path / "test"
         monkeypatch.chdir(project_dir)
 
+        # Create a minimal design
+        (project_dir / "designs" / "test_design.py").write_text("""
+from rosette import Cell, Layer, Polygon, Point
+
+design = Cell("test")
+design.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
+""")
+
         # Remove output directory
         (project_dir / "output").rmdir()
 
         # Build should recreate it
-        build_design("designs/basic_shapes.py", "output", verbose=False)
+        build_design("designs/test_design.py", "output", verbose=False)
 
         assert (project_dir / "output").is_dir()
+
+
+class TestBuildAutoDetect:
+    """Tests for auto-detecting the design Cell when no 'design' variable exists."""
+
+    def test_auto_detect_single_cell(self, tmp_path: Path, monkeypatch):
+        """Build auto-detects the Cell when there's exactly one."""
+        monkeypatch.chdir(tmp_path)
+
+        designs_dir = tmp_path / "designs"
+        designs_dir.mkdir()
+        (designs_dir / "chip.py").write_text("""
+from rosette import Cell, Layer, Polygon, Point
+
+my_chip = Cell("chip")
+my_chip.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
+""")
+
+        output_dir = tmp_path / "output"
+        build_design("designs/chip.py", str(output_dir), verbose=False)
+
+        assert (output_dir / "chip.gds").exists()
+
+    def test_auto_detect_multiple_cells_fails(self, tmp_path: Path, monkeypatch, capsys):
+        """Build fails with helpful message when multiple Cells exist."""
+        monkeypatch.chdir(tmp_path)
+
+        designs_dir = tmp_path / "designs"
+        designs_dir.mkdir()
+        (designs_dir / "multi.py").write_text("""
+from rosette import Cell, Layer, Polygon, Point
+
+cell_a = Cell("a")
+cell_a.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
+
+cell_b = Cell("b")
+cell_b.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+""")
+
+        with pytest.raises(SystemExit):
+            build_design("designs/multi.py", "output", verbose=False)
+
+        captured = capsys.readouterr()
+        assert "cell_a" in captured.out
+        assert "cell_b" in captured.out
+
+    def test_auto_detect_no_cells_fails(self, tmp_path: Path, monkeypatch, capsys):
+        """Build fails with helpful message when no Cells exist."""
+        monkeypatch.chdir(tmp_path)
+
+        designs_dir = tmp_path / "designs"
+        designs_dir.mkdir()
+        (designs_dir / "empty.py").write_text("""
+x = 42
+""")
+
+        with pytest.raises(SystemExit):
+            build_design("designs/empty.py", "output", verbose=False)
+
+        captured = capsys.readouterr()
+        assert "Cell" in captured.out
+
+    def test_design_variable_takes_priority(self, tmp_path: Path, monkeypatch):
+        """When 'design' variable exists, it's used even if other Cells exist."""
+        monkeypatch.chdir(tmp_path)
+
+        designs_dir = tmp_path / "designs"
+        designs_dir.mkdir()
+        (designs_dir / "priority.py").write_text("""
+from rosette import Cell, Layer, Polygon, Point
+
+helper = Cell("helper")
+helper.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+
+design = Cell("main")
+design.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
+""")
+
+        output_dir = tmp_path / "output"
+        build_design("designs/priority.py", str(output_dir), verbose=False)
+
+        assert (output_dir / "priority.gds").exists()
 
 
 class TestRosetteUpdate:
@@ -245,15 +358,35 @@ class TestRosetteUpdate:
         agents_md.write_text("modified content")
 
         # Delete a managed file from .rosette/
-        patterns_file = project_dir / ".rosette" / "patterns.md"
-        assert patterns_file.exists()
-        patterns_file.unlink()
+        api_stub = project_dir / ".rosette" / "api.pyi"
+        assert api_stub.exists()
+        api_stub.unlink()
 
         # Update should restore everything
         update_project()
 
         assert agents_md.read_text() == original_content
-        assert patterns_file.exists()
+        assert api_stub.exists()
+
+    def test_update_uses_template_from_toml(self, tmp_path: Path, monkeypatch, capsys):
+        """rosette update reads the template name from rosette.toml."""
+        monkeypatch.chdir(tmp_path)
+
+        init_project("test", "generic")
+
+        project_dir = tmp_path / "test"
+        monkeypatch.chdir(project_dir)
+
+        # Modify AGENTS.md
+        agents_md = project_dir / "AGENTS.md"
+        agents_md.write_text("modified content")
+
+        # Update should use generic template (from rosette.toml)
+        update_project()
+
+        # The rosette.toml should NOT be overwritten (it's user-owned)
+        toml_content = (project_dir / "rosette.toml").read_text()
+        assert 'template = "generic"' in toml_content
 
 
 class TestCliHelp:
