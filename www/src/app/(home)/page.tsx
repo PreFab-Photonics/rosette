@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { CopyButton } from "./components/copy-button";
 import { HeroViewer } from "./components/hero-viewer";
 import { RedactedText } from "./components/redacted-text";
@@ -77,10 +76,7 @@ function Hero() {
 
             {/* Download — Desktop app */}
             <div className="flex flex-col items-center gap-1.5">
-              <a
-                href="https://github.com/PreFab-Photonics/rosette/releases/latest/download/Rosette-aarch64.dmg"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15 transition-colors hover:bg-brand-purple-light active:translate-y-px"
-              >
+              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white opacity-50 shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="16"
@@ -98,20 +94,15 @@ function Hero() {
                   <line x1="12" x2="12" y1="15" y2="3" />
                 </svg>
                 Download
-              </a>
+              </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                macOS &middot; Apple Silicon
+                Desktop app &middot; coming soon
               </span>
             </div>
 
             {/* GitHub — Source code */}
             <div className="flex flex-col items-center gap-1.5">
-              <Link
-                href="https://github.com/PreFab-Photonics/rosette"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-neutral-800"
-              >
+              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 opacity-50 shadow-sm text-sm font-medium text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="16"
@@ -123,9 +114,9 @@ function Hero() {
                   <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
                 </svg>
                 GitHub
-              </Link>
+              </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Source code
+                Source code &middot; coming soon
               </span>
             </div>
           </div>
@@ -373,10 +364,7 @@ function ClosingCTA() {
 
             {/* Download — Desktop app */}
             <div className="flex flex-col items-center gap-1.5">
-              <a
-                href="https://github.com/PreFab-Photonics/rosette/releases/latest/download/Rosette-aarch64.dmg"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15 transition-colors hover:bg-brand-purple-light active:translate-y-px"
-              >
+              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white opacity-50 shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="16"
@@ -394,20 +382,15 @@ function ClosingCTA() {
                   <line x1="12" x2="12" y1="15" y2="3" />
                 </svg>
                 Download
-              </a>
+              </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                macOS &middot; Apple Silicon
+                Desktop app &middot; coming soon
               </span>
             </div>
 
             {/* GitHub — Source code */}
             <div className="flex flex-col items-center gap-1.5">
-              <Link
-                href="https://github.com/PreFab-Photonics/rosette"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-all hover:border-black/20 hover:bg-gray-50 hover:shadow-none active:translate-y-px dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:bg-neutral-800"
-              >
+              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 opacity-50 shadow-sm text-sm font-medium text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="16"
@@ -419,9 +402,9 @@ function ClosingCTA() {
                   <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
                 </svg>
                 GitHub
-              </Link>
+              </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Source code
+                Source code &middot; coming soon
               </span>
             </div>
           </div>
