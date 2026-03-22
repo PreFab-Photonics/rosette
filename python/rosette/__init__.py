@@ -34,6 +34,8 @@ import sys
 import tomllib
 import warnings
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 from rosette._core import (
@@ -66,8 +68,6 @@ from rosette._core import Route as _Route
 from rosette._core import read_gds as _read_gds
 from rosette._core import run_drc as _run_drc
 from rosette._core import write_gds as _write_gds
-
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 try:
     __version__ = _pkg_version("librosette")
