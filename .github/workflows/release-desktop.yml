@@ -46,12 +46,12 @@ jobs:
         run: |
           VERSION="${{ inputs.version }}"
 
+          # Update workspace version in root Cargo.toml (propagates to all crates)
+          sed -i '' '/^\[workspace\.package\]/,/^version/{s/^version = ".*"/version = "'"$VERSION"'"/}' Cargo.toml
+
           # Update tauri.conf.json
           cd app/src-tauri
           jq --arg v "$VERSION" '.version = $v' tauri.conf.json > tmp.json && mv tmp.json tauri.conf.json
-
-          # Update Cargo.toml (package version only)
-          sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
 
           # Update app/package.json
           cd ..

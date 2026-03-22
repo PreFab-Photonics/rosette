@@ -1,0 +1,25 @@
+# cargo-release configuration
+# Usage:
+#   cargo release 0.2.0          # dry run (preview)
+#   cargo release 0.2.0 --execute # actually release
+#
+# This bumps the workspace version in root Cargo.toml, commits, and tags.
+# The v* tag triggers the Python release workflow (PyPI publish).
+# Desktop release is triggered manually via GitHub Actions.
+
+# Use workspace-level versioning — bump once, all crates inherit
+allow-branch = ["main"]
+shared-version = true
+consolidate-commits = true
+
+# Commit and tag
+tag-prefix = "v"
+tag-name = "v{{version}}"
+tag-message = "v{{version}}"
+pre-release-commit-message = "release: v{{version}}"
+
+# We don't publish Rust crates to crates.io
+publish = false
+
+# Push commit and tag to trigger CI
+push = true

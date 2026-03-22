@@ -67,7 +67,12 @@ from rosette._core import read_gds as _read_gds
 from rosette._core import run_drc as _run_drc
 from rosette._core import write_gds as _write_gds
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+try:
+    __version__ = _pkg_version("librosette")
+except PackageNotFoundError:
+    __version__ = "0.0.0-dev"
 
 # =============================================================================
 # Source tracking for two-way editing (rosette serve)
