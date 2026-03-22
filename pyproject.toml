@@ -3,7 +3,7 @@ requires = ["maturin>=1.4,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "rosette"
+name = "librosette"
 version = "0.1.0"
 description = "A fast, intelligent, and accessible layout editor"
 readme = "README.md"
@@ -22,6 +22,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 keywords = ["photonics", "gdsii", "layout", "silicon-photonics", "eda", "pdk"]
+
+[project.urls]
+Repository = "https://github.com/prefab-photonics/rosette"
+Homepage = "https://rosette.dev"
+"Bug Tracker" = "https://github.com/prefab-photonics/rosette/issues"
 
 [project.scripts]
 rosette = "rosette.cli:main"
