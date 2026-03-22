@@ -747,7 +747,7 @@ def load_design(path_spec: str) -> tuple:
                 print(f"    rosette build {file_path}:{first}")
             else:
                 print()
-                print(f"Define a Cell in your script:")
+                print("Define a Cell in your script:")
                 print(f'    design = Cell("{file_path.stem}")')
             sys.exit(1)
 
