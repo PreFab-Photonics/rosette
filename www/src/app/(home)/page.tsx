@@ -61,16 +61,15 @@ function Hero() {
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install — Python API */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 cursor-not-allowed items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 opacity-50 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
+              <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
                 <span className="select-none text-black/30 dark:text-white/30">
                   $&nbsp;
                 </span>
-                pip install{" "}
-                <RedactedText className="ml-1.5">rosette</RedactedText>
-                <CopyButton text="pip install rosette" disabled />
+                pip install librosette
+                <CopyButton text="pip install librosette" />
               </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Python API &middot; coming soon
+                Python API
               </span>
             </div>
 
@@ -354,16 +353,15 @@ function ClosingCTA() {
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install — Python API */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 cursor-not-allowed items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 opacity-50 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
+              <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
                 <span className="select-none text-black/30 dark:text-white/30">
                   $&nbsp;
                 </span>
-                pip install{" "}
-                <RedactedText className="ml-1.5">rosette</RedactedText>
-                <CopyButton text="pip install rosette" disabled />
+                pip install librosette
+                <CopyButton text="pip install librosette" />
               </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Python API &middot; coming soon
+                Python API
               </span>
             </div>
 
