@@ -41,8 +41,8 @@ const calculateScale = (zoom: number): ScaleInfo => {
 // Main Component
 // =============================================================================
 
-/** App version — kept in sync with package.json / pyproject.toml. */
-const VERSION = "0.1.0";
+/** App version — injected at build time from workspace Cargo.toml via Vite `define`. */
+const VERSION = __APP_VERSION__;
 
 /**
  * Version badge with beta warning tooltip.
