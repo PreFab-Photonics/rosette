@@ -1,7 +1,7 @@
 """Rosette CLI - Photonic layout tool.
 
 Commands:
-    rosette init <name>      Create a new rosette project
+    rosette init             Initialize rosette in current uv project
     rosette build <file>     Build a design to GDS
     rosette serve [file]     Start dev server with live preview
 """
@@ -11,7 +11,6 @@ import importlib.util
 import logging
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -38,15 +37,13 @@ def _list_templates() -> list[str]:
     return [d.name for d in TEMPLATES_DIR.iterdir() if d.is_dir()]
 
 
-def _apply_template(
-    template_dir: Path, project_dir: Path, name: str, tools: list[str] | None = None
-):
+def _apply_template(template_dir: Path, project_dir: Path, name: str, tool: str | None = None):
     """Apply a template to the project directory.
 
     - Files ending in .template have {{name}} replaced and extension stripped
-    - File named 'gitignore' is renamed to '.gitignore'
+    - File named 'gitignore': entries are appended to existing .gitignore if present
     - All other files are copied as-is
-    - If tools is provided, only tool-specific files for selected tools are copied
+    - Tool-specific files (AGENTS.md, CLAUDE.md) are only copied for the selected tool
     """
     for src_path in template_dir.rglob("*"):
         if src_path.is_dir():
@@ -56,22 +53,18 @@ def _apply_template(
         rel_path = src_path.relative_to(template_dir)
 
         # Filter tool-specific files
-        if tools is not None:
-            rel_str = str(rel_path)
-            # OpenCode-specific files
-            if rel_str == "AGENTS.md.template":
-                if "opencode" not in tools:
-                    continue
-            # Claude Code-specific files
-            if rel_str == "CLAUDE.md.template":
-                if "claude" not in tools:
-                    continue
+        rel_str = str(rel_path)
+        if rel_str == "AGENTS.md.template" and tool != "opencode":
+            continue
+        if rel_str == "CLAUDE.md.template" and tool != "claude":
+            continue
 
         dest_path = project_dir / rel_path
 
-        # Handle special naming
+        # Handle gitignore: append to existing rather than overwrite
         if dest_path.name == "gitignore":
-            dest_path = dest_path.parent / ".gitignore"
+            _append_gitignore(src_path, project_dir / ".gitignore")
+            continue
 
         # Create parent directories
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,6 +78,29 @@ def _apply_template(
         else:
             # Copy file as-is
             shutil.copy2(src_path, dest_path)
+
+
+def _append_gitignore(src_path: Path, dest_path: Path):
+    """Append rosette-specific entries to .gitignore, avoiding duplicates."""
+    new_entries = [
+        line.strip()
+        for line in src_path.read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+    if dest_path.exists():
+        existing = dest_path.read_text()
+        existing_lines = {line.strip() for line in existing.splitlines()}
+        to_add = [entry for entry in new_entries if entry not in existing_lines]
+        if to_add:
+            # Ensure we start on a new line
+            if existing and not existing.endswith("\n"):
+                existing += "\n"
+            existing += "\n# Rosette\n"
+            existing += "\n".join(to_add) + "\n"
+            dest_path.write_text(existing)
+    else:
+        dest_path.write_text("# Rosette\n" + "\n".join(new_entries) + "\n")
 
 
 def _copy_components(project_dir: Path):
@@ -123,16 +139,8 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # init command - initializes in current directory
-    init_parser = subparsers.add_parser(
-        "init", help="Initialize a rosette project in current directory"
-    )
-    init_parser.add_argument(
-        "name",
-        nargs="?",
-        default=None,
-        help="Project name (defaults to directory name)",
-    )
+    # init command - initializes in current uv project
+    init_parser = subparsers.add_parser("init", help="Initialize rosette in current uv project")
     init_parser.add_argument(
         "-t",
         "--template",
@@ -140,9 +148,10 @@ def main():
         help="Project template to use (blank, generic). Interactive if omitted.",
     )
     init_parser.add_argument(
-        "--tools",
+        "--tool",
         default=None,
-        help="AI tools to configure, comma-separated (opencode,claude). Interactive if omitted.",
+        choices=["opencode", "claude", "none"],
+        help="AI tool to configure (opencode, claude, none). Interactive if omitted.",
     )
 
     # update command - updates template files
@@ -206,9 +215,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "init":
-        tools = args.tools.split(",") if args.tools else None
-        template = args.template  # None means interactive
-        init_project(args.name, template=template, tools=tools)
+        init_project(template=args.template, tool=args.tool)
     elif args.command == "update":
         update_project()
     elif args.command == "build":
@@ -229,31 +236,32 @@ def main():
         run_gds(args.file, args.port, args.no_open, native=native_run)
 
 
-def _select_tools_interactive() -> list[str]:
-    """Interactive multi-select for AI tool configuration.
+def _select_tool_interactive() -> str | None:
+    """Interactive single-select for AI tool configuration.
 
-    Uses arrow keys + space in TTY mode, falls back to numbered prompt.
+    Uses arrow keys + enter in TTY mode, falls back to numbered prompt.
+    Returns the tool key ("opencode" or "claude") or None if skipped.
     """
     options = [
-        ("opencode", "OpenCode"),
-        ("claude", "Claude Code"),
+        ("opencode", "OpenCode", "Generates AGENTS.md"),
+        ("claude", "Claude Code", "Generates CLAUDE.md"),
+        (None, "None", "Skip AI tool setup"),
     ]
 
     if not sys.stdin.isatty():
-        return [key for key, _ in options]
+        return "opencode"
 
     try:
-        return _interactive_checkbox(options)
+        return _interactive_tool_radio(options)
     except Exception:
-        return _simple_select(options)
+        return _simple_tool_select(options)
 
 
-def _interactive_checkbox(options: list[tuple[str, str]]) -> list[str]:
-    """Checkbox selector using terminal raw mode (Unix)."""
+def _interactive_tool_radio(options: list[tuple[str | None, str, str]]) -> str | None:
+    """Radio selector for AI tool using terminal raw mode (Unix)."""
     import termios
     import tty
 
-    selected = [False] * len(options)  # Start unchecked
     cursor = 0
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
@@ -262,17 +270,14 @@ def _interactive_checkbox(options: list[tuple[str, str]]) -> list[str]:
     def render():
         nonlocal drawn
         if drawn:
-            # Move cursor up to overwrite previous render
             sys.stdout.write(f"\033[{len(options) + 1}A\033[J")
         sys.stdout.write(
-            "Select AI tools (\033[1m\u2191\u2193\033[0m move, "
-            "\033[1mspace\033[0m toggle, "
-            "\033[1menter\033[0m confirm):\r\n"
+            "Select AI tool (\033[1m\u2191\u2193\033[0m move, \033[1menter\033[0m confirm):\r\n"
         )
-        for i, (_, label) in enumerate(options):
-            check = "\033[32m\u25cf\033[0m" if selected[i] else "\u25cb"
+        for i, (_, label, desc) in enumerate(options):
+            dot = "\033[32m\u25cf\033[0m" if i == cursor else "\u25cb"
             arrow = "\033[36m\u203a\033[0m " if i == cursor else "  "
-            sys.stdout.write(f"  {arrow}{check} {label}\r\n")
+            sys.stdout.write(f"  {arrow}{dot} {label} \033[2m- {desc}\033[0m\r\n")
         sys.stdout.flush()
         drawn = True
 
@@ -280,7 +285,7 @@ def _interactive_checkbox(options: list[tuple[str, str]]) -> list[str]:
         tty.setraw(fd)
         sys.stdout.write("\r\n")
         sys.stdout.write("  Rosette sets up AI agent config so your editor knows how to work\r\n")
-        sys.stdout.write("  with photonic designs. Pick which tools you use:\r\n")
+        sys.stdout.write("  with photonic designs. Pick which tool you use:\r\n")
         sys.stdout.write("\r\n")
         sys.stdout.flush()
         render()
@@ -288,13 +293,7 @@ def _interactive_checkbox(options: list[tuple[str, str]]) -> list[str]:
         while True:
             ch = sys.stdin.read(1)
             if ch in ("\r", "\n"):
-                if any(selected):
-                    break
-                # Nothing selected — nudge the user
-                continue
-            elif ch == " ":
-                selected[cursor] = not selected[cursor]
-                render()
+                break
             elif ch == "\x1b":
                 ch2 = sys.stdin.read(1)
                 if ch2 == "[":
@@ -311,31 +310,26 @@ def _interactive_checkbox(options: list[tuple[str, str]]) -> list[str]:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     sys.stdout.write("\n")
-    return [key for (key, _), sel in zip(options, selected, strict=True) if sel]
+    return options[cursor][0]
 
 
-def _simple_select(options: list[tuple[str, str]]) -> list[str]:
-    """Fallback numbered prompt for non-TTY or when raw mode fails."""
+def _simple_tool_select(options: list[tuple[str | None, str, str]]) -> str | None:
+    """Fallback numbered prompt for AI tool selection."""
     print()
     print("  Rosette sets up AI agent config so your editor knows how to work")
-    print("  with photonic designs. Pick which tools you use:")
+    print("  with photonic designs. Pick which tool you use:")
     print()
-    for i, (_, label) in enumerate(options, 1):
-        print(f"  {i}. {label}")
-    print(f"  {len(options) + 1}. All")
+    for i, (_, label, desc) in enumerate(options, 1):
+        print(f"  {i}. {label} - {desc}")
 
-    choice = input(f"Choice (comma-separated, default: {len(options) + 1}): ").strip()
-    if not choice or choice == str(len(options) + 1):
-        return [key for key, _ in options]
-
-    selected = []
-    for c in choice.split(","):
-        c = c.strip()
-        if c.isdigit():
-            idx = int(c) - 1
-            if 0 <= idx < len(options):
-                selected.append(options[idx][0])
-    return selected or [key for key, _ in options]
+    choice = input("Choice (default: 1): ").strip()
+    if not choice or choice == "1":
+        return options[0][0]
+    if choice.isdigit():
+        idx = int(choice) - 1
+        if 0 <= idx < len(options):
+            return options[idx][0]
+    return options[0][0]
 
 
 def _select_template_interactive() -> str:
@@ -425,44 +419,22 @@ def _simple_template_select(options: list[tuple[str, str, str]]) -> str:
     return options[0][0]
 
 
-def _init_git(project_dir: Path):
-    """Initialize a git repository if git is available and not already in one."""
-    try:
-        # Check if already inside a git repo
-        result = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
-            cwd=project_dir,
-            capture_output=True,
-        )
-        if result.returncode == 0:
-            return  # Already in a git repo
+def init_project(template: str | None = None, tool: str | None = None):
+    """Initialize rosette in the current uv project.
 
-        subprocess.run(
-            ["git", "init"],
-            cwd=project_dir,
-            capture_output=True,
-        )
-    except FileNotFoundError:
-        pass  # git not installed
-
-
-def init_project(name: str | None, template: str | None = None, tools: list[str] | None = None):
-    """Initialize a rosette project.
-
-    If name is provided, creates a new directory with that name.
-    If name is None, initializes in the current directory.
+    Expects the user has already run `uv init` and `uv add librosette`.
     """
-    if name is None:
-        # Initialize in current directory (like `git init`)
-        project_dir = Path.cwd()
-        name = project_dir.name
-    else:
-        # Create new directory (like `git init foo`)
-        project_dir = Path.cwd() / name
-        if project_dir.exists():
-            print(f"Error: Directory '{name}' already exists")
-            sys.exit(1)
-        project_dir.mkdir()
+    project_dir = Path.cwd()
+    name = project_dir.name
+
+    # Pre-flight: ensure we're inside a uv/Python project
+    if not (project_dir / "pyproject.toml").exists():
+        print("Error: No pyproject.toml found. Initialize your project first:")
+        print()
+        print("  uv init")
+        print("  uv add librosette")
+        print("  uv run rosette init")
+        sys.exit(1)
 
     # Check if already initialized
     if (project_dir / "rosette.toml").exists():
@@ -473,17 +445,21 @@ def init_project(name: str | None, template: str | None = None, tools: list[str]
     if template is None:
         template = _select_template_interactive()
 
-    # Select AI tools if not specified
-    if tools is None:
-        tools = _select_tools_interactive()
+    # Select AI tool if not specified
+    if tool is None:
+        tool = _select_tool_interactive()
 
-    # Validate tool names
-    valid_tools = {"opencode", "claude"}
-    invalid = set(tools) - valid_tools
-    if invalid:
-        print(f"Error: Unknown tools: {', '.join(invalid)}")
-        print(f"Valid options: {', '.join(sorted(valid_tools))}")
-        sys.exit(1)
+    # Normalize "none" to None
+    if tool == "none":
+        tool = None
+
+    # Validate tool name
+    if tool is not None:
+        valid_tools = {"opencode", "claude"}
+        if tool not in valid_tools:
+            print(f"Error: Unknown tool: {tool}")
+            print(f"Valid options: {', '.join(sorted(valid_tools))}")
+            sys.exit(1)
 
     # Load and apply template
     template_dir = _get_template_dir(template)
@@ -493,7 +469,7 @@ def init_project(name: str | None, template: str | None = None, tools: list[str]
         print(f"Available templates: {', '.join(available)}")
         sys.exit(1)
 
-    _apply_template(template_dir, project_dir, name, tools=tools)
+    _apply_template(template_dir, project_dir, name, tool=tool)
 
     # Create directories (not part of template)
     (project_dir / "designs").mkdir(exist_ok=True)
@@ -505,23 +481,18 @@ def init_project(name: str | None, template: str | None = None, tools: list[str]
     # Copy source files for agent reference
     _copy_source_files(project_dir / ".rosette")
 
-    # Initialize git repository
-    _init_git(project_dir)
-
-    # Set up venv with rosette for LSP support
-    _setup_venv(project_dir)
-
-    tool_names = ", ".join(sorted(tools))
-    print(f"Initialized rosette project '{name}' (template: {template}, tools: {tool_names})")
+    tool_label = tool or "none"
+    print(f"Initialized rosette project '{name}' (template: {template}, tool: {tool_label})")
     print()
     print("Next steps:")
     print("  Create a design in designs/ and build it:")
-    print("  rosette build designs/<name>.py")
+    print("  uv run rosette build designs/<name>.py")
     print()
-    print("Or use an AI agent:")
-    if "opencode" in tools:
+    if tool == "opencode":
+        print("  Or use an AI agent:")
         print("  opencode       # reads AGENTS.md")
-    if "claude" in tools:
+    elif tool == "claude":
+        print("  Or use an AI agent:")
         print("  claude         # reads CLAUDE.md")
 
 
@@ -558,51 +529,6 @@ def _copy_source_files(rosette_dir: Path):
 
     if copied > 0:
         print(f"Copied {copied} source files to .rosette/src/")
-
-
-def _setup_venv(project_dir: Path):
-    """Set up a venv with rosette for LSP/editor support."""
-    import rosette
-
-    # Find where rosette is installed from
-    rosette_path = Path(rosette.__file__).parent.parent.parent
-
-    # Create venv
-    venv_path = project_dir / ".venv"
-    if not venv_path.exists():
-        print("Setting up Python environment...")
-
-        # Check if uv is available, fall back to standard venv/pip
-        if shutil.which("uv"):
-            subprocess.run(
-                ["uv", "venv", str(venv_path)],
-                capture_output=True,
-            )
-            subprocess.run(
-                [
-                    "uv",
-                    "pip",
-                    "install",
-                    "-e",
-                    str(rosette_path),
-                    "--python",
-                    str(venv_path / "bin" / "python"),
-                ],
-                capture_output=True,
-            )
-        else:
-            # Fallback to standard venv + pip
-            subprocess.run(
-                [sys.executable, "-m", "venv", str(venv_path)],
-                capture_output=True,
-            )
-            pip_path = venv_path / "bin" / "pip"
-            if not pip_path.exists():
-                pip_path = venv_path / "Scripts" / "pip"  # Windows
-            subprocess.run(
-                [str(pip_path), "install", "-e", str(rosette_path)],
-                capture_output=True,
-            )
 
 
 def update_project():
@@ -644,9 +570,6 @@ def update_project():
         tools.append("opencode")
     if (project_dir / "CLAUDE.md").exists():
         tools.append("claude")
-    # If neither detected (legacy project), default to opencode for backwards compat
-    if not tools:
-        tools.append("opencode")
 
     # Template files at root: process with {{name}} substitution (filtered by tools)
     for template_file in template_dir.glob("*.template"):
@@ -661,9 +584,6 @@ def update_project():
 
     # Update bundled source files for agent reference
     _copy_source_files(project_dir / ".rosette")
-
-    # Ensure venv is set up
-    _setup_venv(project_dir)
 
     tool_names = ", ".join(sorted(tools))
     print(f"Updated project to latest templates (tools: {tool_names})")

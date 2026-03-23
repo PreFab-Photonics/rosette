@@ -1,7 +1,6 @@
 """Tests for rosette CLI: init, build, update commands.
 
 These tests call CLI functions directly (no subprocess) for speed.
-The _setup_venv function is mocked to skip venv creation.
 """
 
 from pathlib import Path
@@ -12,26 +11,23 @@ import pytest
 from rosette.cli import build_design, init_project, main, update_project
 
 
-# Mock _setup_venv and _init_git globally for all CLI tests
-@pytest.fixture(autouse=True)
-def skip_slow_setup():
-    """Skip venv setup and git init in all CLI tests."""
-    with patch("rosette.cli._setup_venv"), patch("rosette.cli._init_git"):
-        yield
+def _make_uv_project(project_dir: Path):
+    """Create a minimal uv-style project (pyproject.toml + .gitignore)."""
+    project_dir.mkdir(exist_ok=True)
+    (project_dir / "pyproject.toml").write_text('[project]\nname = "test"\nversion = "0.1.0"\n')
+    (project_dir / ".gitignore").write_text("# Python\n__pycache__/\n*.py[cod]\n.venv/\n")
 
 
 class TestRosetteInit:
     """Tests for 'rosette init' command."""
 
     def test_init_creates_complete_structure(self, tmp_path: Path, monkeypatch):
-        """rosette init <name> creates new directory with all expected files."""
-        monkeypatch.chdir(tmp_path)
-
-        init_project("my_project", "blank")
-
-        # Should create subdirectory
+        """rosette init creates all expected files in current directory."""
         project_dir = tmp_path / "my_project"
-        assert project_dir.is_dir()
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
 
         # Core project files
         assert (project_dir / "rosette.toml").exists()
@@ -53,19 +49,20 @@ class TestRosetteInit:
         # AGENTS.md content
         agents_content = (project_dir / "AGENTS.md").read_text()
         assert "rosette" in agents_content
-        assert "rosette build" in agents_content
 
-        # .gitignore content
+        # .gitignore appends rosette entries to existing content
         gitignore = (project_dir / ".gitignore").read_text()
         assert ".rosette/" in gitignore
+        # Original uv content preserved
+        assert "__pycache__/" in gitignore
 
     def test_init_copies_source_files(self, tmp_path: Path, monkeypatch):
         """rosette init copies source files to .rosette/ for agent reference."""
-        monkeypatch.chdir(tmp_path)
-
-        init_project("test", "blank")
-
         project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
 
         # API stub (most useful for agents) - contains core types and Route
         api_stub = project_dir / ".rosette" / "api.pyi"
@@ -86,47 +83,46 @@ class TestRosetteInit:
         assert src_dir.is_dir()
 
     def test_init_uses_dir_name_as_default(self, tmp_path: Path, monkeypatch):
-        """rosette init uses directory name when no name given."""
+        """rosette init uses directory name for project name."""
         project_dir = tmp_path / "my_project_dir"
-        project_dir.mkdir()
+        _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
 
-        init_project(None, "blank")
+        init_project("blank", tool="opencode")
 
         content = (project_dir / "rosette.toml").read_text()
         assert 'name = "my_project_dir"' in content
 
-    def test_init_fails_if_directory_exists(self, tmp_path: Path, monkeypatch):
-        """rosette init <name> fails if directory already exists."""
+    def test_init_requires_pyproject_toml(self, tmp_path: Path, monkeypatch):
+        """rosette init fails without pyproject.toml (user must run uv init first)."""
         monkeypatch.chdir(tmp_path)
 
-        # First init creates directory
-        init_project("test", "blank")
-
-        # Second init should fail (directory exists)
         with pytest.raises(SystemExit) as exc_info:
-            init_project("test", "blank")
+            init_project("blank", tool="opencode")
         assert exc_info.value.code == 1
 
-    def test_init_in_place_fails_if_already_initialized(self, tmp_path: Path, monkeypatch):
-        """rosette init (no name) fails if rosette.toml exists."""
-        monkeypatch.chdir(tmp_path)
+    def test_init_fails_if_already_initialized(self, tmp_path: Path, monkeypatch):
+        """rosette init fails if rosette.toml already exists."""
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
 
-        # First init in place
-        init_project(None, "blank")
+        # First init
+        init_project("blank", tool="opencode")
 
         # Second init should fail
         with pytest.raises(SystemExit) as exc_info:
-            init_project(None, "blank")
+            init_project("blank", tool="opencode")
         assert exc_info.value.code == 1
 
     def test_init_with_template_flag(self, tmp_path: Path, monkeypatch, capsys):
         """rosette init --template blank works."""
-        monkeypatch.chdir(tmp_path)
-
-        init_project("my_project", "blank")
-
         project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
+
         assert (project_dir / "rosette.toml").exists()
         assert (project_dir / "AGENTS.md").exists()
 
@@ -135,36 +131,81 @@ class TestRosetteInit:
 
     def test_init_generic_template(self, tmp_path: Path, monkeypatch):
         """rosette init --template generic creates project with pre-configured layers."""
-        monkeypatch.chdir(tmp_path)
-
-        init_project("my_project", "generic")
-
         project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("generic", tool="opencode")
+
         toml_content = (project_dir / "rosette.toml").read_text()
         assert 'template = "generic"' in toml_content
         assert "[layers.silicon]" in toml_content
 
     def test_init_stores_template_in_toml(self, tmp_path: Path, monkeypatch):
         """rosette init records the template name in rosette.toml."""
-        monkeypatch.chdir(tmp_path)
-
-        init_project("my_project", "blank")
-
         project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
+
         toml_content = (project_dir / "rosette.toml").read_text()
         assert 'template = "blank"' in toml_content
 
     def test_init_with_invalid_template(self, tmp_path: Path, monkeypatch, capsys):
         """rosette init --template nonexistent fails with helpful message."""
-        monkeypatch.chdir(tmp_path)
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
 
         with pytest.raises(SystemExit) as exc_info:
-            init_project("test", "nonexistent")
+            init_project("nonexistent", tool="opencode")
         assert exc_info.value.code == 1
 
         captured = capsys.readouterr()
         assert "not found" in captured.out.lower()
         assert "blank" in captured.out  # Lists available templates
+
+    def test_init_no_tool(self, tmp_path: Path, monkeypatch):
+        """rosette init --tool none skips agent file creation."""
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="none")
+
+        assert (project_dir / "rosette.toml").exists()
+        assert not (project_dir / "AGENTS.md").exists()
+        assert not (project_dir / "CLAUDE.md").exists()
+
+    def test_init_claude_tool(self, tmp_path: Path, monkeypatch):
+        """rosette init with tool='claude' creates CLAUDE.md but not AGENTS.md."""
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="claude")
+
+        assert (project_dir / "CLAUDE.md").exists()
+        assert not (project_dir / "AGENTS.md").exists()
+
+    def test_init_appends_gitignore(self, tmp_path: Path, monkeypatch):
+        """rosette init appends entries to existing .gitignore without duplicating."""
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
+
+        gitignore = (project_dir / ".gitignore").read_text()
+        # Original uv entries preserved
+        assert "__pycache__/" in gitignore
+        assert ".venv/" in gitignore
+        # Rosette entries appended
+        assert ".rosette/" in gitignore
+        assert "output/*.gds" in gitignore
+        # Section header added
+        assert "# Rosette" in gitignore
 
 
 class TestRosetteBuild:
@@ -172,13 +213,11 @@ class TestRosetteBuild:
 
     def test_build_design(self, tmp_path: Path, monkeypatch):
         """rosette build compiles a design to GDS."""
-        monkeypatch.chdir(tmp_path)
-
-        # Initialize project (creates test/ subdirectory)
-        init_project("test", "blank")
-
         project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
 
         # Create a minimal design
         (project_dir / "designs" / "test_design.py").write_text("""
@@ -222,12 +261,11 @@ design.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
 
     def test_build_creates_output_dir(self, tmp_path: Path, monkeypatch):
         """rosette build creates output directory if needed."""
-        monkeypatch.chdir(tmp_path)
-
-        init_project("test", "blank")
-
         project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
 
         # Create a minimal design
         (project_dir / "designs" / "test_design.py").write_text("""
@@ -344,13 +382,11 @@ class TestRosetteUpdate:
 
     def test_update_refreshes_files(self, tmp_path: Path, monkeypatch):
         """rosette update refreshes AGENTS.md and managed .rosette/ files."""
-        monkeypatch.chdir(tmp_path)
-
-        # Initialize project (creates test/ subdirectory)
-        init_project("test", "blank")
-
         project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
 
         # Modify AGENTS.md
         agents_md = project_dir / "AGENTS.md"
@@ -370,12 +406,11 @@ class TestRosetteUpdate:
 
     def test_update_uses_template_from_toml(self, tmp_path: Path, monkeypatch, capsys):
         """rosette update reads the template name from rosette.toml."""
-        monkeypatch.chdir(tmp_path)
-
-        init_project("test", "generic")
-
         project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
+
+        init_project("generic", tool="opencode")
 
         # Modify AGENTS.md
         agents_md = project_dir / "AGENTS.md"
@@ -387,6 +422,23 @@ class TestRosetteUpdate:
         # The rosette.toml should NOT be overwritten (it's user-owned)
         toml_content = (project_dir / "rosette.toml").read_text()
         assert 'template = "generic"' in toml_content
+
+    def test_update_no_tool_does_not_create_agents(self, tmp_path: Path, monkeypatch):
+        """rosette update on a tool=none project does not create AGENTS.md."""
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="none")
+
+        assert not (project_dir / "AGENTS.md").exists()
+        assert not (project_dir / "CLAUDE.md").exists()
+
+        # Update should not create tool files
+        update_project()
+
+        assert not (project_dir / "AGENTS.md").exists()
+        assert not (project_dir / "CLAUDE.md").exists()
 
 
 class TestCliHelp:
@@ -416,6 +468,7 @@ class TestCliHelp:
 
         captured = capsys.readouterr()
         assert "--template" in captured.out  # Shows template flag
+        assert "--tool" in captured.out  # Shows tool flag
 
     def test_build_help(self, capsys):
         """rosette build --help shows usage."""
