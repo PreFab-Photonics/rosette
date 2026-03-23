@@ -21,6 +21,10 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 # Components directory location (relative to this file)
 COMPONENTS_DIR = Path(__file__).parent / "components"
 
+# Marker comments for framework-managed sections in agent files
+_MARKER_BEGIN = "<!-- BEGIN:rosette-agent-rules -->"
+_MARKER_END = "<!-- END:rosette-agent-rules -->"
+
 
 def _get_template_dir(template_name: str) -> Path | None:
     """Get path to a template directory, or None if not found."""
@@ -54,7 +58,7 @@ def _apply_template(template_dir: Path, project_dir: Path, name: str, tool: str 
 
         # Filter tool-specific files
         rel_str = str(rel_path)
-        if rel_str == "AGENTS.md.template" and tool != "opencode":
+        if rel_str == "AGENTS.md.template" and tool not in ("opencode", "claude"):
             continue
         if rel_str == "CLAUDE.md.template" and tool != "claude":
             continue
@@ -478,8 +482,8 @@ def init_project(template: str | None = None, tool: str | None = None):
     # Copy components for user customization (shadcn-style)
     _copy_components(project_dir)
 
-    # Copy source files for agent reference
-    _copy_source_files(project_dir / ".rosette")
+    # Copy API stub for agent reference
+    _copy_api_stub(project_dir / ".rosette")
 
     tool_label = tool or "none"
     print(f"Initialized rosette project '{name}' (template: {template}, tool: {tool_label})")
@@ -496,47 +500,65 @@ def init_project(template: str | None = None, tool: str | None = None):
         print("  claude         # reads CLAUDE.md")
 
 
-def _copy_source_files(rosette_dir: Path):
-    """Copy bundled source files to .rosette/ for agent reference."""
+def _copy_api_stub(rosette_dir: Path):
+    """Copy the typed API stub to .rosette/ for agent reference."""
     package_dir = Path(__file__).parent
-    source_dir = package_dir / "_source"
-    target_src = rosette_dir / "src"
 
-    # Copy .pyi type stub (most useful for agents)
     pyi_file = package_dir / "_core.pyi"
     if pyi_file.exists():
         rosette_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(pyi_file, rosette_dir / "api.pyi")
 
-    if not source_dir.exists():
-        # Source not bundled (development install without running bundle_source.py)
-        print("Note: Source files not bundled, skipping .rosette/src/ population")
+
+def _update_agent_file(dest: Path, new_content: str):
+    """Update an agent file, preserving user content outside markers.
+
+    If the existing file contains BEGIN/END markers, only the content between
+    markers is replaced. Any user content before or after the markers is kept.
+    If no markers are found (legacy file), the entire file is overwritten.
+    """
+    if not dest.exists():
+        dest.write_text(new_content)
         return
 
-    # Clean and recreate target
-    if target_src.exists():
-        shutil.rmtree(target_src)
-    target_src.mkdir(parents=True, exist_ok=True)
+    existing = dest.read_text()
 
-    # Copy all .rs files
-    copied = 0
-    for rs_file in source_dir.rglob("*.rs"):
-        rel_path = rs_file.relative_to(source_dir)
-        dest = target_src / rel_path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(rs_file, dest)
-        copied += 1
+    # If the existing file has markers, do a surgical replacement
+    begin_idx = existing.find(_MARKER_BEGIN)
+    end_idx = existing.find(_MARKER_END)
 
-    if copied > 0:
-        print(f"Copied {copied} source files to .rosette/src/")
+    if begin_idx != -1 and end_idx != -1 and begin_idx < end_idx:
+        end_idx += len(_MARKER_END)
+        # Consume trailing newline after end marker if present
+        if end_idx < len(existing) and existing[end_idx] == "\n":
+            end_idx += 1
+
+        # Extract the managed section from new content
+        new_begin = new_content.find(_MARKER_BEGIN)
+        new_end = new_content.find(_MARKER_END)
+        if new_begin != -1 and new_end != -1:
+            new_end += len(_MARKER_END)
+            if new_end < len(new_content) and new_content[new_end] == "\n":
+                new_end += 1
+            managed_section = new_content[new_begin:new_end]
+        else:
+            managed_section = new_content
+
+        updated = existing[:begin_idx] + managed_section + existing[end_idx:]
+        dest.write_text(updated)
+    else:
+        # Legacy file without markers -- overwrite entirely
+        dest.write_text(new_content)
 
 
 def update_project():
     """Update agent instruction files to latest templates.
 
     Convention:
-    - Rosette-managed directories (.rosette/) are fully replaced
-    - Template files (*.template) are processed with {{name}} substitution
+    - AGENTS.md: only the section between BEGIN/END markers is replaced,
+      preserving any user content outside the markers
+    - CLAUDE.md: overwritten (it just imports AGENTS.md)
+    - .rosette/api.pyi: fully replaced with latest API stub
     - Only updates files for tools that are already configured
     - User-owned files are never touched:
       - designs/ - your design files
@@ -571,19 +593,30 @@ def update_project():
     if (project_dir / "CLAUDE.md").exists():
         tools.append("claude")
 
-    # Template files at root: process with {{name}} substitution (filtered by tools)
+    # Update template files, preserving user content outside markers
     for template_file in template_dir.glob("*.template"):
         output_name = template_file.stem  # e.g., AGENTS.md.template -> AGENTS.md
+        # Skip user-owned files
+        if output_name == "rosette.toml":
+            continue
         # Filter tool-specific templates
-        if output_name == "AGENTS.md" and "opencode" not in tools:
+        # AGENTS.md is needed for both tools (CLAUDE.md imports it via @AGENTS.md)
+        if output_name == "AGENTS.md" and not tools:
             continue
         if output_name == "CLAUDE.md" and "claude" not in tools:
             continue
         content = template_file.read_text().replace("{{name}}", name)
-        (project_dir / output_name).write_text(content)
+        dest = project_dir / output_name
 
-    # Update bundled source files for agent reference
-    _copy_source_files(project_dir / ".rosette")
+        if output_name == "AGENTS.md":
+            # Marker-based update: preserve user content outside markers
+            _update_agent_file(dest, content)
+        else:
+            # Other template files (CLAUDE.md) overwrite entirely
+            dest.write_text(content)
+
+    # Update API stub for agent reference
+    _copy_api_stub(project_dir / ".rosette")
 
     tool_names = ", ".join(sorted(tools))
     print(f"Updated project to latest templates (tools: {tool_names})")

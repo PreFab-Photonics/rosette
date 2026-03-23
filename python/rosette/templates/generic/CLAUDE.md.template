@@ -1,11 +1,1 @@
-# {{name}}
-
-Rosette photonic design project. Python scripts in `designs/` produce GDS-II layout files.
-
-Build: `rosette build designs/<name>.py`
-
-## Reference
-
-- `.rosette/api.pyi` -- full typed API
-- `components/` -- editable component source
-- `rosette.toml` -- project config, layers, DRC rules
+@AGENTS.md

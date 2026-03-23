@@ -46,9 +46,11 @@ class TestRosetteInit:
         toml_content = (project_dir / "rosette.toml").read_text()
         assert 'name = "my_project"' in toml_content
 
-        # AGENTS.md content
+        # AGENTS.md content: has markers and directive
         agents_content = (project_dir / "AGENTS.md").read_text()
-        assert "rosette" in agents_content
+        assert "<!-- BEGIN:rosette-agent-rules -->" in agents_content
+        assert "<!-- END:rosette-agent-rules -->" in agents_content
+        assert "ALWAYS read the reference files" in agents_content
 
         # .gitignore appends rosette entries to existing content
         gitignore = (project_dir / ".gitignore").read_text()
@@ -56,31 +58,31 @@ class TestRosetteInit:
         # Original uv content preserved
         assert "__pycache__/" in gitignore
 
-    def test_init_copies_source_files(self, tmp_path: Path, monkeypatch):
-        """rosette init copies source files to .rosette/ for agent reference."""
+    def test_init_copies_api_stub(self, tmp_path: Path, monkeypatch):
+        """rosette init copies API stub to .rosette/ for agent reference."""
         project_dir = tmp_path / "test"
         _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
 
         init_project("blank", tool="opencode")
 
-        # API stub (most useful for agents) - contains core types and Route
+        # API stub - contains core types and Route
         api_stub = project_dir / ".rosette" / "api.pyi"
         assert api_stub.exists()
         stub_content = api_stub.read_text()
         assert "class Route" in stub_content
         assert "class Cell" in stub_content
 
-        # Components are now local Python files (not in .rosette)
+        # Rust source files are NOT bundled (agents work in Python only)
+        src_dir = project_dir / ".rosette" / "src"
+        assert not src_dir.exists()
+
+        # Components are local Python files (not in .rosette)
         components_dir = project_dir / "components"
         assert components_dir.is_dir()
         assert (components_dir / "waveguide.py").exists()
         assert (components_dir / "bend.py").exists()
         assert (components_dir / "mmi.py").exists()
-
-        # Source files for agent reference
-        src_dir = project_dir / ".rosette" / "src"
-        assert src_dir.is_dir()
 
     def test_init_uses_dir_name_as_default(self, tmp_path: Path, monkeypatch):
         """rosette init uses directory name for project name."""
@@ -141,6 +143,11 @@ class TestRosetteInit:
         assert 'template = "generic"' in toml_content
         assert "[layers.silicon]" in toml_content
 
+        # AGENTS.md has markers and directive
+        agents_content = (project_dir / "AGENTS.md").read_text()
+        assert "<!-- BEGIN:rosette-agent-rules -->" in agents_content
+        assert "ALWAYS read the reference files" in agents_content
+
     def test_init_stores_template_in_toml(self, tmp_path: Path, monkeypatch):
         """rosette init records the template name in rosette.toml."""
         project_dir = tmp_path / "my_project"
@@ -179,7 +186,7 @@ class TestRosetteInit:
         assert not (project_dir / "CLAUDE.md").exists()
 
     def test_init_claude_tool(self, tmp_path: Path, monkeypatch):
-        """rosette init with tool='claude' creates CLAUDE.md but not AGENTS.md."""
+        """rosette init with tool='claude' creates CLAUDE.md that imports AGENTS.md."""
         project_dir = tmp_path / "my_project"
         _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
@@ -187,7 +194,12 @@ class TestRosetteInit:
         init_project("blank", tool="claude")
 
         assert (project_dir / "CLAUDE.md").exists()
-        assert not (project_dir / "AGENTS.md").exists()
+        # AGENTS.md is also created because CLAUDE.md imports it
+        assert (project_dir / "AGENTS.md").exists()
+
+        # CLAUDE.md uses @import instead of duplicating content
+        claude_content = (project_dir / "CLAUDE.md").read_text()
+        assert "@AGENTS.md" in claude_content
 
     def test_init_appends_gitignore(self, tmp_path: Path, monkeypatch):
         """rosette init appends entries to existing .gitignore without duplicating."""
@@ -381,28 +393,52 @@ class TestRosetteUpdate:
         assert "not" in captured.out.lower()
 
     def test_update_refreshes_files(self, tmp_path: Path, monkeypatch):
-        """rosette update refreshes AGENTS.md and managed .rosette/ files."""
+        """rosette update refreshes AGENTS.md managed section and .rosette/ files."""
         project_dir = tmp_path / "test"
         _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
 
         init_project("blank", tool="opencode")
 
-        # Modify AGENTS.md
+        # Completely replace AGENTS.md (no markers -- legacy behavior)
         agents_md = project_dir / "AGENTS.md"
-        original_content = agents_md.read_text()
-        agents_md.write_text("modified content")
+        agents_md.write_text("modified content without markers")
 
         # Delete a managed file from .rosette/
         api_stub = project_dir / ".rosette" / "api.pyi"
         assert api_stub.exists()
         api_stub.unlink()
 
-        # Update should restore everything
+        # Update should restore everything (legacy overwrite since no markers)
         update_project()
 
-        assert agents_md.read_text() == original_content
+        restored = agents_md.read_text()
+        assert "<!-- BEGIN:rosette-agent-rules -->" in restored
+        assert "ALWAYS read the reference files" in restored
         assert api_stub.exists()
+
+    def test_update_preserves_user_content(self, tmp_path: Path, monkeypatch):
+        """rosette update preserves user content outside markers in AGENTS.md."""
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
+
+        # Append user content after the managed section
+        agents_md = project_dir / "AGENTS.md"
+        original = agents_md.read_text()
+        user_notes = "\n## My custom rules\n\n- Always use Layer(1, 0) for waveguides\n"
+        agents_md.write_text(original + user_notes)
+
+        # Update should preserve user content
+        update_project()
+
+        updated = agents_md.read_text()
+        assert "<!-- BEGIN:rosette-agent-rules -->" in updated
+        assert "ALWAYS read the reference files" in updated
+        assert "My custom rules" in updated
+        assert "Always use Layer(1, 0) for waveguides" in updated
 
     def test_update_uses_template_from_toml(self, tmp_path: Path, monkeypatch, capsys):
         """rosette update reads the template name from rosette.toml."""
@@ -412,7 +448,7 @@ class TestRosetteUpdate:
 
         init_project("generic", tool="opencode")
 
-        # Modify AGENTS.md
+        # Modify AGENTS.md (no markers -- triggers legacy overwrite)
         agents_md = project_dir / "AGENTS.md"
         agents_md.write_text("modified content")
 
@@ -422,6 +458,10 @@ class TestRosetteUpdate:
         # The rosette.toml should NOT be overwritten (it's user-owned)
         toml_content = (project_dir / "rosette.toml").read_text()
         assert 'template = "generic"' in toml_content
+
+        # AGENTS.md should be restored with markers
+        agents_content = agents_md.read_text()
+        assert "<!-- BEGIN:rosette-agent-rules -->" in agents_content
 
     def test_update_no_tool_does_not_create_agents(self, tmp_path: Path, monkeypatch):
         """rosette update on a tool=none project does not create AGENTS.md."""
