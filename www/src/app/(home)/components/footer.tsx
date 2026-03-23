@@ -3,6 +3,11 @@ import Link from "next/link";
 const footerLinks = [
   { label: "Docs", href: "/docs", external: false },
   {
+    label: "GitHub",
+    href: "https://github.com/prefab-photonics/rosette",
+    external: true,
+  },
+  {
     label: "PreFab",
     href: "https://prefabphotonics.com",
     external: true,
