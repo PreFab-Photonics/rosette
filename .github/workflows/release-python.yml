@@ -72,26 +72,19 @@ jobs:
           path: dist
 
   build-macos:
-    name: Build macOS (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
+    name: Build macOS (aarch64)
+    runs-on: macos-14
     needs: [validate-version]
     if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped')
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-apple-darwin
-            runner: macos-13
-          - target: aarch64-apple-darwin
-            runner: macos-14
     steps:
       - uses: actions/checkout@v6
       - uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
+          target: aarch64-apple-darwin
           args: --release --out dist --interpreter 3.11 3.12 3.13
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.target }}
+          name: wheels-macos-aarch64
           path: dist
 
   build-windows:
