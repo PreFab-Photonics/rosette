@@ -27,13 +27,46 @@ jobs:
           fi
           echo "Version check passed: v${CARGO_VERSION}"
 
-  build-sdist:
-    name: Build sdist
+  build-webapp:
+    name: Build web app
     runs-on: ubuntu-latest
     needs: [validate-version]
     if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped')
     steps:
       - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - uses: oven-sh/setup-bun@v2
+      - name: Install app dependencies
+        run: bun install
+        working-directory: app
+      - name: Build WASM module
+        run: bun run build:wasm
+        working-directory: app
+      - name: Build app
+        run: bun run build
+        working-directory: app
+      - name: Bundle webapp into Python package
+        run: cp -r app/dist python/rosette/_webapp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webapp-bundle
+          path: python/rosette/_webapp/
+
+  build-sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    needs: [validate-version, build-webapp]
+    if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped') && needs.build-webapp.result == 'success'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: webapp-bundle
+          path: python/rosette/_webapp/
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
@@ -46,8 +79,8 @@ jobs:
   build-linux:
     name: Build Linux (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
-    needs: [validate-version]
-    if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped')
+    needs: [validate-version, build-webapp]
+    if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped') && needs.build-webapp.result == 'success'
     strategy:
       matrix:
         include:
@@ -57,6 +90,10 @@ jobs:
             runner: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: webapp-bundle
+          path: python/rosette/_webapp/
       - uses: docker/setup-qemu-action@v3
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         with:
@@ -74,10 +111,14 @@ jobs:
   build-macos:
     name: Build macOS (aarch64)
     runs-on: macos-14
-    needs: [validate-version]
-    if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped')
+    needs: [validate-version, build-webapp]
+    if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped') && needs.build-webapp.result == 'success'
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: webapp-bundle
+          path: python/rosette/_webapp/
       - uses: PyO3/maturin-action@v1
         with:
           target: aarch64-apple-darwin
@@ -90,10 +131,14 @@ jobs:
   build-windows:
     name: Build Windows (x86_64)
     runs-on: windows-latest
-    needs: [validate-version]
-    if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped')
+    needs: [validate-version, build-webapp]
+    if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped') && needs.build-webapp.result == 'success'
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: webapp-bundle
+          path: python/rosette/_webapp/
       - uses: PyO3/maturin-action@v1
         with:
           target: x86_64-pc-windows-msvc
