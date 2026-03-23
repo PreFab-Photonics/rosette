@@ -8,7 +8,7 @@ import topLevelAwait from 'vite-plugin-top-level-await'
 import tailwindcss from '@tailwindcss/vite'
 
 // Read the single-source-of-truth version from the workspace Cargo.toml.
-// The line looks like: version = "0.1.2"
+// The line looks like: version = "0.1.3"
 const cargoToml = readFileSync(resolve(import.meta.dirname!, '..', 'Cargo.toml'), 'utf-8')
 const versionMatch = cargoToml.match(/\[workspace\.package\][^[]*version\s*=\s*"([^"]+)"/)
 if (!versionMatch) throw new Error('Could not read version from workspace Cargo.toml')
