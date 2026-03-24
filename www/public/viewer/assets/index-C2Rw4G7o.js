@@ -1,4 +1,4 @@
-import { invoke as a } from "./core-mPlcS5K-.js";
+import { invoke as a } from "./core-DxBnVPgq.js";
 async function r(e = {}) {
   return typeof e == "object" && Object.freeze(e), await a("plugin:dialog|open", { options: e });
 }

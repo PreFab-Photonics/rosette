@@ -24,9 +24,9 @@ write_gds("splitter.gds", chip)`;
 function Hero() {
   return (
     <section className="relative">
-      <div className="mx-auto max-w-6xl px-6 pb-16 pt-20 sm:pt-24">
+      <div className="mx-auto max-w-6xl px-6 pt-20 sm:pt-24">
         {/* Hero text */}
-        <div className="mx-auto max-w-2xl text-center">
+        <div className="mx-auto max-w-4xl text-center">
           {/* Tag line */}
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.03] px-4 py-1.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-wide text-black/50 uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/50">
             <span className="h-1.5 w-1.5 rounded-full bg-brand-yellow" />
@@ -34,9 +34,9 @@ function Hero() {
           </div>
 
           <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-black/90 sm:text-5xl lg:text-6xl dark:text-white">
-            A nice GDSII{" "}
+            A GDSII layout editor for{" "}
             <span className="text-brand-purple dark:text-brand-purple-light">
-              layout editor
+              modern workflows
             </span>
           </h1>
 
@@ -59,17 +59,17 @@ function Hero() {
           </p>
 
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
-            {/* pip install — Python API */}
+            {/* pip install — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
               <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
-                <span className="select-none text-black/30 dark:text-white/30">
-                  $&nbsp;
+                <span className="select-none text-emerald-400">
+                  ~&nbsp;
                 </span>
                 pip install librosette
                 <CopyButton text="pip install librosette" />
               </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Python API
+                Python SDK
               </span>
             </div>
 
@@ -117,7 +117,7 @@ function Hero() {
                 >
                   <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
                 </svg>
-                GitHub
+                Clone
               </a>
               <span className="text-[11px] text-black/30 dark:text-white/30">
                 Source code
@@ -126,7 +126,10 @@ function Hero() {
           </div>
         </div>
 
-        {/* Full-width viewer + synced background dot grid */}
+      </div>
+
+      {/* Full-width viewer + synced background dot grid (wider than text) */}
+      <div className="mx-auto max-w-[1400px] px-6 pb-16">
         <HeroViewer
           src="/viewer/index.html?embed=true&src=showcase.json&colors=382165,5635a2,e6b01b&fills=solid,solid,solid&name=demo&zoom=0.8&panelWidth=200"
           fallback={heroCodeFallback}
@@ -154,7 +157,7 @@ const reasons = [
   {
     title: "Accessible",
     description:
-      "A clean Python API, a modern desktop app, and documentation written for engineers. Professional tools without the learning cliff.",
+      "A clean Python SDK, a modern desktop app, and documentation written for engineers. Professional tools without the learning cliff.",
   },
 ];
 
@@ -203,15 +206,14 @@ const capabilities = [
   },
   {
     label: "python",
-    title: "Python API",
+    title: "Python SDK",
     description:
       "A clean, typed Python interface over a compiled Rust core. Ergonomic placement, automatic routing, and hierarchical cells.",
   },
   {
     label: "fabrication",
     title: "Fabrication awareness",
-    description:
-      "Built on PreFab\u2019s process knowledge. Move beyond basic design rules with foundry models that have true predictive capabilities.",
+    description: (<>Built on <a href="https://prefabphotonics.com" target="_blank" rel="noopener noreferrer" className="underline decoration-black/20 underline-offset-2 transition-colors hover:text-black/80 dark:decoration-white/20 dark:hover:text-white/80">PreFab</a>&rsquo;s process knowledge. Move beyond basic design rules with foundry models that have true predictive capabilities.</>),
   },
   {
     label: "agents",
@@ -257,58 +259,58 @@ function WhatsInside() {
             </h3>
             {cap.label === "more" ? (
               <div className="mt-2.5 flex flex-wrap gap-x-2 gap-y-1.5 text-black/30 dark:text-white/20">
-                <RedactedText cols={14} rows={3} size={3}>
+                <RedactedText cols={14} rows={3} size={3} accentColor="#34d399">
                   Simulation
                 </RedactedText>
-                <RedactedText cols={16} rows={3} size={3}>
+                <RedactedText cols={16} rows={3} size={3} accentColor="#34d399">
                   integration
                 </RedactedText>
-                <RedactedText cols={10} rows={3} size={3}>
+                <RedactedText cols={10} rows={3} size={3} accentColor="#34d399">
                   component
                 </RedactedText>
-                <RedactedText cols={18} rows={3} size={3}>
+                <RedactedText cols={18} rows={3} size={3} accentColor="#34d399">
                   marketplace
                 </RedactedText>
-                <RedactedText cols={8} rows={3} size={3}>
+                <RedactedText cols={8} rows={3} size={3} accentColor="#34d399">
                   cloud
                 </RedactedText>
-                <RedactedText cols={20} rows={3} size={3}>
+                <RedactedText cols={20} rows={3} size={3} accentColor="#34d399">
                   collaboration
                 </RedactedText>
-                <RedactedText cols={12} rows={3} size={3}>
+                <RedactedText cols={12} rows={3} size={3} accentColor="#34d399">
                   and more
                 </RedactedText>
-                <RedactedText cols={14} rows={3} size={3}>
+                <RedactedText cols={14} rows={3} size={3} accentColor="#34d399">
                   actively
                 </RedactedText>
-                <RedactedText cols={16} rows={3} size={3}>
+                <RedactedText cols={16} rows={3} size={3} accentColor="#34d399">
                   developed
                 </RedactedText>
-                <RedactedText cols={10} rows={3} size={3}>
+                <RedactedText cols={10} rows={3} size={3} accentColor="#34d399">
                   shaped
                 </RedactedText>
-                <RedactedText cols={18} rows={3} size={3}>
+                <RedactedText cols={18} rows={3} size={3} accentColor="#34d399">
                   by community
                 </RedactedText>
-                <RedactedText cols={12} rows={3} size={3}>
+                <RedactedText cols={12} rows={3} size={3} accentColor="#34d399">
                   rosette
                 </RedactedText>
-                <RedactedText cols={16} rows={3} size={3}>
+                <RedactedText cols={16} rows={3} size={3} accentColor="#34d399">
                   open source
                 </RedactedText>
-                <RedactedText cols={10} rows={3} size={3}>
+                <RedactedText cols={10} rows={3} size={3} accentColor="#34d399">
                   tools
                 </RedactedText>
-                <RedactedText cols={14} rows={3} size={3}>
+                <RedactedText cols={14} rows={3} size={3} accentColor="#34d399">
                   platform
                 </RedactedText>
-                <RedactedText cols={8} rows={3} size={3}>
+                <RedactedText cols={8} rows={3} size={3} accentColor="#34d399">
                   next
                 </RedactedText>
-                <RedactedText cols={18} rows={3} size={3}>
+                <RedactedText cols={18} rows={3} size={3} accentColor="#34d399">
                   generation
                 </RedactedText>
-                <RedactedText cols={12} rows={3} size={3}>
+                <RedactedText cols={12} rows={3} size={3} accentColor="#34d399">
                   design
                 </RedactedText>
               </div>
@@ -351,17 +353,17 @@ function ClosingCTA() {
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
-            {/* pip install — Python API */}
+            {/* pip install — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
               <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
-                <span className="select-none text-black/30 dark:text-white/30">
-                  $&nbsp;
+                <span className="select-none text-emerald-400">
+                  ~&nbsp;
                 </span>
                 pip install librosette
                 <CopyButton text="pip install librosette" />
               </div>
               <span className="text-[11px] text-black/30 dark:text-white/30">
-                Python API
+                Python SDK
               </span>
             </div>
 
@@ -409,7 +411,7 @@ function ClosingCTA() {
                 >
                   <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
                 </svg>
-                GitHub
+                Clone
               </a>
               <span className="text-[11px] text-black/30 dark:text-white/30">
                 Source code

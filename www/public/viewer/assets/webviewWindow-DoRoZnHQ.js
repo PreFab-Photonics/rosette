@@ -1,5 +1,5 @@
-import { SERIALIZE_TO_IPC_FN as o, Resource as B, invoke as t } from "./core-mPlcS5K-.js";
-import { listen as z, once as D, emit as S, emitTo as C, TauriEvent as r } from "./event-DRyjiKX_.js";
+import { SERIALIZE_TO_IPC_FN as o, Resource as B, invoke as t } from "./core-DxBnVPgq.js";
+import { listen as z, once as D, emit as S, emitTo as C, TauriEvent as r } from "./event-BC8TvpKC.js";
 class R {
   constructor(...e) {
     this.type = "Logical", e.length === 1 ? "Logical" in e[0] ? (this.width = e[0].Logical.width, this.height = e[0].Logical.height) : (this.width = e[0].width, this.height = e[0].height) : (this.width = e[0], this.height = e[1]);

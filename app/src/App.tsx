@@ -42,10 +42,13 @@ export default function App() {
 
   useEffect(() => {
     if (prevIsLg.current === null) {
-      // Initial load — if wide, force panels expanded
+      // Initial load — sync panels with current breakpoint
       if (isLg) {
         useUIStore.getState().setExplorerCollapsed(false);
         useUIStore.getState().setSidebarCollapsed(false);
+      } else {
+        useUIStore.getState().setExplorerCollapsed(true);
+        useUIStore.getState().setSidebarCollapsed(true);
       }
     } else if (prevIsLg.current && !isLg) {
       // Entered narrow: auto-collapse both panels
@@ -239,10 +242,10 @@ export default function App() {
       >
         <div className="relative min-h-0 flex-1">
           <Canvas />
-          {!zenMode && <Toolbar compact={false} minimal={false} />}
+          {!zenMode && <Toolbar compact={!isLg} minimal={isSm} />}
           {!zenMode && <Explorer />}
           {!zenMode && <Sidebar />}
-          <Minimap />
+          {!isSm && <Minimap />}
           <CommandPalette />
         </div>
         <StatusBar compact={isMd || isSm} minimal={isSm} />
