@@ -1,0 +1,265 @@
+---
+title: CellRef
+---
+
+A reference to another cell with transformation.
+
+This wrapper around the core CellRef accepts our Cell wrapper in addition
+to cell names and Rust Cell objects.
+
+## Attributes
+
+<PyAttribute name={"__slots__"} type={null} value={"('_inner',)"} />
+
+<PyAttribute name={"cell_name"} type={"str"} value={null}>
+
+Cell name being referenced.
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, cell_or_name) -> None"}>
+
+Create a new cell reference.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+ref1 = CellRef("my_cell")      # From string
+ref2 = CellRef(waveguide_cell) # From Cell object
+```
+
+</Callout>
+
+<PySourceCode >
+
+```python
+def __init__(self, cell_or_name: Cell | _Cell | str) -> None:
+    """Create a new cell reference.
+
+    Args:
+        cell_or_name: Either a Cell object or a cell name string.
+
+    Example:
+        ref1 = CellRef("my_cell")      # From string
+        ref2 = CellRef(waveguide_cell) # From Cell object
+    """
+    if isinstance(cell_or_name, Cell):
+        # Our wrapper Cell - extract name
+        self._inner = _CellRef(cell_or_name.name)
+    elif isinstance(cell_or_name, str):
+        self._inner = _CellRef(cell_or_name)
+    else:
+        # Rust _Cell
+        self._inner = _CellRef(cell_or_name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"cell_or_name"} type={"Cell | _Cell | str"} value={undefined}>
+
+Either a Cell object or a cell name string.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"at"} type={"(self, x, y) -> CellRef"}>
+
+Set the position.
+
+<PySourceCode >
+
+```python
+def at(self, x: float, y: float) -> CellRef:
+    """Set the position."""
+    return CellRef._from_inner(self._inner.at(x, y))
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"x"} type={"float"} value={null} />
+<PyParameter name={"y"} type={"float"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.CellRef"} />
+
+</PyFunction>
+
+<PyFunction name={"rotate"} type={"(self, angle_deg) -> CellRef"}>
+
+Rotate by angle (in degrees).
+
+<PySourceCode >
+
+```python
+def rotate(self, angle_deg: float) -> CellRef:
+    """Rotate by angle (in degrees)."""
+    return CellRef._from_inner(self._inner.rotate(angle_deg))
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"angle_deg"} type={"float"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.CellRef"} />
+
+</PyFunction>
+
+<PyFunction name={"mirror_x"} type={"(self) -> CellRef"}>
+
+Mirror across X axis.
+
+<PySourceCode >
+
+```python
+def mirror_x(self) -> CellRef:
+    """Mirror across X axis."""
+    return CellRef._from_inner(self._inner.mirror_x())
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.CellRef"} />
+
+</PyFunction>
+
+<PyFunction name={"mirror_y"} type={"(self) -> CellRef"}>
+
+Mirror across Y axis.
+
+<PySourceCode >
+
+```python
+def mirror_y(self) -> CellRef:
+    """Mirror across Y axis."""
+    return CellRef._from_inner(self._inner.mirror_y())
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.CellRef"} />
+
+</PyFunction>
+
+<PyFunction name={"scale"} type={"(self, s) -> CellRef"}>
+
+Scale uniformly.
+
+<PySourceCode >
+
+```python
+def scale(self, s: float) -> CellRef:
+    """Scale uniformly."""
+    return CellRef._from_inner(self._inner.scale(s))
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"s"} type={"float"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.CellRef"} />
+
+</PyFunction>
+
+<PyFunction name={"port"} type={"(self, name, cell) -> Port"}>
+
+Get a transformed port from this cell reference.
+
+<PySourceCode >
+
+```python
+def port(self, name: str, cell: Cell | _Cell) -> Port:
+    """Get a transformed port from this cell reference.
+
+    Args:
+        name: Name of the port to retrieve
+        cell: The source Cell object containing the port definition
+
+    Returns:
+        The port with position and direction transformed
+    """
+    inner_cell = cell._inner if isinstance(cell, Cell) else cell
+    return self._inner.port(name, inner_cell)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={undefined}>
+
+Name of the port to retrieve
+
+</PyParameter>
+<PyParameter name={"cell"} type={"Cell | _Cell"} value={undefined}>
+
+The source Cell object containing the port definition
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette._core.Port"}>
+
+The port with position and direction transformed
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"__repr__"} type={"(self) -> str"}>
+
+<PySourceCode >
+
+```python
+def __repr__(self) -> str:
+    return repr(self._inner)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

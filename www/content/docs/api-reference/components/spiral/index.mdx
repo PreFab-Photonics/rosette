@@ -1,0 +1,192 @@
+---
+title: spiral
+---
+
+Spiral delay line components.
+
+Spirals provide compact optical delay lines with long path lengths.
+
+Ports: "in" (outer edge, facing tangent inward), "out" (center, facing tangent outward)
+
+<PyAttribute name={"__all__"} type={null} value={"['spiral']"} />
+
+<Tabs items={["Functions"]}>
+
+<Tab value={"Functions"}>
+
+<PyFunction name={"spiral"} type={"(layer, waveguide_width=0.5, turns=3.0, min_radius=10.0, spacing=2.0, spiral_type='archimedean', num_points_per_turn=64) -> Cell"}>
+
+Create a spiral delay line.
+
+The spiral starts from the outer edge and winds inward to the center.
+Light enters at "in" (outer) and exits at "out" (center).
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+>>> from rosette import Layer
+>>> from rosette.components import spiral
+>>> # Or in user projects: from components import spiral
+>>> s = spiral(Layer(1, 0), waveguide_width=0.5, turns=5, min_radius=15.0)
+```
+
+</Callout>
+
+<PySourceCode >
+
+```python
+def spiral(
+    layer: Layer,
+    waveguide_width: float = 0.5,
+    turns: float = 3.0,
+    min_radius: float = 10.0,
+    spacing: float = 2.0,
+    spiral_type: Literal["archimedean", "fermat"] = "archimedean",
+    num_points_per_turn: int = 64,
+) -> Cell:
+    """Create a spiral delay line.
+
+    The spiral starts from the outer edge and winds inward to the center.
+    Light enters at "in" (outer) and exits at "out" (center).
+
+    Args:
+        layer: GDS layer for the geometry
+        waveguide_width: Waveguide width in microns
+        turns: Number of spiral turns
+        min_radius: Minimum radius (at center) in microns
+        spacing: Spacing between adjacent turns in microns
+        spiral_type: "archimedean" (constant spacing) or "fermat" (constant density)
+        num_points_per_turn: Points per turn for polygon generation
+
+    Returns:
+        Cell with ports "in" (outer) and "out" (center)
+
+    Example:
+        >>> from rosette import Layer
+        >>> from rosette.components import spiral
+        >>> # Or in user projects: from components import spiral
+        >>> s = spiral(Layer(1, 0), waveguide_width=0.5, turns=5, min_radius=15.0)
+    """
+    if waveguide_width <= 0:
+        raise ValueError("Width must be positive")
+    if min_radius <= 0:
+        raise ValueError("Minimum radius must be positive")
+    if turns <= 0:
+        raise ValueError("Turns must be positive")
+    if spacing <= waveguide_width:
+        raise ValueError("Spacing must be greater than width")
+
+    # Abbreviate type for GDS 32-char name limit: archimedean -> arch, fermat -> ferm
+    type_abbr = spiral_type[:4]
+    cell = Cell(f"sprl_{type_abbr}_t{turns:.1f}_r{min_radius:.1f}_w{waveguide_width:.3f}")
+
+    # Generate centerline points
+    num_points = int(turns * num_points_per_turn) + 1
+    centerline = []
+    path_len = 0.0
+    prev_point = None
+
+    for i in range(num_points):
+        t = i / (num_points - 1)  # 0 to 1
+        theta = t * turns * 2 * math.pi
+
+        if spiral_type == "archimedean":
+            # r = min_radius + spacing * theta / (2*pi)
+            r = min_radius + spacing * theta / (2 * math.pi)
+        else:  # fermat
+            # r^2 proportional to theta
+            r = math.sqrt(min_radius**2 + (spacing * min_radius) * theta / math.pi)
+
+        x = r * math.cos(theta)
+        y = r * math.sin(theta)
+        point = Point(x, y)
+        centerline.append(point)
+
+        if prev_point is not None:
+            path_len += prev_point.distance_to(point)
+        prev_point = point
+
+    # Generate polygon from centerline
+    poly = offset_polygon(centerline, waveguide_width)
+    cell.add_polygon(poly, layer)
+
+    # Calculate port positions and directions
+    # Inner port (at center, t=0)
+    inner_theta = 0
+    inner_r = min_radius
+    inner_pos = Point(inner_r * math.cos(inner_theta), inner_r * math.sin(inner_theta))
+    # Direction tangent to spiral pointing outward (direction of increasing theta)
+    inner_dir = Vector2(-math.sin(inner_theta), math.cos(inner_theta))
+
+    # Outer port (at max radius, t=1)
+    outer_theta = turns * 2 * math.pi
+    if spiral_type == "archimedean":
+        outer_r = min_radius + spacing * outer_theta / (2 * math.pi)
+    else:
+        outer_r = math.sqrt(min_radius**2 + (spacing * min_radius) * outer_theta / math.pi)
+    outer_pos = Point(outer_r * math.cos(outer_theta), outer_r * math.sin(outer_theta))
+    # Direction tangent pointing inward (opposite to direction of increasing theta)
+    outer_dir = Vector2(math.sin(outer_theta), -math.cos(outer_theta))
+
+    # Ports: "in" at outer (light enters), "out" at inner/center (light exits)
+    cell.add_port(Port("in", outer_pos, outer_dir, waveguide_width))
+    cell.add_port(Port("out", inner_pos, inner_dir, waveguide_width))
+
+    cell.path_length = path_len
+
+    return cell
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"layer"} type={"Layer"} value={undefined}>
+
+GDS layer for the geometry
+
+</PyParameter>
+<PyParameter name={"waveguide_width"} type={"float"} value={"0.5"}>
+
+Waveguide width in microns
+
+</PyParameter>
+<PyParameter name={"turns"} type={"float"} value={"3.0"}>
+
+Number of spiral turns
+
+</PyParameter>
+<PyParameter name={"min_radius"} type={"float"} value={"10.0"}>
+
+Minimum radius (at center) in microns
+
+</PyParameter>
+<PyParameter name={"spacing"} type={"float"} value={"2.0"}>
+
+Spacing between adjacent turns in microns
+
+</PyParameter>
+<PyParameter name={"spiral_type"} type={"Literal['archimedean', 'fermat']"} value={"'archimedean'"}>
+
+"archimedean" (constant spacing) or "fermat" (constant density)
+
+</PyParameter>
+<PyParameter name={"num_points_per_turn"} type={"int"} value={"64"}>
+
+Points per turn for polygon generation
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette.Cell"}>
+
+Cell with ports "in" (outer) and "out" (center)
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

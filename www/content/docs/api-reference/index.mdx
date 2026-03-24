@@ -3,4 +3,688 @@ title: API Reference
 description: Complete reference for every class and function in the Rosette Python API.
 ---
 
-API reference is coming soon.
+rosette - Photonic layout library.
+
+Example usage:
+```python
+from rosette import *
+
+# Create a simple cell
+cell = Cell("my_design")
+cell.add_polygon(Polygon.rect(Point.origin(), 10, 5), Layer(1, 0))
+write_gds("output.gds", cell)
+
+# Route between ports
+route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
+route.start_at_port(port_a)
+route.to(50, 0)
+route.end_at_port(port_b)
+cell = route.to_cell("my_route")
+```
+
+In user projects (after `rosette init`), components are local:
+```python
+from components import waveguide, bend, mmi_1x2
+wg_cell = waveguide(length=10.0, width=0.5)
+bend_cell = bend(radius=5.0, angle=90, width=0.5)
+```
+
+For library development, import from rosette.components:
+```python
+from rosette.components import waveguide, bend, mmi_1x2
+```
+<PyAttribute name={"DEFAULT_LAYERS"} type={"list[dict]"} value={"[{'name': 'silicon', 'number': 1, 'datatype': 0, 'color': '#ff69b4', 'fill': 'solid', 'opacity': 0.7, 'description': 'Silicon waveguides'}, {'name': 'metal', 'number': 10, 'datatype': 0, 'color': '#ffeb3b', 'fill': 'solid', 'opacity': 0.7, 'description': 'Metal routing'}, {'name': 'text', 'number': 100, 'datatype': 0, 'color': '#607d8b', 'fill': 'dotted', 'opacity': 0.7, 'description': 'Text annotations'}]"} />
+
+<Tabs items={["Class","Functions","Modules"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"Instance"} href={"/docs/api-reference/Instance"} />
+<Card title={"CellRef"} href={"/docs/api-reference/CellRef"} />
+<Card title={"Cell"} href={"/docs/api-reference/Cell"} />
+<Card title={"Route"} href={"/docs/api-reference/Route"} />
+<Card title={"Library"} href={"/docs/api-reference/Library"} />
+<Card title={"LayerInfo"} href={"/docs/api-reference/LayerInfo"} />
+<Card title={"LayerMap"} href={"/docs/api-reference/LayerMap"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"load_drc_rules"} type={"(config_path=None) -> DrcRules"}>
+
+Load DRC rules from rosette.toml.
+
+Searches for rosette.toml in the current directory and parent directories.
+Rules are defined per-layer in the [drc.layers] section, and inter-layer
+rules in the [[drc.rules]] array.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+# In rosette.toml:
+# [drc.layers."1/0"]
+# min_width = 0.12
+# min_spacing = 0.13
+# min_area = 0.01
+# angles = [0, 90]
+#
+# [[drc.rules]]
+# type = "enclosure"
+# inner = "11/0"
+# outer = "10/0"
+# min_enclosure = 0.10
+# name = "VIA_ENC"
+
+rules = load_drc_rules()
+result = run_drc(cell, rules)
+```
+
+</Callout>
+
+<PySourceCode >
+
+```python
+def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
+    """Load DRC rules from rosette.toml.
+
+    Searches for rosette.toml in the current directory and parent directories.
+    Rules are defined per-layer in the [drc.layers] section, and inter-layer
+    rules in the [[drc.rules]] array.
+
+    Args:
+        config_path: Optional explicit path to rosette.toml. If None, searches
+                     from current directory upward.
+
+    Returns:
+        DrcRules built from the configuration
+
+    Raises:
+        FileNotFoundError: If rosette.toml is not found
+        ValueError: If the config has invalid DRC settings
+
+    Example:
+        # In rosette.toml:
+        # [drc.layers."1/0"]
+        # min_width = 0.12
+        # min_spacing = 0.13
+        # min_area = 0.01
+        # angles = [0, 90]
+        #
+        # [[drc.rules]]
+        # type = "enclosure"
+        # inner = "11/0"
+        # outer = "10/0"
+        # min_enclosure = 0.10
+        # name = "VIA_ENC"
+
+        rules = load_drc_rules()
+        result = run_drc(cell, rules)
+    """
+    # Find config file
+    if config_path is not None:
+        toml_path = Path(config_path)
+        if not toml_path.exists():
+            raise FileNotFoundError(f"Config file not found: {toml_path}")
+    else:
+        toml_path = _find_rosette_toml()
+        if toml_path is None:
+            raise FileNotFoundError(
+                "rosette.toml not found. Run 'rosette init' to create a project, "
+                "or specify config_path explicitly."
+            )
+
+    # Parse TOML
+    with open(toml_path, "rb") as f:
+        config = tomllib.load(f)
+
+    # Build rules from config
+    rules = DrcRules()
+
+    drc_config = config.get("drc", {})
+    layers_config = drc_config.get("layers", {})
+
+    # Process per-layer rules
+    for layer_str, layer_rules in layers_config.items():
+        # Parse layer string "number/datatype"
+        layer = _parse_layer_string(layer_str)
+
+        # Apply rules for this layer
+        if "min_width" in layer_rules:
+            rules = rules.min_width(layer, layer_rules["min_width"])
+
+        if "min_spacing" in layer_rules:
+            rules = rules.min_spacing(layer, layer, layer_rules["min_spacing"])
+
+        if "min_area" in layer_rules:
+            rules = rules.min_area(layer, layer_rules["min_area"])
+
+        if "angles" in layer_rules:
+            rules = rules.allowed_angles(layer, layer_rules["angles"])
+
+    # Process inter-layer rules
+    inter_layer_rules = drc_config.get("rules", [])
+    for i, rule in enumerate(inter_layer_rules):
+        rule_type = rule.get("type")
+        name = rule.get("name")
+
+        if rule_type is None:
+            raise ValueError(f"DRC rule #{i + 1} missing required 'type' field")
+
+        if rule_type == "enclosure":
+            _validate_rule_fields(rule, ["inner", "outer", "min_enclosure"], i)
+            inner = _parse_layer_string(rule["inner"])
+            outer = _parse_layer_string(rule["outer"])
+            enclosure = rule["min_enclosure"]
+            rules = rules.min_enclosure(inner, outer, enclosure, name)
+
+        elif rule_type == "spacing":
+            _validate_rule_fields(rule, ["layer1", "layer2", "min_spacing"], i)
+            layer1 = _parse_layer_string(rule["layer1"])
+            layer2 = _parse_layer_string(rule["layer2"])
+            spacing = rule["min_spacing"]
+            rules = rules.min_spacing(layer1, layer2, spacing, name)
+
+        elif rule_type == "require_overlap":
+            _validate_rule_fields(rule, ["layer1", "layer2"], i)
+            layer1 = _parse_layer_string(rule["layer1"])
+            layer2 = _parse_layer_string(rule["layer2"])
+            rules = rules.require_overlap(layer1, layer2, name)
+
+        elif rule_type == "forbid_overlap":
+            _validate_rule_fields(rule, ["layer1", "layer2"], i)
+            layer1 = _parse_layer_string(rule["layer1"])
+            layer2 = _parse_layer_string(rule["layer2"])
+            rules = rules.forbid_overlap(layer1, layer2, name)
+
+        else:
+            raise ValueError(f"Unknown DRC rule type: {rule_type}")
+
+    return rules
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"config_path"} type={"str | Path | None"} value={"None"}>
+
+Optional explicit path to rosette.toml. If None, searches
+from current directory upward.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette._core.DrcRules"}>
+
+DrcRules built from the configuration
+
+</PyFunctionReturn>
+
+</PyFunction>
+<PyFunction name={"run_drc"} type={"(cell, rules, library=None) -> DrcResult"}>
+
+Run DRC on a cell.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+rules = DrcRules().min_width(Layer(1), 0.1).min_spacing(Layer(1), Layer(1), 0.15)
+result = run_drc(cell, rules)
+if result.passed:
+    print("DRC passed!")
+else:
+    for v in result.violations:
+        print(f"  {v.message}")
+```
+
+</Callout>
+
+<PySourceCode >
+
+```python
+def run_drc(
+    cell: Cell | _Cell,
+    rules: DrcRules,
+    library: Library | _Library | None = None,
+) -> DrcResult:
+    """Run DRC on a cell.
+
+    Args:
+        cell: The cell to check
+        rules: DRC rules to apply
+        library: Library containing referenced cells (required if cell has refs)
+
+    Returns:
+        DrcResult with violations and statistics
+
+    Example:
+        rules = DrcRules().min_width(Layer(1), 0.1).min_spacing(Layer(1), Layer(1), 0.15)
+        result = run_drc(cell, rules)
+        if result.passed:
+            print("DRC passed!")
+        else:
+            for v in result.violations:
+                print(f"  {v.message}")
+    """
+    # Extract inner Rust objects
+    inner_cell = cell._inner if isinstance(cell, Cell) else cell
+    inner_library = None
+    if library is not None:
+        inner_library = library._inner if isinstance(library, Library) else library
+
+    return _run_drc(inner_cell, rules, inner_library)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"cell"} type={"Cell | _Cell"} value={undefined}>
+
+The cell to check
+
+</PyParameter>
+<PyParameter name={"rules"} type={"DrcRules"} value={undefined}>
+
+DRC rules to apply
+
+</PyParameter>
+<PyParameter name={"library"} type={"Library | _Library | None"} value={"None"}>
+
+Library containing referenced cells (required if cell has refs)
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette._core.DrcResult"}>
+
+DrcResult with violations and statistics
+
+</PyFunctionReturn>
+
+</PyFunction>
+<PyFunction name={"read_gds"} type={"(path) -> Library"}>
+
+Read a GDS file and return a Library.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+>>> lib = read_gds("input.gds")
+>>> for cell in lib.cells():
+...     print(cell.name)
+```
+
+</Callout>
+
+<PySourceCode >
+
+```python
+def read_gds(path: str | Path) -> Library:
+    """Read a GDS file and return a Library.
+
+    Args:
+        path: Path to the GDS file
+
+    Returns:
+        A Library containing all cells from the GDS file
+
+    Example:
+        >>> lib = read_gds("input.gds")
+        >>> for cell in lib.cells():
+        ...     print(cell.name)
+    """
+    inner_lib = _read_gds(str(path))
+    return Library._from_inner(inner_lib)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"path"} type={"str | Path"} value={undefined}>
+
+Path to the GDS file
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette.Library"}>
+
+A Library containing all cells from the GDS file
+
+</PyFunctionReturn>
+
+</PyFunction>
+<PyFunction name={"write_gds"} type={"(path, design, cells=None, *, quiet=False, verbose=False) -> None"}>
+
+Write a Cell or Library to a GDS file.
+
+When writing a Cell that was built using Instance references (via cell.at()),
+child cells are automatically collected and included. You can still pass
+cells explicitly if needed.
+
+A build summary is printed to stderr by default, providing feedback about
+the design (bounding box, cell count, ports). This helps both users and
+AI agents validate builds without opening a viewer.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+# Auto-collection (recommended):
+top = Cell("top")
+top.add_ref(gc_cell.at(0, 0))
+top.add_ref(wg_cell.at(0, 0))
+write_gds("output.gds", top)  # No manual cell list needed!
+
+# Explicit cell list (still supported):
+write_gds("output.gds", top, [gc_cell, wg_cell])
+
+# Suppress output for batch processing:
+write_gds("output.gds", top, quiet=True)
+```
+
+</Callout>
+
+<PySourceCode >
+
+```python
+def write_gds(
+    path: str | Path,
+    design: Cell | Library,
+    cells: list[Cell] | None = None,
+    *,
+    quiet: bool = False,
+    verbose: bool = False,
+) -> None:
+    """Write a Cell or Library to a GDS file.
+
+    When writing a Cell that was built using Instance references (via cell.at()),
+    child cells are automatically collected and included. You can still pass
+    cells explicitly if needed.
+
+    A build summary is printed to stderr by default, providing feedback about
+    the design (bounding box, cell count, ports). This helps both users and
+    AI agents validate builds without opening a viewer.
+
+    Args:
+        path: Output file path
+        design: Cell or Library to write
+        cells: Optional list of child cells. If None and design is a Cell,
+               child cells are auto-collected from Instance references.
+        quiet: If True, suppress the build summary (default: False)
+        verbose: If True, print detailed build info including port positions
+
+    Example:
+        # Auto-collection (recommended):
+        top = Cell("top")
+        top.add_ref(gc_cell.at(0, 0))
+        top.add_ref(wg_cell.at(0, 0))
+        write_gds("output.gds", top)  # No manual cell list needed!
+
+        # Explicit cell list (still supported):
+        write_gds("output.gds", top, [gc_cell, wg_cell])
+
+        # Suppress output for batch processing:
+        write_gds("output.gds", top, quiet=True)
+    """
+    if cells is None and isinstance(design, Cell):
+        # Auto-collect child cells from Instance tracking
+        collected: set[Cell] = set()
+        _collect_all_cells(design, collected)
+        if collected:
+            cells = list(collected)
+
+    # Extract inner Rust objects for the Rust write_gds function
+    inner_design: _Cell | _Library
+    if isinstance(design, Cell):
+        inner_design = design._inner
+    elif isinstance(design, Library):
+        inner_design = design._inner
+    else:
+        inner_design = design
+
+    inner_cells: list[_Cell] | None = None
+    if cells is not None:
+        inner_cells = [c._inner if isinstance(c, Cell) else c for c in cells]  # type: ignore[misc]
+
+    # Check environment variables for CLI compatibility (rosette build -v)
+    if os.environ.get("ROSETTE_VERBOSE"):
+        verbose = True
+
+    _write_gds(str(path), inner_design, inner_cells, quiet, verbose)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"path"} type={"str | Path"} value={undefined}>
+
+Output file path
+
+</PyParameter>
+<PyParameter name={"design"} type={"Cell | Library"} value={undefined}>
+
+Cell or Library to write
+
+</PyParameter>
+<PyParameter name={"cells"} type={"list[Cell] | None"} value={"None"}>
+
+Optional list of child cells. If None and design is a Cell,
+child cells are auto-collected from Instance references.
+
+</PyParameter>
+<PyParameter name={"quiet"} type={"bool"} value={"False"}>
+
+If True, suppress the build summary (default: False)
+
+</PyParameter>
+<PyParameter name={"verbose"} type={"bool"} value={"False"}>
+
+If True, print detailed build info including port positions
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+<PyFunction name={"load_layer_map"} type={"(config_path=None) -> LayerMap"}>
+
+Load layer definitions from rosette.toml.
+
+Reads the [layers] section of rosette.toml which maps semantic names
+to GDS layer numbers with optional display properties (color, fill, opacity).
+
+<Callout title={"Example"} type={"example"}>
+
+In rosette.toml:
+
+```python
+[layers.silicon]
+number = 1
+datatype = 0
+color = "#ff69b4"
+description = "Silicon waveguides"
+
+[layers.metal]
+number = 10
+color = "#ffeb3b"
+```
+Usage:
+
+```python
+layers = load_layer_map()
+layers.silicon.layer   # Layer(1, 0)
+layers.silicon.color   # "#ff69b4"
+layers.metal.number    # 10
+```
+
+</Callout>
+
+<PySourceCode >
+
+```python
+def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
+    """Load layer definitions from rosette.toml.
+
+    Reads the [layers] section of rosette.toml which maps semantic names
+    to GDS layer numbers with optional display properties (color, fill, opacity).
+
+    Args:
+        config_path: Optional explicit path to rosette.toml. If None, searches
+                     from current directory upward.
+
+    Returns:
+        LayerMap with named layer access
+
+    Raises:
+        FileNotFoundError: If rosette.toml is not found
+        ValueError: If the config has invalid layer definitions
+
+    Example:
+        In rosette.toml:
+
+            [layers.silicon]
+            number = 1
+            datatype = 0
+            color = "#ff69b4"
+            description = "Silicon waveguides"
+
+            [layers.metal]
+            number = 10
+            color = "#ffeb3b"
+
+        Usage:
+
+            layers = load_layer_map()
+            layers.silicon.layer   # Layer(1, 0)
+            layers.silicon.color   # "#ff69b4"
+            layers.metal.number    # 10
+    """
+    # Find config file
+    if config_path is not None:
+        toml_path = Path(config_path)
+        if not toml_path.exists():
+            raise FileNotFoundError(f"Config file not found: {toml_path}")
+    else:
+        toml_path = _find_rosette_toml()
+        if toml_path is None:
+            raise FileNotFoundError(
+                "rosette.toml not found. Run 'rosette init' to create a project, "
+                "or specify config_path explicitly."
+            )
+
+    # Parse TOML
+    with open(toml_path, "rb") as f:
+        config = tomllib.load(f)
+
+    layers_config = config.get("layers", {})
+    if not layers_config:
+        return _default_layer_map()
+
+    layer_infos = []
+    seen_pairs: dict[tuple[int, int], str] = {}
+
+    for name, props in layers_config.items():
+        if not isinstance(props, dict):
+            raise ValueError(f"Layer '{name}': expected a table, got {type(props).__name__}")
+
+        # Required: number
+        if "number" not in props:
+            raise ValueError(f"Layer '{name}': missing required field 'number'")
+
+        number = props["number"]
+        if not isinstance(number, int) or number < 0 or number > 999:
+            raise ValueError(f"Layer '{name}': 'number' must be an integer 0-999, got {number!r}")
+
+        datatype = props.get("datatype", 0)
+        if not isinstance(datatype, int) or datatype < 0 or datatype > 999:
+            raise ValueError(
+                f"Layer '{name}': 'datatype' must be an integer 0-999, got {datatype!r}"
+            )
+
+        # Check for duplicate (number, datatype) pairs
+        pair = (number, datatype)
+        if pair in seen_pairs:
+            raise ValueError(
+                f"Layer '{name}': layer ({number}, {datatype}) already defined "
+                f"as '{seen_pairs[pair]}'"
+            )
+        seen_pairs[pair] = name
+
+        # Optional display properties
+        color = props.get("color", "#808080")
+        if not isinstance(color, str) or not _HEX_COLOR_RE.match(color):
+            raise ValueError(
+                f"Layer '{name}': 'color' must be a hex string like '#ff0000', got {color!r}"
+            )
+
+        fill = props.get("fill", "solid")
+        if fill not in _VALID_FILL_PATTERNS:
+            raise ValueError(
+                f"Layer '{name}': 'fill' must be one of {_VALID_FILL_PATTERNS}, got {fill!r}"
+            )
+
+        opacity = props.get("opacity", 0.7)
+        if not isinstance(opacity, (int, float)) or opacity < 0.0 or opacity > 1.0:
+            raise ValueError(f"Layer '{name}': 'opacity' must be a number 0.0-1.0, got {opacity!r}")
+
+        description = props.get("description", "")
+
+        layer_infos.append(
+            LayerInfo(
+                name=name,
+                layer=Layer(number, datatype),
+                color=color,
+                fill=fill,
+                opacity=float(opacity),
+                description=description,
+            )
+        )
+
+    return LayerMap(layer_infos)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"config_path"} type={"str | Path | None"} value={"None"}>
+
+Optional explicit path to rosette.toml. If None, searches
+from current directory upward.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette.LayerMap"}>
+
+LayerMap with named layer access
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+</Tab>
+<Tab value={"Modules"}>
+
+<Cards >
+
+<Card href={"/docs/api-reference/components"} title={"components"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

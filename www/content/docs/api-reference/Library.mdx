@@ -1,0 +1,206 @@
+---
+title: Library
+---
+
+A library containing multiple cells.
+
+This wrapper accepts our Cell wrapper in addition to Rust Cell objects.
+
+## Attributes
+
+<PyAttribute name={"__slots__"} type={null} value={"('_inner',)"} />
+
+<PyAttribute name={"name"} type={"str"} value={null}>
+
+Library name.
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, name) -> None"}>
+
+Create a new library.
+
+<PySourceCode >
+
+```python
+def __init__(self, name: str) -> None:
+    """Create a new library."""
+    self._inner = _Library(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"add_cell"} type={"(self, cell) -> None"}>
+
+Add a cell to the library.
+
+If a cell with the same name already exists, this is a no-op.
+
+<PySourceCode >
+
+```python
+def add_cell(self, cell: Cell | _Cell) -> None:
+    """Add a cell to the library.
+
+    If a cell with the same name already exists, this is a no-op.
+    """
+    inner_cell = cell._inner if isinstance(cell, Cell) else cell
+    self._inner.add_cell(inner_cell)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"cell"} type={"Cell | _Cell"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"add_cell_recursive"} type={"(self, cell, available_cells) -> None"}>
+
+Add a cell and all its referenced cells recursively.
+
+This method automatically adds all cells that are referenced by the
+given cell, resolving the entire hierarchy.
+
+<PySourceCode >
+
+```python
+def add_cell_recursive(self, cell: Cell | _Cell, available_cells: list[Cell | _Cell]) -> None:
+    """Add a cell and all its referenced cells recursively.
+
+    This method automatically adds all cells that are referenced by the
+    given cell, resolving the entire hierarchy.
+    """
+    inner_cell = cell._inner if isinstance(cell, Cell) else cell
+    inner_available = [c._inner if isinstance(c, Cell) else c for c in available_cells]
+    self._inner.add_cell_recursive(inner_cell, inner_available)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"cell"} type={"Cell | _Cell"} value={null} />
+<PyParameter name={"available_cells"} type={"list[Cell | _Cell]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"cell"} type={"(self, name) -> Cell | None"}>
+
+Get a cell by name.
+
+<PySourceCode >
+
+```python
+def cell(self, name: str) -> Cell | None:
+    """Get a cell by name."""
+    inner = self._inner.cell(name)
+    return Cell._from_inner(inner) if inner is not None else None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.Cell | None"} />
+
+</PyFunction>
+
+<PyFunction name={"cells"} type={"(self) -> list[Cell]"}>
+
+Get all cells.
+
+<PySourceCode >
+
+```python
+def cells(self) -> list[Cell]:
+    """Get all cells."""
+    return [Cell._from_inner(c) for c in self._inner.cells()]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[rosette.Cell]"} />
+
+</PyFunction>
+
+<PyFunction name={"top_cell"} type={"(self) -> Cell | None"}>
+
+Get the top cell (last added).
+
+<PySourceCode >
+
+```python
+def top_cell(self) -> Cell | None:
+    """Get the top cell (last added)."""
+    inner = self._inner.top_cell()
+    return Cell._from_inner(inner) if inner is not None else None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.Cell | None"} />
+
+</PyFunction>
+
+<PyFunction name={"__repr__"} type={"(self) -> str"}>
+
+<PySourceCode >
+
+```python
+def __repr__(self) -> str:
+    return repr(self._inner)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

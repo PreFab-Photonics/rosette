@@ -1,0 +1,365 @@
+---
+title: Route
+---
+
+Path-based waveguide route.
+
+This wrapper extends the core Route to return wrapped Cell objects
+from to_cell(), enabling the ergonomic Instance API.
+
+Routes generate continuous waveguide geometry from a series of waypoints,
+automatically inserting bends at corners and tapers for width transitions.
+
+Example:
+```python
+route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
+route.start_at(0, 0, angle=0)
+route.to(50, 0)
+route.to(50, 30)
+route.end_at(100, 30, angle=0)
+cell = route.to_cell("my_route")  # Returns wrapped Cell with .at()
+```
+## Attributes
+
+<PyAttribute name={"__slots__"} type={null} value={"('_inner',)"} />
+
+<PyAttribute name={"path_length"} type={"float"} value={null}>
+
+Total optical path length.
+
+</PyAttribute>
+
+<PyAttribute name={"warnings"} type={"list[str]"} value={null}>
+
+Warnings from route generation (e.g., reduced bend radii).
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, layer, width=0.5, bend_radius=5.0, auto_taper=True, taper_length=10.0) -> None"}>
+
+Create a new Route.
+
+<PySourceCode >
+
+```python
+def __init__(
+    self,
+    layer: Layer | int | tuple[int, int],
+    width: float = 0.5,
+    bend_radius: float = 5.0,
+    auto_taper: bool = True,
+    taper_length: float = 10.0,
+) -> None:
+    """Create a new Route.
+
+    Args:
+        layer: The layer for the route geometry
+        width: Default waveguide width
+        bend_radius: Default bend radius
+        auto_taper: Whether to automatically add tapers for width changes
+        taper_length: Length of auto-generated tapers
+    """
+    self._inner = _Route(layer, width, bend_radius, auto_taper, taper_length)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"} value={undefined}>
+
+The layer for the route geometry
+
+</PyParameter>
+<PyParameter name={"width"} type={"float"} value={"0.5"}>
+
+Default waveguide width
+
+</PyParameter>
+<PyParameter name={"bend_radius"} type={"float"} value={"5.0"}>
+
+Default bend radius
+
+</PyParameter>
+<PyParameter name={"auto_taper"} type={"bool"} value={"True"}>
+
+Whether to automatically add tapers for width changes
+
+</PyParameter>
+<PyParameter name={"taper_length"} type={"float"} value={"10.0"}>
+
+Length of auto-generated tapers
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"start_at"} type={"(self, x, y, angle=0.0) -> None"}>
+
+Start the route at a specific position and angle (degrees).
+
+<PySourceCode >
+
+```python
+def start_at(self, x: float, y: float, angle: float = 0.0) -> None:
+    """Start the route at a specific position and angle (degrees)."""
+    self._inner.start_at(x, y, angle)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"x"} type={"float"} value={null} />
+<PyParameter name={"y"} type={"float"} value={null} />
+<PyParameter name={"angle"} type={"float"} value={"0.0"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"start_at_port"} type={"(self, port) -> None"}>
+
+Start the route at a port.
+
+<PySourceCode >
+
+```python
+def start_at_port(self, port: Port) -> None:
+    """Start the route at a port."""
+    self._inner.start_at_port(port)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"port"} type={"Port"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"to"} type={"(self, x, y, width=None, bend_radius=None) -> None"}>
+
+Add a waypoint to the route.
+
+<PySourceCode >
+
+```python
+def to(
+    self,
+    x: float,
+    y: float,
+    width: float | None = None,
+    bend_radius: float | None = None,
+) -> None:
+    """Add a waypoint to the route."""
+    self._inner.to(x, y, width, bend_radius)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"x"} type={"float"} value={null} />
+<PyParameter name={"y"} type={"float"} value={null} />
+<PyParameter name={"width"} type={"float | None"} value={"None"} />
+<PyParameter name={"bend_radius"} type={"float | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"end_at"} type={"(self, x, y, angle=0.0) -> None"}>
+
+End the route at a specific position and angle (degrees).
+
+<PySourceCode >
+
+```python
+def end_at(self, x: float, y: float, angle: float = 0.0) -> None:
+    """End the route at a specific position and angle (degrees)."""
+    self._inner.end_at(x, y, angle)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"x"} type={"float"} value={null} />
+<PyParameter name={"y"} type={"float"} value={null} />
+<PyParameter name={"angle"} type={"float"} value={"0.0"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"end_at_port"} type={"(self, port) -> None"}>
+
+End the route at a port.
+
+<PySourceCode >
+
+```python
+def end_at_port(self, port: Port) -> None:
+    """End the route at a port."""
+    self._inner.end_at_port(port)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"port"} type={"Port"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"to_cell"} type={"(self, name) -> Cell"}>
+
+Convert the route to a Cell.
+
+Warnings are printed to stderr if the route had to auto-reduce bend radii
+or encountered other issues. This provides immediate feedback to both
+users and AI agents about potential design problems.
+
+<PySourceCode >
+
+```python
+def to_cell(self, name: str) -> Cell:
+    """Convert the route to a Cell.
+
+    Warnings are printed to stderr if the route had to auto-reduce bend radii
+    or encountered other issues. This provides immediate feedback to both
+    users and AI agents about potential design problems.
+
+    Returns:
+        A wrapped Cell with the .at() method for ergonomic positioning.
+    """
+    # Print any warnings immediately so agents/users see them
+    for warning in self._inner.warnings:
+        print(f"  warning: {name}: {warning}", file=sys.stderr)
+
+    inner_cell = self._inner.to_cell(name)
+    return Cell._from_inner(inner_cell)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.Cell"}>
+
+A wrapped Cell with the .at() method for ergonomic positioning.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"through"} type={"(*waypoints, /, *, layer, width=0.5, bend_radius=5.0) -> Route"}>
+
+Create a route through a series of waypoints.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+route = Route.through(port_a, (50, 0), (50, 30), port_b, layer=Layer(1, 0))
+cell = route.to_cell("my_route")
+```
+
+</Callout>
+
+<PySourceCode >
+
+```python
+@staticmethod
+def through(
+    *waypoints: Port | Point | tuple[float, float] | tuple[float, float, float],
+    layer: Layer | int | tuple[int, int],
+    width: float = 0.5,
+    bend_radius: float = 5.0,
+) -> Route:
+    """Create a route through a series of waypoints.
+
+    Args:
+        *waypoints: Sequence of waypoints. Each can be:
+            - Port: uses position, angle, and width
+            - Point: uses position only
+            - (x, y) tuple: position only
+            - (x, y, angle) tuple: position and angle (for first/last waypoint)
+        layer: The layer for the route
+        width: Default waveguide width
+        bend_radius: Default bend radius
+
+    Returns:
+        A Route that can be converted to a Cell with to_cell()
+
+    Example:
+        route = Route.through(port_a, (50, 0), (50, 30), port_b, layer=Layer(1, 0))
+        cell = route.to_cell("my_route")
+    """
+    inner_route = _Route.through(*waypoints, layer=layer, width=width, bend_radius=bend_radius)
+    route = object.__new__(Route)
+    route._inner = inner_route
+    return route
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"waypoints"} type={"Port | Point | tuple[float, float] | tuple[float, float, float]"} value={"()"} />
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"} value={undefined}>
+
+The layer for the route
+
+</PyParameter>
+<PyParameter name={"width"} type={"float"} value={"0.5"}>
+
+Default waveguide width
+
+</PyParameter>
+<PyParameter name={"bend_radius"} type={"float"} value={"5.0"}>
+
+Default bend radius
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette.Route"}>
+
+A Route that can be converted to a Cell with to_cell()
+
+</PyFunctionReturn>
+
+</PyFunction>

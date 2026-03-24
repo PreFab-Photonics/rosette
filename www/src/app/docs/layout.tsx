@@ -16,7 +16,7 @@ export default function Layout({ children }: LayoutProps<"/docs">) {
         githubUrl={undefined}
         themeSwitch={{ enabled: false }}
         searchToggle={{ enabled: false }}
-        sidebar={{ collapsible: false, banner: <SidebarTriggerBridge /> }}
+        sidebar={{ collapsible: false, defaultOpenLevel: 1, banner: <SidebarTriggerBridge /> }}
       >
         {children}
       </DocsLayout>

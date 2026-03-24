@@ -1,0 +1,51 @@
+---
+title: components
+---
+
+Photonic components library.
+
+This module contains user-customizable photonic components. Each component
+is implemented as a function that returns a Cell.
+
+Usage in main repo:
+```python
+from rosette.components import waveguide, mmi_1x2, bend
+```
+
+Usage in user projects (after rosette init):
+```python
+from components import waveguide, mmi_1x2, bend
+```
+
+Components can be freely modified to match your PDK or process requirements.
+
+All components follow a consistent API:
+- First parameter is always `layer: Layer`
+- Second parameter is typically `width: float = 0.5`
+- Returns a Cell with named ports
+
+<PyAttribute name={"__all__"} type={null} value={"['bend', 'crossing', 'directional_coupler', 'grating_coupler', 'mmi_1x2', 'mmi_2x1', 'mmi_2x2', 'ring', 'sbend', 'spiral', 'taper', 'waveguide', 'ybranch']"} />
+
+<Tabs items={["Modules"]}>
+
+<Tab value={"Modules"}>
+
+<Cards >
+
+<Card href={"/docs/api-reference/components/bend"} title={"bend"} />
+<Card href={"/docs/api-reference/components/crossing"} title={"crossing"} />
+<Card href={"/docs/api-reference/components/directional_coupler"} title={"directional_coupler"} />
+<Card href={"/docs/api-reference/components/grating_coupler"} title={"grating_coupler"} />
+<Card href={"/docs/api-reference/components/ring"} title={"ring"} />
+<Card href={"/docs/api-reference/components/sbend"} title={"sbend"} />
+<Card href={"/docs/api-reference/components/spiral"} title={"spiral"} />
+<Card href={"/docs/api-reference/components/taper"} title={"taper"} />
+<Card href={"/docs/api-reference/components/waveguide"} title={"waveguide"} />
+<Card href={"/docs/api-reference/components/ybranch"} title={"ybranch"} />
+<Card href={"/docs/api-reference/components/mmi"} title={"mmi"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

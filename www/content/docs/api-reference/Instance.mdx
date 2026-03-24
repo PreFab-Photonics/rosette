@@ -1,0 +1,419 @@
+---
+title: Instance
+---
+
+A cell placed at a specific location with optional transformations.
+
+Instance solves the ergonomic problem of needing to pass the Cell twice:
+once to create a CellRef, and again to query ports. With Instance, the
+Cell reference is preserved, allowing direct port queries.
+
+Example:
+```python
+# Old pattern (redundant):
+gc_cell = grating_coupler(...)
+gc_ref = CellRef(gc_cell).at(0, 0)
+port = gc_ref.port("opt", gc_cell)  # Must pass gc_cell again
+
+# New pattern (ergonomic):
+gc_cell = grating_coupler(...)
+gc_in = gc_cell.at(0, 0)            # Returns Instance
+port = gc_in.port("opt")            # No redundancy!
+```
+
+Instances can be added directly to cells and support transform chaining:
+```python
+gc = gc_cell.at(100, 50).rotate(180).mirror_x()
+top.add_ref(gc)
+```
+## Attributes
+
+<PyAttribute name={"__slots__"} type={null} value={"('_cell', '_transform')"} />
+
+<PyAttribute name={"cell"} type={"Cell"} value={null}>
+
+The underlying cell definition.
+
+</PyAttribute>
+
+<PyAttribute name={"transform"} type={"Transform"} value={null}>
+
+The current transform applied to this instance.
+
+</PyAttribute>
+
+<PyAttribute name={"cell_name"} type={"str"} value={null}>
+
+Name of the referenced cell (for compatibility with CellRef).
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, cell, transform=None) -> None"}>
+
+Create an Instance from a Cell and optional transform.
+
+<PySourceCode >
+
+```python
+def __init__(self, cell: Cell, transform: Transform | None = None) -> None:
+    """Create an Instance from a Cell and optional transform.
+
+    Args:
+        cell: The cell definition
+        transform: Optional transform (defaults to identity)
+    """
+    self._cell = cell
+    self._transform = transform if transform is not None else Transform.identity()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"cell"} type={"Cell"} value={undefined}>
+
+The cell definition
+
+</PyParameter>
+<PyParameter name={"transform"} type={"Transform | None"} value={"None"}>
+
+Optional transform (defaults to identity)
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"at"} type={"(self, x, y) -> Instance"}>
+
+Set the position (translation).
+
+<PySourceCode >
+
+```python
+def at(self, x: float, y: float) -> Instance:
+    """Set the position (translation).
+
+    Args:
+        x: X coordinate
+        y: Y coordinate
+
+    Returns:
+        A new Instance with updated transform
+    """
+    new_transform = Transform.translate(x, y).then(self._transform)
+    return Instance(self._cell, new_transform)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"x"} type={"float"} value={undefined}>
+
+X coordinate
+
+</PyParameter>
+<PyParameter name={"y"} type={"float"} value={undefined}>
+
+Y coordinate
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette.Instance"}>
+
+A new Instance with updated transform
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"rotate"} type={"(self, angle_deg) -> Instance"}>
+
+Rotate by angle (in degrees).
+
+<PySourceCode >
+
+```python
+def rotate(self, angle_deg: float) -> Instance:
+    """Rotate by angle (in degrees).
+
+    Args:
+        angle_deg: Rotation angle in degrees
+
+    Returns:
+        A new Instance with updated transform
+    """
+    new_transform = Transform.rotate(angle_deg).then(self._transform)
+    return Instance(self._cell, new_transform)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"angle_deg"} type={"float"} value={undefined}>
+
+Rotation angle in degrees
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette.Instance"}>
+
+A new Instance with updated transform
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"mirror_x"} type={"(self) -> Instance"}>
+
+Mirror across X axis.
+
+<PySourceCode >
+
+```python
+def mirror_x(self) -> Instance:
+    """Mirror across X axis.
+
+    Returns:
+        A new Instance with updated transform
+    """
+    new_transform = Transform.scale(1.0, -1.0).then(self._transform)
+    return Instance(self._cell, new_transform)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.Instance"}>
+
+A new Instance with updated transform
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"mirror_y"} type={"(self) -> Instance"}>
+
+Mirror across Y axis.
+
+<PySourceCode >
+
+```python
+def mirror_y(self) -> Instance:
+    """Mirror across Y axis.
+
+    Returns:
+        A new Instance with updated transform
+    """
+    new_transform = Transform.scale(-1.0, 1.0).then(self._transform)
+    return Instance(self._cell, new_transform)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.Instance"}>
+
+A new Instance with updated transform
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"scale"} type={"(self, s) -> Instance"}>
+
+Scale uniformly.
+
+<PySourceCode >
+
+```python
+def scale(self, s: float) -> Instance:
+    """Scale uniformly.
+
+    Args:
+        s: Scale factor
+
+    Returns:
+        A new Instance with updated transform
+    """
+    new_transform = Transform.scale_uniform(s).then(self._transform)
+    return Instance(self._cell, new_transform)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"s"} type={"float"} value={undefined}>
+
+Scale factor
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette.Instance"}>
+
+A new Instance with updated transform
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"port"} type={"(self, name) -> Port"}>
+
+Get a transformed port from this instance.
+
+Unlike CellRef.port(), this doesn't require passing the Cell again
+since the Instance already knows its cell definition.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+gc = gc_cell.at(100, 50).rotate(180)
+opt_port = gc.port("opt")  # No need to pass gc_cell!
+```
+
+</Callout>
+
+<PySourceCode >
+
+```python
+def port(self, name: str) -> Port:
+    """Get a transformed port from this instance.
+
+    Unlike CellRef.port(), this doesn't require passing the Cell again
+    since the Instance already knows its cell definition.
+
+    Args:
+        name: Name of the port to retrieve
+
+    Returns:
+        The port with position and direction transformed
+
+    Raises:
+        KeyError: If the port is not found in the cell
+
+    Example:
+        gc = gc_cell.at(100, 50).rotate(180)
+        opt_port = gc.port("opt")  # No need to pass gc_cell!
+    """
+    # Get the original port from the cell
+    original_port = self._cell.port(name)
+    # Apply the transform to get the positioned port
+    pos = self._transform.apply(original_port.position)
+    # Transform the direction vector
+    direction = original_port.direction.rotate(self._rotation_angle())
+    if self._is_mirrored_x():
+        direction = Vector2(direction.x, -direction.y)
+    if self._is_mirrored_y():
+        direction = Vector2(-direction.x, direction.y)
+    return Port(name, pos, direction, original_port.width)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={undefined}>
+
+Name of the port to retrieve
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"rosette._core.Port"}>
+
+The port with position and direction transformed
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"to_ref"} type={"(self) -> CellRef"}>
+
+Convert to a CellRef for use with low-level APIs.
+
+<PySourceCode >
+
+```python
+def to_ref(self) -> CellRef:
+    """Convert to a CellRef for use with low-level APIs.
+
+    Returns:
+        A CellRef with the same cell name and transform
+    """
+    # Create CellRef and apply transform components
+    # We need to decompose and reapply since CellRef uses its own transform
+    ref = CellRef(self._cell.name)
+    # Apply translation
+    ref = ref.at(
+        self._transform.apply(Point.origin()).x, self._transform.apply(Point.origin()).y
+    )
+    return ref
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"rosette.CellRef"}>
+
+A CellRef with the same cell name and transform
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"__repr__"} type={"(self) -> str"}>
+
+<PySourceCode >
+
+```python
+def __repr__(self) -> str:
+    pos = self._transform.apply(Point.origin())
+    return f"Instance('{self._cell.name}', at=({pos.x:.2f}, {pos.y:.2f}))"
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

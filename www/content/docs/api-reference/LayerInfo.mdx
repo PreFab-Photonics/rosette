@@ -1,0 +1,131 @@
+---
+title: LayerInfo
+---
+
+A single layer definition with metadata.
+
+Combines the GDS layer identity (number, datatype) with display
+properties (color, fill, opacity) and a human-readable description.
+
+Use `info.layer` to get the underlying Layer for rosette APIs::
+
+```python
+layers = load_layer_map()
+cell.add_polygon(poly, layers.silicon.layer)
+```
+## Attributes
+
+<PyAttribute name={"__slots__"} type={null} value={"('color', 'description', 'fill', 'layer', 'name', 'opacity')"} />
+
+<PyAttribute name={"name"} type={null} value={"name"}>
+
+Semantic name (e.g., "silicon", "metal")
+
+</PyAttribute>
+
+<PyAttribute name={"layer"} type={null} value={"layer"}>
+
+The underlying Layer(number, datatype)
+
+</PyAttribute>
+
+<PyAttribute name={"color"} type={null} value={"color"}>
+
+Hex color string (e.g., "#ff69b4")
+
+</PyAttribute>
+
+<PyAttribute name={"fill"} type={null} value={"fill"}>
+
+Fill pattern ("solid", "hatched", "crosshatched", "dotted")
+
+</PyAttribute>
+
+<PyAttribute name={"opacity"} type={null} value={"opacity"}>
+
+Fill opacity 0.0-1.0
+
+</PyAttribute>
+
+<PyAttribute name={"description"} type={null} value={"description"}>
+
+Human-readable description
+
+</PyAttribute>
+
+<PyAttribute name={"number"} type={"int"} value={null}>
+
+GDS layer number.
+
+</PyAttribute>
+
+<PyAttribute name={"datatype"} type={"int"} value={null}>
+
+GDS datatype.
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, name, layer, color='#808080', fill='solid', opacity=0.7, description='') -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(
+    self,
+    name: str,
+    layer: Layer,
+    color: str = "#808080",
+    fill: str = "solid",
+    opacity: float = 0.7,
+    description: str = "",
+) -> None:
+    self.name = name
+    self.layer = layer
+    self.color = color
+    self.fill = fill
+    self.opacity = opacity
+    self.description = description
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+<PyParameter name={"layer"} type={"Layer"} value={null} />
+<PyParameter name={"color"} type={"str"} value={"'#808080'"} />
+<PyParameter name={"fill"} type={"str"} value={"'solid'"} />
+<PyParameter name={"opacity"} type={"float"} value={"0.7"} />
+<PyParameter name={"description"} type={"str"} value={"''"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"__repr__"} type={"(self) -> str"}>
+
+<PySourceCode >
+
+```python
+def __repr__(self) -> str:
+    return (
+        f"LayerInfo('{self.name}', Layer({self.number}, {self.datatype}), color='{self.color}')"
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
