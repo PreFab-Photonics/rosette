@@ -23,16 +23,11 @@ uv run rosette init
 
 `rosette init` walks you through template and AI tool selection, then scaffolds your project with editable components, layer config, and agent instructions.
 
-### Commands
-
-| Command                  | Description                           |
-| ------------------------ | ------------------------------------- |
-| `rosette init`           | Initialize rosette in current project |
-| `rosette build <design>` | Compile a design script to GDS        |
-| `rosette serve [design]` | Start dev server with live preview    |
-| `rosette run <file.gds>` | View a GDS file                       |
-
 Run commands with `uv run rosette <command>`, or activate the venv first (`source .venv/bin/activate`).
+
+## Documentation
+
+Full docs, API reference, and component library at **[rosette.dev/docs](https://rosette.dev/docs)**.
 
 ## License
 
