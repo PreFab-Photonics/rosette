@@ -255,7 +255,9 @@ function OverflowMenuButton({
                       <kbd
                         className={cn(
                           "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                          isDark ? "border-white/15 bg-white/10 text-white/70" : "border-black/15 bg-black/10 text-black/70",
+                          isDark
+                            ? "border-white/15 bg-white/10 text-white/70"
+                            : "border-black/15 bg-black/10 text-black/70",
                         )}
                       >
                         {tool.shortcut}
@@ -296,7 +298,9 @@ function OverflowMenuButton({
                         <kbd
                           className={cn(
                             "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                            isDark ? "border-white/15 bg-white/10 text-white/70" : "border-black/15 bg-black/10 text-black/70",
+                            isDark
+                              ? "border-white/15 bg-white/10 text-white/70"
+                              : "border-black/15 bg-black/10 text-black/70",
                           )}
                         >
                           {tool.shortcut}
@@ -331,7 +335,9 @@ function OverflowMenuButton({
                       <kbd
                         className={cn(
                           "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                          isDark ? "border-white/15 bg-white/10 text-white/70" : "border-black/15 bg-black/10 text-black/70",
+                          isDark
+                            ? "border-white/15 bg-white/10 text-white/70"
+                            : "border-black/15 bg-black/10 text-black/70",
                         )}
                       >
                         I
@@ -357,7 +363,9 @@ function OverflowMenuButton({
                         <kbd
                           className={cn(
                             "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                            isDark ? "border-white/15 bg-white/10 text-white/70" : "border-black/15 bg-black/10 text-black/70",
+                            isDark
+                              ? "border-white/15 bg-white/10 text-white/70"
+                              : "border-black/15 bg-black/10 text-black/70",
                           )}
                         >
                           {keys.mod}
@@ -365,7 +373,9 @@ function OverflowMenuButton({
                         <kbd
                           className={cn(
                             "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                            isDark ? "border-white/15 bg-white/10 text-white/70" : "border-black/15 bg-black/10 text-black/70",
+                            isDark
+                              ? "border-white/15 bg-white/10 text-white/70"
+                              : "border-black/15 bg-black/10 text-black/70",
                           )}
                         >
                           K

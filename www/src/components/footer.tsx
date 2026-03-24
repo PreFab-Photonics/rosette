@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 const footerLinks = [
@@ -19,9 +20,11 @@ export function Footer() {
     <footer className="border-t border-fd-border bg-fd-card">
       <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 px-6 py-8 sm:flex-row sm:justify-between">
         <div className="flex items-center gap-2">
-          <img
+          <Image
             src="/prefab-logo-notext.png"
             alt="PreFab Photonics"
+            width={20}
+            height={20}
             className="h-5 w-5"
           />
           <p className="text-xs text-fd-muted-foreground">

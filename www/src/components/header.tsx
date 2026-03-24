@@ -1,10 +1,10 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useSearchContext } from "fumadocs-ui/contexts/search";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSearchContext } from "fumadocs-ui/contexts/search";
+import type { ReactNode } from "react";
 
 const navLinks = [{ label: "Docs", href: "/docs", external: false }] as const;
 
@@ -38,8 +38,7 @@ export function Header({ trailing }: { trailing?: ReactNode }) {
           </a>
 
           {navLinks.map((link) => {
-            const isActive =
-              !link.external && pathname.startsWith(link.href);
+            const isActive = !link.external && pathname.startsWith(link.href);
             return link.external ? (
               <a
                 key={link.href}

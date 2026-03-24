@@ -9,10 +9,10 @@
  *   bun run generate:api
  */
 
-import { rimraf } from "rimraf";
-import * as Python from "fumadocs-python";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import * as Python from "fumadocs-python";
+import { rimraf } from "rimraf";
 
 const jsonPath = path.resolve(import.meta.dirname, "../rosette.json");
 const outDir = path.resolve(
@@ -40,7 +40,7 @@ function fixCalloutContent(mdx) {
   // Match each <Callout ...>...</Callout> block
   return mdx.replace(
     /(<Callout\s[^>]*>)\s*\n([\s\S]*?)\n\s*(<\/Callout>)/g,
-    (match, openTag, inner, closeTag) => {
+    (_match, openTag, inner, closeTag) => {
       const fixed = fenceCodeInBlock(inner);
       return `${openTag}\n\n${fixed}\n\n${closeTag}`;
     },
@@ -63,7 +63,10 @@ function fenceCodeInBlock(content) {
     while (codeBuffer.length > 0 && codeBuffer.at(-1).trim() === "") {
       codeBuffer.pop();
     }
-    if (codeBuffer.length === 0) { inCode = false; return; }
+    if (codeBuffer.length === 0) {
+      inCode = false;
+      return;
+    }
     // Unescape \{ and \} inside code -- they don't need escaping in fences
     let code = codeBuffer.join("\n");
     code = code.replaceAll("\\{", "{").replaceAll("\\}", "}");
@@ -125,7 +128,7 @@ function isCodeLine(trimmed) {
   if (/^\[[\w./"]+\]$/.test(trimmed)) return true;
   // TOML key = value (only match when value starts with a quote, number, or bracket
   // to avoid matching prose sentences)
-  if (/^\w+\s*=\s*["'\d\[({]/.test(trimmed)) return true;
+  if (/^\w+\s*=\s*["'\d[({]/.test(trimmed)) return true;
   return false;
 }
 
@@ -141,7 +144,7 @@ function isCodeContinuation(trimmed) {
   // Indented continuation (keyword args, list items, etc.)
   if (/^\s/.test(trimmed)) return true;
   // Bare values that are likely output or args (numbers, strings, booleans)
-  if (/^[\d"'(\[{True|False|None]/.test(trimmed)) return true;
+  if (/^[\d"'([{True|False|None]/.test(trimmed)) return true;
   return false;
 }
 
@@ -219,9 +222,9 @@ function stripCommonIndent(code) {
   );
   if (minIndent === 0) return code;
 
-  return lines.map((l) => (l.trim() === "" ? "" : l.slice(minIndent))).join(
-    "\n",
-  );
+  return lines
+    .map((l) => (l.trim() === "" ? "" : l.slice(minIndent)))
+    .join("\n");
 }
 
 /**
@@ -291,9 +294,7 @@ function filterModule(mod) {
   mod.classes = filteredClasses;
 
   // Remove private attributes (starting with _), except __all__-like ones we may want
-  mod.attributes = mod.attributes.filter(
-    (attr) => !attr.name.startsWith("_"),
-  );
+  mod.attributes = mod.attributes.filter((attr) => !attr.name.startsWith("_"));
 
   return mod;
 }
@@ -373,7 +374,9 @@ async function generate() {
 
   // Fix the root index page title (converter uses module name "rosette",
   // but we want "API Reference" for the sidebar/breadcrumb).
-  const indexFile = converted.find((f) => f.path.endsWith("/index.mdx") && f.path.split("/").length === 2);
+  const indexFile = converted.find(
+    (f) => f.path.endsWith("/index.mdx") && f.path.split("/").length === 2,
+  );
   if (indexFile) {
     indexFile.frontmatter.title = "API Reference";
     indexFile.frontmatter.description =
@@ -381,7 +384,9 @@ async function generate() {
   }
 
   // Clean previous generated .mdx files (preserve hand-curated meta.json)
-  const existing = await fs.readdir(outDir, { recursive: true }).catch(() => []);
+  const existing = await fs
+    .readdir(outDir, { recursive: true })
+    .catch(() => []);
   for (const entry of existing) {
     if (entry.endsWith(".mdx")) {
       await rimraf(path.join(outDir, entry));
@@ -391,9 +396,7 @@ async function generate() {
   // Write the generated files
   await Python.write(converted, { outDir });
 
-  console.log(
-    `Generated ${converted.length} API reference pages in ${outDir}`,
-  );
+  console.log(`Generated ${converted.length} API reference pages in ${outDir}`);
   for (const file of converted) {
     console.log(`  ${file.path}`);
   }

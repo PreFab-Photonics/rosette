@@ -62,9 +62,7 @@ function Hero() {
             {/* pip install — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
               <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground dark:shadow-none">
-                <span className="select-none text-emerald-400">
-                  ~&nbsp;
-                </span>
+                <span className="select-none text-emerald-400">~&nbsp;</span>
                 pip install librosette
                 <CopyButton text="pip install librosette" />
               </div>
@@ -125,7 +123,6 @@ function Hero() {
             </div>
           </div>
         </div>
-
       </div>
 
       {/* Full-width viewer + synced background dot grid (wider than text) */}
@@ -213,7 +210,21 @@ const capabilities = [
   {
     label: "fabrication",
     title: "Fabrication awareness",
-    description: (<>Built on <a href="https://prefabphotonics.com" target="_blank" rel="noopener noreferrer" className="underline decoration-fd-border underline-offset-2 transition-colors hover:text-fd-foreground">PreFab</a>&rsquo;s process knowledge. Move beyond basic design rules with foundry models that have true predictive capabilities.</>),
+    description: (
+      <>
+        Built on{" "}
+        <a
+          href="https://prefabphotonics.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline decoration-fd-border underline-offset-2 transition-colors hover:text-fd-foreground"
+        >
+          PreFab
+        </a>
+        &rsquo;s process knowledge. Move beyond basic design rules with foundry
+        models that have true predictive capabilities.
+      </>
+    ),
   },
   {
     label: "agents",
@@ -356,9 +367,7 @@ function ClosingCTA() {
             {/* pip install — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
               <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground dark:shadow-none">
-                <span className="select-none text-emerald-400">
-                  ~&nbsp;
-                </span>
+                <span className="select-none text-emerald-400">~&nbsp;</span>
                 pip install librosette
                 <CopyButton text="pip install librosette" />
               </div>
