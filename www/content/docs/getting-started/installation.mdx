@@ -1,0 +1,244 @@
+---
+title: Installation
+description: Install Rosette, create a new project, and run the dev server.
+---
+
+Create a new Rosette project and run it locally.
+
+## System requirements
+
+Before you begin, make sure your environment meets the following requirements:
+
+- **Python 3.11 or later** — Rosette ships pre-built wheels for Python 3.11, 3.12,
+  and 3.13. You can check your version with `python --version`.
+- **Operating system** — macOS (Apple Silicon), Linux (x86_64, aarch64), or Windows
+  (x86_64).
+- **Package manager** — [uv](https://docs.astral.sh/uv/) is recommended for fast
+  dependency management, but `pip` works too.
+
+No Rust toolchain is required for normal use — pre-compiled native extensions are
+included in the published wheels.
+
+## Quick start
+
+<Tabs items={["uv (recommended)", "pip"]}>
+
+<Tab value={"uv (recommended)"}>
+
+```bash
+mkdir my-chip && cd my-chip
+uv init
+uv add librosette
+uv run rosette init
+uv run rosette serve
+```
+
+</Tab>
+
+<Tab value={"pip"}>
+
+```bash
+mkdir my-chip && cd my-chip
+python -m venv .venv && source .venv/bin/activate
+pip install librosette
+rosette init
+rosette serve
+```
+
+On Windows, activate the virtual environment with `.venv\Scripts\activate` instead.
+
+</Tab>
+
+</Tabs>
+
+This creates a new project, installs Rosette, scaffolds the project files, and starts
+the dev server. Visit `http://localhost:5173` to open the viewer.
+
+<Callout title={"Package name"} type={"info"}>
+
+The PyPI package is called `librosette`, but you import it as `rosette` in Python:
+
+```python
+from rosette import Cell, Library
+```
+
+</Callout>
+
+## Create a project
+
+The quickest way to set up a new Rosette project is with `rosette init`. Start by
+creating a directory and initializing a Python project:
+
+<Tabs items={["uv", "pip"]}>
+
+<Tab value={"uv"}>
+
+```bash
+mkdir my-chip && cd my-chip
+uv init
+uv add librosette
+```
+
+</Tab>
+
+<Tab value={"pip"}>
+
+```bash
+mkdir my-chip && cd my-chip
+python -m venv .venv && source .venv/bin/activate
+pip install librosette
+```
+
+On Windows, activate the virtual environment with `.venv\Scripts\activate` instead.
+
+</Tab>
+
+</Tabs>
+
+Then initialize Rosette:
+
+<Tabs items={["uv", "pip"]}>
+
+<Tab value={"uv"}>
+
+```bash
+uv run rosette init
+```
+
+</Tab>
+
+<Tab value={"pip"}>
+
+```bash
+rosette init
+```
+
+</Tab>
+
+</Tabs>
+
+You will see the following prompts:
+
+```txt
+Select template:
+    Blank    — Empty config, define your own layers
+    Generic  — Pre-configured silicon photonics layers & DRC
+
+Select AI tool:
+    OpenCode    — Generates AGENTS.md
+    Claude Code — Generates CLAUDE.md
+    None        — Skip AI tool setup
+```
+
+The **generic** template is a good starting point if you are working with silicon
+photonics. It comes with layer definitions and design-rule checks pre-configured. The
+**blank** template gives you a clean slate.
+
+## Project structure
+
+After running `rosette init`, your project will contain:
+
+```txt
+my-chip/
+├── rosette.toml          # Project config: layers, DRC rules, build settings
+├── designs/              # Your design scripts go here
+├── output/               # GDS build output
+├── components/           # Editable photonic components (yours to modify)
+│   ├── waveguide.py
+│   ├── bend.py
+│   ├── taper.py
+│   └── ...
+├── .rosette/
+│   └── api.pyi           # Typed API stub for editor autocomplete
+└── AGENTS.md             # AI agent instructions (if selected)
+```
+
+- **`rosette.toml`** — The central configuration file. It defines your project name,
+  layer stack, and design-rule constraints.
+- **`designs/`** — Where you write your layout scripts. Each script defines cells and
+  geometry that Rosette compiles to GDS-II.
+- **`output/`** — Build artifacts. Running `rosette build` writes GDS files here.
+- **`components/`** — A library of photonic building blocks (waveguides, bends, tapers,
+  MMIs, and more). These are copied into your project so you can read and modify them
+  freely.
+- **`.rosette/api.pyi`** — A type stub for the core Rosette API. This powers
+  autocomplete and type checking in your editor.
+
+## Run the dev server
+
+Start the development server to get a live preview of your designs:
+
+<Tabs items={["uv", "pip"]}>
+
+<Tab value={"uv"}>
+
+```bash
+uv run rosette serve designs/my_design.py
+```
+
+</Tab>
+
+<Tab value={"pip"}>
+
+```bash
+rosette serve designs/my_design.py
+```
+
+</Tab>
+
+</Tabs>
+
+This opens a browser window at `http://localhost:5173` with an interactive WebGPU
+viewer. When you edit and save your design script, the viewer reloads automatically.
+
+You can also build a design to a GDS file without the viewer:
+
+<Tabs items={["uv", "pip"]}>
+
+<Tab value={"uv"}>
+
+```bash
+uv run rosette build designs/my_design.py
+```
+
+</Tab>
+
+<Tab value={"pip"}>
+
+```bash
+rosette build designs/my_design.py
+```
+
+</Tab>
+
+</Tabs>
+
+The output is written to `output/` by default.
+
+## Building from source
+
+If you want to contribute to Rosette or need to build from source, you will need
+the Rust toolchain in addition to Python.
+
+**Prerequisites:**
+
+- [Rust](https://www.rust-lang.org/tools/install) (stable channel)
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/)
+
+**Clone and build:**
+
+```bash
+git clone https://github.com/PreFab-Photonics/rosette.git
+cd rosette
+uv run maturin develop
+```
+
+This compiles the Rust core and installs the Python package in development mode. After
+making changes to Rust code, re-run `uv run maturin develop` to rebuild.
+
+**Run the test suite:**
+
+```bash
+cargo test && uv run pytest
+```
