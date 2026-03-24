@@ -24,8 +24,8 @@ export function CopyButton({
       }}
       className={`ml-3 flex-shrink-0 transition-colors ${
         disabled
-          ? "cursor-not-allowed text-black/15 dark:text-white/15"
-          : "text-black/25 hover:text-black/60 dark:text-white/25 dark:hover:text-white/60"
+          ? "cursor-not-allowed text-fd-border"
+          : "text-fd-border hover:text-fd-muted-foreground"
       }`}
       aria-label="Copy to clipboard"
     >

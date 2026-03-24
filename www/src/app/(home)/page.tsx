@@ -28,31 +28,31 @@ function Hero() {
         {/* Hero text */}
         <div className="mx-auto max-w-4xl text-center">
           {/* Tag line */}
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.03] px-4 py-1.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-wide text-black/50 uppercase dark:border-white/10 dark:bg-white/5 dark:text-white/50">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-fd-border bg-fd-muted px-4 py-1.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-wide text-fd-muted-foreground uppercase">
             <span className="h-1.5 w-1.5 rounded-full bg-brand-yellow" />
             In beta
           </div>
 
-          <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-black/90 sm:text-5xl lg:text-6xl dark:text-white">
+          <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl lg:text-6xl">
             A GDSII layout editor for{" "}
             <span className="text-brand-purple dark:text-brand-purple-light">
               modern workflows
             </span>
           </h1>
 
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-black/50 dark:text-white/60">
-            <span className="font-medium text-black/80 dark:text-white/80">
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-fd-muted-foreground">
+            <span className="font-medium text-fd-foreground">
               Fast. Intelligent. Accessible.
             </span>
           </p>
 
-          <p className="mt-3 text-sm text-black/30 dark:text-white/30">
+          <p className="mt-3 text-sm text-fd-muted-foreground">
             by{" "}
             <a
               href="https://prefabphotonics.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="transition-colors hover:text-black/50 dark:hover:text-white/50"
+              className="transition-colors hover:text-fd-foreground"
             >
               PreFab Photonics
             </a>
@@ -61,14 +61,14 @@ function Hero() {
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
+              <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground dark:shadow-none">
                 <span className="select-none text-emerald-400">
                   ~&nbsp;
                 </span>
                 pip install librosette
                 <CopyButton text="pip install librosette" />
               </div>
-              <span className="text-[11px] text-black/30 dark:text-white/30">
+              <span className="text-[11px] text-fd-muted-foreground">
                 Python SDK
               </span>
             </div>
@@ -94,7 +94,7 @@ function Hero() {
                 </svg>
                 Download
               </div>
-              <span className="text-[11px] text-black/30 dark:text-white/30">
+              <span className="text-[11px] text-fd-muted-foreground">
                 Desktop app &middot; coming soon
               </span>
             </div>
@@ -105,7 +105,7 @@ function Hero() {
                 href="https://github.com/prefab-photonics/rosette"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-colors hover:border-black/20 hover:text-black dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:text-white"
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm text-sm font-medium text-fd-foreground transition-colors hover:border-fd-ring dark:shadow-none"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -119,7 +119,7 @@ function Hero() {
                 </svg>
                 Clone
               </a>
-              <span className="text-[11px] text-black/30 dark:text-white/30">
+              <span className="text-[11px] text-fd-muted-foreground">
                 Source code
               </span>
             </div>
@@ -165,25 +165,25 @@ function WhyRosette() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 py-16">
       <div className="flex items-center gap-3 mb-3">
-        <div className="h-px w-8 bg-black/20 dark:bg-white/20" />
-        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-black/40 uppercase dark:text-white/40">
+        <div className="h-px w-8 bg-fd-border" />
+        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
           Principles
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-black/90 italic dark:text-white">
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground italic">
         Why Rosette?
       </h2>
 
       <div className="mt-10 grid gap-x-10 gap-y-6 sm:grid-cols-3">
         {reasons.map((reason, i) => (
           <div key={reason.title}>
-            <span className="font-[family-name:var(--font-geist-mono)] text-xs text-black/20 dark:text-white/20">
+            <span className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
               {String(i + 1).padStart(2, "0")}
             </span>
-            <h3 className="mt-1 text-sm font-semibold text-black/90 dark:text-white/90">
+            <h3 className="mt-1 text-sm font-semibold text-fd-foreground">
               {reason.title}
             </h3>
-            <p className="mt-1.5 text-sm leading-relaxed text-black/50 dark:text-white/50">
+            <p className="mt-1.5 text-sm leading-relaxed text-fd-muted-foreground">
               {reason.description}
             </p>
           </div>
@@ -213,7 +213,7 @@ const capabilities = [
   {
     label: "fabrication",
     title: "Fabrication awareness",
-    description: (<>Built on <a href="https://prefabphotonics.com" target="_blank" rel="noopener noreferrer" className="underline decoration-black/20 underline-offset-2 transition-colors hover:text-black/80 dark:decoration-white/20 dark:hover:text-white/80">PreFab</a>&rsquo;s process knowledge. Move beyond basic design rules with foundry models that have true predictive capabilities.</>),
+    description: (<>Built on <a href="https://prefabphotonics.com" target="_blank" rel="noopener noreferrer" className="underline decoration-fd-border underline-offset-2 transition-colors hover:text-fd-foreground">PreFab</a>&rsquo;s process knowledge. Move beyond basic design rules with foundry models that have true predictive capabilities.</>),
   },
   {
     label: "agents",
@@ -239,26 +239,26 @@ function WhatsInside() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 py-16">
       {/* Subtle divider */}
-      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-black/10 to-transparent dark:via-white/10" />
+      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
       <div className="flex items-center gap-3 mb-3">
-        <div className="h-px w-8 bg-black/20 dark:bg-white/20" />
-        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-black/40 uppercase dark:text-white/40">
+        <div className="h-px w-8 bg-fd-border" />
+        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
           Features
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-black/90 italic dark:text-white">
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground italic">
         What&rsquo;s inside
       </h2>
 
       <div className="mt-10 grid gap-px sm:grid-cols-2 lg:grid-cols-3">
         {capabilities.map((cap) => (
           <div key={cap.label} className="py-5 sm:pr-8 lg:pr-10">
-            <h3 className="text-sm font-semibold text-black/90 dark:text-white/90">
+            <h3 className="text-sm font-semibold text-fd-foreground">
               {cap.title}
             </h3>
             {cap.label === "more" ? (
-              <div className="mt-2.5 flex flex-wrap gap-x-2 gap-y-1.5 text-black/30 dark:text-white/20">
+              <div className="mt-2.5 flex flex-wrap gap-x-2 gap-y-1.5 text-fd-muted-foreground">
                 <RedactedText cols={14} rows={3} size={3} accentColor="#34d399">
                   Simulation
                 </RedactedText>
@@ -315,7 +315,7 @@ function WhatsInside() {
                 </RedactedText>
               </div>
             ) : (
-              <p className="mt-1.5 text-sm leading-relaxed text-black/50 dark:text-white/50">
+              <p className="mt-1.5 text-sm leading-relaxed text-fd-muted-foreground">
                 {cap.description}
               </p>
             )}
@@ -335,18 +335,18 @@ function ClosingCTA() {
     <section className="relative">
       {/* Top divider */}
       <div className="absolute inset-x-0 top-0 mx-auto max-w-6xl px-6">
-        <div className="h-px bg-gradient-to-r from-transparent via-black/10 to-transparent dark:via-white/10" />
+        <div className="h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
       </div>
 
       <div className="mx-auto max-w-6xl px-6 pt-16 pb-32">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-black/90 sm:text-4xl dark:text-white">
+          <h2 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-fd-foreground sm:text-4xl">
             Your GDSII{" "}
             <span className="text-brand-purple dark:text-brand-purple-light">
               layout editor
             </span>
           </h2>
-          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-black/50 dark:text-white/60">
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-fd-muted-foreground">
             Thousands of geometry operations, routing decisions, and design
             checks &mdash; compiled to native code and wrapped in an accessible
             interface.{" "}
@@ -355,14 +355,14 @@ function ClosingCTA() {
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 items-center rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-black/70 dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none">
+              <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground dark:shadow-none">
                 <span className="select-none text-emerald-400">
                   ~&nbsp;
                 </span>
                 pip install librosette
                 <CopyButton text="pip install librosette" />
               </div>
-              <span className="text-[11px] text-black/30 dark:text-white/30">
+              <span className="text-[11px] text-fd-muted-foreground">
                 Python SDK
               </span>
             </div>
@@ -388,7 +388,7 @@ function ClosingCTA() {
                 </svg>
                 Download
               </div>
-              <span className="text-[11px] text-black/30 dark:text-white/30">
+              <span className="text-[11px] text-fd-muted-foreground">
                 Desktop app &middot; coming soon
               </span>
             </div>
@@ -399,7 +399,7 @@ function ClosingCTA() {
                 href="https://github.com/prefab-photonics/rosette"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-black/10 border-b-black/15 bg-white px-5 shadow-sm text-sm font-medium text-black/70 transition-colors hover:border-black/20 hover:text-black dark:border-white/10 dark:border-b-white/15 dark:bg-neutral-900 dark:text-white/70 dark:shadow-none dark:hover:border-white/20 dark:hover:text-white"
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm text-sm font-medium text-fd-foreground transition-colors hover:border-fd-ring dark:shadow-none"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -413,7 +413,7 @@ function ClosingCTA() {
                 </svg>
                 Clone
               </a>
-              <span className="text-[11px] text-black/30 dark:text-white/30">
+              <span className="text-[11px] text-fd-muted-foreground">
                 Source code
               </span>
             </div>

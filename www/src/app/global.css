@@ -23,12 +23,10 @@
   --color-fd-primary: #5b52d6;
   --color-fd-primary-foreground: #ffffff;
   --color-fd-ring: #5b52d680;
-  --color-fd-background: hsl(0, 0%, 6%);
-  --color-fd-foreground: hsl(0, 0%, 93%);
-  --color-fd-muted: hsl(0, 0%, 12%);
-  --color-fd-card: hsl(0, 0%, 9%);
-  --color-fd-popover: hsl(0, 0%, 10%);
-  --color-fd-border: hsla(0, 0%, 30%, 30%);
-  --color-fd-accent: hsla(0, 0%, 40%, 25%);
-  --color-fd-secondary: hsl(0, 0%, 14%);
+}
+
+/* ── Sidebar: match main content background ─────────────────────────────── */
+
+#nd-sidebar {
+  background-color: var(--color-fd-background);
 }

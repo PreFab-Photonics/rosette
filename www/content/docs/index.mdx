@@ -3,4 +3,57 @@ title: Documentation
 description: Rosette documentation
 ---
 
-Documentation is coming soon. In the meantime, check out the [GitHub repository](https://github.com/PreFab-Photonics/rosette).
+## What is Rosette?
+
+Rosette is an AI-native, scriptable GDSII layout editor. It pairs a high-performance
+Rust core with an ergonomic Python API, so you can define your layouts in Python while
+the heavy lifting — geometry operations, routing, design-rule checks — runs at native
+speed. A web-based viewer with WebGPU rendering lets you inspect designs interactively,
+and a desktop app wraps it all into a single tool.
+
+Rosette is built from the ground up to support agentic design workflows and
+ML-driven design models. Its Python-first API and structured layout representation make
+it straightforward to integrate with AI agents, optimization loops, and generative
+models — whether you are exploring a design space automatically or letting an agent
+handle routine layout tasks.
+
+Whether you are drawing a simple test structure, assembling a complex multi-layer chip,
+or letting an AI agent iterate on your design, Rosette gives you programmatic control
+over every polygon while keeping the feedback loop fast.
+
+## Using these docs
+
+The documentation is organized into three sections:
+
+- **[Getting Started](/docs/getting-started)** — Install Rosette, create your first
+  layout, and learn the core concepts (cells, layers, ports, routing). Start here if
+  you are new.
+- **[Guides](/docs/guides)** — Task-oriented walkthroughs that cover specific workflows:
+  routing, design-rule checking, GDS-II import/export, and more.
+- **[API Reference](/docs/api-reference)** — Complete reference for every class and
+  function in the Python API.
+
+If you already know what you are looking for, use the search bar at the top of the page.
+
+## Pre-requisites
+
+Rosette is designed to be approachable, but some background knowledge will help you get
+the most out of it:
+
+- **Basic Python experience** — you should be comfortable writing and running Python
+  scripts. No advanced knowledge is needed.
+- **Familiarity with layout design** — an understanding of concepts like layers, cells,
+  and design rules will help, but is not strictly required. The
+  [Getting Started](/docs/getting-started) section introduces the key ideas.
+- **Command-line basics** — you will use the terminal to install Rosette and run your
+  design scripts.
+- **AI agents and ML models** (optional) — Rosette is designed to work with agentic
+  workflows and ML-driven design tools. If you plan to use these features, familiarity
+  with AI/ML frameworks and agent orchestration will be useful.
+
+## Join the community
+
+Rosette is open source. If you run into a bug, have a feature request, or want to
+contribute, head over to the
+[GitHub repository](https://github.com/PreFab-Photonics/rosette). Open an issue,
+start a discussion, or submit a pull request — all contributions are welcome.

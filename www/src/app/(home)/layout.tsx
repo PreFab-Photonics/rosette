@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
-import { Footer } from "./components/footer";
-import { Nav } from "./components/nav";
+import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
 
 export default function HomeLayout({ children }: { children: ReactNode }) {
   return (
     <>
-      <Nav />
+      <Header />
       <main className="flex-1">{children}</main>
       <Footer />
     </>
