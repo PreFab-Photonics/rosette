@@ -3,12 +3,14 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useSearchContext } from "fumadocs-ui/contexts/search";
 
 const navLinks = [{ label: "Docs", href: "/docs", external: false }] as const;
 
 export function Header({ trailing }: { trailing?: ReactNode }) {
   const { setOpenSearch, hotKey } = useSearchContext();
+  const pathname = usePathname();
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-fd-border bg-fd-background/90 backdrop-blur-xl">
@@ -35,8 +37,10 @@ export function Header({ trailing }: { trailing?: ReactNode }) {
             </span>
           </a>
 
-          {navLinks.map((link) =>
-            link.external ? (
+          {navLinks.map((link) => {
+            const isActive =
+              !link.external && pathname.startsWith(link.href);
+            return link.external ? (
               <a
                 key={link.href}
                 href={link.href}
@@ -50,12 +54,16 @@ export function Header({ trailing }: { trailing?: ReactNode }) {
               <Link
                 key={link.href}
                 href={link.href}
-                className="text-sm text-fd-muted-foreground transition-colors hover:text-fd-foreground"
+                className={`text-sm transition-colors ${
+                  isActive
+                    ? "text-brand-purple dark:text-brand-purple-light"
+                    : "text-fd-muted-foreground hover:text-fd-foreground"
+                }`}
               >
                 {link.label}
               </Link>
-            ),
-          )}
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-4">
