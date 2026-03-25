@@ -4,6 +4,8 @@ A modern GDSII layout editor for integrated circuits. Fast. Intelligent. Accessi
 
 By [PreFab Photonics](https://prefabphotonics.com).
 
+> **Rosette is in early development.** The API is unstable and will have breaking changes. Not suitable for production use.
+
 ### Highlights
 
 - **Fast** — A Rust core and GPU rendering that keeps you in the flow. From geometry operations to live preview, every layer of the stack is built for speed.
