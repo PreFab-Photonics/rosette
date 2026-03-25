@@ -58,7 +58,7 @@ def _apply_template(template_dir: Path, project_dir: Path, name: str, tool: str 
 
         # Filter tool-specific files
         rel_str = str(rel_path)
-        if rel_str == "AGENTS.md.template" and tool not in ("opencode", "claude"):
+        if rel_str == "AGENTS.md.template" and tool != "opencode":
             continue
         if rel_str == "CLAUDE.md.template" and tool != "claude":
             continue
@@ -480,7 +480,9 @@ def init_project(template: str | None = None, tool: str | None = None):
     (project_dir / "output").mkdir(exist_ok=True)
 
     # Copy components for user customization (shadcn-style)
-    _copy_components(project_dir)
+    # Blank template starts empty — no pre-built components
+    if template != "blank":
+        _copy_components(project_dir)
 
     # Copy API stub for agent reference
     _copy_api_stub(project_dir / ".rosette")
@@ -555,9 +557,8 @@ def update_project():
     """Update agent instruction files to latest templates.
 
     Convention:
-    - AGENTS.md: only the section between BEGIN/END markers is replaced,
-      preserving any user content outside the markers
-    - CLAUDE.md: overwritten (it just imports AGENTS.md)
+    - AGENTS.md / CLAUDE.md: only the section between BEGIN/END markers is
+      replaced, preserving any user content outside the markers
     - .rosette/api.pyi: fully replaced with latest API stub
     - Only updates files for tools that are already configured
     - User-owned files are never touched:
@@ -600,19 +601,17 @@ def update_project():
         if output_name == "rosette.toml":
             continue
         # Filter tool-specific templates
-        # AGENTS.md is needed for both tools (CLAUDE.md imports it via @AGENTS.md)
-        if output_name == "AGENTS.md" and not tools:
+        if output_name == "AGENTS.md" and "opencode" not in tools:
             continue
         if output_name == "CLAUDE.md" and "claude" not in tools:
             continue
         content = template_file.read_text().replace("{{name}}", name)
         dest = project_dir / output_name
 
-        if output_name == "AGENTS.md":
+        if output_name in ("AGENTS.md", "CLAUDE.md"):
             # Marker-based update: preserve user content outside markers
             _update_agent_file(dest, content)
         else:
-            # Other template files (CLAUDE.md) overwrite entirely
             dest.write_text(content)
 
     # Update API stub for agent reference

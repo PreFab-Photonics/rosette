@@ -10,7 +10,6 @@ Before writing or modifying any Rosette code, read these files:
 
 - `.rosette/api.pyi` -- complete typed API (source of truth for all classes and functions)
 - `rosette.toml` -- project config, layer definitions, DRC rules
-- `components/` -- editable component source
 
 Your training data may be outdated -- these files match your installed version.
 
@@ -19,8 +18,6 @@ Your training data may be outdated -- these files match your installed version.
 - All coordinates are in microns
 - Designs must export a `design` variable (a `Cell` instance)
 - Use `from rosette import *` for core types (Cell, Layer, Point, Route, etc.)
-- Use `from components import waveguide, bend, mmi_1x2` for local components
-- Components follow a consistent API: first param is `layer`, second is `width`
 - Always prefix CLI commands with `uv run` (e.g. `uv run rosette build designs/foo.py`)
 - The package is `librosette` (installed via `uv add librosette`, imported as `rosette`)
 - There is no standalone DRC command; run DRC in-script with `load_drc_rules()` and `run_drc()`

@@ -77,12 +77,8 @@ class TestRosetteInit:
         src_dir = project_dir / ".rosette" / "src"
         assert not src_dir.exists()
 
-        # Components are local Python files (not in .rosette)
-        components_dir = project_dir / "components"
-        assert components_dir.is_dir()
-        assert (components_dir / "waveguide.py").exists()
-        assert (components_dir / "bend.py").exists()
-        assert (components_dir / "mmi.py").exists()
+        # Blank template does not include components
+        assert not (project_dir / "components").exists()
 
     def test_init_uses_dir_name_as_default(self, tmp_path: Path, monkeypatch):
         """rosette init uses directory name for project name."""
@@ -148,6 +144,13 @@ class TestRosetteInit:
         assert "<!-- BEGIN:rosette-agent-rules -->" in agents_content
         assert "ALWAYS read the reference files" in agents_content
 
+        # Generic template includes components
+        components_dir = project_dir / "components"
+        assert components_dir.is_dir()
+        assert (components_dir / "waveguide.py").exists()
+        assert (components_dir / "bend.py").exists()
+        assert (components_dir / "mmi.py").exists()
+
     def test_init_stores_template_in_toml(self, tmp_path: Path, monkeypatch):
         """rosette init records the template name in rosette.toml."""
         project_dir = tmp_path / "my_project"
@@ -186,7 +189,7 @@ class TestRosetteInit:
         assert not (project_dir / "CLAUDE.md").exists()
 
     def test_init_claude_tool(self, tmp_path: Path, monkeypatch):
-        """rosette init with tool='claude' creates CLAUDE.md that imports AGENTS.md."""
+        """rosette init with tool='claude' creates standalone CLAUDE.md."""
         project_dir = tmp_path / "my_project"
         _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
@@ -194,12 +197,13 @@ class TestRosetteInit:
         init_project("blank", tool="claude")
 
         assert (project_dir / "CLAUDE.md").exists()
-        # AGENTS.md is also created because CLAUDE.md imports it
-        assert (project_dir / "AGENTS.md").exists()
+        # AGENTS.md is NOT created for claude tool
+        assert not (project_dir / "AGENTS.md").exists()
 
-        # CLAUDE.md uses @import instead of duplicating content
+        # CLAUDE.md contains full instructions with markers
         claude_content = (project_dir / "CLAUDE.md").read_text()
-        assert "@AGENTS.md" in claude_content
+        assert "<!-- BEGIN:rosette-agent-rules -->" in claude_content
+        assert "ALWAYS read the reference files" in claude_content
 
     def test_init_appends_gitignore(self, tmp_path: Path, monkeypatch):
         """rosette init appends entries to existing .gitignore without duplicating."""
