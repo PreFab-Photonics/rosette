@@ -661,15 +661,30 @@ class Cell:
 
 
 class Route:
-    """Path-based waveguide route.
+    """Waypoint-based waveguide route.
 
-    This wrapper extends the core Route to return wrapped Cell objects
-    from to_cell(), enabling the ergonomic Instance API.
+    Route connects an ordered sequence of waypoints with straight segments,
+    inserting circular bends at corners and tapers for width transitions.
+    It is **not** an auto-router — you must supply intermediate waypoints
+    to create the path shape you want. Returns wrapped Cell objects from
+    to_cell(), enabling the ergonomic Instance API.
 
-    Routes generate continuous waveguide geometry from a series of waypoints,
-    automatically inserting bends at corners and tapers for width transitions.
+    Important: When connecting two ports, always add intermediate (x, y)
+    waypoints so the route departs and arrives along each port's axis.
+    Two ports alone produce a straight diagonal line between them,
+    ignoring port directions.
 
-    Example:
+    Example — connecting two ports with an S-bend::
+
+        route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
+        route.start_at_port(port_a)                    # departs along port_a's axis
+        route.to(mid_x, port_a.position.y)             # horizontal segment out
+        route.to(mid_x, port_b.position.y)             # vertical transition
+        route.end_at_port(port_b)                      # arrives along port_b's axis
+        cell = route.to_cell("my_route")
+
+    Example — manual waypoints::
+
         route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
         route.start_at(0, 0, angle=0)
         route.to(50, 0)
@@ -704,7 +719,15 @@ class Route:
         self._inner.start_at(x, y, angle)
 
     def start_at_port(self, port: Port) -> None:
-        """Start the route at a port."""
+        """Start the route at a port's position, heading into the port.
+
+        The port's outward-facing direction is flipped 180 degrees so the
+        route departs in the correct direction (away from the component).
+        The port's width is used as the starting width.
+
+        Note: The first waypoint after this should continue along the
+        port's axis (e.g., same y for a horizontal port) before turning.
+        """
         self._inner.start_at_port(port)
 
     def to(
@@ -714,7 +737,13 @@ class Route:
         width: float | None = None,
         bend_radius: float | None = None,
     ) -> None:
-        """Add a waypoint to the route."""
+        """Add a waypoint to the route.
+
+        The route draws a straight segment from the previous waypoint to
+        (x, y), inserting a circular bend at the corner if the direction
+        changes. Provide intermediate waypoints to create L-bends and
+        S-bends — the router does not infer turns on its own.
+        """
         self._inner.to(x, y, width, bend_radius)
 
     def end_at(self, x: float, y: float, angle: float = 0.0) -> None:
@@ -722,7 +751,16 @@ class Route:
         self._inner.end_at(x, y, angle)
 
     def end_at_port(self, port: Port) -> None:
-        """End the route at a port."""
+        """End the route arriving into a port.
+
+        The port's outward-facing direction is flipped 180 degrees so the
+        route arrives heading into the component. The port's width is used
+        as the ending width.
+
+        Note: The last waypoint before this should approach along the
+        port's axis (e.g., same y for a horizontal port) to ensure a
+        flush connection.
+        """
         self._inner.end_at_port(port)
 
     def to_cell(self, name: str) -> Cell:
@@ -761,12 +799,21 @@ class Route:
     ) -> Route:
         """Create a route through a series of waypoints.
 
+        The route draws straight segments between consecutive waypoints,
+        inserting bends at corners. You **must** include intermediate
+        waypoints to create turns — two ports alone produce a straight
+        diagonal line regardless of port directions.
+
+        Port directions are used only for the first and last waypoint
+        (to set departure/arrival angle). Intermediate ports are treated
+        as plain (x, y) positions — their direction is ignored.
+
         Args:
             *waypoints: Sequence of waypoints. Each can be:
-                - Port: uses position, angle, and width
+                - Port: position + width; direction used only if first/last
                 - Point: uses position only
                 - (x, y) tuple: position only
-                - (x, y, angle) tuple: position and angle (for first/last waypoint)
+                - (x, y, angle) tuple: position and angle (first/last only)
             layer: The layer for the route
             width: Default waveguide width
             bend_radius: Default bend radius
@@ -774,8 +821,16 @@ class Route:
         Returns:
             A Route that can be converted to a Cell with to_cell()
 
-        Example:
-            route = Route.through(port_a, (50, 0), (50, 30), port_b, layer=Layer(1, 0))
+        Example — S-bend between two component ports::
+
+            route = Route.through(
+                port_a,             # start at port_a, depart along its axis
+                (25, port_a.position.y),   # extend horizontally
+                (25, port_b.position.y),   # shift vertically
+                port_b,             # arrive at port_b along its axis
+                layer=Layer(1, 0),
+                bend_radius=10.0,
+            )
             cell = route.to_cell("my_route")
         """
         inner_route = _Route.through(*waypoints, layer=layer, width=width, bend_radius=bend_radius)
