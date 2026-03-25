@@ -148,9 +148,13 @@ impl PyRoute {
 
     /// Create a route through a series of waypoints.
     ///
+    /// The route draws straight segments between consecutive waypoints,
+    /// inserting bends at corners. You must include intermediate waypoints
+    /// to create turns — two ports alone produce a straight diagonal line.
+    ///
     /// Args:
     ///     *waypoints: Sequence of waypoints. Each can be:
-    ///         - Port: uses position, angle, and width
+    ///         - Port: position + width; direction used only if first/last
     ///         - Point: uses position only
     ///         - (x, y) tuple: position only
     ///     layer: The layer for the route
