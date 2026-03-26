@@ -1,10 +1,15 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/PreFab-Photonics/rosette/main/www/public/rosette-logo.png" alt="Rosette" width="200" />
+</p>
+
 # Rosette
 
 A modern GDSII layout editor for integrated circuits. Fast. Intelligent. Accessible.
 
 By [PreFab Photonics](https://prefabphotonics.com).
 
-> **Rosette is in early development.** The API is unstable and will have breaking changes. Not suitable for production use.
+> [!WARNING]
+> Rosette is in early development. The API is unstable and will have breaking changes. Not suitable for production use.
 
 ### Highlights
 
