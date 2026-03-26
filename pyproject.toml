@@ -30,6 +30,7 @@ Homepage = "https://rosette.dev"
 
 [project.scripts]
 rosette = "rosette.cli:main"
+ro = "rosette.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "maturin>=1.4,<2.0", "ruff>=0.8"]

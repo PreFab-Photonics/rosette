@@ -74,13 +74,15 @@ uv tool install librosette
 ```
 
 This installs the `rosette` CLI into an isolated environment and makes it available
-system-wide. You can then run commands directly:
+system-wide. A short alias `ro` is also available. You can then run commands directly:
 
 ```bash
-rosette init
 rosette serve designs/my_design.py
 rosette check designs/my_design.py
 rosette build designs/my_design.py
+
+# or use the short alias
+ro serve designs/my_design.py
 ```
 
 <Callout title={"Project dependency still needed"} type={"warn"}>
