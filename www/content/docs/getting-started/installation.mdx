@@ -77,9 +77,13 @@ This installs the `rosette` CLI into an isolated environment and makes it availa
 system-wide. A short alias `ro` is also available. You can then run commands directly:
 
 ```bash
-rosette serve designs/my_design.py
-rosette check designs/my_design.py
-rosette build designs/my_design.py
+rosette serve designs/my_design.py    # dev server with live preview
+rosette build designs/my_design.py    # build to GDS
+rosette build designs/my_design.py --check  # build with DRC pre-check
+rosette check designs/my_design.py    # run all checks (DRC, ...)
+rosette drc designs/my_design.py      # run DRC only
+rosette run output/my_design.gds      # view a GDS file
+rosette --version                     # print version
 
 # or use the short alias
 ro serve designs/my_design.py
@@ -242,7 +246,30 @@ rosette build designs/my_design.py
 
 </Tabs>
 
-The output is written to `output/` by default.
+The output is written to `output/` by default. Add `--check` to run DRC before building:
+
+<Tabs items={["uv", "pip"]}>
+
+<Tab value={"uv"}>
+
+```bash
+uv run rosette build designs/my_design.py --check
+```
+
+</Tab>
+
+<Tab value={"pip"}>
+
+```bash
+rosette build designs/my_design.py --check
+```
+
+</Tab>
+
+</Tabs>
+
+DRC results are printed but the build always proceeds — use `rosette check` separately
+if you want to enforce passing DRC.
 
 ## Building from source
 

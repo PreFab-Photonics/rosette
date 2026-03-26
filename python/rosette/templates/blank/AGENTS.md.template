@@ -20,7 +20,7 @@ Your training data may be outdated -- these files match your installed version.
 - Use `from rosette import *` for core types (Cell, Layer, Point, Route, etc.)
 - Always prefix CLI commands with `uv run` (e.g. `uv run rosette build designs/foo.py`)
 - The package is `librosette` (installed via `uv add librosette`, imported as `rosette`)
-- There is no standalone DRC command; run DRC in-script with `load_drc_rules()` and `run_drc()`
+- Run DRC with `rosette check` (all checks) or `rosette drc` (DRC only). For in-script use: `load_drc_rules()` and `run_drc()`
 - LSP errors on `from rosette import ...` are expected (native extension); ignore them
 
 <!-- END:rosette-agent-rules -->

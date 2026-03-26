@@ -36,10 +36,25 @@ bun dev                                            # App dev server (from app/)
 bun run build:wasm                                 # Rebuild WASM (from app/)
 ```
 
+### CLI commands (user-facing)
+
+```bash
+rosette init                                       # Scaffold a new project
+rosette serve [designs/file.py]                    # Dev server with live preview
+rosette build designs/file.py                      # Build design to GDS
+rosette build designs/file.py --check              # Build with DRC pre-check
+rosette check designs/file.py                      # Run all checks (DRC, ...)
+rosette drc designs/file.py                        # Run DRC only
+rosette run output/file.gds                        # View a GDS file
+rosette --version                                  # Print version
+```
+
+`ro` is a short alias for `rosette`. Running bare `rosette` with no args opens an interactive command picker.
+
 ## Key Conventions
 
 **PyO3 boundary:** Rust uses radians, Python uses degrees — convert at the binding layer. PyO3 wrappers use `Py` prefix (`PyPoint`, `PyCell`). When adding or changing a binding, update `python/rosette/_core.pyi`.
 
 **Python wrappers:** `__slots__` on all classes. `_inner` holds the Rust object. `_from_inner` classmethod to wrap existing Rust objects.
 
-**Templates:** `rosette init` copies from `python/rosette/templates/blank/`. Check if changes need template updates.
+**Templates:** `rosette init` copies from `python/rosette/templates/blank/` or `python/rosette/templates/generic/`. Check if changes need template updates.
