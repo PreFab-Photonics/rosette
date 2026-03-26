@@ -137,13 +137,104 @@ def _copy_components(project_dir: Path):
     print(f"Copied {len(py_files)} component files to components/")
 
 
+def _find_design_files() -> list[Path]:
+    """Find design .py files in the current project."""
+    designs_dir = Path.cwd() / "designs"
+    if not designs_dir.exists():
+        return []
+    return sorted(f for f in designs_dir.glob("*.py") if not f.name.startswith("_"))
+
+
+def _find_gds_files() -> list[Path]:
+    """Find .gds files in output/ and current directory."""
+    files: list[Path] = []
+    output_dir = Path.cwd() / "output"
+    if output_dir.exists():
+        files.extend(output_dir.glob("*.gds"))
+    files.extend(Path.cwd().glob("*.gds"))
+    return sorted(set(files))
+
+
+# Commands that need a design .py file
+_NEEDS_DESIGN = {"build", "check", "drc"}
+# Commands that need a .gds file
+_NEEDS_GDS = {"run"}
+# Commands that take no file argument
+_NEEDS_NOTHING = {"init", "update", "serve"}
+
+
+def _select_command_interactive() -> tuple[str, str | None]:
+    """Interactive command picker for bare `rosette` invocation.
+
+    Returns (command, file_path) tuple. file_path is None for commands
+    that don't need one.
+    """
+    commands = [
+        ("serve", "serve", "Start dev server with live preview"),
+        ("build", "build", "Build a design to GDS"),
+        ("check", "check", "Run all checks (DRC, ...)"),
+        ("drc", "drc", "Run DRC only"),
+        ("run", "run", "View a GDS file"),
+        ("init", "init", "Initialize rosette in current project"),
+        ("update", "update", "Update agent files to latest template"),
+    ]
+
+    try:
+        command = _interactive_select("Select a command", commands)
+    except Exception:
+        command = _simple_select("Select a command", commands)
+
+    if command is None:
+        sys.exit(0)
+
+    # Commands that don't need a file
+    if command in _NEEDS_NOTHING:
+        return command, None
+
+    # Commands that need a .gds file
+    if command in _NEEDS_GDS:
+        gds_files = _find_gds_files()
+        if not gds_files:
+            print("No .gds files found in output/ or current directory")
+            print("Build a design first:")
+            print("  rosette build <path/to/design.py>")
+            sys.exit(1)
+
+        file_options = [(str(f), f.name, str(f.relative_to(Path.cwd()))) for f in gds_files]
+        try:
+            selected = _interactive_select("Select a GDS file", file_options)
+        except Exception:
+            selected = _simple_select("Select a GDS file", file_options)
+        if selected is None:
+            sys.exit(0)
+        return command, selected
+
+    # Commands that need a design .py file
+    design_files = _find_design_files()
+    if not design_files:
+        print("No design files found in designs/")
+        print("Create a design first, or specify one directly:")
+        print(f"  rosette {command} <path/to/design.py>")
+        sys.exit(1)
+
+    file_options = [(str(f), f.name, str(f.relative_to(Path.cwd()))) for f in design_files]
+    try:
+        selected = _interactive_select("Select a design", file_options)
+    except Exception:
+        selected = _simple_select("Select a design", file_options)
+    if selected is None:
+        sys.exit(0)
+
+    return command, selected
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="rosette",
         description="Photonic layout tool for creating and building GDS designs",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     # init command - initializes in current uv project
     init_parser = subparsers.add_parser("init", help="Initialize rosette in current uv project")
@@ -236,6 +327,20 @@ def main():
 
     args = parser.parse_args()
 
+    # No command given: interactive picker in TTY, help text otherwise
+    if args.command is None:
+        if sys.stdin.isatty():
+            command, design = _select_command_interactive()
+            # Re-dispatch through the same main() with synthetic args
+            argv = [command]
+            if design:
+                argv.append(design)
+            sys.argv = ["rosette", *argv]
+            return main()
+        else:
+            parser.print_help()
+            sys.exit(0)
+
     if args.command == "init":
         init_project(template=args.template, tool=args.tool)
     elif args.command == "update":
@@ -262,29 +367,21 @@ def main():
         run_gds(args.file, args.port, args.no_open, native=native_run)
 
 
-def _select_tool_interactive() -> str | None:
-    """Interactive single-select for AI tool configuration.
+def _interactive_select(
+    header: str,
+    options: list[tuple],
+    preamble: list[str] | None = None,
+) -> str | None:
+    """Generic radio selector using terminal raw mode (Unix).
 
-    Uses arrow keys + enter in TTY mode, falls back to numbered prompt.
-    Returns the tool key ("opencode" or "claude") or None if skipped.
+    Args:
+        header: Prompt text (e.g. "Select a command")
+        options: List of (key, label, description) tuples
+        preamble: Optional lines to display before the selector
+
+    Returns:
+        The selected option key, or None if cancelled (Esc/Ctrl+C/q).
     """
-    options = [
-        ("opencode", "OpenCode", "Generates AGENTS.md"),
-        ("claude", "Claude Code", "Generates CLAUDE.md"),
-        (None, "None", "Skip AI tool setup"),
-    ]
-
-    if not sys.stdin.isatty():
-        return "opencode"
-
-    try:
-        return _interactive_tool_radio(options)
-    except Exception:
-        return _simple_tool_select(options)
-
-
-def _interactive_tool_radio(options: list[tuple[str | None, str, str]]) -> str | None:
-    """Radio selector for AI tool using terminal raw mode (Unix)."""
     import termios
     import tty
 
@@ -298,7 +395,10 @@ def _interactive_tool_radio(options: list[tuple[str | None, str, str]]) -> str |
         if drawn:
             sys.stdout.write(f"\033[{len(options) + 1}A\033[J")
         sys.stdout.write(
-            "Select AI tool (\033[1m\u2191\u2193\033[0m move, \033[1menter\033[0m confirm):\r\n"
+            f"{header} "
+            f"(\033[1m\u2191\u2193\033[0m move, "
+            f"\033[1menter\033[0m confirm, "
+            f"\033[1mesc\033[0m cancel):\r\n"
         )
         for i, (_, label, desc) in enumerate(options):
             dot = "\033[32m\u25cf\033[0m" if i == cursor else "\u25cb"
@@ -307,48 +407,86 @@ def _interactive_tool_radio(options: list[tuple[str | None, str, str]]) -> str |
         sys.stdout.flush()
         drawn = True
 
+    def _read_escape_sequence() -> str | None:
+        """Read after \\x1b. Returns 'up'/'down' for arrows, None for bare Esc."""
+        # Use VMIN=0 VTIME=1 (100ms timeout) to distinguish bare Esc from sequences.
+        # Arrow keys send \x1b[A/B as a fast burst; bare Esc has nothing after.
+        seq_settings = termios.tcgetattr(fd)
+        seq_settings[6][termios.VMIN] = 0
+        seq_settings[6][termios.VTIME] = 1  # 100ms in deciseconds
+        termios.tcsetattr(fd, termios.TCSANOW, seq_settings)
+        try:
+            ch2 = os.read(fd, 1)
+            if not ch2:
+                return None  # Bare Escape (timed out)
+            if ch2 == b"[":
+                ch3 = os.read(fd, 1)
+                if ch3 == b"A":
+                    return "up"
+                elif ch3 == b"B":
+                    return "down"
+            return None  # Unknown sequence, treat as cancel
+        finally:
+            # Restore raw mode: VMIN=1 VTIME=0 (blocking read)
+            raw_settings = termios.tcgetattr(fd)
+            raw_settings[6][termios.VMIN] = 1
+            raw_settings[6][termios.VTIME] = 0
+            termios.tcsetattr(fd, termios.TCSANOW, raw_settings)
+
     try:
         tty.setraw(fd)
         sys.stdout.write("\r\n")
-        sys.stdout.write("  Rosette sets up AI agent config so your editor knows how to work\r\n")
-        sys.stdout.write("  with photonic designs. Pick which tool you use:\r\n")
-        sys.stdout.write("\r\n")
-        sys.stdout.flush()
+        if preamble:
+            for line in preamble:
+                sys.stdout.write(f"  {line}\r\n")
+            sys.stdout.write("\r\n")
+            sys.stdout.flush()
         render()
 
         while True:
-            ch = sys.stdin.read(1)
-            if ch in ("\r", "\n"):
+            ch = os.read(fd, 1)
+            if ch in (b"\r", b"\n"):
                 break
-            elif ch == "\x1b":
-                ch2 = sys.stdin.read(1)
-                if ch2 == "[":
-                    ch3 = sys.stdin.read(1)
-                    if ch3 == "A":  # Up
-                        cursor = (cursor - 1) % len(options)
-                        render()
-                    elif ch3 == "B":  # Down
-                        cursor = (cursor + 1) % len(options)
-                        render()
-            elif ch == "\x03":  # Ctrl+C
-                raise KeyboardInterrupt
+            elif ch == b"\x1b":
+                action = _read_escape_sequence()
+                if action == "up":
+                    cursor = (cursor - 1) % len(options)
+                    render()
+                elif action == "down":
+                    cursor = (cursor + 1) % len(options)
+                    render()
+                else:
+                    return None  # Bare Esc or unknown
+            elif ch in (b"\x03", b"q"):  # Ctrl+C or q
+                return None
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        sys.stdout.write("\n")
 
-    sys.stdout.write("\n")
     return options[cursor][0]
 
 
-def _simple_tool_select(options: list[tuple[str | None, str, str]]) -> str | None:
-    """Fallback numbered prompt for AI tool selection."""
+def _simple_select(
+    header: str,
+    options: list[tuple],
+    preamble: list[str] | None = None,
+) -> str | None:
+    """Generic fallback numbered prompt selector.
+
+    Args:
+        header: Prompt text (e.g. "Select a command")
+        options: List of (key, label, description) tuples
+        preamble: Optional lines to display before the options
+    """
     print()
-    print("  Rosette sets up AI agent config so your editor knows how to work")
-    print("  with photonic designs. Pick which tool you use:")
-    print()
+    if preamble:
+        for line in preamble:
+            print(f"  {line}")
+        print()
     for i, (_, label, desc) in enumerate(options, 1):
         print(f"  {i}. {label} - {desc}")
 
-    choice = input("Choice (default: 1): ").strip()
+    choice = input(f"{header} (default: 1): ").strip()
     if not choice or choice == "1":
         return options[0][0]
     if choice.isdigit():
@@ -356,6 +494,34 @@ def _simple_tool_select(options: list[tuple[str | None, str, str]]) -> str | Non
         if 0 <= idx < len(options):
             return options[idx][0]
     return options[0][0]
+
+
+def _select_tool_interactive() -> str | None:
+    """Interactive single-select for AI tool configuration.
+
+    Uses arrow keys + enter in TTY mode, falls back to numbered prompt.
+    Returns the tool key ("opencode" or "claude") or None if skipped.
+    """
+    options = [
+        ("opencode", "OpenCode", "Generates AGENTS.md"),
+        ("claude", "Claude Code", "Generates CLAUDE.md"),
+        ("none", "None", "Skip AI tool setup"),
+    ]
+    preamble = [
+        "Rosette sets up AI agent config so your editor knows how to work",
+        "with photonic designs. Pick which tool you use:",
+    ]
+
+    if not sys.stdin.isatty():
+        return "opencode"
+
+    try:
+        result = _interactive_select("Select AI tool", options, preamble)
+    except Exception:
+        result = _simple_select("Select AI tool", options, preamble)
+    if result is None:
+        sys.exit(0)
+    return result
 
 
 def _select_template_interactive() -> str:
@@ -372,77 +538,12 @@ def _select_template_interactive() -> str:
         return "blank"
 
     try:
-        return _interactive_radio(options)
+        result = _interactive_select("Select a template", options)
     except Exception:
-        return _simple_template_select(options)
-
-
-def _interactive_radio(options: list[tuple[str, str, str]]) -> str:
-    """Radio selector using terminal raw mode (Unix)."""
-    import termios
-    import tty
-
-    cursor = 0
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    drawn = False
-
-    def render():
-        nonlocal drawn
-        if drawn:
-            sys.stdout.write(f"\033[{len(options) + 1}A\033[J")
-        sys.stdout.write(
-            "Select a template (\033[1m\u2191\u2193\033[0m move, \033[1menter\033[0m confirm):\r\n"
-        )
-        for i, (_, label, desc) in enumerate(options):
-            dot = "\033[32m\u25cf\033[0m" if i == cursor else "\u25cb"
-            arrow = "\033[36m\u203a\033[0m " if i == cursor else "  "
-            sys.stdout.write(f"  {arrow}{dot} {label} \033[2m- {desc}\033[0m\r\n")
-        sys.stdout.flush()
-        drawn = True
-
-    try:
-        tty.setraw(fd)
-        sys.stdout.write("\r\n")
-        render()
-
-        while True:
-            ch = sys.stdin.read(1)
-            if ch in ("\r", "\n"):
-                break
-            elif ch == "\x1b":
-                ch2 = sys.stdin.read(1)
-                if ch2 == "[":
-                    ch3 = sys.stdin.read(1)
-                    if ch3 == "A":  # Up
-                        cursor = (cursor - 1) % len(options)
-                        render()
-                    elif ch3 == "B":  # Down
-                        cursor = (cursor + 1) % len(options)
-                        render()
-            elif ch == "\x03":  # Ctrl+C
-                raise KeyboardInterrupt
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-    sys.stdout.write("\n")
-    return options[cursor][0]
-
-
-def _simple_template_select(options: list[tuple[str, str, str]]) -> str:
-    """Fallback numbered prompt for template selection."""
-    print()
-    for i, (_, label, desc) in enumerate(options, 1):
-        print(f"  {i}. {label} - {desc}")
-
-    choice = input("Choice (default: 1): ").strip()
-    if not choice or choice == "1":
-        return options[0][0]
-    if choice.isdigit():
-        idx = int(choice) - 1
-        if 0 <= idx < len(options):
-            return options[idx][0]
-    return options[0][0]
+        result = _simple_select("Select a template", options)
+    if result is None:
+        sys.exit(0)
+    return result
 
 
 def init_project(template: str | None = None, tool: str | None = None):
