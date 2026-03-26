@@ -7,6 +7,7 @@ Core algorithm correctness is tested in Rust.
 import pytest
 
 from rosette import Cell, DrcRules, Layer, Point, Polygon, load_drc_rules, run_drc
+from rosette.cli import _print_drc_result, _run_drc_check, check_design, drc_design
 
 
 class TestDrcRules:
@@ -590,3 +591,138 @@ min_spacing = 0.5
 
         rules = load_drc_rules(config_file)
         assert "1 rules" in repr(rules)
+
+
+def _write_design_and_config(tmp_path, *, passing: bool):
+    """Helper: write a design .py file and rosette.toml in tmp_path.
+
+    If passing=True, the design satisfies DRC rules.
+    If passing=False, the design violates min_width.
+    """
+    # Design file
+    width = 10.0 if passing else 0.05
+    design_py = tmp_path / "design.py"
+    design_py.write_text(
+        f"from rosette import Cell, Layer, Point, Polygon\n"
+        f'design = Cell("test")\n'
+        f"design.add_polygon(Polygon.rect(Point.origin(), {width}, {width}), Layer(1, 0))\n"
+    )
+
+    # Config file
+    config_file = tmp_path / "rosette.toml"
+    config_file.write_text('[drc.layers."1/0"]\nmin_width = 0.15\nmin_area = 0.01\n')
+    return design_py, config_file
+
+
+class TestDrcCli:
+    """Tests for `rosette drc` and `rosette check` CLI commands."""
+
+    def test_run_drc_check_passing(self, tmp_path):
+        """_run_drc_check returns passing result for valid design."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=True)
+
+        result, file_path = _run_drc_check(str(design_py), str(config_file))
+        assert result.passed
+        assert result.rules_checked == 2
+        assert file_path.name == "design.py"
+
+    def test_run_drc_check_failing(self, tmp_path):
+        """_run_drc_check returns violations for invalid design."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=False)
+
+        result, _file_path = _run_drc_check(str(design_py), str(config_file))
+        assert not result.passed
+        assert len(result.violations) > 0
+
+    def test_print_drc_result_pass(self, tmp_path, capsys):
+        """_print_drc_result prints pass message."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=True)
+        result, file_path = _run_drc_check(str(design_py), str(config_file))
+
+        passed = _print_drc_result(result, file_path)
+        assert passed
+
+        captured = capsys.readouterr()
+        assert "passed" in captured.out
+        assert "drc" in captured.out
+
+    def test_print_drc_result_fail(self, tmp_path, capsys):
+        """_print_drc_result prints violations."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=False)
+        result, file_path = _run_drc_check(str(design_py), str(config_file))
+
+        passed = _print_drc_result(result, file_path)
+        assert not passed
+
+        captured = capsys.readouterr()
+        assert "FAIL" in captured.out
+        assert "violation" in captured.out
+
+    def test_print_drc_result_verbose(self, tmp_path, capsys):
+        """Verbose mode shows bounding box coordinates."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=False)
+        result, file_path = _run_drc_check(str(design_py), str(config_file))
+
+        _print_drc_result(result, file_path, verbose=True)
+
+        captured = capsys.readouterr()
+        assert "at (" in captured.out
+
+    def test_drc_design_exits_on_failure(self, tmp_path):
+        """drc_design calls sys.exit(1) on violations."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=False)
+
+        with pytest.raises(SystemExit) as exc_info:
+            drc_design(str(design_py), str(config_file))
+        assert exc_info.value.code == 1
+
+    def test_drc_design_no_exit_on_pass(self, tmp_path, capsys):
+        """drc_design does not exit on pass."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=True)
+
+        # Should not raise SystemExit
+        drc_design(str(design_py), str(config_file))
+
+        captured = capsys.readouterr()
+        assert "passed" in captured.out
+
+    def test_check_design_exits_on_failure(self, tmp_path):
+        """check_design calls sys.exit(1) on violations."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=False)
+
+        with pytest.raises(SystemExit) as exc_info:
+            check_design(str(design_py), str(config_file))
+        assert exc_info.value.code == 1
+
+    def test_check_design_no_exit_on_pass(self, tmp_path, capsys):
+        """check_design does not exit on pass."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=True)
+
+        # Should not raise SystemExit
+        check_design(str(design_py), str(config_file))
+
+        captured = capsys.readouterr()
+        assert "passed" in captured.out
+
+    def test_missing_config_exits(self, tmp_path):
+        """Missing rosette.toml gives clear error and exits."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text('from rosette import Cell\ndesign = Cell("test")\n')
+        fake_config = str(tmp_path / "nonexistent.toml")
+
+        with pytest.raises(SystemExit) as exc_info:
+            drc_design(str(design_py), fake_config)
+        assert exc_info.value.code == 1
+
+    def test_auto_detect_config(self, tmp_path, monkeypatch, capsys):
+        """config_path=None auto-detects rosette.toml from cwd."""
+        design_py, _config_file = _write_design_and_config(tmp_path, passing=True)
+
+        # Change cwd to tmp_path so _find_rosette_toml() finds the config
+        monkeypatch.chdir(tmp_path)
+
+        # No explicit config -- should auto-detect rosette.toml
+        drc_design(str(design_py))
+
+        captured = capsys.readouterr()
+        assert "passed" in captured.out

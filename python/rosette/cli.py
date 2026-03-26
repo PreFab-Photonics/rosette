@@ -3,6 +3,8 @@
 Commands:
     rosette init             Initialize rosette in current uv project
     rosette build <file>     Build a design to GDS
+    rosette check <file>     Run all checks (DRC, ...)
+    rosette drc <file>       Run DRC only
     rosette serve [file]     Start dev server with live preview
 """
 
@@ -169,6 +171,22 @@ def main():
         "-v", "--verbose", action="store_true", help="Show detailed build output"
     )
 
+    # check command - run all checks
+    check_parser = subparsers.add_parser("check", help="Run all checks (DRC, ...)")
+    check_parser.add_argument("design", help="Design file (path or path:target)")
+    check_parser.add_argument(
+        "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
+    )
+    check_parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed output")
+
+    # drc command - run DRC only
+    drc_parser = subparsers.add_parser("drc", help="Run DRC only")
+    drc_parser.add_argument("design", help="Design file (path or path:target)")
+    drc_parser.add_argument(
+        "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
+    )
+    drc_parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed output")
+
     # serve command
     serve_parser = subparsers.add_parser("serve", help="Start dev server with live preview")
     serve_parser.add_argument(
@@ -224,6 +242,10 @@ def main():
         update_project()
     elif args.command == "build":
         build_design(args.design, args.output, args.verbose)
+    elif args.command == "check":
+        check_design(args.design, args.config, args.verbose)
+    elif args.command == "drc":
+        drc_design(args.design, args.config, args.verbose)
     elif args.command == "serve":
         from rosette._serve import serve_design
 
@@ -721,6 +743,120 @@ def load_design(path_spec: str) -> tuple:
         sys.exit(1)
 
     return cell, file_path, target_name
+
+
+def _format_layer(layer_tuple: tuple[int, int]) -> str:
+    """Format a layer tuple as 'number/datatype'."""
+    return f"{layer_tuple[0]}/{layer_tuple[1]}"
+
+
+def _run_drc_check(
+    design_spec: str,
+    config_path: str | None = None,
+) -> tuple:
+    """Run DRC on a design and return (result, file_path).
+
+    Loads the design, loads rules from rosette.toml, and runs DRC.
+    Returns (DrcResult, file_path) for the caller to format output.
+    """
+    from rosette import load_drc_rules, run_drc
+
+    # Load design
+    cell, file_path, _ = load_design(design_spec)
+
+    # Load DRC rules from rosette.toml
+    try:
+        rules = load_drc_rules(config_path)
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error in DRC config: {e}")
+        sys.exit(1)
+
+    # Run DRC (Rust engine)
+    result = run_drc(cell, rules)
+    return result, file_path
+
+
+def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
+    """Print DRC results. Returns True if passed."""
+    # Header
+    print(f"drc  {file_path}  {result.rules_checked} rules, {result.polygons_checked} polygons")
+
+    if result.passed:
+        print(f"\n  passed ({result.elapsed_ms:.1f}ms)")
+        return True
+
+    # Print violations
+    print()
+    errors = 0
+    warnings = 0
+    for v in result.violations:
+        if v.severity == "error":
+            errors += 1
+            label = "FAIL"
+        else:
+            warnings += 1
+            label = "WARN"
+
+        # Use rule_name if available, otherwise rule_type
+        name = v.rule_name or v.rule_type
+        layer_str = _format_layer(v.layer)
+
+        # Build the violation line
+        if v.layer2 is not None:
+            layer_str += f", {_format_layer(v.layer2)}"
+
+        print(f"  {label}  {name} on {layer_str}: {v.message}")
+
+        if verbose:
+            bbox = v.bbox
+            print(
+                f"        at ({bbox[0][0]:.3f}, {bbox[0][1]:.3f}) "
+                f"to ({bbox[1][0]:.3f}, {bbox[1][1]:.3f})"
+            )
+
+    # Summary
+    parts = []
+    if errors:
+        parts.append(f"{errors} error{'s' if errors != 1 else ''}")
+    if warnings:
+        parts.append(f"{warnings} warning{'s' if warnings != 1 else ''}")
+    summary = ", ".join(parts)
+    count = len(result.violations)
+    print(
+        f"\n  {count} violation{'s' if count != 1 else ''} ({summary}) in {result.elapsed_ms:.1f}ms"
+    )
+    return False
+
+
+def drc_design(design: str, config: str | None = None, verbose: bool = False):
+    """Run DRC on a design."""
+    result, file_path = _run_drc_check(design, config)
+    passed = _print_drc_result(result, file_path, verbose)
+    if not passed:
+        sys.exit(1)
+
+
+def check_design(design: str, config: str | None = None, verbose: bool = False):
+    """Run all checks on a design.
+
+    Currently runs DRC. More checks will be added in the future.
+    """
+    all_passed = True
+
+    # DRC
+    result, file_path = _run_drc_check(design, config)
+    passed = _print_drc_result(result, file_path, verbose)
+    if not passed:
+        all_passed = False
+
+    # Future checks would go here:
+    # connectivity, density, LVS, etc.
+
+    if not all_passed:
+        sys.exit(1)
 
 
 def build_design(design: str, output_dir: str, verbose: bool = False):
