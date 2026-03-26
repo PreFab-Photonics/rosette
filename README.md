@@ -25,7 +25,7 @@ uv run rosette init
 
 `rosette init` walks you through template and AI tool selection, then scaffolds your project with editable components, layer config, and agent instructions.
 
-Run commands with `uv run rosette <command>`, or activate the venv first (`source .venv/bin/activate`).
+Run commands with `uv run rosette <command>`, or install the CLI globally with `uv tool install librosette` to use `rosette` directly. See the [installation guide](https://rosette.dev/docs/getting-started/installation) for details.
 
 ## Documentation
 
