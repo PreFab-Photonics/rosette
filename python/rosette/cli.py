@@ -230,10 +230,13 @@ def _select_command_interactive() -> tuple[str, str | None]:
 
 def main():
     """Main CLI entry point."""
+    from rosette import __version__
+
     parser = argparse.ArgumentParser(
         prog="rosette",
         description="Photonic layout tool for creating and building GDS designs",
     )
+    parser.add_argument("-V", "--version", action="version", version=f"rosette {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
     # init command - initializes in current uv project
@@ -260,6 +263,14 @@ def main():
     build_parser.add_argument("-o", "--output", default="output", help="Output directory")
     build_parser.add_argument(
         "-v", "--verbose", action="store_true", help="Show detailed build output"
+    )
+    build_parser.add_argument(
+        "--check", action="store_true", help="Run DRC before building (warns but still writes GDS)"
+    )
+    build_parser.add_argument(
+        "--config",
+        default=None,
+        help="Path to rosette.toml for --check (auto-detected if omitted)",
     )
 
     # check command - run all checks
@@ -346,7 +357,7 @@ def main():
     elif args.command == "update":
         update_project()
     elif args.command == "build":
-        build_design(args.design, args.output, args.verbose)
+        build_design(args.design, args.output, args.verbose, args.check, args.config)
     elif args.command == "check":
         check_design(args.design, args.config, args.verbose)
     elif args.command == "drc":
@@ -846,6 +857,40 @@ def load_design(path_spec: str) -> tuple:
     return cell, file_path, target_name
 
 
+def _use_color() -> bool:
+    """Check if we should use colored output."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    return sys.stdout.isatty()
+
+
+def _color(text: str, code: str) -> str:
+    """Wrap text in ANSI color codes if color is enabled."""
+    if not _use_color():
+        return text
+    return f"\033[{code}m{text}\033[0m"
+
+
+def _red(text: str) -> str:
+    return _color(text, "31")
+
+
+def _yellow(text: str) -> str:
+    return _color(text, "33")
+
+
+def _green(text: str) -> str:
+    return _color(text, "32")
+
+
+def _dim(text: str) -> str:
+    return _color(text, "2")
+
+
+def _bold(text: str) -> str:
+    return _color(text, "1")
+
+
 def _format_layer(layer_tuple: tuple[int, int]) -> str:
     """Format a layer tuple as 'number/datatype'."""
     return f"{layer_tuple[0]}/{layer_tuple[1]}"
@@ -872,6 +917,7 @@ def _run_drc_check(
         print(f"Error: {e}")
         sys.exit(1)
     except ValueError as e:
+        # Also catches TOMLDecodeError (subclass of ValueError)
         print(f"Error in DRC config: {e}")
         sys.exit(1)
 
@@ -883,10 +929,13 @@ def _run_drc_check(
 def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
     """Print DRC results. Returns True if passed."""
     # Header
-    print(f"drc  {file_path}  {result.rules_checked} rules, {result.polygons_checked} polygons")
+    print(
+        f"{_bold('drc')}  {file_path}  "
+        f"{_dim(f'{result.rules_checked} rules, {result.polygons_checked} polygons')}"
+    )
 
     if result.passed:
-        print(f"\n  passed ({result.elapsed_ms:.1f}ms)")
+        print(f"\n  {_green('passed')} {_dim(f'({result.elapsed_ms:.1f}ms)')}")
         return True
 
     # Print violations
@@ -896,10 +945,10 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
     for v in result.violations:
         if v.severity == "error":
             errors += 1
-            label = "FAIL"
+            label = _red("FAIL")
         else:
             warnings += 1
-            label = "WARN"
+            label = _yellow("WARN")
 
         # Use rule_name if available, otherwise rule_type
         name = v.rule_name or v.rule_type
@@ -909,13 +958,13 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
         if v.layer2 is not None:
             layer_str += f", {_format_layer(v.layer2)}"
 
-        print(f"  {label}  {name} on {layer_str}: {v.message}")
+        print(f"  {label}  {_bold(name)} on {layer_str}: {v.message}")
 
         if verbose:
             bbox = v.bbox
             print(
-                f"        at ({bbox[0][0]:.3f}, {bbox[0][1]:.3f}) "
-                f"to ({bbox[1][0]:.3f}, {bbox[1][1]:.3f})"
+                f"        {_dim(f'at ({bbox[0][0]:.3f}, {bbox[0][1]:.3f})')}"
+                f" {_dim(f'to ({bbox[1][0]:.3f}, {bbox[1][1]:.3f})')}"
             )
 
     # Summary
@@ -927,7 +976,8 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
     summary = ", ".join(parts)
     count = len(result.violations)
     print(
-        f"\n  {count} violation{'s' if count != 1 else ''} ({summary}) in {result.elapsed_ms:.1f}ms"
+        f"\n  {_red(f'{count} violation' + ('s' if count != 1 else ''))} "
+        f"({summary}) {_dim(f'in {result.elapsed_ms:.1f}ms')}"
     )
     return False
 
@@ -960,7 +1010,13 @@ def check_design(design: str, config: str | None = None, verbose: bool = False):
         sys.exit(1)
 
 
-def build_design(design: str, output_dir: str, verbose: bool = False):
+def build_design(
+    design: str,
+    output_dir: str,
+    verbose: bool = False,
+    check: bool = False,
+    config: str | None = None,
+):
     """Build a design to GDS using the 'design' convention."""
     from rosette import write_gds
 
@@ -970,6 +1026,22 @@ def build_design(design: str, output_dir: str, verbose: bool = False):
     # Load design using convention
     cell, file_path, _ = load_design(design)
 
+    # Run DRC before building if --check is set
+    if check:
+        from rosette import load_drc_rules, run_drc
+
+        try:
+            rules = load_drc_rules(config)
+            result = run_drc(cell, rules)
+            _print_drc_result(result, file_path, verbose)
+            print()  # blank line before build output
+        except FileNotFoundError:
+            print(_yellow("Warning: no rosette.toml found, skipping DRC"))
+            print()
+        except ValueError as e:
+            print(_yellow(f"Warning: invalid DRC config: {e}"))
+            print()
+
     # Output filename from design file name
     gds_output = output_path / f"{file_path.stem}.gds"
 
@@ -978,8 +1050,16 @@ def build_design(design: str, output_dir: str, verbose: bool = False):
         os.environ["ROSETTE_VERBOSE"] = "1"
 
     # Write GDS
-    write_gds(str(gds_output), cell, quiet=False, verbose=verbose)
-    print(f"ok {gds_output}")
+    import time
+
+    t0 = time.perf_counter()
+    try:
+        write_gds(str(gds_output), cell, quiet=False, verbose=verbose)
+    except Exception as e:
+        print(f"{_red('Error')} writing {gds_output}: {e}")
+        sys.exit(1)
+    elapsed = (time.perf_counter() - t0) * 1000
+    print(f"{_green('ok')} {gds_output} {_dim(f'({elapsed:.0f}ms)')}")
 
 
 if __name__ == "__main__":
