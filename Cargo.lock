@@ -3545,6 +3545,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rosette-dfm"
+version = "0.1.5"
+dependencies = [
+ "rosette-core",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "rosette-drc"
 version = "0.1.5"
 dependencies = [
@@ -3571,6 +3579,7 @@ version = "0.1.5"
 dependencies = [
  "pyo3",
  "rosette-core",
+ "rosette-dfm",
  "rosette-drc",
  "rosette-io",
 ]

@@ -860,34 +860,6 @@ class DrcResult:
     def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
 
-def load_drc_rules(config_path: str | None = None) -> DrcRules:
-    """Load DRC rules from rosette.toml.
-
-    Searches for rosette.toml in the current directory and parent directories.
-    Rules are defined per-layer in the [drc.layers] section.
-
-    Args:
-        config_path: Optional explicit path to rosette.toml. If None, searches
-                     from current directory upward.
-
-    Returns:
-        DrcRules built from the configuration
-
-    Raises:
-        FileNotFoundError: If rosette.toml is not found
-        ValueError: If the config has invalid DRC settings
-
-    Example:
-        # In rosette.toml:
-        # [drc.layers."1/0"]
-        # min_width = 0.12
-        # min_spacing = 0.13
-
-        rules = load_drc_rules()
-        result = run_drc(cell, rules)
-    """
-    ...
-
 def run_drc(
     cell: Cell,
     rules: DrcRules,
@@ -911,5 +883,165 @@ def run_drc(
         else:
             for v in result.violations:
                 print(f"  {v.message}")
+    """
+    ...
+
+# =============================================================================
+# DFM (Design for Manufacturability) Prediction
+# =============================================================================
+
+class DfmConfig:
+    """Configuration for DFM prediction.
+
+    Example:
+        config = DfmConfig(resolution=0.01, padding=1.0)
+        result = run_dfm(cell, layers=[Layer(1)], config=config)
+
+        # With tolerances for pass/fail checking:
+        config = DfmConfig(resolution=0.01, max_area_deviation=0.10)
+    """
+
+    resolution: float
+    padding: float
+    contour_threshold: float
+    keep_raster: bool
+    max_area_deviation: float | None
+    has_tolerances: bool
+
+    def __init__(
+        self,
+        resolution: float = 0.01,
+        padding: float = 1.0,
+        contour_threshold: float = 0.5,
+        keep_raster: bool = False,
+        max_area_deviation: float | None = None,
+        severity: str = "error",
+    ) -> None: ...
+    def set_layer_config(
+        self,
+        layer: Layer | int | tuple[int, int],
+        sigma: float | None = None,
+        threshold: float | None = None,
+        max_area_deviation: float | None = None,
+        severity: str | None = None,
+    ) -> None:
+        """Set per-layer model and tolerance overrides.
+
+        Per-layer settings override the global defaults for a specific layer.
+        Parameters left as None fall back to the global config.
+
+        Example:
+            config = DfmConfig(resolution=0.01, sigma=0.08)
+            config.set_layer_config(Layer(1, 0), sigma=0.05, max_area_deviation=0.05)
+            config.set_layer_config(Layer(2, 0), sigma=0.15)
+        """
+        ...
+    def __repr__(self) -> str: ...
+
+class GaussianModel:
+    """Gaussian blur DFM model for proximity effect simulation.
+
+    Simulates optical proximity effects during lithography by applying
+    a Gaussian blur to the rasterized geometry.
+
+    Example:
+        model = GaussianModel(sigma=0.08, threshold=0.5)
+        result = run_dfm(cell, layers=[Layer(1)], model=model)
+    """
+
+    sigma: float
+    threshold: float
+    name: str
+
+    def __init__(self, sigma: float, threshold: float = 0.5) -> None: ...
+    def __repr__(self) -> str: ...
+
+class LayerMetrics:
+    """Per-layer comparison metrics between designed and predicted geometry."""
+
+    layer: tuple[int, int]
+    max_edge_deviation: float
+    """Maximum edge deviation in design units."""
+    area_deviation: float
+    """Relative area change (signed: negative = shrinkage)."""
+    designed_area: float
+    """Designed area in design units squared."""
+    predicted_area: float
+    """Predicted area in design units squared."""
+    def __repr__(self) -> str: ...
+
+class DfmViolation:
+    """A single DFM violation."""
+
+    layer: tuple[int, int]
+    violation_type: str
+    """Type: "area_deviation"."""
+    message: str
+    severity: str
+    """Severity: "error" or "warning"."""
+    bbox: tuple[tuple[float, float], tuple[float, float]]
+    max_allowed: float
+    actual: float
+    def __repr__(self) -> str: ...
+
+class LayerPrediction:
+    """Prediction result for a single layer."""
+
+    layer: tuple[int, int]
+    predicted_polygons: list[Polygon]
+    input_polygon_count: int
+    predicted_polygon_count: int
+    metrics: LayerMetrics | None
+    violations: list[DfmViolation]
+    has_raster: bool
+    raster_data: list[float] | None
+    raster_width: int | None
+    raster_height: int | None
+    raster_origin: tuple[float, float] | None
+    def __repr__(self) -> str: ...
+
+class DfmResult:
+    """Result of running DFM prediction."""
+
+    layers: list[LayerPrediction]
+    total_predicted_polygons: int
+    total_input_polygons: int
+    passed: bool
+    violations: list[DfmViolation]
+    layers_processed: int
+    total_pixels: int
+    resolution: float
+    elapsed_ms: float
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+def run_dfm(
+    cell: Cell,
+    layers: list[Layer],
+    model: GaussianModel | None = None,
+    config: DfmConfig | None = None,
+    library: Library | None = None,
+) -> DfmResult:
+    """Run DFM prediction on a cell.
+
+    Rasterizes each specified layer, applies the fabrication prediction model,
+    extracts contour polygons, and computes comparison metrics.
+
+    Args:
+        cell: The cell to predict
+        layers: Layers to process
+        model: The prediction model (default: GaussianModel with sigma=0.08)
+        config: DFM configuration (default: DfmConfig())
+        library: Library containing referenced cells (required if cell has refs)
+
+    Returns:
+        DfmResult with per-layer predictions, metrics, and violations
+
+    Example:
+        result = run_dfm(cell, layers=[Layer(1, 0)])
+        for lp in result.layers:
+            m = lp.metrics
+            if m:
+                print(f"  Layer {lp.layer}: edge dev {m.max_edge_deviation:.3f} um")
     """
     ...

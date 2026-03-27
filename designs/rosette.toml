@@ -154,3 +154,37 @@ type = "require_overlap"
 layer1 = "11/0"       # Via
 layer2 = "12/0"       # Metal 2
 name = "VIA_M2_OVLP"  # Vias must connect to Metal 2
+
+# =============================================================================
+# DFM (Design for Manufacturability) Prediction
+# =============================================================================
+#
+# Virtual nanofabrication prediction. Rasterizes geometry, applies a
+# fabrication model, and compares the predicted result to the design.
+#
+# Models:
+#   gaussian - Approximate proximity effect simulation via Gaussian blur.
+#              Useful for catching gross issues (features too narrow, gaps
+#              too small) but not a substitute for calibrated models.
+#   (PreFab foundry-calibrated models coming soon)
+#
+# =============================================================================
+
+[dfm]
+resolution = 0.01     # Pixel size in um (smaller = more accurate, slower)
+padding = 1.0         # Margin around cell bounding box in um
+model = "gaussian"    # Prediction model (approximate — PreFab models coming soon)
+sigma = 0.08          # Gaussian sigma in um (models lithography proximity blur)
+threshold = 0.5       # Binarization threshold (0.0-1.0)
+layers = ["1/0"]      # Layers to predict (waveguide layer)
+
+# Tolerances — deviations beyond these limits are reported as violations.
+# Note: the Gaussian model is an approximation. Set tolerances accordingly.
+# Foundry-calibrated PreFab models will enable tighter, meaningful limits.
+max_area_deviation = 0.10   # relative — max area change (10%)
+severity = "warning"        # "warning" to inform, "error" to fail the check
+
+# Per-layer overrides — override model params and tolerances per layer.
+# [dfm.layer."1/0"]
+# sigma = 0.05              # tighter process on waveguide layer
+# max_area_deviation = 0.05

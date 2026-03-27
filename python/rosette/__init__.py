@@ -41,12 +41,19 @@ from pathlib import Path
 from rosette._core import (
     # Geometry
     BBox,
+    # DFM
+    DfmConfig,
+    DfmResult,
+    DfmViolation,
     # DRC
     DrcResult,
     DrcRules,
     DrcViolation,
+    GaussianModel,
     # Layout
     Layer,
+    LayerMetrics,
+    LayerPrediction,
     PathEndType,
     Point,
     Polygon,
@@ -66,6 +73,7 @@ from rosette._core import CellRef as _CellRef
 from rosette._core import Library as _Library
 from rosette._core import Route as _Route
 from rosette._core import read_gds as _read_gds
+from rosette._core import run_dfm as _run_dfm
 from rosette._core import run_drc as _run_drc
 from rosette._core import write_gds as _write_gds
 
@@ -1097,6 +1105,172 @@ def run_drc(
     return _run_drc(inner_cell, rules, inner_library)
 
 
+def load_dfm_config(
+    config_path: str | Path | None = None,
+) -> tuple[DfmConfig, GaussianModel, list[Layer]]:
+    """Load DFM configuration from rosette.toml.
+
+    Reads the [dfm] section of rosette.toml which configures the virtual
+    nanofabrication prediction tool.
+
+    Args:
+        config_path: Optional explicit path to rosette.toml. If None, searches
+                     from current directory upward.
+
+    Returns:
+        Tuple of (DfmConfig, GaussianModel, layers) where layers is the list
+        of layers to predict (empty list means "all layers in the design").
+
+    Raises:
+        FileNotFoundError: If rosette.toml is not found
+        ValueError: If the config has invalid DFM settings
+
+    Example:
+        # In rosette.toml:
+        # [dfm]
+        # resolution = 0.01
+        # sigma = 0.08
+        # layers = ["1/0"]
+
+        config, model, layers = load_dfm_config()
+        result = run_dfm(cell, layers=layers, model=model, config=config)
+    """
+    # Find config file
+    if config_path is not None:
+        toml_path = Path(config_path)
+        if not toml_path.exists():
+            raise FileNotFoundError(f"Config file not found: {toml_path}")
+    else:
+        toml_path = _find_rosette_toml()
+        if toml_path is None:
+            raise FileNotFoundError(
+                "rosette.toml not found. Run 'rosette init' to create a project, "
+                "or specify config_path explicitly."
+            )
+
+    # Parse TOML
+    with open(toml_path, "rb") as f:
+        config = tomllib.load(f)
+
+    dfm_config = config.get("dfm", {})
+    if not dfm_config:
+        raise ValueError("No [dfm] section found in rosette.toml")
+
+    # Extract configuration values with defaults
+    resolution = dfm_config.get("resolution", 0.01)
+    padding = dfm_config.get("padding", 1.0)
+    contour_threshold = dfm_config.get("contour_threshold", 0.5)
+    keep_raster = dfm_config.get("keep_raster", False)
+
+    # Model configuration
+    model_type = dfm_config.get("model", "gaussian")
+    if model_type != "gaussian":
+        raise ValueError(
+            f"Unknown DFM model type: '{model_type}'. "
+            "Currently supported: 'gaussian'. "
+            "PreFab models coming soon."
+        )
+
+    sigma = dfm_config.get("sigma", 0.08)
+    threshold = dfm_config.get("threshold", 0.5)
+
+    # Validate numeric values
+    if not isinstance(resolution, (int, float)) or resolution <= 0:
+        raise ValueError(f"DFM 'resolution' must be a positive number, got {resolution!r}")
+    if not isinstance(sigma, (int, float)) or sigma < 0:
+        raise ValueError(f"DFM 'sigma' must be a non-negative number, got {sigma!r}")
+    if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
+        raise ValueError(f"DFM 'threshold' must be between 0.0 and 1.0, got {threshold!r}")
+
+    # Parse layers
+    layer_strs = dfm_config.get("layers", [])
+    layers = [_parse_layer_string(ls) for ls in layer_strs]
+
+    # Parse optional tolerances
+    max_area_deviation = dfm_config.get("max_area_deviation")
+    severity = dfm_config.get("severity", "error")
+
+    if max_area_deviation is not None:
+        if not isinstance(max_area_deviation, (int, float)) or max_area_deviation <= 0:
+            raise ValueError(
+                f"DFM 'max_area_deviation' must be a positive number, got {max_area_deviation!r}"
+            )
+        max_area_deviation = float(max_area_deviation)
+
+    if severity not in ("error", "warning"):
+        raise ValueError(f"DFM 'severity' must be 'error' or 'warning', got {severity!r}")
+
+    dfm_cfg = DfmConfig(
+        resolution=float(resolution),
+        padding=float(padding),
+        contour_threshold=float(contour_threshold),
+        keep_raster=bool(keep_raster),
+        max_area_deviation=max_area_deviation,
+        severity=severity,
+    )
+    model = GaussianModel(sigma=float(sigma), threshold=float(threshold))
+
+    # Parse per-layer overrides from [dfm.layer."1/0"] sections
+    per_layer = dfm_config.get("layer", {})
+    for layer_str, layer_params in per_layer.items():
+        if not isinstance(layer_params, dict):
+            continue
+        layer_obj = _parse_layer_string(layer_str)
+        dfm_cfg.set_layer_config(
+            layer_obj,
+            sigma=layer_params.get("sigma"),
+            threshold=layer_params.get("threshold"),
+            max_area_deviation=layer_params.get("max_area_deviation"),
+            severity=layer_params.get("severity"),
+        )
+
+    return dfm_cfg, model, layers
+
+
+def run_dfm(
+    cell: Cell | _Cell,
+    layers: list[Layer],
+    model: GaussianModel | None = None,
+    config: DfmConfig | None = None,
+    library: Library | _Library | None = None,
+) -> DfmResult:
+    """Run DFM prediction on a cell.
+
+    Rasterizes each specified layer, applies the fabrication prediction model,
+    and extracts contour polygons representing the predicted fabricated geometry.
+
+    Args:
+        cell: The cell to predict
+        layers: Layers to process
+        model: The prediction model (default: GaussianModel with sigma=0.08)
+        config: DFM configuration (default: DfmConfig())
+        library: Library containing referenced cells (required if cell has refs)
+
+    Returns:
+        DfmResult with per-layer predictions and statistics
+
+    Example:
+        result = run_dfm(cell, layers=[Layer(1, 0)])
+        for lp in result.layers:
+            print(f"  Layer {lp.layer}: {lp.input_polygon_count} -> {lp.predicted_polygon_count}")
+    """
+    # Extract inner Rust objects
+    inner_cell = cell._inner if isinstance(cell, Cell) else cell
+    inner_library = None
+    if library is not None:
+        inner_library = library._inner if isinstance(library, Library) else library
+
+    # Default model
+    if model is None:
+        model = GaussianModel(sigma=0.08)
+
+    # Default config
+    if config is None:
+        config = DfmConfig()
+
+    return _run_dfm(inner_cell, layers, model, config, inner_library)
+
+
 def read_gds(path: str | Path) -> Library:
     """Read a GDS file and return a Library.
 
@@ -1514,13 +1688,19 @@ __all__ = [
     "BBox",
     "Cell",
     "CellRef",
+    "DfmConfig",
+    "DfmResult",
+    "DfmViolation",
     "DrcResult",
     "DrcRules",
     "DrcViolation",
+    "GaussianModel",
     "Instance",
     "Layer",
     "LayerInfo",
     "LayerMap",
+    "LayerMetrics",
+    "LayerPrediction",
     "Library",
     "PathEndType",
     "Point",
@@ -1532,12 +1712,14 @@ __all__ = [
     "arc_points",
     "fresnel_c",
     "fresnel_s",
+    "load_dfm_config",
     "load_drc_rules",
     "load_layer_map",
     "offset_polygon",
     "offset_polygon_varying",
     "path_length",
     "read_gds",
+    "run_dfm",
     "run_drc",
     "write_gds",
 ]
