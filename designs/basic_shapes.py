@@ -53,7 +53,7 @@ top.add_ref(rect_cell.at(0, 40).mirror_x())  # Mirrored instance
 
 # Place triangle with rotation
 top.add_ref(triangle_cell.at(50, 0))
-top.add_ref(triangle_cell.at(50, 40).rotate(180))
+top.add_ref(triangle_cell.at(0, 0).rotate(180).at(50, 40))
 
 # Place ring
 top.add_ref(ring_cell.at(120, 25))

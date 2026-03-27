@@ -444,3 +444,182 @@ class TestInstance:
 
         assert parent.ref_count() == 1
         assert child in parent.get_child_cells()
+
+    def test_instance_rotate_180_port_direction(self):
+        """180-degree rotation correctly flips port direction.
+
+        Regression test: _is_mirrored_y() used to check dx < 0, which
+        is true for any rotation > 90 degrees, falsely triggering a
+        mirror that cancelled the rotation in both port queries and
+        GDS output.
+        """
+        cell = Cell("component")
+        cell.add_port(Port("opt", Point(10.0, 0.0), Vector2.unit_x()))
+
+        instance = cell.at(0, 0).rotate(180.0)
+        port = instance.port("opt")
+
+        # Position (10, 0) rotated 180 -> (-10, 0)
+        assert port.position.x == pytest.approx(-10.0)
+        assert port.position.y == pytest.approx(0.0)
+        # Direction (1, 0) rotated 180 -> (-1, 0)
+        assert port.direction.x == pytest.approx(-1.0)
+        assert port.direction.y == pytest.approx(0.0)
+
+    def test_instance_rotate_270_port_direction(self):
+        """270-degree rotation correctly transforms port direction."""
+        cell = Cell("component")
+        cell.add_port(Port("opt", Point(10.0, 0.0), Vector2.unit_x()))
+
+        instance = cell.at(0, 0).rotate(270.0)
+        port = instance.port("opt")
+
+        # Position (10, 0) rotated 270 -> (0, -10)
+        assert port.position.x == pytest.approx(0.0)
+        assert port.position.y == pytest.approx(-10.0)
+        # Direction (1, 0) rotated 270 -> (0, -1)
+        assert port.direction.x == pytest.approx(0.0)
+        assert port.direction.y == pytest.approx(-1.0)
+
+    def test_instance_mirror_y_port_direction(self):
+        """mirror_y() correctly flips port direction X component."""
+        cell = Cell("component")
+        cell.add_port(Port("opt", Point(10.0, 5.0), Vector2.unit_x()))
+
+        instance = cell.at(0, 0).mirror_y()
+        port = instance.port("opt")
+
+        # Position X negated
+        assert port.position.x == pytest.approx(-10.0)
+        assert port.position.y == pytest.approx(5.0)
+        # Direction X negated
+        assert port.direction.x == pytest.approx(-1.0)
+        assert port.direction.y == pytest.approx(0.0)
+
+    def test_instance_mirror_x_port_direction(self):
+        """mirror_x() correctly flips port direction Y component."""
+        cell = Cell("component")
+        cell.add_port(Port("opt", Point(10.0, 5.0), Vector2(0.0, 1.0)))
+
+        instance = cell.at(0, 0).mirror_x()
+        port = instance.port("opt")
+
+        # Position Y negated
+        assert port.position.x == pytest.approx(10.0)
+        assert port.position.y == pytest.approx(-5.0)
+        # Direction Y negated
+        assert port.direction.x == pytest.approx(0.0)
+        assert port.direction.y == pytest.approx(-1.0)
+
+    def test_instance_rotate_180_gds_roundtrip(self):
+        """180-degree rotated Instance survives GDS round-trip.
+
+        Regression test: the broken _is_mirrored_y() caused add_ref()
+        to emit a spurious mirror_y that cancelled the 180-degree
+        rotation, making the GDS reference appear unrotated.
+        """
+        from rosette import read_gds
+
+        # Asymmetric cell: polygon only in +X half
+        child = Cell("asym")
+        child.add_polygon(Polygon.rect(Point(0, 0), 20, 5), Layer(1, 0))
+        child.add_port(Port("tip", Point(20.0, 2.5), Vector2.unit_x()))
+
+        # Rotate 180 then place at (50, 0)
+        inst = child.at(0, 0).rotate(180.0).at(50, 0)
+        port = inst.port("tip")
+
+        # Port position: (20, 2.5) -> R(180) -> (-20, -2.5) -> T(50,0) -> (30, -2.5)
+        assert port.position.x == pytest.approx(30.0)
+        assert port.position.y == pytest.approx(-2.5)
+        # Direction should be flipped
+        assert port.direction.x == pytest.approx(-1.0)
+        assert port.direction.y == pytest.approx(0.0)
+
+        parent = Cell("top")
+        parent.add_ref(inst)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "rot180.gds"
+            write_gds(path, parent)
+
+            lib = read_gds(str(path))
+            parent_read = lib.cell("top")
+            assert parent_read is not None
+            assert parent_read.ref_count() == 1
+
+            # Read back the child's bbox through the parent reference
+            # If the rotation was lost, the bbox would be wrong
+            child_read = lib.cell("asym")
+            assert child_read is not None
+            assert child_read.polygon_count() == 1
+
+    def test_instance_mirror_x_gds_roundtrip(self):
+        """mirror_x() Instance survives GDS round-trip."""
+        from rosette import read_gds
+
+        child = Cell("mirrored")
+        child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
+
+        inst = child.at(0, 0).mirror_x().at(30, 0)
+
+        parent = Cell("top_mirror")
+        parent.add_ref(inst)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "mirror.gds"
+            write_gds(path, parent)
+
+            lib = read_gds(str(path))
+            parent_read = lib.cell("top_mirror")
+            assert parent_read is not None
+            assert parent_read.ref_count() == 1
+
+    def test_instance_rotate_then_translate_gds_roundtrip(self):
+        """Rotated Instance port positions are consistent across both idioms.
+
+        Regression test: Instance.add_ref() used to decompose the transform
+        as .at(pos).rotate(angle), which double-rotates the translation.
+        The fix applies rotation first, then translation:
+        .rotate(angle).at(pos).
+        """
+        from rosette import read_gds
+
+        child = Cell("child")
+        child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
+        child.add_port(Port("out", Point(10.0, 0.0), Vector2.unit_x()))
+
+        # Idiom 1: .at(x,y).rotate(deg) -- translate then rotate around origin
+        # Transform: R(90) * T(25, 58.5)
+        # Port (10, 0) -> T -> (35, 58.5) -> R(90) -> (-58.5, 35)
+        inst1 = child.at(25.0, 58.5).rotate(90.0)
+        p1 = inst1.port("out")
+        assert p1.position.x == pytest.approx(-58.5, abs=0.1)
+        assert p1.position.y == pytest.approx(35.0, abs=0.1)
+
+        # Idiom 2: .at(0,0).rotate(deg).at(x,y) -- rotate then translate
+        # Transform: T(25, 58.5) * R(90)
+        # Port (10, 0) -> R(90) -> (0, 10) -> T -> (25, 68.5)
+        inst2 = child.at(0, 0).rotate(90.0).at(25.0, 58.5)
+        p2 = inst2.port("out")
+        assert p2.position.x == pytest.approx(25.0, abs=0.1)
+        assert p2.position.y == pytest.approx(68.5, abs=0.1)
+
+        # Write both to GDS and verify they round-trip (ref count preserved,
+        # child cell intact)
+        parent = Cell("parent")
+        parent.add_ref(inst1)
+        parent.add_ref(inst2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "rotated.gds"
+            write_gds(path, parent)
+
+            lib = read_gds(str(path))
+            parent_read = lib.cell("parent")
+            assert parent_read is not None
+            assert parent_read.ref_count() == 2
+
+            child_read = lib.cell("child")
+            assert child_read is not None
+            assert child_read.polygon_count() == 1

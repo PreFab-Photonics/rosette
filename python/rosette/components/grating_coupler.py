@@ -7,6 +7,24 @@ aperture, then periodic teeth diffract light vertically toward the fiber.
 
 The single port ``"opt"`` sits at the origin and faces **+X** (toward
 the rest of the on-chip circuit).
+
+Placement guide
+---------------
+Default orientation: port ``"opt"`` at origin facing **+X**, grating
+body (taper + teeth) extending in **-X**.
+
+To connect a GC to a component port, rotate the GC so that ``opt``
+faces **toward** the component (into the port). The grating body will
+then extend **away** from the component::
+
+    # GC opt needs to face | Rotation
+    # +X  (default/east)   | 0
+    # -X  (west)           | 180
+    # +Y  (north)          | 90
+    # -Y  (south)          | -90
+
+    # Example: place GC with opt facing -X (toward a port on the left)
+    gc_inst = gc.at(0, 0).rotate(180).at(x, y)
 """
 
 import math

@@ -23,7 +23,7 @@ port = gc_in.port("opt")            # No redundancy!
 
 Instances can be added directly to cells and support transform chaining:
 ```python
-gc = gc_cell.at(100, 50).rotate(180).mirror_x()
+gc = gc_cell.at(100, 50)
 top.add_ref(gc)
 ```
 ## Attributes
@@ -295,7 +295,7 @@ since the Instance already knows its cell definition.
 <Callout title={"Example"} type={"example"}>
 
 ```python
-gc = gc_cell.at(100, 50).rotate(180)
+gc = gc_cell.at(100, 50)
 opt_port = gc.port("opt")  # No need to pass gc_cell!
 ```
 
@@ -320,7 +320,7 @@ def port(self, name: str) -> Port:
         KeyError: If the port is not found in the cell
 
     Example:
-        gc = gc_cell.at(100, 50).rotate(180)
+        gc = gc_cell.at(100, 50)
         opt_port = gc.port("opt")  # No need to pass gc_cell!
     """
     # Get the original port from the cell

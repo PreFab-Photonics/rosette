@@ -151,8 +151,19 @@ class Instance:
         port = gc_in.port("opt")            # No redundancy!
 
     Instances can be added directly to cells and support transform chaining:
-        gc = gc_cell.at(100, 50).rotate(180).mirror_x()
+        gc = gc_cell.at(100, 50)
         top.add_ref(gc)
+
+    **Transform chaining order:** Each chained call wraps the *outside* of
+    the accumulated transform. This means the *first* call in the chain is
+    applied first to the geometry, and the *last* call is applied last::
+
+        # .at(10, 0).rotate(90) -> translate first, THEN rotate around origin
+        # Point (0,0) becomes (10,0) then rotates to (0,10) -- NOT at (10,0)!
+
+        # To rotate a component then place it at a specific position,
+        # rotate first, then translate:
+        inst = cell.at(0, 0).rotate(90).at(25, 50)  # rotate, then move to (25,50)
     """
 
     __slots__ = ("_cell", "_transform")
@@ -253,19 +264,25 @@ class Instance:
             KeyError: If the port is not found in the cell
 
         Example:
-            gc = gc_cell.at(100, 50).rotate(180)
+            gc = gc_cell.at(100, 50)
             opt_port = gc.port("opt")  # No need to pass gc_cell!
         """
         # Get the original port from the cell
         original_port = self._cell.port(name)
         # Apply the transform to get the positioned port
         pos = self._transform.apply(original_port.position)
-        # Transform the direction vector
-        direction = original_port.direction.rotate(self._rotation_angle())
-        if self._is_mirrored_x():
-            direction = Vector2(direction.x, -direction.y)
-        if self._is_mirrored_y():
-            direction = Vector2(-direction.x, direction.y)
+        # Transform the direction vector using the 2x2 linear part of the
+        # transform.  This correctly handles rotation, mirroring, and any
+        # combination without needing decomposition.
+        origin = self._transform.apply(Point.origin())
+        dir_pt = self._transform.apply(Point(original_port.direction.x, original_port.direction.y))
+        dx = dir_pt.x - origin.x
+        dy = dir_pt.y - origin.y
+        length = math.sqrt(dx * dx + dy * dy)
+        if length > 0:
+            direction = Vector2(dx / length, dy / length)
+        else:
+            direction = original_port.direction
         return Port(name, pos, direction, original_port.width)
 
     def to_ref(self) -> CellRef:
@@ -274,46 +291,77 @@ class Instance:
         Returns:
             A CellRef with the same cell name and transform
         """
-        # Create CellRef and apply transform components
-        # We need to decompose and reapply since CellRef uses its own transform
+        # Decompose into GDS-compatible: mirror_x (innermost),
+        # then rotation, then translation (outermost).
         ref = CellRef(self._cell.name)
-        # Apply translation
-        ref = ref.at(
-            self._transform.apply(Point.origin()).x, self._transform.apply(Point.origin()).y
-        )
+        angle, is_mirrored = self._decompose_transform()
+        # Mirror first (innermost -- applied first to geometry)
+        if is_mirrored:
+            ref = ref.mirror_x()
+        # Then rotation (wraps outside the mirror)
+        if abs(angle) > 0.001:
+            ref = ref.rotate(angle)
+        pos = self._transform.apply(Point.origin())
+        ref = ref.at(pos.x, pos.y)
         return ref
+
+    def _decompose_transform(self) -> tuple[float, bool]:
+        """Decompose transform into rotation angle (degrees) and mirror flag.
+
+        Returns (angle_deg, is_mirrored) matching GDS convention:
+        the transform is equivalent to mirror_x (if flagged) then rotate.
+
+        Uses the determinant of the 2x2 linear part to detect reflection
+        (det < 0) instead of checking individual axis signs, which gives
+        false positives for rotations > 90 degrees.
+        """
+        origin = self._transform.apply(Point.origin())
+        ux = self._transform.apply(Point(1.0, 0.0))
+        uy = self._transform.apply(Point(0.0, 1.0))
+
+        # Basis vectors of the 2x2 linear part
+        ax = ux.x - origin.x  # transform matrix a
+        ay = ux.y - origin.y  # transform matrix c
+        bx = uy.x - origin.x  # transform matrix b
+        by = uy.y - origin.y  # transform matrix d
+
+        det = ax * by - ay * bx
+        is_mirrored = det < 0
+
+        if is_mirrored:
+            # GDS convention: mirror_x first (negate Y), then rotate.
+            # After removing mirror_x, the effective rotation matrix is:
+            #   [a, -b; c, -d]  (since mirror_x negates row 2)
+            # But we can simply use atan2(c, a) which gives the correct
+            # angle for the GDS decomposition R * mirror_x.
+            angle = math.atan2(ay, ax) * 180.0 / math.pi
+        else:
+            angle = math.atan2(ay, ax) * 180.0 / math.pi
+
+        return angle, is_mirrored
 
     def _rotation_angle(self) -> float:
         """Extract rotation angle from transform (in degrees)."""
-        # Apply transform to unit vector to get rotation
-        origin = self._transform.apply(Point.origin())
-        unit_x = self._transform.apply(Point(1.0, 0.0))
-        dx = unit_x.x - origin.x
-        dy = unit_x.y - origin.y
-        # Account for mirroring in angle calculation
-        scale_x = math.sqrt(dx * dx + dy * dy)
-        if scale_x > 0:
-            angle = math.atan2(dy, dx) * 180.0 / math.pi
-        else:
-            angle = 0.0
+        angle, _ = self._decompose_transform()
         return angle
 
     def _is_mirrored_x(self) -> bool:
-        """Check if transform includes X-axis mirroring."""
-        # Check if Y is inverted by looking at how (0,1) transforms
-        origin = self._transform.apply(Point.origin())
-        unit_y = self._transform.apply(Point(0.0, 1.0))
-        # Get the transformed Y basis vector
-        dy = unit_y.y - origin.y
-        # If dy is negative when we expect positive, we're mirrored
-        return dy < 0
+        """Check if transform includes reflection (mirror about X axis).
+
+        Uses determinant-based detection to avoid false positives from
+        rotations > 90 degrees.
+        """
+        _, is_mirrored = self._decompose_transform()
+        return is_mirrored
 
     def _is_mirrored_y(self) -> bool:
-        """Check if transform includes Y-axis mirroring."""
-        origin = self._transform.apply(Point.origin())
-        unit_x = self._transform.apply(Point(1.0, 0.0))
-        dx = unit_x.x - origin.x
-        return dx < 0
+        """Check if transform includes Y-axis mirroring.
+
+        With determinant-based decomposition, mirroring is always
+        decomposed as mirror_x + rotation (GDS convention), so
+        mirror_y is never needed.
+        """
+        return False
 
     def __repr__(self) -> str:
         pos = self._transform.apply(Point.origin())
@@ -616,20 +664,35 @@ class Cell:
             # Also recursively include any children from the instance's cell
             if hasattr(instance.cell, "_child_cells"):
                 self._child_cells.update(instance.cell._child_cells)
-            # Convert to Rust CellRef for the underlying Rust call
+            # Convert to Rust CellRef for the underlying Rust call.
+            #
+            # CellRef uses left-prepend chaining: each method wraps the
+            # outside of the accumulated transform.  To decompose an
+            # Instance transform M into CellRef calls we must apply
+            # rotation/mirror FIRST, then translation LAST:
+            #
+            #   CellRef().rotate(angle).mirror_*().at(pos)
+            #
+            # produces T(pos) * Mirror * R(angle), where pos = M * origin
+            # gives the final translated position.  This correctly
+            # reconstructs M for any combination of rotate + translate.
+            #
+            # The previous order (.at(pos).rotate(angle)) was wrong
+            # because it produced R(angle) * T(pos), double-rotating
+            # the translation component.
             rust_ref = _CellRef(instance.cell.name)
-            # Apply the instance's transform by positioning
-            pos = instance.transform.apply(Point.origin())
-            rust_ref = rust_ref.at(pos.x, pos.y)
-            # Handle rotation - extract from transform
-            angle = instance._rotation_angle()
+            # Decompose into GDS-compatible: mirror_x (innermost),
+            # then rotation, then translation (outermost).
+            angle, is_mirrored = instance._decompose_transform()
+            # Mirror first (innermost -- applied first to geometry)
+            if is_mirrored:
+                rust_ref = rust_ref.mirror_x()
+            # Then rotation (wraps outside the mirror)
             if abs(angle) > 0.001:
                 rust_ref = rust_ref.rotate(angle)
-            # Handle mirroring
-            if instance._is_mirrored_x():
-                rust_ref = rust_ref.mirror_x()
-            if instance._is_mirrored_y():
-                rust_ref = rust_ref.mirror_y()
+            # Translation last (outermost transform)
+            pos = instance.transform.apply(Point.origin())
+            rust_ref = rust_ref.at(pos.x, pos.y)
             self._inner.add_ref(rust_ref)
         else:
             # Raw CellRef - issue warning about untracked cell

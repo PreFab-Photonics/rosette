@@ -110,10 +110,16 @@ class Instance:
 
     Created with `cell.at(x, y)`. Supports transform chaining.
 
+    Transform chaining order: each call wraps the outside of the
+    accumulated transform, so the *first* call is applied first to
+    geometry.  ``.at(x, y).rotate(deg)`` translates first then rotates
+    around the origin -- moving the component to an unexpected position.
+    To rotate then place: ``.at(0, 0).rotate(deg).at(x, y)``.
+
     Example:
         gc_cell = grating_coupler(layer=layer)
         gc_in = gc_cell.at(0, 0)              # Position at origin
-        gc_out = gc_cell.at(0, 127).rotate(180)  # Position and rotate
+        gc_out = gc_cell.at(0, 127)           # Position at fiber pitch
 
         # Get ports directly - no need to pass cell again
         port_in = gc_in.port("opt")
@@ -122,6 +128,9 @@ class Instance:
         # Add to design
         top.add_ref(gc_in)
         top.add_ref(gc_out)
+
+        # Rotate then place at a specific position:
+        rotated = some_cell.at(0, 0).rotate(90).at(50, 100)
     """
 
     @property
@@ -183,6 +192,10 @@ class Instance:
         Unlike CellRef.port(), this doesn't require passing the Cell again
         since the Instance already knows its cell definition.
 
+        Both position and direction are fully transformed (translation,
+        rotation, mirroring). For example, a port facing +X will face -X
+        after a 180-degree rotation.
+
         Args:
             name: Name of the port to retrieve
 
@@ -193,8 +206,12 @@ class Instance:
             KeyError: If the port is not found in the cell
 
         Example:
-            gc = gc_cell.at(100, 50).rotate(180)
-            opt_port = gc.port("opt")  # Transformed port position
+            gc = gc_cell.at(100, 50)
+            opt_port = gc.port("opt")  # Transformed port position & direction
+
+            # 180-degree rotation flips both position and direction:
+            flipped = gc_cell.at(0, 0).rotate(180).at(50, 0)
+            p = flipped.port("opt")   # direction is now (-1, 0)
         """
         ...
     def __repr__(self) -> str: ...
@@ -273,7 +290,7 @@ class CellRef:
 
         Example:
             gc_cell = grating_coupler(layer=layer)
-            gc_ref = CellRef(gc_cell).at(100, 50).rotate(180)
+            gc_ref = CellRef(gc_cell).at(100, 50)
 
             # Get the transformed port
             opt_port = gc_ref.port("opt", gc_cell)
@@ -911,5 +928,52 @@ def run_drc(
         else:
             for v in result.violations:
                 print(f"  {v.message}")
+    """
+    ...
+
+# =============================================================================
+# Component Reference (from components/ directory)
+# =============================================================================
+#
+# Components are pure-Python functions in the components/ directory.
+# They are imported as: from components import grating_coupler, mmi_1x2, ...
+# Below are type stubs and placement notes for key components.
+
+def grating_coupler(
+    layer: Layer,
+    waveguide_width: float = 0.5,
+    period: float = 0.63,
+    fill_factor: float = 0.5,
+    num_periods: int = 25,
+    focusing_angle: float | None = None,
+    grating_width: float = 12.0,
+    taper_length: float = 20.0,
+) -> Cell:
+    """Create a grating coupler for fiber-to-chip coupling.
+
+    Geometry: taper + teeth extend in **-X** from the origin.
+    Port: ``"opt"`` at ``(0, 0)``, facing **+X**.
+
+    Placement: rotate the GC so ``"opt"`` faces **toward** the target
+    port.  The grating body (taper + teeth) will then extend **away**.
+
+    ============  ==============  ======================
+    opt faces     Rotation        Grating body extends
+    ============  ==============  ======================
+    +X (right)    0 (default)     -X (left)
+    -X (left)     180             +X (right)
+    +Y (up)       90              -Y (down)
+    -Y (down)     -90             +Y (up)
+    ============  ==============  ======================
+
+    Example — connect to a port facing +X (e.g. MMI output)::
+
+        # GC opt must face -X (toward the port) -> rotate 180
+        gc_out = gc.at(0, 0).rotate(180).at(x, y)
+
+    Example — connect to a port facing -X (e.g. MMI input)::
+
+        # GC opt already faces +X (toward the port) -> no rotation
+        gc_in = gc.at(x, y)
     """
     ...
