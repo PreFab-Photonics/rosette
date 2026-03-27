@@ -3,9 +3,9 @@
 use pyo3::prelude::*;
 
 use rosette_dfm::{
-    run_dfm, DfmConfig, DfmResult, DfmTolerances, DfmViolation, DfmViolationType, GaussianModel,
-    LayerDfmConfig, LayerMetrics, LayerPrediction, RasterConfig, Severity, DEFAULT_SIGMA,
-    DEFAULT_THRESHOLD,
+    DEFAULT_SIGMA, DEFAULT_THRESHOLD, DfmConfig, DfmResult, DfmTolerances, DfmViolation,
+    DfmViolationType, GaussianModel, LayerDfmConfig, LayerMetrics, LayerPrediction, RasterConfig,
+    Severity, run_dfm,
 };
 
 use crate::extract_layer;
