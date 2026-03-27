@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/rosette-core",
+    "crates/rosette-dfm",
     "crates/rosette-drc",
     "crates/rosette-io",
     "crates/rosette-python",
@@ -13,6 +14,7 @@ members = [
 # Build explicitly with: cargo build -p rosette-desktop
 default-members = [
     "crates/rosette-core",
+    "crates/rosette-dfm",
     "crates/rosette-drc",
     "crates/rosette-io",
     "crates/rosette-python",
@@ -25,8 +27,10 @@ license = "MIT"
 
 [workspace.dependencies]
 rosette-core = { path = "crates/rosette-core" }
+rosette-dfm = { path = "crates/rosette-dfm" }
 rosette-drc = { path = "crates/rosette-drc" }
 rosette-io = { path = "crates/rosette-io" }
+rayon = "1.10"
 thiserror = "1.0"
 byteorder = "1.5"
 pyo3 = "0.27"
