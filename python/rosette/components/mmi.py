@@ -1,16 +1,25 @@
 """Multi-Mode Interferometer (MMI) components.
 
-MMIs are used as power splitters/combiners in photonic circuits.
+MMIs use multimode interference to split or combine optical power. Three
+variants are provided: ``mmi_1x2`` (splitter), ``mmi_2x1`` (combiner),
+and ``mmi_2x2`` (coupler).
 
-Port naming convention (spatial positions):
-- 1x2: "in" (left, y=0), "out1" (right, y < 0, lower), "out2" (right, y > 0, upper)
-- 2x1: "in1" (left, y < 0, lower), "in2" (left, y > 0, upper), "out" (right, y=0)
-- 2x2: "in1"/"in2" (left, lower/upper), "out1"/"out2" (right, lower/upper)
+All MMIs share the same internal structure::
+
+    ┌─ taper ─┬── MMI body ──┬─ taper ─┐
+    x=0       taper_length    ...       total_length
+
+``total_length = length + 2 * taper_length``.
+
+Port naming -- numbered ports are spatially ordered: ``1`` = lower
+(y < 0), ``2`` = upper (y > 0). ``"in"``/``"out"`` (without a number)
+sit at y = 0.
 """
 
 from typing import Literal
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+from rosette.components._utils import safe_cell_name
 
 __all__ = ["mmi_1x2", "mmi_2x1", "mmi_2x2"]
 
@@ -26,28 +35,42 @@ def mmi_1x2(
 ) -> Cell:
     """Create a 1x2 MMI splitter.
 
+    Splits a single input into two outputs with nominally equal power.
+
+    Ports:
+        - ``"in"``   at ``(0, 0)``, facing **-X**, width = *waveguide_width*
+        - ``"out1"`` at ``(total_length, -port_separation/2)``, facing **+X** (lower)
+        - ``"out2"`` at ``(total_length, +port_separation/2)``, facing **+X** (upper)
+
+    where ``total_length = length + 2 * taper_length``.
+
     Args:
-        layer: GDS layer for the geometry
-        waveguide_width: Width of input/output waveguides in microns
-        length: Length of the multimode region in microns
-        mmi_width: Width of the multimode region in microns
-        taper_length: Length of the tapers in microns
-        taper_width: Width at the MMI body interface in microns
-        port_separation: Center-to-center distance between output ports in microns
+        layer: GDS layer for the geometry.
+        waveguide_width: Width of input/output waveguides in microns.
+        length: Length of the multimode region in microns.
+        mmi_width: Width of the multimode region in microns.
+        taper_length: Length of each taper connecting the waveguide to
+            the MMI body in microns.
+        taper_width: Width of the taper at the MMI body interface in
+            microns (the wide end of the taper where it meets the
+            multimode region).
+        port_separation: Center-to-center distance between the two
+            output ports in microns.
 
     Returns:
-        Cell with ports:
-        - "in": Input at x=0, y=0 (facing -X)
-        - "out1": Lower output at y < 0 (facing +X)
-        - "out2": Upper output at y > 0 (facing +X)
+        Cell with ports ``"in"``, ``"out1"``, ``"out2"``.
+        ``path_length`` = *total_length*.
+
+    Raises:
+        ValueError: If any dimension is not positive, or *taper_length*
+            is negative.
 
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import mmi_1x2
-        >>> # Or in user projects: from components import mmi_1x2
-        >>> splitter = mmi_1x2(Layer(1, 0))
-        >>> splitter.port("out1").position.y < 0  # True - lower
-        >>> splitter.port("out2").position.y > 0  # True - upper
+        >>> s = mmi_1x2(Layer(1, 0))
+        >>> s.port("out1").position.y < 0  # lower output
+        True
     """
     return _create_mmi(
         "1x2", layer, length, mmi_width, waveguide_width, taper_length, taper_width, port_separation
@@ -65,25 +88,38 @@ def mmi_2x1(
 ) -> Cell:
     """Create a 2x1 MMI combiner.
 
+    Combines two inputs into a single output. This is the mirror of
+    ``mmi_1x2``.
+
+    Ports:
+        - ``"in1"`` at ``(0, -port_separation/2)``, facing **-X** (lower)
+        - ``"in2"`` at ``(0, +port_separation/2)``, facing **-X** (upper)
+        - ``"out"`` at ``(total_length, 0)``, facing **+X**
+
+    where ``total_length = length + 2 * taper_length``.
+
     Args:
-        layer: GDS layer for the geometry
-        waveguide_width: Width of input/output waveguides in microns
-        length: Length of the multimode region in microns
-        mmi_width: Width of the multimode region in microns
-        taper_length: Length of the tapers in microns
-        taper_width: Width at the MMI body interface in microns
-        port_separation: Center-to-center distance between input ports in microns
+        layer: GDS layer for the geometry.
+        waveguide_width: Width of input/output waveguides in microns.
+        length: Length of the multimode region in microns.
+        mmi_width: Width of the multimode region in microns.
+        taper_length: Length of each taper in microns.
+        taper_width: Width of the taper at the MMI body interface in
+            microns.
+        port_separation: Center-to-center distance between the two
+            input ports in microns.
 
     Returns:
-        Cell with ports:
-        - "in1": Lower input at y < 0 (facing -X)
-        - "in2": Upper input at y > 0 (facing -X)
-        - "out": Output at x=length, y=0 (facing +X)
+        Cell with ports ``"in1"``, ``"in2"``, ``"out"``.
+        ``path_length`` = *total_length*.
+
+    Raises:
+        ValueError: If any dimension is not positive, or *taper_length*
+            is negative.
 
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import mmi_2x1
-        >>> # Or in user projects: from components import mmi_2x1
         >>> combiner = mmi_2x1(Layer(1, 0))
     """
     return _create_mmi(
@@ -102,26 +138,39 @@ def mmi_2x2(
 ) -> Cell:
     """Create a 2x2 MMI coupler.
 
+    A four-port coupler: two inputs on the left, two outputs on the
+    right. Commonly used in Mach-Zehnder interferometers.
+
+    Ports:
+        - ``"in1"``  at ``(0, -port_separation/2)``, facing **-X** (lower)
+        - ``"in2"``  at ``(0, +port_separation/2)``, facing **-X** (upper)
+        - ``"out1"`` at ``(total_length, -port_separation/2)``, facing **+X** (lower)
+        - ``"out2"`` at ``(total_length, +port_separation/2)``, facing **+X** (upper)
+
+    where ``total_length = length + 2 * taper_length``.
+
     Args:
-        layer: GDS layer for the geometry
-        waveguide_width: Width of input/output waveguides in microns
-        length: Length of the multimode region in microns
-        mmi_width: Width of the multimode region in microns
-        taper_length: Length of the tapers in microns
-        taper_width: Width at the MMI body interface in microns
-        port_separation: Center-to-center distance between ports in microns
+        layer: GDS layer for the geometry.
+        waveguide_width: Width of input/output waveguides in microns.
+        length: Length of the multimode region in microns.
+        mmi_width: Width of the multimode region in microns.
+        taper_length: Length of each taper in microns.
+        taper_width: Width of the taper at the MMI body interface in
+            microns.
+        port_separation: Center-to-center distance between ports on the
+            same side in microns.
 
     Returns:
-        Cell with ports:
-        - "in1": Lower input at y < 0 (facing -X)
-        - "in2": Upper input at y > 0 (facing -X)
-        - "out1": Lower output at y < 0 (facing +X)
-        - "out2": Upper output at y > 0 (facing +X)
+        Cell with ports ``"in1"``, ``"in2"``, ``"out1"``, ``"out2"``.
+        ``path_length`` = *total_length*.
+
+    Raises:
+        ValueError: If any dimension is not positive, or *taper_length*
+            is negative.
 
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import mmi_2x2
-        >>> # Or in user projects: from components import mmi_2x2
         >>> coupler = mmi_2x2(Layer(1, 0))
     """
     return _create_mmi(
@@ -140,13 +189,26 @@ def _create_mmi(
     port_separation: float,
 ) -> Cell:
     """Create an MMI of the specified type."""
+    if length <= 0:
+        raise ValueError("MMI length must be positive")
+    if mmi_width <= 0:
+        raise ValueError("MMI width must be positive")
+    if port_width <= 0:
+        raise ValueError("Port width must be positive")
+    if taper_width <= 0:
+        raise ValueError("Taper width must be positive")
+    if taper_length < 0:
+        raise ValueError("Taper length must be non-negative")
+    if port_separation <= 0:
+        raise ValueError("Port separation must be positive")
+
     total_length = length + 2 * taper_length
     half_width = mmi_width / 2.0
     half_sep = port_separation / 2.0
     half_port = port_width / 2.0
     half_taper = taper_width / 2.0
 
-    cell = Cell(f"mmi_{mmi_type}_l{length:.1f}_w{mmi_width:.1f}")
+    cell = Cell(safe_cell_name(f"mmi_{mmi_type}_l{length:.1f}_w{mmi_width:.1f}"))
 
     # MMI body (rectangular multimode region)
     body = Polygon(

@@ -1,8 +1,8 @@
 """S-bend components for lateral offset transitions.
 
-An S-bend shifts the waveguide laterally while maintaining the same direction.
-
-Ports: "in" (at origin, facing -X), "out" (at end, facing +X)
+An S-bend shifts the waveguide laterally while keeping the input and output
+directions parallel (+X). Three curve profiles are available: cosine
+(default, smooth), circular (two arcs), and Euler (clothoid, lowest loss).
 """
 
 import math
@@ -18,6 +18,7 @@ from rosette.components._curves import (
     euler_sbend_point,
     euler_sbend_tangent,
 )
+from rosette.components._utils import safe_cell_name
 
 __all__ = ["sbend"]
 
@@ -32,34 +33,50 @@ def sbend(
 ) -> Cell:
     """Create an S-bend for lateral waveguide offset.
 
-    The S-bend starts at the origin with input pointing in -X direction,
-    and ends at (length, offset) with output pointing in +X direction.
+    Shifts the waveguide by *offset* microns in Y over a horizontal
+    span of *length* microns, while keeping input and output directions
+    both along +X. Useful for connecting two ports that are at the same
+    x-coordinate but different y-coordinates, or for creating lateral
+    transitions inside a route.
 
-    Positive offset shifts the waveguide upward (+Y).
-    Negative offset shifts the waveguide downward (-Y).
+    When ``offset=0`` the result is a straight waveguide of the given
+    *length* (degenerate case).
+
+    Ports:
+        - ``"in"``  at ``(0, 0)``, facing **-X**, width = *waveguide_width*
+        - ``"out"`` at ``(length, offset)``, facing **+X**, width = *waveguide_width*
 
     Args:
-        layer: GDS layer for the geometry
-        waveguide_width: Waveguide width in microns
-        length: Horizontal length of the S-bend in microns
-        offset: Vertical offset in microns (positive = up)
-        bend_type: Curve type:
-            - "cosine": Smooth cosine interpolation (default, zero curvature at ends)
-            - "circular": Two circular arcs (constant radius per half)
-            - "euler": Clothoid curves (linearly varying curvature, lowest loss)
-        num_segments: Number of polygon segments (default: auto based on geometry)
+        layer: GDS layer for the geometry.
+        waveguide_width: Waveguide width in microns.
+        length: Horizontal length of the S-bend in microns.
+        offset: Vertical offset in microns. Positive = up (+Y),
+            negative = down (-Y).
+        bend_type: Curve profile:
+
+            - ``"cosine"`` -- Smooth raised-cosine interpolation (default).
+              Zero curvature at both endpoints, making it easy to connect
+              to straight waveguides.
+            - ``"circular"`` -- Two circular arcs joined at the midpoint.
+              Constant bend radius per half, but curvature is discontinuous
+              at the junction.
+            - ``"euler"`` -- Two clothoid (Cornu-spiral) segments. Curvature
+              varies linearly with arc length, giving the lowest optical
+              loss of the three options.
+        num_segments: Number of polygon segments. ``None`` (default)
+            auto-selects based on the aspect ratio ``|offset| / length``.
 
     Returns:
-        Cell with ports "in" and "out"
+        Cell with ports ``"in"`` and ``"out"``.
+        ``path_length`` = numerically integrated arc length of the centerline.
 
     Raises:
-        ValueError: If length or width is not positive
+        ValueError: If *length* or *waveguide_width* is not positive.
 
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import sbend
-        >>> # Or in user projects: from components import sbend
-        >>> s = sbend(Layer(1, 0), waveguide_width=0.5, length=20.0, offset=5.0)
+        >>> s = sbend(Layer(1, 0), length=20.0, offset=5.0)
         >>> s.port("out").position.y
         5.0
     """
@@ -112,7 +129,9 @@ def sbend(
 
     # Cell naming with type suffix (abbreviated for GDS 32-char limit)
     type_suffix = "" if bend_type == "cosine" else f"_{bend_type[:3]}"
-    cell = Cell(f"sb{type_suffix}_l{length:.2f}_o{offset:.2f}_w{waveguide_width:.3f}")
+    cell = Cell(
+        safe_cell_name(f"sb{type_suffix}_l{length:.2f}_o{offset:.2f}_w{waveguide_width:.3f}")
+    )
     cell.add_polygon(Polygon(vertices), layer)
 
     # Add ports

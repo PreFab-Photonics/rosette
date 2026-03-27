@@ -137,31 +137,31 @@ def library(simple_cell: Cell) -> Library:
 @pytest.fixture
 def waveguide_cell(layer: Layer) -> Cell:
     """Standard waveguide: 10um long, 0.5um wide."""
-    return waveguide(10.0, 0.5, layer)
+    return waveguide(layer, waveguide_width=0.5, length=10.0)
 
 
 @pytest.fixture
 def bend_90_cell(layer: Layer) -> Cell:
     """90-degree circular bend: 5um radius, 0.5um wide."""
-    return bend(5.0, 90.0, 0.5, layer)
+    return bend(layer, waveguide_width=0.5, radius=5.0, angle=90.0)
 
 
 @pytest.fixture
 def euler_bend_cell(layer: Layer) -> Cell:
     """90-degree Euler bend: 5um radius, 0.5um wide."""
-    return bend(5.0, 90.0, 0.5, layer, euler=True)
+    return bend(layer, waveguide_width=0.5, radius=5.0, angle=90.0, euler=True)
 
 
 @pytest.fixture
 def taper_cell(layer: Layer) -> Cell:
     """Taper from 0.5um to 1.0um over 10um."""
-    return taper(10.0, 0.5, 1.0, layer)
+    return taper(layer, width_in=0.5, width_out=1.0, length=10.0)
 
 
 @pytest.fixture
 def sbend_cell(layer: Layer) -> Cell:
     """S-bend: 20um long, 5um offset, 0.5um wide."""
-    return sbend(20.0, 5.0, 0.5, layer)
+    return sbend(layer, waveguide_width=0.5, length=20.0, offset=5.0)
 
 
 @pytest.fixture
@@ -185,37 +185,37 @@ def directional_coupler_cell(layer: Layer) -> Cell:
 @pytest.fixture
 def ybranch_cell(layer: Layer) -> Cell:
     """Standard Y-branch."""
-    return ybranch(0.5, layer)
+    return ybranch(layer, waveguide_width=0.5)
 
 
 @pytest.fixture
 def ring_cell(layer: Layer) -> Cell:
     """All-pass ring resonator: 10um radius, 0.5um wide."""
-    return ring(10.0, 0.5, layer)
+    return ring(layer, waveguide_width=0.5, radius=10.0)
 
 
 @pytest.fixture
 def ring_add_drop_cell(layer: Layer) -> Cell:
     """Add-drop ring resonator."""
-    return ring(10.0, 0.5, layer, coupling="adddrop")
+    return ring(layer, waveguide_width=0.5, radius=10.0, coupling="adddrop")
 
 
 @pytest.fixture
 def spiral_cell(layer: Layer) -> Cell:
     """Standard spiral delay line."""
-    return spiral(0.5, layer, turns=3, min_radius=10.0)
+    return spiral(layer, waveguide_width=0.5, turns=3, min_radius=10.0)
 
 
 @pytest.fixture
 def crossing_cell(layer: Layer) -> Cell:
     """Standard waveguide crossing."""
-    return crossing(0.5, layer)
+    return crossing(layer, waveguide_width=0.5)
 
 
 @pytest.fixture
 def grating_coupler_cell(layer: Layer) -> Cell:
     """Standard grating coupler."""
-    return grating_coupler(0.5, layer)
+    return grating_coupler(layer, waveguide_width=0.5)
 
 
 # =============================================================================

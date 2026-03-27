@@ -1,8 +1,9 @@
 """Bend components for changing waveguide direction.
 
-Supports both circular bends and Euler (clothoid) bends.
-
-Ports: "in" (at origin, facing -X), "out" (at bend endpoint)
+Supports both circular bends and Euler (clothoid) bends. Circular bends
+have constant curvature; Euler bends linearly ramp curvature from zero at
+the endpoints to a maximum at the midpoint, reducing optical mode mismatch
+and loss.
 """
 
 import math
@@ -16,6 +17,7 @@ from rosette import (
     Vector2,
 )
 from rosette.components._curves import euler_bend_point, euler_bend_tangent
+from rosette.components._utils import safe_cell_name
 
 __all__ = ["bend"]
 
@@ -30,32 +32,56 @@ def bend(
 ) -> Cell:
     """Create a waveguide bend.
 
-    The bend starts at the origin with the input port pointing in -X direction.
-    After the bend, the output port points in the direction determined by the angle.
+    The bend starts at the origin traveling in the +X direction and turns
+    through the specified *angle*.
 
-    Positive angles bend counter-clockwise (towards +Y).
-    Negative angles bend clockwise (towards -Y).
+    * **Positive** angles bend **counter-clockwise** (output towards +Y).
+    * **Negative** angles bend **clockwise** (output towards -Y).
+
+    For a **circular** 90-degree CCW bend the output port is at
+    ``(radius, radius)`` pointing in +Y.  In general the output position
+    is ``(R * sin(a), R * (1 - cos(a)))`` for positive angles and
+    ``(R * sin(|a|), -R * (1 - cos(|a|)))`` for negative angles, where
+    *R* = *radius* and *a* = *angle* in radians.
+
+    When ``euler=True`` the bend uses two clothoid (Cornu-spiral) segments
+    instead of a constant-radius arc.  Curvature ramps linearly from zero
+    at the endpoints to a peak at the midpoint, producing lower optical
+    loss than a circular bend of the same effective radius.  The output
+    position differs slightly from the circular case.
+
+    Ports:
+        - ``"in"``  at ``(0, 0)``, facing **-X**, width = *waveguide_width*
+        - ``"out"`` at the bend endpoint, facing the exit tangent direction,
+          width = *waveguide_width*
 
     Args:
-        layer: GDS layer for the bend geometry
-        waveguide_width: Waveguide width in microns
-        radius: Bend radius in microns (for circular) or effective radius (for Euler)
-        angle: Bend angle in degrees (positive = counter-clockwise)
-        euler: If True, create an Euler (clothoid) bend with gradually changing curvature
-        num_segments: Number of polygon segments (default: auto based on angle)
+        layer: GDS layer for the bend geometry.
+        waveguide_width: Waveguide width in microns.
+        radius: Bend radius in microns. For circular bends this is the
+            exact centerline radius. For Euler bends it is the *effective*
+            radius: the arc length equals ``radius * |angle|`` (same as
+            a circular bend), but the physical footprint is slightly
+            different.
+        angle: Bend angle in degrees. Positive = CCW, negative = CW.
+        euler: If ``True``, create an Euler (clothoid) bend instead of a
+            circular bend.
+        num_segments: Number of polygon segments. ``None`` (default)
+            auto-selects ``max(8, int(|angle| * 2))``.
 
     Returns:
-        Cell with ports "in" and "out"
+        Cell with ports ``"in"`` and ``"out"``.
+        ``path_length`` = ``radius * |angle_in_radians|``.
 
     Raises:
-        ValueError: If radius or width is not positive, or angle is zero
+        ValueError: If *radius* or *waveguide_width* is not positive,
+            or *angle* is zero.
 
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import bend
-        >>> # Or in user projects: from components import bend
-        >>> b = bend(Layer(1, 0), waveguide_width=0.5, radius=5.0, angle=90.0)
-        >>> # Output is at approximately (5, 5) for 90-degree CCW bend
+        >>> b = bend(Layer(1, 0), radius=5.0, angle=90.0)
+        >>> # Output is at (5, 5) pointing +Y for a 90-degree CCW bend
     """
     if radius <= 0:
         raise ValueError("Bend radius must be positive")
@@ -81,7 +107,7 @@ def bend(
         name = f"bend_r{radius:.2f}_a{angle:.0f}_w{waveguide_width:.3f}"
         out_pos, out_dir = _circular_output(radius, angle_rad)
 
-    cell = Cell(name)
+    cell = Cell(safe_cell_name(name))
     cell.add_polygon(Polygon(vertices), layer)
 
     # Add ports

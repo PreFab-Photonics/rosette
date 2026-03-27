@@ -1,11 +1,11 @@
 """Straight waveguide component.
 
-A waveguide is a straight optical waveguide with configurable length and width.
-
-Ports: "in" (at origin, facing -X), "out" (at end, facing +X)
+The simplest photonic building block: a rectangular waveguide section of
+constant width oriented along **+X**.
 """
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+from rosette.components._utils import safe_cell_name
 
 __all__ = ["waveguide"]
 
@@ -17,28 +17,36 @@ def waveguide(
 ) -> Cell:
     """Create a straight waveguide section.
 
-    The waveguide is oriented along the positive X axis, with:
-    - Input port ("in") at the origin, pointing in -X direction
-    - Output port ("out") at (length, 0), pointing in +X direction
+    A constant-width rectangular waveguide oriented along +X, centered
+    on the y-axis. This is the most basic routing element and is used
+    to add explicit straight sections between bends or other components.
+
+    Geometry::
+
+        (0, +w/2) ──────────────── (length, +w/2)
+        │          waveguide body          │
+        (0, -w/2) ──────────────── (length, -w/2)
+
+    Ports:
+        - ``"in"``  at ``(0, 0)``, facing **-X**, width = *waveguide_width*
+        - ``"out"`` at ``(length, 0)``, facing **+X**, width = *waveguide_width*
 
     Args:
-        layer: GDS layer for the waveguide geometry
-        waveguide_width: Width of the waveguide in microns
-        length: Length of the waveguide in microns
+        layer: GDS layer for the waveguide geometry.
+        waveguide_width: Width of the waveguide in microns.
+        length: Length of the waveguide in microns.
 
     Returns:
-        Cell with ports "in" and "out"
+        Cell with ports ``"in"`` and ``"out"``.
+        ``path_length`` = *length*.
 
     Raises:
-        ValueError: If length or width is not positive
+        ValueError: If *length* or *waveguide_width* is not positive.
 
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import waveguide
-        >>> # Or in user projects: from components import waveguide
         >>> wg = waveguide(Layer(1, 0), waveguide_width=0.5, length=10.0)
-        >>> wg.port("in").position.x
-        0.0
         >>> wg.port("out").position.x
         10.0
     """
@@ -47,7 +55,7 @@ def waveguide(
     if waveguide_width <= 0:
         raise ValueError("Waveguide width must be positive")
 
-    cell = Cell(f"wg_l{length:.2f}_w{waveguide_width:.3f}")
+    cell = Cell(safe_cell_name(f"wg_l{length:.2f}_w{waveguide_width:.3f}"))
 
     # Create rectangle polygon centered on Y axis
     half_width = waveguide_width / 2.0

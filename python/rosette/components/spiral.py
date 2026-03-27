@@ -1,14 +1,16 @@
 """Spiral delay line components.
 
-Spirals provide compact optical delay lines with long path lengths.
-
-Ports: "in" (outer edge, facing tangent inward), "out" (center, facing tangent outward)
+Spirals provide compact optical delay lines with long path lengths in a
+small footprint. The spiral is centered at the origin and winds outward.
+Light enters at the outer edge (``"in"``) and exits at the center
+(``"out"``).
 """
 
 import math
 from typing import Literal
 
 from rosette import Cell, Layer, Point, Port, Vector2, offset_polygon
+from rosette.components._utils import safe_cell_name
 
 __all__ = ["spiral"]
 
@@ -24,26 +26,58 @@ def spiral(
 ) -> Cell:
     """Create a spiral delay line.
 
-    The spiral starts from the outer edge and winds inward to the center.
-    Light enters at "in" (outer) and exits at "out" (center).
+    The spiral is centered at the origin and winds outward from
+    *min_radius* for the given number of *turns*. Light enters at the
+    outer edge and exits at the center.
+
+    Ports:
+        - ``"in"``  at the **outer** end of the spiral, facing tangent
+          inward (toward the spiral center).
+          Position: ``(outer_r * cos(theta_max), outer_r * sin(theta_max))``
+          where ``theta_max = turns * 2 * pi`` and ``outer_r`` is the
+          radius at that angle.
+        - ``"out"`` at the **inner** end (``(min_radius, 0)``), facing
+          tangent outward (+Y direction at angle 0).
+
+    Both port widths equal *waveguide_width*. Because the spiral has
+    arbitrary winding, port positions depend on the parameters -- use
+    ``cell.port("in").position`` to query the exact location after
+    construction.
 
     Args:
-        layer: GDS layer for the geometry
-        waveguide_width: Waveguide width in microns
-        turns: Number of spiral turns
-        min_radius: Minimum radius (at center) in microns
-        spacing: Spacing between adjacent turns in microns
-        spiral_type: "archimedean" (constant spacing) or "fermat" (constant density)
-        num_points_per_turn: Points per turn for polygon generation
+        layer: GDS layer for the geometry.
+        waveguide_width: Waveguide width in microns.
+        turns: Number of spiral turns (can be fractional).
+        min_radius: Minimum radius at the center of the spiral in
+            microns.
+        spacing: Radial distance gained per turn in microns
+            (center-to-center between adjacent turns for Archimedean).
+            Must be greater than *waveguide_width* to avoid overlapping
+            turns.
+        spiral_type: Spiral growth law:
+
+            - ``"archimedean"`` -- Radius increases linearly with angle
+              (constant radial spacing between turns).
+            - ``"fermat"`` -- Radius squared increases linearly with
+              angle (denser packing near center, useful for equal
+              optical-path-length between turns).
+        num_points_per_turn: Number of polygon vertices generated per
+            360-degree revolution.
 
     Returns:
-        Cell with ports "in" (outer) and "out" (center)
+        Cell with ports ``"in"`` (outer) and ``"out"`` (center).
+        ``path_length`` = numerically integrated centerline arc length.
+
+    Raises:
+        ValueError: If *waveguide_width*, *min_radius*, or *turns* is
+            not positive; if *spacing* <= *waveguide_width*.
 
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import spiral
-        >>> # Or in user projects: from components import spiral
-        >>> s = spiral(Layer(1, 0), waveguide_width=0.5, turns=5, min_radius=15.0)
+        >>> s = spiral(Layer(1, 0), turns=5, min_radius=15.0)
+        >>> s.path_length > 400  # long delay line
+        True
     """
     if waveguide_width <= 0:
         raise ValueError("Width must be positive")
@@ -56,7 +90,9 @@ def spiral(
 
     # Abbreviate type for GDS 32-char name limit: archimedean -> arch, fermat -> ferm
     type_abbr = spiral_type[:4]
-    cell = Cell(f"sprl_{type_abbr}_t{turns:.1f}_r{min_radius:.1f}_w{waveguide_width:.3f}")
+    cell = Cell(
+        safe_cell_name(f"sprl_{type_abbr}_t{turns:.1f}_r{min_radius:.1f}_w{waveguide_width:.3f}")
+    )
 
     # Generate centerline points
     num_points = int(turns * num_points_per_turn) + 1

@@ -1,16 +1,21 @@
 """Waveguide crossing components.
 
-Crossings enable low-loss intersection of two waveguides.
+Allows two waveguides to intersect with minimal crosstalk and loss.
+The crossing is centered at the origin with four arms along the
+cardinal directions. Three geometries are available:
 
-Ports (centered at origin):
-- Horizontal path: "in1" (west, facing -X), "out1" (east, facing +X)
-- Vertical path: "in2" (south, facing -Y), "out2" (north, facing +Y)
+* **simple** -- A bare cross shape. Simplest, but highest loss.
+* **elliptical** -- Waveguide width smoothly expands (cosine profile)
+  at the center. Lower loss due to reduced diffraction.
+* **mmi** -- Rectangular expansion at the center with tapered
+  transitions. Broadband, process-tolerant.
 """
 
 import math
 from typing import Literal
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+from rosette.components._utils import safe_cell_name
 
 __all__ = ["crossing"]
 
@@ -24,48 +29,70 @@ def crossing(
 ) -> Cell:
     """Create a waveguide crossing.
 
-    The crossing is centered at the origin with arms extending in all four
-    cardinal directions.
+    Centered at the origin with four arms along the cardinal directions.
+    The horizontal path (``"in1"`` to ``"out1"``) and vertical path
+    (``"in2"`` to ``"out2"``) intersect at the center.
+
+    Ports:
+        - ``"in1"``  at ``(-arm_length, 0)``, facing **-X** (west)
+        - ``"out1"`` at ``(+arm_length, 0)``, facing **+X** (east)
+        - ``"in2"``  at ``(0, -arm_length)``, facing **-Y** (south)
+        - ``"out2"`` at ``(0, +arm_length)``, facing **+Y** (north)
+
+    All port widths equal *waveguide_width*.
 
     Args:
-        layer: GDS layer for the geometry
-        waveguide_width: Waveguide width in microns
-        arm_length: Length of each arm extending from center in microns
-        crossing_type: "simple" (straight cross), "elliptical" (expanded center),
-                      or "mmi" (MMI-based crossing)
-        center_width: Width at the center expansion (default: 3x waveguide_width for elliptical)
+        layer: GDS layer for the geometry.
+        waveguide_width: Waveguide width in microns.
+        arm_length: Length of each arm extending from the center in
+            microns.
+        crossing_type: Geometry at the intersection:
+
+            - ``"simple"`` -- Plain cross, no center expansion.
+            - ``"elliptical"`` -- Cosine-profile width expansion at the
+              center (default). Lowest loss for single-mode waveguides.
+            - ``"mmi"`` -- Rectangular expansion with linear tapers.
+              Most broadband and process-tolerant.
+        center_width: Maximum width at the center of the expansion
+            region in microns. Default: ``3 * waveguide_width`` for
+            elliptical/mmi; ignored for simple.
 
     Returns:
-        Cell with ports:
-        - "in1": West/left at x=-arm_length (facing -X)
-        - "out1": East/right at x=+arm_length (facing +X)
-        - "in2": South/bottom at y=-arm_length (facing -Y)
-        - "out2": North/top at y=+arm_length (facing +Y)
+        Cell with ports ``"in1"``, ``"out1"``, ``"in2"``, ``"out2"``.
+        ``path_length`` = ``2 * arm_length`` (horizontal path).
+
+    Raises:
+        ValueError: If *waveguide_width* or *arm_length* is not positive;
+            if *crossing_type* is unknown; if *center_width* <= 0; if
+            *arm_length* <= *center_width* / 2 for non-simple types.
 
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import crossing
-        >>> # Or in user projects: from components import crossing
-        >>> c = crossing(Layer(1, 0), waveguide_width=0.5)
+        >>> c = crossing(Layer(1, 0), crossing_type="elliptical")
     """
     if waveguide_width <= 0:
         raise ValueError("Width must be positive")
     if arm_length <= 0:
         raise ValueError("Arm length must be positive")
+    if crossing_type not in ("simple", "elliptical", "mmi"):
+        raise ValueError(f"Unknown crossing type: {crossing_type!r}")
 
     if center_width is None:
         center_width = waveguide_width * 3 if crossing_type != "simple" else waveguide_width
 
-    cell = Cell(f"crossing_{crossing_type}_w{waveguide_width:.3f}")
+    if center_width <= 0:
+        raise ValueError("Center width must be positive")
+    if crossing_type != "simple" and arm_length <= center_width / 2:
+        raise ValueError("Arm length must be greater than half the center width")
+
+    cell = Cell(safe_cell_name(f"crossing_{crossing_type}_w{waveguide_width:.3f}"))
 
     if crossing_type == "simple":
-        # Simple cross shape
         _add_simple_crossing(cell, waveguide_width, arm_length, layer)
     elif crossing_type == "elliptical":
-        # Elliptical expansion at center
         _add_elliptical_crossing(cell, waveguide_width, arm_length, center_width, layer)
-    else:  # mmi
-        # MMI-style crossing (similar to elliptical but rectangular)
+    else:
         _add_mmi_crossing(cell, waveguide_width, arm_length, center_width, layer)
 
     # Add ports
@@ -110,27 +137,53 @@ def _add_simple_crossing(cell: Cell, width: float, arm_length: float, layer: Lay
 def _add_elliptical_crossing(
     cell: Cell, width: float, arm_length: float, center_width: float, layer: Layer
 ):
-    """Add crossing with elliptical expansion at center."""
+    """Add crossing with smooth elliptical expansion at center.
+
+    Each arm is a single continuous polygon whose half-width smoothly expands
+    from waveguide_width/2 at the port to center_width/2 at the origin using
+    a cosine profile. The two arms overlap at the center, which is standard
+    for crossing geometry on the same layer.
+    """
     half_w = width / 2
     half_cw = center_width / 2
+    n = 32  # points for the expansion region
 
-    # Horizontal arm with taper to center
-    h_left = _create_taper_points(-arm_length, -half_cw, half_w, half_cw)
-    h_right = _create_taper_points(half_cw, arm_length, half_cw, half_w)
+    # Horizontal arm: single polygon from -arm_length to +arm_length
+    upper = []
+    lower = []
+    for i in range(n + 1):
+        # x goes from -arm_length to 0 (left half with expansion)
+        x = -arm_length + arm_length * i / n
+        # Cosine expansion: half_w at x=-arm_length, half_cw at x=0
+        t = i / n
+        hw = half_w + (half_cw - half_w) * 0.5 * (1.0 - math.cos(math.pi * t))
+        upper.append(Point(x, hw))
+        lower.append(Point(x, -hw))
+    for i in range(1, n + 1):
+        # x goes from 0 to +arm_length (right half, narrowing back)
+        x = arm_length * i / n
+        t = i / n
+        hw = half_cw + (half_w - half_cw) * 0.5 * (1.0 - math.cos(math.pi * t))
+        upper.append(Point(x, hw))
+        lower.append(Point(x, -hw))
+    cell.add_polygon(Polygon(upper + lower[::-1]), layer)
 
-    # Central ellipse (approximated as polygon)
-    center_poly = _ellipse_polygon(half_cw, half_cw, 32)
-
-    cell.add_polygon(Polygon(h_left), layer)
-    cell.add_polygon(Polygon(h_right), layer)
-    cell.add_polygon(center_poly, layer)
-
-    # Vertical arm with taper to center
-    v_bottom = _create_taper_points_vertical(-arm_length, -half_cw, half_w, half_cw)
-    v_top = _create_taper_points_vertical(half_cw, arm_length, half_cw, half_w)
-
-    cell.add_polygon(Polygon(v_bottom), layer)
-    cell.add_polygon(Polygon(v_top), layer)
+    # Vertical arm: same approach, rotated 90 degrees
+    left = []
+    right = []
+    for i in range(n + 1):
+        y = -arm_length + arm_length * i / n
+        t = i / n
+        hw = half_w + (half_cw - half_w) * 0.5 * (1.0 - math.cos(math.pi * t))
+        right.append(Point(hw, y))
+        left.append(Point(-hw, y))
+    for i in range(1, n + 1):
+        y = arm_length * i / n
+        t = i / n
+        hw = half_cw + (half_w - half_cw) * 0.5 * (1.0 - math.cos(math.pi * t))
+        right.append(Point(hw, y))
+        left.append(Point(-hw, y))
+    cell.add_polygon(Polygon(right + left[::-1]), layer)
 
 
 def _add_mmi_crossing(
@@ -190,36 +243,3 @@ def _add_mmi_crossing(
     )
     cell.add_polygon(v_bottom, layer)
     cell.add_polygon(v_top, layer)
-
-
-def _create_taper_points(
-    x_start: float, x_end: float, half_w_start: float, half_w_end: float
-) -> list[Point]:
-    """Create points for a horizontal taper."""
-    return [
-        Point(x_start, -half_w_start),
-        Point(x_end, -half_w_end),
-        Point(x_end, half_w_end),
-        Point(x_start, half_w_start),
-    ]
-
-
-def _create_taper_points_vertical(
-    y_start: float, y_end: float, half_w_start: float, half_w_end: float
-) -> list[Point]:
-    """Create points for a vertical taper."""
-    return [
-        Point(-half_w_start, y_start),
-        Point(half_w_start, y_start),
-        Point(half_w_end, y_end),
-        Point(-half_w_end, y_end),
-    ]
-
-
-def _ellipse_polygon(rx: float, ry: float, num_points: int) -> Polygon:
-    """Create an ellipse polygon."""
-    points = []
-    for i in range(num_points):
-        angle = 2 * math.pi * i / num_points
-        points.append(Point(rx * math.cos(angle), ry * math.sin(angle)))
-    return Polygon(points)

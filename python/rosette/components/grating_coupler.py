@@ -1,14 +1,19 @@
 """Grating coupler components.
 
-Grating couplers enable fiber-to-chip coupling through diffraction.
+Grating couplers enable fiber-to-chip coupling through diffraction. The
+structure extends in the **-X** direction from the waveguide port: first
+a taper widens the waveguide from *waveguide_width* to the grating
+aperture, then periodic teeth diffract light vertically toward the fiber.
 
-Ports: "opt" (optical waveguide port at origin, facing +X toward chip)
+The single port ``"opt"`` sits at the origin and faces **+X** (toward
+the rest of the on-chip circuit).
 """
 
 import math
 from typing import Literal
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+from rosette.components._utils import safe_cell_name
 
 __all__ = ["grating_coupler"]
 
@@ -26,28 +31,63 @@ def grating_coupler(
 ) -> Cell:
     """Create a grating coupler for fiber-to-chip coupling.
 
-    The grating coupler extends in the -X direction from the port.
-    Port "opt" is at the origin, pointing in +X (toward the chip).
+    The component extends in the **-X** direction from the origin:
+    a taper fans out from *waveguide_width* to the grating aperture,
+    followed by *num_periods* grating teeth. Total extent in -X is
+    approximately ``taper_length + num_periods * period``.
+
+    Port:
+        - ``"opt"`` at ``(0, 0)``, facing **+X**, width = *waveguide_width*
+
+    Tooth styles:
+
+    * **Straight** (``focusing_angle=None``): Rectangular teeth spanning
+      the full *grating_width*. The taper is a simple trapezoid from
+      *waveguide_width* to *grating_width*.
+    * **Focused / curved** (``focusing_angle=<degrees>``): Arc-shaped
+      teeth whose curvature is centered at the focal point (the origin).
+      *focusing_angle* is the **full** angular aperture of the fan; each
+      tooth spans +-half that angle. The *grating_width* parameter is
+      ignored when *focusing_angle* is set.
+
+    Apodization:
+
+    * ``"uniform"`` -- All teeth have the same *fill_factor*.
+    * ``"apodized"`` -- Fill factor is modulated by a Gaussian envelope
+      centered on the middle tooth, tapering to ~30% of *fill_factor*
+      at the edges. This reduces back-reflections and improves the
+      mode overlap with a Gaussian fiber mode.
 
     Args:
-        layer: GDS layer for the geometry
-        waveguide_width: Input waveguide width in microns
-        period: Grating period in microns (default: 0.63 for 1550nm Si)
-        fill_factor: Fill factor 0-1 (default: 0.5)
-        num_periods: Number of grating periods
-        grating_type: "uniform" or "apodized" (varying fill factor)
-        focusing_angle: Angle in degrees for curved teeth (None for straight)
-        grating_width: Width of the grating region in microns
-        taper_length: Length of the taper from waveguide to grating in microns
+        layer: GDS layer for the geometry.
+        waveguide_width: Input waveguide width in microns.
+        period: Grating period in microns. The default (0.63) targets
+            ~1550 nm wavelength on a typical silicon photonics platform.
+        fill_factor: Fraction of each period occupied by the tooth
+            (0 to 1, exclusive).
+        num_periods: Number of grating periods.
+        grating_type: ``"uniform"`` or ``"apodized"`` (Gaussian
+            modulation of fill factor).
+        focusing_angle: Full angular aperture of the curved grating
+            fan in degrees. ``None`` for straight (rectangular) teeth.
+        grating_width: Width of the grating region in microns (only
+            used when *focusing_angle* is ``None``).
+        taper_length: Length of the taper from waveguide to grating
+            aperture in microns.
 
     Returns:
-        Cell with port "opt" (optical waveguide connection)
+        Cell with port ``"opt"``.
+        ``path_length`` = *taper_length*.
+
+    Raises:
+        ValueError: If *waveguide_width*, *period*, *taper_length*, or
+            *grating_width* is not positive; if *fill_factor* is not
+            strictly between 0 and 1; if *num_periods* < 1.
 
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import grating_coupler
-        >>> # Or in user projects: from components import grating_coupler
-        >>> gc = grating_coupler(Layer(1, 0), waveguide_width=0.5, focusing_angle=20.0)
+        >>> gc = grating_coupler(Layer(1, 0), focusing_angle=20.0)
     """
     if waveguide_width <= 0:
         raise ValueError("Waveguide width must be positive")
@@ -55,8 +95,14 @@ def grating_coupler(
         raise ValueError("Period must be positive")
     if not 0 < fill_factor < 1:
         raise ValueError("Fill factor must be between 0 and 1")
+    if taper_length <= 0:
+        raise ValueError("Taper length must be positive")
+    if grating_width <= 0:
+        raise ValueError("Grating width must be positive")
+    if num_periods < 1:
+        raise ValueError("Number of periods must be at least 1")
 
-    cell = Cell(f"gc_w{waveguide_width:.3f}_p{period:.3f}")
+    cell = Cell(safe_cell_name(f"gc_w{waveguide_width:.3f}_p{period:.3f}"))
 
     # Create taper from waveguide to grating width (extends in -X direction)
     taper = _create_taper(waveguide_width, grating_width, taper_length, focusing_angle)
@@ -100,6 +146,8 @@ def grating_coupler(
     # Add port at waveguide end (pointing +X toward chip)
     cell.add_port(Port("opt", Point(0, 0), Vector2.unit_x(), waveguide_width))
 
+    cell.path_length = taper_length
+
     return cell
 
 
@@ -119,18 +167,18 @@ def _create_taper(
 
         vertices = []
 
-        # Start at top of waveguide
-        vertices.append(Point(0.0, half_wg))
+        # Start at bottom of waveguide (CCW winding)
+        vertices.append(Point(0.0, -half_wg))
 
-        # Arc from +half_angle to -half_angle
+        # Arc from -half_angle to +half_angle
         for i in range(n + 1):
-            theta = half_angle_rad - (2.0 * half_angle_rad * i) / n
+            theta = -half_angle_rad + (2.0 * half_angle_rad * i) / n
             x = -length * math.cos(theta)
             y = length * math.sin(theta)
             vertices.append(Point(x, y))
 
-        # End at bottom of waveguide
-        vertices.append(Point(0.0, -half_wg))
+        # End at top of waveguide
+        vertices.append(Point(0.0, half_wg))
 
         return Polygon(vertices)
     else:

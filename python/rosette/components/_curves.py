@@ -269,7 +269,8 @@ def euler_sbend_point(t: float, length: float, offset: float) -> tuple[float, fl
 def euler_sbend_tangent(t: float, length: float, offset: float) -> tuple[float, float]:
     """Euler S-bend tangent at parameter t.
 
-    For an Euler spiral, the tangent angle is proportional to s^2.
+    Computes the tangent in the same anisotropically-scaled physical space as
+    ``euler_sbend_point``, ensuring correct normal offsets for polygon generation.
 
     Args:
         t: Parameter from 0 to 1
@@ -283,19 +284,31 @@ def euler_sbend_tangent(t: float, length: float, offset: float) -> tuple[float, 
         return 1.0, 0.0
 
     sign = 1.0 if offset > 0 else -1.0
+    abs_offset = abs(offset)
     s_max = 1.0
 
-    # For Fresnel integrals: tangent angle theta = pi/2 * s^2
+    # Scale factors matching euler_sbend_point
+    c_max = fresnel_c(s_max)
+    s_val_max = fresnel_s(s_max)
+
+    if c_max < 1e-10 or s_val_max < 1e-10:
+        return 1.0, 0.0
+
+    scale_x = (length / 2.0) / c_max
+    scale_y = (abs_offset / 2.0) / s_val_max
+
+    # Tangent angle from the Fresnel spiral parameterisation.
+    # Both halves use the same theta(s) because the second half is a spatial
+    # mirror — the tangent direction relative to s is identical in both halves.
     if t <= 0.5:
         s = 2.0 * t * s_max
-        theta = (math.pi / 2.0) * s * s
     else:
         s = 2.0 * (1.0 - t) * s_max
-        theta_max = (math.pi / 2.0) * s_max * s_max
-        theta = theta_max - (math.pi / 2.0) * s * s
+    theta = (math.pi / 2.0) * s * s
 
-    dx = math.cos(theta)
-    dy = sign * math.sin(theta)
+    # Apply the physical-space scale factors
+    dx = scale_x * math.cos(theta)
+    dy = sign * scale_y * math.sin(theta)
 
     return dx, dy
 
