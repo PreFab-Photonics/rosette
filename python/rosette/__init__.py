@@ -41,6 +41,10 @@ from pathlib import Path
 from rosette._core import (
     # Geometry
     BBox,
+    ConnectivityConfig,
+    ConnectivityResult,
+    # Connectivity
+    ConnViolation,
     # DFM
     DfmConfig,
     DfmResult,
@@ -73,6 +77,7 @@ from rosette._core import CellRef as _CellRef
 from rosette._core import Library as _Library
 from rosette._core import Route as _Route
 from rosette._core import read_gds as _read_gds
+from rosette._core import run_connectivity as _run_connectivity
 from rosette._core import run_dfm as _run_dfm
 from rosette._core import run_drc as _run_drc
 from rosette._core import write_gds as _write_gds
@@ -1172,6 +1177,120 @@ def run_drc(
     return _run_drc(inner_cell, rules, inner_library)
 
 
+# =============================================================================
+# Connectivity checking
+# =============================================================================
+
+
+def load_connectivity_config(
+    config_path: str | Path | None = None,
+) -> ConnectivityConfig:
+    """Load connectivity config from rosette.toml.
+
+    Reads the [connectivity] section. If the section is absent, returns
+    a ConnectivityConfig with sensible defaults.
+
+    Args:
+        config_path: Optional explicit path to rosette.toml. If None, searches
+                     from current directory upward.
+
+    Returns:
+        ConnectivityConfig built from the configuration
+
+    Example:
+        # In rosette.toml:
+        # [connectivity]
+        # position_tolerance = 0.001
+        # angle_tolerance = 0.1
+        # check_widths = true
+        # severity = "error"
+
+        config = load_connectivity_config()
+        result = run_connectivity(cell, config)
+    """
+    # Find config file
+    if config_path is not None:
+        toml_path = Path(config_path)
+        if not toml_path.exists():
+            raise FileNotFoundError(f"Config file not found: {toml_path}")
+    else:
+        toml_path = _find_rosette_toml()
+        if toml_path is None:
+            # No config file — return defaults
+            return ConnectivityConfig()
+
+    # Parse TOML
+    with open(toml_path, "rb") as f:
+        config = tomllib.load(f)
+
+    conn_config = config.get("connectivity", {})
+    if not conn_config:
+        return ConnectivityConfig()
+
+    return ConnectivityConfig(
+        position_tolerance=conn_config.get("position_tolerance", 0.001),
+        angle_tolerance=conn_config.get("angle_tolerance", 0.1),
+        check_widths=conn_config.get("check_widths", True),
+        severity=conn_config.get("severity", "error"),
+    )
+
+
+def run_connectivity(
+    cell: Cell | _Cell,
+    config: ConnectivityConfig | None = None,
+    library: Library | _Library | None = None,
+) -> ConnectivityResult:
+    """Run connectivity check on a cell.
+
+    Flattens the cell hierarchy, identifies port connections by proximity
+    and direction, then checks for unconnected ports, width mismatches,
+    and angle misalignment.
+
+    When called with a Cell that was built using Instance references (via
+    cell.at()), child cells are automatically collected into a Library for
+    hierarchy resolution. You can also pass a Library explicitly.
+
+    Ports on the top-level cell are treated as external I/O and are not
+    flagged as unconnected.
+
+    Args:
+        cell: The cell to check
+        config: Connectivity config (default: ConnectivityConfig())
+        library: Library containing referenced cells. If None and cell is a
+                 Python Cell with Instance tracking, a Library is auto-built.
+
+    Returns:
+        ConnectivityResult with violations and statistics
+
+    Example:
+        config = ConnectivityConfig(position_tolerance=0.001)
+        result = run_connectivity(cell, config)
+        if result.passed:
+            print("Connectivity check passed!")
+        else:
+            for v in result.violations:
+                print(f"  {v.message}")
+    """
+    # Extract inner Rust objects
+    inner_cell = cell._inner if isinstance(cell, Cell) else cell
+
+    inner_library = None
+    if library is not None:
+        inner_library = library._inner if isinstance(library, Library) else library
+    elif isinstance(cell, Cell):
+        # Auto-collect child cells into a Library for hierarchy resolution
+        collected: set[Cell] = set()
+        _collect_all_cells(cell, collected)
+        if collected:
+            lib = Library("_connectivity_check")
+            for child in collected:
+                lib.add_cell(child)
+            lib.add_cell(cell)
+            inner_library = lib._inner
+
+    return _run_connectivity(inner_cell, config, inner_library)
+
+
 def load_dfm_config(
     config_path: str | Path | None = None,
 ) -> tuple[DfmConfig, GaussianModel, list[Layer]]:
@@ -1755,6 +1874,9 @@ __all__ = [
     "BBox",
     "Cell",
     "CellRef",
+    "ConnViolation",
+    "ConnectivityConfig",
+    "ConnectivityResult",
     "DfmConfig",
     "DfmResult",
     "DfmViolation",
@@ -1779,6 +1901,7 @@ __all__ = [
     "arc_points",
     "fresnel_c",
     "fresnel_s",
+    "load_connectivity_config",
     "load_dfm_config",
     "load_drc_rules",
     "load_layer_map",
@@ -1786,6 +1909,7 @@ __all__ = [
     "offset_polygon_varying",
     "path_length",
     "read_gds",
+    "run_connectivity",
     "run_dfm",
     "run_drc",
     "write_gds",

@@ -1,0 +1,10 @@
+[package]
+name = "rosette-connectivity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Connectivity checking for rosette photonic layouts"
+
+[dependencies]
+rosette-core.workspace = true
+thiserror.workspace = true

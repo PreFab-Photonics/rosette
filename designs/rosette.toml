@@ -188,3 +188,23 @@ severity = "warning"        # "warning" to inform, "error" to fail the check
 # [dfm.layer."1/0"]
 # sigma = 0.05              # tighter process on waveguide layer
 # max_area_deviation = 0.05
+
+# =============================================================================
+# Connectivity Check
+# =============================================================================
+#
+# Verifies that component ports are properly connected:
+# - Unconnected ports on sub-instances (top-level ports are exempt as I/O)
+# - Width mismatches between connected ports
+# - Angle misalignment between connected ports
+#
+# Runs by default in `rosette check` with sensible defaults.
+# Uncomment and adjust the section below to override defaults.
+#
+# =============================================================================
+
+# [connectivity]
+# position_tolerance = 0.001   # um — max gap between "connected" ports
+# angle_tolerance = 0.1        # degrees — max deviation from anti-parallel
+# check_widths = true           # error on width mismatch between connected ports
+# severity = "error"            # "error" or "warning"

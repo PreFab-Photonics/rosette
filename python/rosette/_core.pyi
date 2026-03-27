@@ -252,6 +252,13 @@ class Port:
         width: float | None = None,
     ) -> None: ...
     def angle(self) -> float: ...
+    def can_connect_to(self, other: Port, tolerance: float = 0.001) -> bool:
+        """Check if this port can connect to another port.
+
+        Ports can connect if they are at the same position (within tolerance)
+        and have opposite directions.
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class CellRef:
@@ -1107,5 +1114,91 @@ def run_dfm(
             m = lp.metrics
             if m:
                 print(f"  Layer {lp.layer}: edge dev {m.max_edge_deviation:.3f} um")
+    """
+    ...
+
+# ---------------------------------------------------------------------------
+# Connectivity checking
+# ---------------------------------------------------------------------------
+
+class ConnectivityConfig:
+    """Configuration for connectivity checks."""
+
+    def __init__(
+        self,
+        position_tolerance: float = 0.001,
+        angle_tolerance: float = 0.1,
+        check_widths: bool = True,
+        severity: str = "error",
+    ) -> None:
+        """Create a new connectivity config.
+
+        Args:
+            position_tolerance: Max gap between port centres to count as connected (default 0.001)
+            angle_tolerance: Max angular deviation from anti-parallel in degrees (default 0.1)
+            check_widths: Whether to flag width mismatches (default True)
+            severity: Default severity, "error" or "warning" (default "error")
+        """
+        ...
+    def __repr__(self) -> str: ...
+
+class ConnViolation:
+    """A single connectivity violation."""
+
+    violation_type: str
+    """Type: "unconnected_port", "width_mismatch", or "angle_mismatch"."""
+    port_name: str
+    """Name of the port being flagged."""
+    cell_path: str
+    """Hierarchy path to the port (e.g. "mmi_1/out_2")."""
+    partner_port: str | None
+    """Name of the partner port (for mismatch violations)."""
+    partner_path: str | None
+    """Hierarchy path to the partner port."""
+    message: str
+    """Human-readable description."""
+    severity: str
+    """Severity: "error" or "warning"."""
+    bbox: tuple[tuple[float, float], tuple[float, float]]
+    """Bounding box as ((min_x, min_y), (max_x, max_y))."""
+    def __repr__(self) -> str: ...
+
+class ConnectivityResult:
+    """Result of running a connectivity check."""
+
+    passed: bool
+    """True if no violations were found."""
+    violations: list[ConnViolation]
+    """List of violations found."""
+    ports_checked: int
+    """Number of ports checked."""
+    connections_found: int
+    """Number of port-to-port connections found."""
+    elapsed_ms: float
+    """Elapsed time in milliseconds."""
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+def run_connectivity(
+    cell: Cell,
+    config: ConnectivityConfig | None = None,
+    library: Library | None = None,
+) -> ConnectivityResult:
+    """Run connectivity check on a cell.
+
+    Flattens the cell hierarchy, identifies port connections by proximity
+    and direction, then checks for unconnected ports, width mismatches,
+    and angle misalignment.
+
+    Ports on the top-level cell are treated as external I/O and are not
+    flagged as unconnected.
+
+    Args:
+        cell: The cell to check
+        config: Connectivity config (default: ConnectivityConfig())
+        library: Library containing referenced cells (required if cell has refs)
+
+    Returns:
+        ConnectivityResult with violations and statistics
     """
     ...

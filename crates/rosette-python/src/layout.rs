@@ -133,6 +133,15 @@ impl PyPort {
         self.0.angle() * 180.0 / PI
     }
 
+    /// Check if this port can connect to another port.
+    ///
+    /// Ports can connect if they are at the same position (within tolerance)
+    /// and have opposite directions.
+    #[pyo3(signature = (other, tolerance=0.001))]
+    fn can_connect_to(&self, other: &PyPort, tolerance: f64) -> bool {
+        self.0.can_connect_to(&other.0, tolerance)
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Port('{}', position=({}, {}), angle={:.1})",

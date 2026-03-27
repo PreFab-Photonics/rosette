@@ -7,6 +7,7 @@
 
 use pyo3::prelude::*;
 
+mod connectivity;
 mod dfm;
 mod drc;
 mod geometry;
@@ -14,6 +15,9 @@ mod io;
 mod layout;
 mod route;
 
+use connectivity::{
+    PyConnViolation, PyConnectivityConfig, PyConnectivityResult, py_run_connectivity,
+};
 use dfm::{
     PyDfmConfig, PyDfmResult, PyDfmViolation, PyGaussianModel, PyLayerMetrics, PyLayerPrediction,
     py_run_dfm,
@@ -74,6 +78,12 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Iterators
     m.add_class::<PyPolygonIterator>()?;
+
+    // Connectivity types
+    m.add_class::<PyConnectivityConfig>()?;
+    m.add_class::<PyConnectivityResult>()?;
+    m.add_class::<PyConnViolation>()?;
+    m.add_function(wrap_pyfunction!(py_run_connectivity, m)?)?;
 
     // DRC types
     m.add_class::<PyDrcRules>()?;
