@@ -41,10 +41,10 @@ from pathlib import Path
 from rosette._core import (
     # Geometry
     BBox,
-    ConnectivityConfig,
-    ConnectivityResult,
-    # Connectivity
-    ConnViolation,
+    ChecksConfig,
+    ChecksResult,
+    # Checks
+    CheckViolation,
     # DFM
     DfmConfig,
     DfmResult,
@@ -77,7 +77,7 @@ from rosette._core import CellRef as _CellRef
 from rosette._core import Library as _Library
 from rosette._core import Route as _Route
 from rosette._core import read_gds as _read_gds
-from rosette._core import run_connectivity as _run_connectivity
+from rosette._core import run_checks as _run_checks
 from rosette._core import run_dfm as _run_dfm
 from rosette._core import run_drc as _run_drc
 from rosette._core import write_gds as _write_gds
@@ -523,6 +523,37 @@ class Cell:
     @path_length.setter
     def path_length(self, value: float) -> None:
         self._inner.path_length = value
+
+    def add_bend(
+        self,
+        radius: float,
+        x: float,
+        y: float,
+        requested_radius: float | None = None,
+    ) -> None:
+        """Add a bend info entry to the cell metadata.
+
+        Args:
+            radius: Effective bend radius in um.
+            x: X coordinate of bend location.
+            y: Y coordinate of bend location.
+            requested_radius: Original requested radius if auto-reduced.
+        """
+        self._inner.add_bend(radius, x, y, requested_radius)
+
+    @property
+    def bends(self) -> list[dict]:
+        """Bend info entries as list of dicts."""
+        return self._inner.bends
+
+    def add_warning(self, warning: str) -> None:
+        """Add a warning to the cell metadata."""
+        self._inner.add_warning(warning)
+
+    @property
+    def cell_warnings(self) -> list[str]:
+        """Warnings from cell construction."""
+        return self._inner.cell_warnings
 
     # --- Delegated methods ---
 
@@ -1182,31 +1213,32 @@ def run_drc(
 # =============================================================================
 
 
-def load_connectivity_config(
+def load_checks_config(
     config_path: str | Path | None = None,
-) -> ConnectivityConfig:
-    """Load connectivity config from rosette.toml.
+) -> ChecksConfig:
+    """Load checks config from rosette.toml.
 
-    Reads the [connectivity] section. If the section is absent, returns
-    a ConnectivityConfig with sensible defaults.
+    Reads the [checks] section. If the section is absent, returns
+    a ChecksConfig with sensible defaults.
 
     Args:
         config_path: Optional explicit path to rosette.toml. If None, searches
                      from current directory upward.
 
     Returns:
-        ConnectivityConfig built from the configuration
+        ChecksConfig built from the configuration
 
     Example:
         # In rosette.toml:
-        # [connectivity]
+        # [checks]
         # position_tolerance = 0.001
         # angle_tolerance = 0.1
         # check_widths = true
+        # min_bend_radius = 5.0
         # severity = "error"
 
-        config = load_connectivity_config()
-        result = run_connectivity(cell, config)
+        config = load_checks_config()
+        result = run_checks(cell, config)
     """
     # Find config file
     if config_path is not None:
@@ -1217,34 +1249,34 @@ def load_connectivity_config(
         toml_path = _find_rosette_toml()
         if toml_path is None:
             # No config file — return defaults
-            return ConnectivityConfig()
+            return ChecksConfig()
 
     # Parse TOML
     with open(toml_path, "rb") as f:
         config = tomllib.load(f)
 
-    conn_config = config.get("connectivity", {})
-    if not conn_config:
-        return ConnectivityConfig()
+    checks_config = config.get("checks", {})
+    if not checks_config:
+        return ChecksConfig()
 
-    return ConnectivityConfig(
-        position_tolerance=conn_config.get("position_tolerance", 0.001),
-        angle_tolerance=conn_config.get("angle_tolerance", 0.1),
-        check_widths=conn_config.get("check_widths", True),
-        severity=conn_config.get("severity", "error"),
+    return ChecksConfig(
+        position_tolerance=checks_config.get("position_tolerance", 0.001),
+        angle_tolerance=checks_config.get("angle_tolerance", 0.1),
+        check_widths=checks_config.get("check_widths", True),
+        min_bend_radius=checks_config.get("min_bend_radius"),
+        severity=checks_config.get("severity", "error"),
     )
 
 
-def run_connectivity(
+def run_checks(
     cell: Cell | _Cell,
-    config: ConnectivityConfig | None = None,
+    config: ChecksConfig | None = None,
     library: Library | _Library | None = None,
-) -> ConnectivityResult:
-    """Run connectivity check on a cell.
+) -> ChecksResult:
+    """Run design checks on a cell.
 
-    Flattens the cell hierarchy, identifies port connections by proximity
-    and direction, then checks for unconnected ports, width mismatches,
-    and angle misalignment.
+    Runs all design checks: connectivity (unconnected ports, width/angle
+    mismatch) and bend radius (below minimum, auto-reduced).
 
     When called with a Cell that was built using Instance references (via
     cell.at()), child cells are automatically collected into a Library for
@@ -1255,18 +1287,18 @@ def run_connectivity(
 
     Args:
         cell: The cell to check
-        config: Connectivity config (default: ConnectivityConfig())
+        config: Checks config (default: ChecksConfig())
         library: Library containing referenced cells. If None and cell is a
                  Python Cell with Instance tracking, a Library is auto-built.
 
     Returns:
-        ConnectivityResult with violations and statistics
+        ChecksResult with violations and statistics
 
     Example:
-        config = ConnectivityConfig(position_tolerance=0.001)
-        result = run_connectivity(cell, config)
+        config = ChecksConfig(min_bend_radius=5.0)
+        result = run_checks(cell, config)
         if result.passed:
-            print("Connectivity check passed!")
+            print("All checks passed!")
         else:
             for v in result.violations:
                 print(f"  {v.message}")
@@ -1282,13 +1314,13 @@ def run_connectivity(
         collected: set[Cell] = set()
         _collect_all_cells(cell, collected)
         if collected:
-            lib = Library("_connectivity_check")
+            lib = Library("_checks")
             for child in collected:
                 lib.add_cell(child)
             lib.add_cell(cell)
             inner_library = lib._inner
 
-    return _run_connectivity(inner_cell, config, inner_library)
+    return _run_checks(inner_cell, config, inner_library)
 
 
 def load_dfm_config(
@@ -1874,9 +1906,9 @@ __all__ = [
     "BBox",
     "Cell",
     "CellRef",
-    "ConnViolation",
-    "ConnectivityConfig",
-    "ConnectivityResult",
+    "CheckViolation",
+    "ChecksConfig",
+    "ChecksResult",
     "DfmConfig",
     "DfmResult",
     "DfmViolation",
@@ -1901,7 +1933,7 @@ __all__ = [
     "arc_points",
     "fresnel_c",
     "fresnel_s",
-    "load_connectivity_config",
+    "load_checks_config",
     "load_dfm_config",
     "load_drc_rules",
     "load_layer_map",
@@ -1909,7 +1941,7 @@ __all__ = [
     "offset_polygon_varying",
     "path_length",
     "read_gds",
-    "run_connectivity",
+    "run_checks",
     "run_dfm",
     "run_drc",
     "write_gds",

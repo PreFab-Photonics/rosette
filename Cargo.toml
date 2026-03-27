@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/rosette-connectivity",
+    "crates/rosette-checks",
     "crates/rosette-core",
     "crates/rosette-dfm",
     "crates/rosette-drc",
@@ -14,7 +14,7 @@ members = [
 # system libraries (GTK, WebKit on Linux) that aren't available in CI.
 # Build explicitly with: cargo build -p rosette-desktop
 default-members = [
-    "crates/rosette-connectivity",
+    "crates/rosette-checks",
     "crates/rosette-core",
     "crates/rosette-dfm",
     "crates/rosette-drc",
@@ -28,7 +28,7 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-rosette-connectivity = { path = "crates/rosette-connectivity" }
+rosette-checks = { path = "crates/rosette-checks" }
 rosette-core = { path = "crates/rosette-core" }
 rosette-dfm = { path = "crates/rosette-dfm" }
 rosette-drc = { path = "crates/rosette-drc" }

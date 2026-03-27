@@ -5,7 +5,7 @@ use crate::geometry::{PyBBox, PyPoint, PyPolygon, PyTransform, PyVector2};
 use pyo3::prelude::*;
 use rosette_core::cell::PathEndType;
 use rosette_core::component::connect_transform;
-use rosette_core::{Cell, CellRef, Layer, Library, Port};
+use rosette_core::{BendInfo, Cell, CellRef, Layer, Library, Point, Port};
 use std::f64::consts::PI;
 
 /// GDS path end type.
@@ -432,6 +432,53 @@ impl PyCell {
     #[setter]
     fn set_path_length(&mut self, length: f64) {
         self.0.set_path_length(length);
+    }
+
+    /// Add a bend info entry.
+    ///
+    /// Args:
+    ///     radius: Effective bend radius in um
+    ///     x: X coordinate of bend location
+    ///     y: Y coordinate of bend location
+    ///     requested_radius: Original requested radius if auto-reduced (optional)
+    #[pyo3(signature = (radius, x, y, requested_radius=None))]
+    fn add_bend(&mut self, radius: f64, x: f64, y: f64, requested_radius: Option<f64>) {
+        let bend = if let Some(req) = requested_radius {
+            BendInfo::auto_reduced(radius, Point::new(x, y), req)
+        } else {
+            BendInfo::new(radius, Point::new(x, y))
+        };
+        self.0.add_bend(bend);
+    }
+
+    /// Get bend info entries as list of dicts.
+    ///
+    /// Each entry has keys: "radius", "x", "y", and optionally "requested_radius".
+    #[getter]
+    fn bends(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::empty(py);
+        for bend in self.0.bends() {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("radius", bend.radius)?;
+            dict.set_item("x", bend.position.x)?;
+            dict.set_item("y", bend.position.y)?;
+            if let Some(req) = bend.requested_radius {
+                dict.set_item("requested_radius", req)?;
+            }
+            list.append(dict)?;
+        }
+        Ok(list.into())
+    }
+
+    /// Get warnings from the cell metadata.
+    #[getter]
+    fn cell_warnings(&self) -> Vec<String> {
+        self.0.warnings().to_vec()
+    }
+
+    /// Add a warning to the cell metadata.
+    fn add_warning(&mut self, warning: String) {
+        self.0.add_warning(warning);
     }
 
     /// Place a cell reference by aligning its port to a target port.

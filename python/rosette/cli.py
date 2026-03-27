@@ -156,7 +156,7 @@ def _find_gds_files() -> list[Path]:
 
 
 # Commands that need a design .py file
-_NEEDS_DESIGN = {"build", "check", "connectivity", "dfm", "drc"}
+_NEEDS_DESIGN = {"build", "check", "dfm", "drc"}
 # Commands that need a .gds file
 _NEEDS_GDS = {"run"}
 # Commands that take no file argument
@@ -172,10 +172,9 @@ def _select_command_interactive() -> tuple[str, str | None]:
     commands = [
         ("serve", "serve", "Start dev server with live preview"),
         ("build", "build", "Build a design to GDS"),
-        ("check", "check", "Run all checks (DRC, connectivity, ...)"),
+        ("check", "check", "Run all checks (DRC, checks, ...)"),
         ("drc", "drc", "Run DRC only"),
         ("dfm", "dfm", "Run DFM prediction only"),
-        ("connectivity", "connectivity", "Run connectivity check only"),
         ("run", "run", "View a GDS file"),
         ("init", "init", "Initialize rosette in current project"),
         ("update", "update", "Update agent files to latest template"),
@@ -276,7 +275,7 @@ def main():
     )
 
     # check command - run all checks
-    check_parser = subparsers.add_parser("check", help="Run all checks (DRC, connectivity, ...)")
+    check_parser = subparsers.add_parser("check", help="Run all checks (DRC, DFM, design checks)")
     check_parser.add_argument("design", help="Design file (path or path:target)")
     check_parser.add_argument(
         "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
@@ -298,14 +297,6 @@ def main():
         "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
     )
     dfm_parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed output")
-
-    # connectivity command - run connectivity check only
-    conn_parser = subparsers.add_parser("connectivity", help="Run connectivity check")
-    conn_parser.add_argument("design", help="Design file (path or path:target)")
-    conn_parser.add_argument(
-        "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
-    )
-    conn_parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed output")
 
     # serve command
     serve_parser = subparsers.add_parser("serve", help="Start dev server with live preview")
@@ -382,8 +373,6 @@ def main():
         drc_design(args.design, args.config, args.verbose)
     elif args.command == "dfm":
         dfm_design(args.design, args.config, args.verbose)
-    elif args.command == "connectivity":
-        connectivity_design(args.design, args.config, args.verbose)
     elif args.command == "serve":
         from rosette._serve import serve_design
 
@@ -1151,38 +1140,38 @@ def dfm_design(design: str, config: str | None = None, verbose: bool = False):
         sys.exit(1)
 
 
-def _run_connectivity_check(
+def _run_checks_check(
     design_spec: str,
     config_path: str | None = None,
     cell=None,
     file_path: Path | None = None,
 ) -> tuple:
-    """Run connectivity check on a design and return (result, file_path).
+    """Run design checks on a design and return (result, file_path).
 
-    Loads the design (unless cell/file_path are provided), loads connectivity
-    config from rosette.toml, and runs the check.
+    Loads the design (unless cell/file_path are provided), loads checks
+    config from rosette.toml, and runs all checks (connectivity + bend radius).
     """
-    from rosette import load_connectivity_config, run_connectivity
+    from rosette import load_checks_config, run_checks
 
     # Load design if not provided
     if cell is None:
         cell, file_path, _ = load_design(design_spec)
 
-    # Load config (returns defaults if no [connectivity] section)
-    conn_config = load_connectivity_config(config_path)
+    # Load config (returns defaults if no [checks] section)
+    checks_config = load_checks_config(config_path)
 
-    # Run connectivity check (Rust engine)
-    result = run_connectivity(cell, conn_config)
+    # Run checks (Rust engine)
+    result = run_checks(cell, checks_config)
     return result, file_path
 
 
-def _print_connectivity_result(result, file_path: Path, verbose: bool = False) -> bool:
-    """Print connectivity results. Returns True if passed."""
-    # Header
-    print(
-        f"{_bold('connectivity')}  {file_path}  "
-        f"{_dim(f'{result.ports_checked} ports, {result.connections_found} connections')}"
-    )
+def _print_checks_result(result, file_path: Path, verbose: bool = False) -> bool:
+    """Print design check results. Returns True if passed."""
+    # Header with stats
+    stats_parts = [f"{result.ports_checked} ports", f"{result.connections_found} connections"]
+    if result.bends_checked > 0:
+        stats_parts.append(f"{result.bends_checked} bends")
+    print(f"{_bold('checks')}  {file_path}  {_dim(', '.join(stats_parts))}")
 
     if result.passed:
         print(f"\n  {_green('passed')} {_dim(f'({result.elapsed_ms:.1f}ms)')}")
@@ -1203,14 +1192,14 @@ def _print_connectivity_result(result, file_path: Path, verbose: bool = False) -
         vtype = v.violation_type
         path_str = v.cell_path or "top"
 
-        if v.partner_port is not None:
-            partner_str = f" \u2192 {v.partner_port}"
+        if v.partner_name is not None:
+            partner_str = f" \u2192 {v.partner_name}"
             if v.partner_path:
                 partner_str += f" on {v.partner_path}"
         else:
             partner_str = ""
 
-        print(f"  {label}  {_bold(vtype)} {v.port_name} on {path_str}{partner_str}: {v.message}")
+        print(f"  {label}  {_bold(vtype)} {v.name} on {path_str}{partner_str}: {v.message}")
 
         if verbose:
             bbox = v.bbox
@@ -1234,18 +1223,10 @@ def _print_connectivity_result(result, file_path: Path, verbose: bool = False) -
     return False
 
 
-def connectivity_design(design: str, config: str | None = None, verbose: bool = False):
-    """Run connectivity check on a design."""
-    result, file_path = _run_connectivity_check(design, config)
-    passed = _print_connectivity_result(result, file_path, verbose)
-    if not passed:
-        sys.exit(1)
-
-
 def check_design(design: str, config: str | None = None, verbose: bool = False):
     """Run all checks on a design.
 
-    Runs DRC, DFM (if configured), and connectivity checks.
+    Runs DRC, DFM (if configured), and design checks (connectivity + bend radius).
     """
     all_passed = True
 
@@ -1278,15 +1259,15 @@ def check_design(design: str, config: str | None = None, verbose: bool = False):
     except (FileNotFoundError, ValueError):
         pass  # No DFM config — skip silently
 
-    # Connectivity (always runs — uses defaults if no [connectivity] section)
+    # Design checks (always runs — uses defaults if no [checks] section)
     try:
-        conn_result, _ = _run_connectivity_check(design, config, cell=cell, file_path=file_path)
+        checks_result, _ = _run_checks_check(design, config, cell=cell, file_path=file_path)
         print()  # Separator
-        conn_passed = _print_connectivity_result(conn_result, file_path, verbose)
-        if not conn_passed:
+        checks_passed = _print_checks_result(checks_result, file_path, verbose)
+        if not checks_passed:
             all_passed = False
     except (FileNotFoundError, ValueError) as e:
-        print(f"\n{_yellow(f'Warning: connectivity check failed: {e}')}")
+        print(f"\n{_yellow(f'Warning: design checks failed: {e}')}")
 
     if not all_passed:
         sys.exit(1)
@@ -1338,15 +1319,15 @@ def build_design(
         except (FileNotFoundError, ValueError):
             pass  # No DFM config — skip silently
 
-        # Connectivity check
+        # Design checks (connectivity + bend radius)
         try:
-            conn_result, _ = _run_connectivity_check(design, config, cell=cell, file_path=file_path)
-            conn_passed = _print_connectivity_result(conn_result, file_path, verbose)
-            if not conn_passed:
-                print(_yellow("Warning: connectivity issues found, building anyway"))
+            checks_result, _ = _run_checks_check(design, config, cell=cell, file_path=file_path)
+            checks_passed = _print_checks_result(checks_result, file_path, verbose)
+            if not checks_passed:
+                print(_yellow("Warning: check issues found, building anyway"))
             print()
         except (FileNotFoundError, ValueError):
-            pass  # No connectivity config — skip silently
+            pass  # No checks config — skip silently
 
     # Output filename from design file name
     gds_output = output_path / f"{file_path.stem}.gds"

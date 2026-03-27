@@ -3558,7 +3558,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
 
 [[package]]
-name = "rosette-connectivity"
+name = "rosette-checks"
 version = "0.1.6"
 dependencies = [
  "rosette-core",
@@ -3626,7 +3626,7 @@ name = "rosette-python"
 version = "0.1.6"
 dependencies = [
  "pyo3",
- "rosette-connectivity",
+ "rosette-checks",
  "rosette-core",
  "rosette-dfm",
  "rosette-drc",

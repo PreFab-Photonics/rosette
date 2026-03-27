@@ -311,6 +311,10 @@ class CellRef:
 class Cell:
     name: str
     path_length: float | None
+    bends: list[dict]
+    """Bend info entries as list of dicts with keys: radius, x, y, and optionally requested_radius."""
+    cell_warnings: list[str]
+    """Warnings from cell construction."""
     def __init__(self, name: str) -> None:
         """Create a new empty cell.
 
@@ -372,6 +376,25 @@ class Cell:
         """
         ...
     def add_port(self, port: Port) -> None: ...
+    def add_bend(
+        self,
+        radius: float,
+        x: float,
+        y: float,
+        requested_radius: float | None = None,
+    ) -> None:
+        """Add a bend info entry to the cell metadata.
+
+        Args:
+            radius: Effective bend radius in um
+            x: X coordinate of bend location
+            y: Y coordinate of bend location
+            requested_radius: Original requested radius if auto-reduced (optional)
+        """
+        ...
+    def add_warning(self, warning: str) -> None:
+        """Add a warning to the cell metadata."""
+        ...
     def port(self, name: str) -> Port: ...
     def ports(self) -> list[Port]: ...
     def polygon_count(self) -> int: ...
@@ -1118,41 +1141,43 @@ def run_dfm(
     ...
 
 # ---------------------------------------------------------------------------
-# Connectivity checking
+# Design checks
 # ---------------------------------------------------------------------------
 
-class ConnectivityConfig:
-    """Configuration for connectivity checks."""
+class ChecksConfig:
+    """Configuration for design checks."""
 
     def __init__(
         self,
         position_tolerance: float = 0.001,
         angle_tolerance: float = 0.1,
         check_widths: bool = True,
+        min_bend_radius: float | None = None,
         severity: str = "error",
     ) -> None:
-        """Create a new connectivity config.
+        """Create a new checks config.
 
         Args:
             position_tolerance: Max gap between port centres to count as connected (default 0.001)
             angle_tolerance: Max angular deviation from anti-parallel in degrees (default 0.1)
             check_widths: Whether to flag width mismatches (default True)
+            min_bend_radius: Minimum allowed bend radius in um, or None to skip (default None)
             severity: Default severity, "error" or "warning" (default "error")
         """
         ...
     def __repr__(self) -> str: ...
 
-class ConnViolation:
-    """A single connectivity violation."""
+class CheckViolation:
+    """A single check violation."""
 
     violation_type: str
-    """Type: "unconnected_port", "width_mismatch", or "angle_mismatch"."""
-    port_name: str
-    """Name of the port being flagged."""
+    """Type: "unconnected_port", "width_mismatch", "angle_mismatch", "bend_radius_too_small", "bend_radius_auto_reduced"."""
+    name: str
+    """Name of the relevant port or component."""
     cell_path: str
-    """Hierarchy path to the port (e.g. "mmi_1/out_2")."""
-    partner_port: str | None
-    """Name of the partner port (for mismatch violations)."""
+    """Hierarchy path (e.g. "mmi_1/out_2")."""
+    partner_name: str | None
+    """Name of the partner port (for connectivity mismatch violations)."""
     partner_path: str | None
     """Hierarchy path to the partner port."""
     message: str
@@ -1163,42 +1188,43 @@ class ConnViolation:
     """Bounding box as ((min_x, min_y), (max_x, max_y))."""
     def __repr__(self) -> str: ...
 
-class ConnectivityResult:
-    """Result of running a connectivity check."""
+class ChecksResult:
+    """Result of running design checks."""
 
     passed: bool
     """True if no violations were found."""
-    violations: list[ConnViolation]
+    violations: list[CheckViolation]
     """List of violations found."""
     ports_checked: int
     """Number of ports checked."""
     connections_found: int
     """Number of port-to-port connections found."""
+    bends_checked: int
+    """Number of bends checked."""
     elapsed_ms: float
     """Elapsed time in milliseconds."""
     def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
 
-def run_connectivity(
+def run_checks(
     cell: Cell,
-    config: ConnectivityConfig | None = None,
+    config: ChecksConfig | None = None,
     library: Library | None = None,
-) -> ConnectivityResult:
-    """Run connectivity check on a cell.
+) -> ChecksResult:
+    """Run design checks on a cell.
 
-    Flattens the cell hierarchy, identifies port connections by proximity
-    and direction, then checks for unconnected ports, width mismatches,
-    and angle misalignment.
+    Runs all design checks: connectivity (unconnected ports, width/angle
+    mismatch) and bend radius (below minimum, auto-reduced).
 
     Ports on the top-level cell are treated as external I/O and are not
     flagged as unconnected.
 
     Args:
         cell: The cell to check
-        config: Connectivity config (default: ConnectivityConfig())
+        config: Checks config (default: ChecksConfig())
         library: Library containing referenced cells (required if cell has refs)
 
     Returns:
-        ConnectivityResult with violations and statistics
+        ChecksResult with violations and statistics
     """
     ...

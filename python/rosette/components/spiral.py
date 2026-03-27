@@ -148,4 +148,7 @@ def spiral(
 
     cell.path_length = path_len
 
+    # Record minimum bend radius for design checks (spiral center at origin)
+    cell.add_bend(min_radius, 0.0, 0.0)
+
     return cell

@@ -1,8 +1,8 @@
-//! Connectivity violation types.
+//! Check violation types.
 
 use rosette_core::BBox;
 
-/// Severity level of a connectivity violation.
+/// Severity level of a check violation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     /// Critical violation that must be fixed.
@@ -11,9 +11,10 @@ pub enum Severity {
     Warning,
 }
 
-/// Type of connectivity violation.
+/// Type of check violation.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ConnViolationType {
+pub enum CheckViolationType {
+    // -- Connectivity --
     /// Port has no connection partner within tolerance.
     UnconnectedPort,
     /// Connected ports have different widths.
@@ -30,19 +31,35 @@ pub enum ConnViolationType {
         /// Configured tolerance in degrees.
         tolerance_deg: f64,
     },
+
+    // -- Bend radius --
+    /// Bend radius is below the configured minimum.
+    BendRadiusTooSmall {
+        /// Actual bend radius.
+        radius: f64,
+        /// Configured minimum.
+        min_radius: f64,
+    },
+    /// Bend radius was auto-reduced from the requested value.
+    BendRadiusAutoReduced {
+        /// Effective bend radius after auto-reduction.
+        radius: f64,
+        /// Originally requested radius.
+        requested_radius: f64,
+    },
 }
 
-/// A single connectivity violation.
+/// A single check violation.
 #[derive(Debug, Clone)]
-pub struct ConnViolation {
+pub struct CheckViolation {
     /// Type of violation with details.
-    pub violation_type: ConnViolationType,
-    /// Name of the port being flagged.
-    pub port_name: String,
-    /// Hierarchy path to the port (e.g. "mmi_1/out_2").
+    pub violation_type: CheckViolationType,
+    /// Name of the relevant port or component.
+    pub name: String,
+    /// Hierarchy path to the violation (e.g. "mmi_1/out_2").
     pub cell_path: String,
-    /// Name of the partner port (for mismatch violations).
-    pub partner_port: Option<String>,
+    /// Name of the partner port (for connectivity mismatch violations).
+    pub partner_name: Option<String>,
     /// Hierarchy path to the partner port.
     pub partner_path: Option<String>,
     /// Bounding box around the violation location.
@@ -53,11 +70,11 @@ pub struct ConnViolation {
     pub severity: Severity,
 }
 
-impl ConnViolation {
+impl CheckViolation {
     /// Create a new violation.
     pub fn new(
-        violation_type: ConnViolationType,
-        port_name: impl Into<String>,
+        violation_type: CheckViolationType,
+        name: impl Into<String>,
         cell_path: impl Into<String>,
         location: BBox,
         message: impl Into<String>,
@@ -65,9 +82,9 @@ impl ConnViolation {
     ) -> Self {
         Self {
             violation_type,
-            port_name: port_name.into(),
+            name: name.into(),
             cell_path: cell_path.into(),
-            partner_port: None,
+            partner_name: None,
             partner_path: None,
             location,
             message: message.into(),
@@ -75,13 +92,9 @@ impl ConnViolation {
         }
     }
 
-    /// Set the partner port info (for mismatch violations).
-    pub fn with_partner(
-        mut self,
-        port_name: impl Into<String>,
-        cell_path: impl Into<String>,
-    ) -> Self {
-        self.partner_port = Some(port_name.into());
+    /// Set the partner info (for connectivity mismatch violations).
+    pub fn with_partner(mut self, name: impl Into<String>, cell_path: impl Into<String>) -> Self {
+        self.partner_name = Some(name.into());
         self.partner_path = Some(cell_path.into());
         self
     }

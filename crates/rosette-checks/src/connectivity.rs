@@ -1,43 +1,17 @@
-//! Connectivity check execution engine.
-
-use std::time::{Duration, Instant};
+//! Connectivity checking for photonic layouts.
+//!
+//! Verifies that component ports are properly connected by checking:
+//! - **Unconnected ports** — every non-external port has a partner
+//! - **Width mismatch** — connected ports have matching widths
+//! - **Angle mismatch** — connected ports are properly anti-parallel
+//!
+//! Ports on the top-level cell are treated as external I/O and are
+//! exempt from unconnected-port checks.
 
 use rosette_core::{BBox, Cell, Library, Point, Port, Transform};
 
-use crate::config::ConnectivityConfig;
-use crate::violation::{ConnViolation, ConnViolationType, Severity};
-
-/// Statistics from a connectivity check run.
-#[derive(Debug, Clone)]
-pub struct ConnectivityStats {
-    /// Number of ports checked.
-    pub ports_checked: usize,
-    /// Number of port-to-port connections found.
-    pub connections_found: usize,
-    /// Total elapsed time.
-    pub elapsed: Duration,
-}
-
-/// Result of running a connectivity check.
-#[derive(Debug, Clone)]
-pub struct ConnectivityResult {
-    /// List of violations found.
-    pub violations: Vec<ConnViolation>,
-    /// Statistics from the run.
-    pub stats: ConnectivityStats,
-}
-
-impl ConnectivityResult {
-    /// Check if the connectivity check passed (no violations).
-    pub fn passed(&self) -> bool {
-        self.violations.is_empty()
-    }
-
-    /// Number of violations found.
-    pub fn violation_count(&self) -> usize {
-        self.violations.len()
-    }
-}
+use crate::config::ChecksConfig;
+use crate::violation::{CheckViolation, CheckViolationType, Severity};
 
 /// A port resolved to its absolute position in the design hierarchy.
 #[derive(Debug)]
@@ -92,21 +66,14 @@ fn flatten_ports(
 /// Compute the angular deviation between two ports from perfect anti-parallel
 /// alignment. Returns the deviation in degrees (0 = perfectly anti-parallel).
 fn angle_deviation_deg(a: &Port, b: &Port) -> f64 {
-    // Dot product of perfectly anti-parallel unit vectors is -1.
-    // dot = cos(theta) where theta is angle between directions.
-    // Deviation from anti-parallel = 180 - theta = 180 - acos(dot).
     let dot = a.direction.dot(b.direction);
-    // Clamp to [-1, 1] for numerical safety
     let dot_clamped = dot.clamp(-1.0, 1.0);
     let theta_deg = dot_clamped.acos().to_degrees();
-    // theta_deg is angle between the two direction vectors.
-    // For anti-parallel, theta should be 180. Deviation is |180 - theta|.
     (180.0 - theta_deg).abs()
 }
 
 /// Make a point-sized BBox centred on a port position for violation location.
 fn port_bbox(port: &Port) -> BBox {
-    // Create a small bbox around the port for location reporting.
     let half = 0.05; // 50nm box for visibility
     BBox::new(
         Point::new(port.position.x - half, port.position.y - half),
@@ -114,21 +81,23 @@ fn port_bbox(port: &Port) -> BBox {
     )
 }
 
+/// Connectivity check statistics.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectivityStats {
+    /// Number of ports checked.
+    pub ports_checked: usize,
+    /// Number of port-to-port connections found.
+    pub connections_found: usize,
+}
+
 /// Run connectivity checks on a cell.
 ///
-/// Flattens the cell hierarchy, identifies port connections by proximity
-/// and direction, then checks for unconnected ports, width mismatches,
-/// and angle misalignment.
-///
-/// Ports on the top-level cell are treated as external I/O and are not
-/// flagged as unconnected.
-pub fn run_connectivity(
+/// Returns violations and stats. Called by the unified runner.
+pub fn check_connectivity(
     cell: &Cell,
-    config: &ConnectivityConfig,
+    config: &ChecksConfig,
     library: Option<&Library>,
-) -> ConnectivityResult {
-    let start = Instant::now();
-
+) -> (Vec<CheckViolation>, ConnectivityStats) {
     let flat_ports = flatten_ports(cell, library, &Transform::identity(), "", true);
     let n = flat_ports.len();
 
@@ -219,8 +188,8 @@ pub fn run_connectivity(
                 wb,
             );
             violations.push(
-                ConnViolation::new(
-                    ConnViolationType::WidthMismatch {
+                CheckViolation::new(
+                    CheckViolationType::WidthMismatch {
                         width_a: wa,
                         width_b: wb,
                     },
@@ -255,8 +224,8 @@ pub fn run_connectivity(
                 config.angle_tolerance,
             );
             violations.push(
-                ConnViolation::new(
-                    ConnViolationType::AngleMismatch {
+                CheckViolation::new(
+                    CheckViolationType::AngleMismatch {
                         deviation_deg: deviation,
                         tolerance_deg: config.angle_tolerance,
                     },
@@ -285,8 +254,8 @@ pub fn run_connectivity(
                     &fp.cell_path
                 },
             );
-            violations.push(ConnViolation::new(
-                ConnViolationType::UnconnectedPort,
+            violations.push(CheckViolation::new(
+                CheckViolationType::UnconnectedPort,
                 fp.port.name.clone(),
                 fp.cell_path.clone(),
                 port_bbox(&fp.port),
@@ -296,16 +265,12 @@ pub fn run_connectivity(
         }
     }
 
-    let connections_found = pairs.len();
+    let stats = ConnectivityStats {
+        ports_checked: n,
+        connections_found: pairs.len(),
+    };
 
-    ConnectivityResult {
-        violations,
-        stats: ConnectivityStats {
-            ports_checked: n,
-            connections_found,
-            elapsed: start.elapsed(),
-        },
-    }
+    (violations, stats)
 }
 
 #[cfg(test)]
@@ -335,13 +300,12 @@ mod tests {
         cell
     }
 
-    fn default_config() -> ConnectivityConfig {
-        ConnectivityConfig::default()
+    fn default_config() -> ChecksConfig {
+        ChecksConfig::default()
     }
 
     #[test]
     fn test_all_connected() {
-        // Two waveguides placed end-to-end: wg1.out connects to wg2.in
         let wg1 = make_component("wg1", 10.0, 0.5);
         let wg2 = make_component("wg2", 10.0, 0.5);
 
@@ -351,11 +315,7 @@ mod tests {
 
         let mut top = Cell::new("top");
         top.add_ref(CellRef::new("wg1"));
-        // Place wg2 so its "in" port (at 0.0, 0.25) aligns with wg1's "out" (at 10.0, 0.25)
         top.add_ref(CellRef::new("wg2").at(10.0, 0.0));
-
-        // Top cell gets external ports (same direction as sub-instance ports —
-        // these are I/O declarations, not connectable partners).
         top.add_port(Port::with_width(
             "in",
             Point::new(0.0, 0.25),
@@ -371,20 +331,20 @@ mod tests {
 
         lib.add_cell(top);
 
-        let result = run_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
+        let (violations, stats) =
+            check_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
 
         assert!(
-            result.passed(),
+            violations.is_empty(),
             "Expected no violations but got: {:?}",
-            result.violations
+            violations
         );
-        assert_eq!(result.stats.ports_checked, 6); // 2 ports on each of 2 instances + 2 top
-        assert_eq!(result.stats.connections_found, 1); // wg1.out <-> wg2.in
+        assert_eq!(stats.ports_checked, 6);
+        assert_eq!(stats.connections_found, 1);
     }
 
     #[test]
     fn test_unconnected_port() {
-        // One waveguide with a dangling "out" port (nothing connected)
         let wg = make_component("wg", 10.0, 0.5);
 
         let mut lib = Library::new("test");
@@ -392,7 +352,6 @@ mod tests {
 
         let mut top = Cell::new("top");
         top.add_ref(CellRef::new("wg"));
-        // Only connect the "in" side
         top.add_port(Port::with_width(
             "in",
             Point::new(0.0, 0.25),
@@ -402,20 +361,19 @@ mod tests {
 
         lib.add_cell(top);
 
-        let result = run_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
+        let (violations, _) =
+            check_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
 
-        assert!(!result.passed());
-        assert_eq!(result.violation_count(), 1);
+        assert_eq!(violations.len(), 1);
         assert_eq!(
-            result.violations[0].violation_type,
-            ConnViolationType::UnconnectedPort
+            violations[0].violation_type,
+            CheckViolationType::UnconnectedPort
         );
-        assert_eq!(result.violations[0].port_name, "out");
+        assert_eq!(violations[0].name, "out");
     }
 
     #[test]
     fn test_width_mismatch() {
-        // Two waveguides with different widths connected
         let wg1 = make_component("wg1", 10.0, 0.5);
         let wg2 = make_component("wg2", 10.0, 0.4);
 
@@ -425,11 +383,7 @@ mod tests {
 
         let mut top = Cell::new("top");
         top.add_ref(CellRef::new("wg1"));
-        // Place wg2 so its "in" port aligns with wg1's "out" port position-wise
-        // wg1 "out" is at (10.0, 0.25), wg2 "in" is at (0.0, 0.2), so translate by (10.0, 0.05)
         top.add_ref(CellRef::new("wg2").at(10.0, 0.05));
-
-        // Add top-level ports to cover the external ends
         top.add_port(Port::with_width(
             "in",
             Point::new(0.0, 0.25),
@@ -445,12 +399,12 @@ mod tests {
 
         lib.add_cell(top);
 
-        let result = run_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
+        let (violations, _) =
+            check_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
 
-        let width_violations: Vec<_> = result
-            .violations
+        let width_violations: Vec<_> = violations
             .iter()
-            .filter(|v| matches!(v.violation_type, ConnViolationType::WidthMismatch { .. }))
+            .filter(|v| matches!(v.violation_type, CheckViolationType::WidthMismatch { .. }))
             .collect();
 
         assert!(
@@ -461,7 +415,6 @@ mod tests {
 
     #[test]
     fn test_top_level_ports_exempt() {
-        // A top cell with ports but no sub-instances — ports should not be flagged
         let mut top = Cell::new("top");
         top.add_port(Port::with_width(
             "in",
@@ -476,26 +429,25 @@ mod tests {
             0.5,
         ));
 
-        let result = run_connectivity(&top, &default_config(), None);
+        let (violations, stats) = check_connectivity(&top, &default_config(), None);
 
-        assert!(result.passed());
-        assert_eq!(result.stats.ports_checked, 2);
-        assert_eq!(result.stats.connections_found, 0);
+        assert!(violations.is_empty());
+        assert_eq!(stats.ports_checked, 2);
+        assert_eq!(stats.connections_found, 0);
     }
 
     #[test]
     fn test_empty_cell() {
         let cell = Cell::new("empty");
-        let result = run_connectivity(&cell, &default_config(), None);
+        let (violations, stats) = check_connectivity(&cell, &default_config(), None);
 
-        assert!(result.passed());
-        assert_eq!(result.stats.ports_checked, 0);
-        assert_eq!(result.stats.connections_found, 0);
+        assert!(violations.is_empty());
+        assert_eq!(stats.ports_checked, 0);
+        assert_eq!(stats.connections_found, 0);
     }
 
     #[test]
     fn test_with_hierarchy() {
-        // Nested hierarchy: top -> arm -> wg
         let wg = make_component("wg", 10.0, 0.5);
 
         let mut arm = Cell::new("arm");
@@ -534,21 +486,19 @@ mod tests {
         lib.add_cell(arm);
         lib.add_cell(top);
 
-        let result = run_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
+        let (violations, stats) =
+            check_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
 
-        // The two arm instances should connect at x=10.0
-        // arm[0].out at (10, 0.25) and arm[1].in at (10, 0.25) -> connected
         assert!(
-            result.passed(),
+            violations.is_empty(),
             "Expected no violations but got: {:?}",
-            result.violations
+            violations
         );
-        assert!(result.stats.connections_found >= 1);
+        assert!(stats.connections_found >= 1);
     }
 
     #[test]
     fn test_check_widths_disabled() {
-        // Width mismatch should not be flagged when check_widths is false
         let wg1 = make_component("wg1", 10.0, 0.5);
         let wg2 = make_component("wg2", 10.0, 0.4);
 
@@ -574,13 +524,12 @@ mod tests {
 
         lib.add_cell(top);
 
-        let config = ConnectivityConfig::default().with_check_widths(false);
-        let result = run_connectivity(lib.cell("top").unwrap(), &config, Some(&lib));
+        let config = ChecksConfig::default().with_check_widths(false);
+        let (violations, _) = check_connectivity(lib.cell("top").unwrap(), &config, Some(&lib));
 
-        let width_violations: Vec<_> = result
-            .violations
+        let width_violations: Vec<_> = violations
             .iter()
-            .filter(|v| matches!(v.violation_type, ConnViolationType::WidthMismatch { .. }))
+            .filter(|v| matches!(v.violation_type, CheckViolationType::WidthMismatch { .. }))
             .collect();
 
         assert!(width_violations.is_empty(), "Width check should be skipped");

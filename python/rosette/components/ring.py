@@ -227,6 +227,11 @@ def ring(
     circumference = 2 * math.pi * radius + 2 * coupling_length
     cell.path_length = circumference
 
+    # Record bend info for design checks
+    ring_cx = bus_extension + coupling_length / 2
+    ring_cy = ring_center_y if not is_adddrop else 0.0
+    cell.add_bend(radius, ring_cx, ring_cy)
+
     return cell
 
 

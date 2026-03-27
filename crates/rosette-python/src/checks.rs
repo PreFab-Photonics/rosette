@@ -1,39 +1,41 @@
-//! Python bindings for connectivity checking.
+//! Python bindings for design checks.
 
 use pyo3::prelude::*;
 
-use rosette_connectivity::{
-    ConnViolation, ConnViolationType, ConnectivityConfig, ConnectivityResult, Severity,
-    run_connectivity,
+use rosette_checks::{
+    CheckViolation, CheckViolationType, ChecksConfig, ChecksResult, Severity, run_checks,
 };
 
 use crate::layout::{PyCell, PyLibrary};
 
-/// Connectivity check configuration.
-#[pyclass(name = "ConnectivityConfig")]
+/// Design check configuration.
+#[pyclass(name = "ChecksConfig")]
 #[derive(Clone)]
-pub struct PyConnectivityConfig(pub ConnectivityConfig);
+pub struct PyChecksConfig(pub ChecksConfig);
 
 #[pymethods]
-impl PyConnectivityConfig {
-    /// Create a new connectivity config.
+impl PyChecksConfig {
+    /// Create a new checks config.
     ///
     /// Args:
     ///     position_tolerance: Max gap between port centres to count as connected (default 0.001)
     ///     angle_tolerance: Max angular deviation from anti-parallel in degrees (default 0.1)
     ///     check_widths: Whether to flag width mismatches (default True)
+    ///     min_bend_radius: Minimum allowed bend radius in um, or None to skip (default None)
     ///     severity: Default severity, "error" or "warning" (default "error")
     #[new]
     #[pyo3(signature = (
         position_tolerance=0.001,
         angle_tolerance=0.1,
         check_widths=true,
+        min_bend_radius=None,
         severity="error",
     ))]
     fn new(
         position_tolerance: f64,
         angle_tolerance: f64,
         check_widths: bool,
+        min_bend_radius: Option<f64>,
         severity: &str,
     ) -> PyResult<Self> {
         let sev = match severity {
@@ -45,56 +47,63 @@ impl PyConnectivityConfig {
                 ));
             }
         };
-        Ok(PyConnectivityConfig(
-            ConnectivityConfig::new()
-                .with_position_tolerance(position_tolerance)
-                .with_angle_tolerance(angle_tolerance)
-                .with_check_widths(check_widths)
-                .with_severity(sev),
-        ))
+        let mut config = ChecksConfig::new()
+            .with_position_tolerance(position_tolerance)
+            .with_angle_tolerance(angle_tolerance)
+            .with_check_widths(check_widths)
+            .with_severity(sev);
+        if let Some(r) = min_bend_radius {
+            config = config.with_min_bend_radius(r);
+        }
+        Ok(PyChecksConfig(config))
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "ConnectivityConfig(tolerance={}, angle_tol={}°, check_widths={})",
-            self.0.position_tolerance, self.0.angle_tolerance, self.0.check_widths,
+            "ChecksConfig(tolerance={}, angle_tol={}°, check_widths={}, min_bend_radius={:?})",
+            self.0.position_tolerance,
+            self.0.angle_tolerance,
+            self.0.check_widths,
+            self.0.min_bend_radius,
         )
     }
 }
 
-/// A single connectivity violation.
-#[pyclass(name = "ConnViolation")]
+/// A single check violation.
+#[pyclass(name = "CheckViolation")]
 #[derive(Clone)]
-pub struct PyConnViolation(pub ConnViolation);
+pub struct PyCheckViolation(pub CheckViolation);
 
 #[pymethods]
-impl PyConnViolation {
-    /// Violation type as string ("unconnected_port", "width_mismatch", "angle_mismatch").
+impl PyCheckViolation {
+    /// Violation type as string.
     #[getter]
     fn violation_type(&self) -> &'static str {
         match &self.0.violation_type {
-            ConnViolationType::UnconnectedPort => "unconnected_port",
-            ConnViolationType::WidthMismatch { .. } => "width_mismatch",
-            ConnViolationType::AngleMismatch { .. } => "angle_mismatch",
+            CheckViolationType::UnconnectedPort => "unconnected_port",
+            CheckViolationType::WidthMismatch { .. } => "width_mismatch",
+            CheckViolationType::AngleMismatch { .. } => "angle_mismatch",
+            CheckViolationType::BendRadiusTooSmall { .. } => "bend_radius_too_small",
+            CheckViolationType::BendRadiusAutoReduced { .. } => "bend_radius_auto_reduced",
         }
     }
 
-    /// Name of the port being flagged.
+    /// Name of the relevant port or component.
     #[getter]
-    fn port_name(&self) -> String {
-        self.0.port_name.clone()
+    fn name(&self) -> String {
+        self.0.name.clone()
     }
 
-    /// Hierarchy path to the port (e.g. "mmi_1/out_2").
+    /// Hierarchy path (e.g. "mmi_1/out_2").
     #[getter]
     fn cell_path(&self) -> String {
         self.0.cell_path.clone()
     }
 
-    /// Name of the partner port (for mismatch violations).
+    /// Name of the partner port (for connectivity mismatch violations).
     #[getter]
-    fn partner_port(&self) -> Option<String> {
-        self.0.partner_port.clone()
+    fn partner_name(&self) -> Option<String> {
+        self.0.partner_name.clone()
     }
 
     /// Hierarchy path to the partner port.
@@ -127,28 +136,28 @@ impl PyConnViolation {
 
     fn __repr__(&self) -> String {
         format!(
-            "ConnViolation({}: {})",
+            "CheckViolation({}: {})",
             self.violation_type(),
             self.0.message
         )
     }
 }
 
-/// Result of running a connectivity check.
-#[pyclass(name = "ConnectivityResult")]
+/// Result of running design checks.
+#[pyclass(name = "ChecksResult")]
 #[derive(Clone)]
-pub struct PyConnectivityResult(pub ConnectivityResult);
+pub struct PyChecksResult(pub ChecksResult);
 
 #[pymethods]
-impl PyConnectivityResult {
+impl PyChecksResult {
     /// List of violations found.
     #[getter]
-    fn violations(&self) -> Vec<PyConnViolation> {
+    fn violations(&self) -> Vec<PyCheckViolation> {
         self.0
             .violations
             .iter()
             .cloned()
-            .map(PyConnViolation)
+            .map(PyCheckViolation)
             .collect()
     }
 
@@ -175,6 +184,12 @@ impl PyConnectivityResult {
         self.0.stats.connections_found
     }
 
+    /// Number of bends checked.
+    #[getter]
+    fn bends_checked(&self) -> usize {
+        self.0.stats.bends_checked
+    }
+
     /// Elapsed time in milliseconds.
     #[getter]
     fn elapsed_ms(&self) -> f64 {
@@ -184,33 +199,34 @@ impl PyConnectivityResult {
     fn __repr__(&self) -> String {
         if self.0.passed() {
             format!(
-                "ConnectivityResult(PASSED, {} ports, {} connections, {:.1}ms)",
+                "ChecksResult(PASSED, {} ports, {} bends, {:.1}ms)",
                 self.0.stats.ports_checked,
-                self.0.stats.connections_found,
+                self.0.stats.bends_checked,
                 self.elapsed_ms()
             )
         } else {
             format!(
-                "ConnectivityResult(FAILED, {} violations, {} ports, {:.1}ms)",
+                "ChecksResult(FAILED, {} violations, {} ports, {} bends, {:.1}ms)",
                 self.0.violations.len(),
                 self.0.stats.ports_checked,
+                self.0.stats.bends_checked,
                 self.elapsed_ms()
             )
         }
     }
 }
 
-/// Run connectivity check on a cell.
+/// Run design checks on a cell.
 #[pyfunction]
-#[pyo3(name = "run_connectivity", signature = (cell, config=None, library=None))]
-pub fn py_run_connectivity(
+#[pyo3(name = "run_checks", signature = (cell, config=None, library=None))]
+pub fn py_run_checks(
     cell: &PyCell,
-    config: Option<&PyConnectivityConfig>,
+    config: Option<&PyChecksConfig>,
     library: Option<&PyLibrary>,
-) -> PyConnectivityResult {
-    let default_config = ConnectivityConfig::default();
+) -> PyChecksResult {
+    let default_config = ChecksConfig::default();
     let cfg = config.map(|c| &c.0).unwrap_or(&default_config);
     let lib_ref = library.map(|l| &l.0);
-    let result = run_connectivity(&cell.0, cfg, lib_ref);
-    PyConnectivityResult(result)
+    let result = run_checks(&cell.0, cfg, lib_ref);
+    PyChecksResult(result)
 }

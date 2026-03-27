@@ -190,21 +190,21 @@ severity = "warning"        # "warning" to inform, "error" to fail the check
 # max_area_deviation = 0.05
 
 # =============================================================================
-# Connectivity Check
+# Design Checks
 # =============================================================================
 #
-# Verifies that component ports are properly connected:
-# - Unconnected ports on sub-instances (top-level ports are exempt as I/O)
-# - Width mismatches between connected ports
-# - Angle misalignment between connected ports
+# Unified design checks run by `rosette check`:
+# - Connectivity: unconnected ports, width/angle mismatches
+# - Bend radius: flags bends below minimum, reports auto-reduced bends
 #
-# Runs by default in `rosette check` with sensible defaults.
+# Runs by default with sensible defaults.
 # Uncomment and adjust the section below to override defaults.
 #
 # =============================================================================
 
-# [connectivity]
+# [checks]
 # position_tolerance = 0.001   # um — max gap between "connected" ports
 # angle_tolerance = 0.1        # degrees — max deviation from anti-parallel
 # check_widths = true           # error on width mismatch between connected ports
+# min_bend_radius = 5.0        # um — minimum allowed bend radius (omit to skip)
 # severity = "error"            # "error" or "warning"

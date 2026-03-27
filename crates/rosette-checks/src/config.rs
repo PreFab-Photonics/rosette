@@ -1,32 +1,40 @@
-//! Connectivity check configuration.
+//! Check configuration.
 
-/// Configuration for connectivity checks.
+use crate::violation::Severity;
+
+/// Configuration for design checks.
 #[derive(Debug, Clone)]
-pub struct ConnectivityConfig {
+pub struct ChecksConfig {
+    // -- Connectivity --
     /// Maximum distance between port centres to count as connected (design units).
     pub position_tolerance: f64,
     /// Maximum angular deviation from anti-parallel (degrees).
     pub angle_tolerance: f64,
     /// Whether to flag connected ports that have different widths.
     pub check_widths: bool,
+
+    // -- Bend radius --
+    /// Minimum allowed bend radius (design units). `None` disables the check.
+    pub min_bend_radius: Option<f64>,
+
+    // -- General --
     /// Default severity for violations.
     pub severity: Severity,
 }
 
-use crate::violation::Severity;
-
-impl Default for ConnectivityConfig {
+impl Default for ChecksConfig {
     fn default() -> Self {
         Self {
             position_tolerance: 0.001,
             angle_tolerance: 0.1,
             check_widths: true,
+            min_bend_radius: None,
             severity: Severity::Error,
         }
     }
 }
 
-impl ConnectivityConfig {
+impl ChecksConfig {
     /// Create a new config with defaults.
     pub fn new() -> Self {
         Self::default()
@@ -47,6 +55,12 @@ impl ConnectivityConfig {
     /// Set whether to check width matching.
     pub fn with_check_widths(mut self, check: bool) -> Self {
         self.check_widths = check;
+        self
+    }
+
+    /// Set the minimum bend radius.
+    pub fn with_min_bend_radius(mut self, radius: f64) -> Self {
+        self.min_bend_radius = Some(radius);
         self
     }
 

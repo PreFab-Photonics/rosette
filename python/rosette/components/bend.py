@@ -117,6 +117,10 @@ def bend(
     # Set path length (arc length)
     cell.path_length = radius * abs(angle_rad)
 
+    # Record bend info for design checks
+    sign = 1.0 if angle > 0 else -1.0
+    cell.add_bend(radius, 0.0, sign * radius)
+
     return cell
 
 
