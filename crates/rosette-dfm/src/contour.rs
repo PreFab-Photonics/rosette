@@ -26,8 +26,10 @@ pub fn extract_contours(raster: &LayerRaster, threshold: f64) -> Vec<Polygon> {
         return Vec::new();
     }
 
-    // Build a binary grid from the threshold
-    let binary: Vec<bool> = raster.grid.iter().map(|&v| v >= threshold).collect();
+    // The raster is already binary (0/1). The threshold parameter is kept for
+    // API compatibility but for u8 grids we just check != 0.
+    let _ = threshold;
+    let binary: Vec<bool> = raster.grid.iter().map(|&v| v != 0).collect();
 
     // Find all contour segments using marching squares
     let segments = march_squares(&binary, raster.width, raster.height);
@@ -90,18 +92,36 @@ fn march_squares(binary: &[bool], width: usize, height: usize) -> Vec<Segment> {
                 3 => segments.push((right, left)),
                 4 => segments.push((top, right)),
                 5 => {
-                    // Saddle point — two segments
-                    segments.push((top, left));
-                    segments.push((right, bottom));
+                    // Saddle point — disambiguate by sampling center value.
+                    // Average of corners > 0.5 means center is "filled",
+                    // so connect filled corners (TL + BR).
+                    let center = (tl + tr + br + bl) as f64 / 4.0;
+                    if center > 0.5 {
+                        // Connect filled diagonal: TL-BR
+                        segments.push((top, right));
+                        segments.push((bottom, left));
+                    } else {
+                        // Connect empty diagonal: TR-BL
+                        segments.push((top, left));
+                        segments.push((right, bottom));
+                    }
                 }
                 6 => segments.push((top, bottom)),
                 7 => segments.push((top, left)),
                 8 => segments.push((left, top)),
                 9 => segments.push((bottom, top)),
                 10 => {
-                    // Saddle point — two segments
-                    segments.push((left, bottom));
-                    segments.push((top, right));
+                    // Saddle point — disambiguate by sampling center value.
+                    let center = (tl + tr + br + bl) as f64 / 4.0;
+                    if center > 0.5 {
+                        // Connect filled diagonal: TR-BL
+                        segments.push((left, top));
+                        segments.push((right, bottom));
+                    } else {
+                        // Connect empty diagonal: TL-BR
+                        segments.push((left, bottom));
+                        segments.push((top, right));
+                    }
                 }
                 11 => segments.push((right, top)),
                 12 => segments.push((left, right)),
@@ -135,8 +155,9 @@ type AdjEntry = (f64, f64, usize);
 ///
 /// Each segment endpoint is quantized and used as a hash key.
 /// Segments sharing an endpoint are chained together in O(n) total time.
+/// Uses `VecDeque` internally so front-extension is O(1) instead of O(n).
 fn chain_segments(segments: Vec<Segment>) -> Vec<Vec<(f64, f64)>> {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, VecDeque};
 
     if segments.is_empty() {
         return Vec::new();
@@ -159,11 +180,13 @@ fn chain_segments(segments: Vec<Segment>) -> Vec<Vec<(f64, f64)>> {
         used[start_idx] = true;
 
         let (a, b) = segments[start_idx];
-        let mut chain = vec![a, b];
+        let mut chain: VecDeque<(f64, f64)> = VecDeque::new();
+        chain.push_back(a);
+        chain.push_back(b);
 
         // Extend from the back
         loop {
-            let tail = *chain.last().unwrap();
+            let tail = *chain.back().unwrap();
             let key = point_key(tail);
             let mut found = false;
 
@@ -172,7 +195,7 @@ fn chain_segments(segments: Vec<Segment>) -> Vec<Vec<(f64, f64)>> {
                     let idx = entry.2;
                     if !used[idx] {
                         used[idx] = true;
-                        chain.push((entry.0, entry.1));
+                        chain.push_back((entry.0, entry.1));
                         found = true;
                         break;
                     }
@@ -184,9 +207,9 @@ fn chain_segments(segments: Vec<Segment>) -> Vec<Vec<(f64, f64)>> {
             }
         }
 
-        // Extend from the front
+        // Extend from the front — O(1) with VecDeque
         loop {
-            let head = chain[0];
+            let head = *chain.front().unwrap();
             let key = point_key(head);
             let mut found = false;
 
@@ -195,7 +218,7 @@ fn chain_segments(segments: Vec<Segment>) -> Vec<Vec<(f64, f64)>> {
                     let idx = entry.2;
                     if !used[idx] {
                         used[idx] = true;
-                        chain.insert(0, (entry.0, entry.1));
+                        chain.push_front((entry.0, entry.1));
                         found = true;
                         break;
                     }
@@ -207,7 +230,7 @@ fn chain_segments(segments: Vec<Segment>) -> Vec<Vec<(f64, f64)>> {
             }
         }
 
-        chains.push(chain);
+        chains.push(chain.into());
     }
 
     chains
@@ -289,7 +312,7 @@ mod tests {
     #[test]
     fn test_extract_contours_empty() {
         let raster = LayerRaster {
-            grid: vec![0.0; 25],
+            grid: vec![0; 25],
             width: 5,
             height: 5,
             origin: Point::new(0.0, 0.0),
@@ -303,10 +326,10 @@ mod tests {
     #[test]
     fn test_extract_contours_filled_block() {
         // Create a 10x10 grid with a 6x6 filled block in the center
-        let mut grid = vec![0.0; 100];
+        let mut grid = vec![0u8; 100];
         for row in 2..8 {
             for col in 2..8 {
-                grid[row * 10 + col] = 1.0;
+                grid[row * 10 + col] = 1;
             }
         }
 

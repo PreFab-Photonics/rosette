@@ -30,6 +30,7 @@ rosette-core = { path = "crates/rosette-core" }
 rosette-dfm = { path = "crates/rosette-dfm" }
 rosette-drc = { path = "crates/rosette-drc" }
 rosette-io = { path = "crates/rosette-io" }
+rayon = "1.10"
 thiserror = "1.0"
 byteorder = "1.5"
 pyo3 = "0.27"

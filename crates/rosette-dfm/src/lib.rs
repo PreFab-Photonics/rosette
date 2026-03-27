@@ -48,6 +48,16 @@ pub use result::{DfmResult, DfmStats, LayerPrediction};
 use std::collections::HashMap;
 use std::time::Instant;
 
+/// Default Gaussian sigma in design units.
+///
+/// Used as the fallback when no sigma is specified in config or per-layer overrides.
+/// This value approximates typical lithographic proximity effects at ~80nm.
+pub const DEFAULT_SIGMA: f64 = 0.08;
+
+/// Default binarization threshold for Gaussian model output.
+pub const DEFAULT_THRESHOLD: f64 = 0.5;
+
+use rayon::prelude::*;
 use rosette_core::{Cell, Layer, Library, Transform};
 
 /// Top-level configuration for DFM prediction.
@@ -76,8 +86,8 @@ impl Default for DfmConfig {
             contour_threshold: 0.5,
             keep_raster: false,
             tolerances: None,
-            default_sigma: 0.08,
-            default_threshold: 0.5,
+            default_sigma: DEFAULT_SIGMA,
+            default_threshold: DEFAULT_THRESHOLD,
             layer_configs: HashMap::new(),
         }
     }
@@ -126,105 +136,116 @@ pub fn run_dfm(
     // Flatten cell once and reuse for all layers
     let polygons_by_layer = rasterize::flatten_cell(cell, library, &Transform::identity());
 
-    let mut layer_results = Vec::new();
-    let mut total_pixels = 0;
+    // Process each layer in parallel — they share polygons_by_layer read-only.
+    // Returns (LayerPrediction, pixel_count) so we can track total pixels
+    // even when keep_raster is false.
+    let results: Vec<(LayerPrediction, usize)> = layers
+        .par_iter()
+        .map(|&layer| {
+            let polygons = match polygons_by_layer.get(&layer) {
+                Some(polys) if !polys.is_empty() => polys,
+                _ => {
+                    // No geometry on this layer — skip
+                    return (
+                        LayerPrediction {
+                            layer,
+                            predicted_polygons: Vec::new(),
+                            input_polygon_count: 0,
+                            raster: None,
+                            metrics: None,
+                            violations: Vec::new(),
+                        },
+                        0,
+                    );
+                }
+            };
 
-    for &layer in layers {
-        let polygons = match polygons_by_layer.get(&layer) {
-            Some(polys) if !polys.is_empty() => polys,
-            _ => {
-                // No geometry on this layer — skip
-                layer_results.push(LayerPrediction {
-                    layer,
-                    predicted_polygons: Vec::new(),
-                    input_polygon_count: 0,
-                    raster: None,
-                    metrics: None,
-                    violations: Vec::new(),
-                });
-                continue;
+            let input_polygon_count = polygons.len();
+
+            // Check for per-layer overrides
+            let layer_cfg = config.layer_configs.get(&layer);
+
+            // Compute bounding box
+            let mut bbox = polygons[0].bbox();
+            for poly in &polygons[1..] {
+                bbox = bbox.merge(&poly.bbox());
             }
-        };
 
-        let input_polygon_count = polygons.len();
+            // Rasterize
+            let mut designed_raster = rasterize::LayerRaster::from_bbox(&bbox, &config.raster);
+            rasterize::rasterize_polygons(&mut designed_raster, polygons);
+            let pixel_count = designed_raster.pixel_count();
 
-        // Check for per-layer overrides
-        let layer_cfg = config.layer_configs.get(&layer);
-
-        // Compute bounding box
-        let mut bbox = polygons[0].bbox();
-        for poly in &polygons[1..] {
-            bbox = bbox.merge(&poly.bbox());
-        }
-
-        // Rasterize
-        let mut designed_raster = rasterize::LayerRaster::from_bbox(&bbox, &config.raster);
-        rasterize::rasterize_polygons(&mut designed_raster, polygons);
-        total_pixels += designed_raster.pixel_count();
-
-        // Build per-layer model if overrides exist, otherwise use the global model
-        let layer_model: Option<GaussianModel>;
-        let effective_model: &dyn DfmModel = if let Some(lcfg) = layer_cfg
-            && (lcfg.sigma.is_some() || lcfg.threshold.is_some())
-        {
-            // Create a layer-specific Gaussian model with overrides
-            let sigma = lcfg.sigma.unwrap_or(config.default_sigma);
-            let threshold = lcfg.threshold.unwrap_or(config.default_threshold);
-            layer_model = Some(GaussianModel::from_design_units(
-                sigma,
-                config.raster.resolution,
-                threshold,
-            ));
-            layer_model.as_ref().unwrap()
-        } else {
-            model
-        };
-
-        // Predict
-        let predicted_raster = effective_model.predict(&designed_raster);
-
-        // Extract contours
-        let predicted_polygons = extract_contours(&predicted_raster, config.contour_threshold);
-
-        // Build per-layer tolerances (override or global)
-        let effective_tolerances = if let Some(lcfg) = layer_cfg
-            && (lcfg.max_area_deviation.is_some() || lcfg.severity.is_some())
-        {
-            // Layer has tolerance overrides
-            let global_tol = config.tolerances.as_ref();
-            Some(DfmTolerances {
-                max_area_deviation: lcfg
-                    .max_area_deviation
-                    .or(global_tol.and_then(|t| t.max_area_deviation)),
-                severity: lcfg
-                    .severity
-                    .unwrap_or(global_tol.map_or(Severity::Error, |t| t.severity)),
-            })
-        } else {
-            config.tolerances.clone()
-        };
-
-        // Compare designed vs predicted
-        let (metrics, violations) = compare::compare_layer(
-            &designed_raster,
-            &predicted_raster,
-            layer,
-            effective_tolerances.as_ref(),
-        );
-
-        layer_results.push(LayerPrediction {
-            layer,
-            predicted_polygons,
-            input_polygon_count,
-            raster: if config.keep_raster {
-                Some(predicted_raster)
+            // Build per-layer model if overrides exist, otherwise use the global model
+            let layer_model: Option<GaussianModel>;
+            let effective_model: &dyn DfmModel = if let Some(lcfg) = layer_cfg
+                && (lcfg.sigma.is_some() || lcfg.threshold.is_some())
+            {
+                // Create a layer-specific Gaussian model with overrides
+                let sigma = lcfg.sigma.unwrap_or(config.default_sigma);
+                let threshold = lcfg.threshold.unwrap_or(config.default_threshold);
+                layer_model = Some(GaussianModel::from_design_units(
+                    sigma,
+                    config.raster.resolution,
+                    threshold,
+                ));
+                layer_model.as_ref().unwrap()
             } else {
-                None
-            },
-            metrics: Some(metrics),
-            violations,
-        });
-    }
+                model
+            };
+
+            // Predict
+            let predicted_raster = effective_model.predict(&designed_raster);
+
+            // Extract contours
+            let predicted_polygons = extract_contours(&predicted_raster, config.contour_threshold);
+
+            // Build per-layer tolerances (override or global)
+            let effective_tolerances = if let Some(lcfg) = layer_cfg
+                && (lcfg.max_area_deviation.is_some() || lcfg.severity.is_some())
+            {
+                // Layer has tolerance overrides
+                let global_tol = config.tolerances.as_ref();
+                Some(DfmTolerances {
+                    max_area_deviation: lcfg
+                        .max_area_deviation
+                        .or(global_tol.and_then(|t| t.max_area_deviation)),
+                    severity: lcfg
+                        .severity
+                        .unwrap_or(global_tol.map_or(Severity::Error, |t| t.severity)),
+                })
+            } else {
+                config.tolerances.clone()
+            };
+
+            // Compare designed vs predicted
+            let (metrics, violations) = compare::compare_layer(
+                &designed_raster,
+                &predicted_raster,
+                layer,
+                effective_tolerances.as_ref(),
+            );
+
+            (
+                LayerPrediction {
+                    layer,
+                    predicted_polygons,
+                    input_polygon_count,
+                    raster: if config.keep_raster {
+                        Some(predicted_raster)
+                    } else {
+                        None
+                    },
+                    metrics: Some(metrics),
+                    violations,
+                },
+                pixel_count,
+            )
+        })
+        .collect();
+
+    let total_pixels = results.iter().map(|(_, px)| px).sum();
+    let layer_results = results.into_iter().map(|(lp, _)| lp).collect();
 
     DfmResult {
         layers: layer_results,

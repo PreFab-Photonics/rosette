@@ -26,10 +26,13 @@ impl Default for RasterConfig {
 }
 
 /// A rasterized single-layer binary grid.
+///
+/// Pixels are stored as `u8` (0 = empty, 1 = filled) for memory efficiency.
+/// A 10k x 10k grid uses ~100 MB with f64 but only ~100 MB / 8 ≈ 12.5 MB with u8.
 #[derive(Debug, Clone)]
 pub struct LayerRaster {
-    /// Pixel data: 1.0 = filled, 0.0 = empty.
-    pub grid: Vec<f64>,
+    /// Pixel data: 1 = filled, 0 = empty.
+    pub grid: Vec<u8>,
     /// Grid width in pixels.
     pub width: usize,
     /// Grid height in pixels.
@@ -48,7 +51,7 @@ impl LayerRaster {
         let height = ((padded.height()) / config.resolution).ceil() as usize + 1;
 
         Self {
-            grid: vec![0.0; width * height],
+            grid: vec![0; width * height],
             width,
             height,
             origin: padded.min(),
@@ -67,13 +70,13 @@ impl LayerRaster {
 
     /// Get pixel value at (col, row).
     #[inline]
-    pub fn get(&self, col: usize, row: usize) -> f64 {
+    pub fn get(&self, col: usize, row: usize) -> u8 {
         self.grid[row * self.width + col]
     }
 
-    /// Set pixel value at (col, row).
+    /// Set pixel at (col, row) to filled (1) or empty (0).
     #[inline]
-    pub fn set(&mut self, col: usize, row: usize, value: f64) {
+    pub fn set(&mut self, col: usize, row: usize, value: u8) {
         self.grid[row * self.width + col] = value;
     }
 
@@ -82,9 +85,9 @@ impl LayerRaster {
         self.width * self.height
     }
 
-    /// Count of filled pixels (value > 0.5).
+    /// Count of filled pixels.
     pub fn filled_count(&self) -> usize {
-        self.grid.iter().filter(|&&v| v > 0.5).count()
+        self.grid.iter().filter(|&&v| v != 0).count()
     }
 }
 
@@ -187,7 +190,7 @@ fn rasterize_polygon(raster: &mut LayerRaster, polygon: &Polygon) {
             let col_end = (col_end as usize).min(raster.width.saturating_sub(1));
 
             for col in col_start..=col_end {
-                raster.set(col, row, 1.0);
+                raster.set(col, row, 1);
             }
         }
     }
@@ -240,7 +243,7 @@ mod tests {
         // Center should be filled
         let mid_col = raster.width / 2;
         let mid_row = raster.height / 2;
-        assert!(raster.get(mid_col, mid_row) > 0.5);
+        assert_eq!(raster.get(mid_col, mid_row), 1);
     }
 
     #[test]

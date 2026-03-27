@@ -85,24 +85,26 @@ impl DfmModel for GaussianModel {
             *v /= sum;
         }
 
-        // Separable 2D Gaussian: horizontal pass, then vertical pass
+        // Separable 2D Gaussian: horizontal pass, then vertical pass.
+        // f64 intermediates are allocated here and freed at the end — the
+        // returned raster is compact u8.
         let mut temp = vec![0.0f64; width * height];
 
-        // Horizontal pass
+        // Horizontal pass (reads u8 input, writes f64 temp)
         for row in 0..height {
             for col in 0..width {
                 let mut acc = 0.0;
                 for (k, &kv) in kernel.iter().enumerate() {
                     let src_col = col as isize + k as isize - radius as isize;
                     let src_col = src_col.clamp(0, width as isize - 1) as usize;
-                    acc += input.grid[row * width + src_col] * kv;
+                    acc += input.grid[row * width + src_col] as f64 * kv;
                 }
                 temp[row * width + col] = acc;
             }
         }
 
-        // Vertical pass
-        let mut blurred = vec![0.0f64; width * height];
+        // Vertical pass + threshold in one step to avoid a third allocation
+        let mut output = vec![0u8; width * height];
         for row in 0..height {
             for col in 0..width {
                 let mut acc = 0.0;
@@ -111,18 +113,12 @@ impl DfmModel for GaussianModel {
                     let src_row = src_row.clamp(0, height as isize - 1) as usize;
                     acc += temp[src_row * width + col] * kv;
                 }
-                blurred[row * width + col] = acc;
+                output[row * width + col] = if acc >= self.threshold { 1 } else { 0 };
             }
         }
 
-        // Threshold to produce binary output
-        let thresholded: Vec<f64> = blurred
-            .iter()
-            .map(|&v| if v >= self.threshold { 1.0 } else { 0.0 })
-            .collect();
-
         LayerRaster {
-            grid: thresholded,
+            grid: output,
             width,
             height,
             origin: input.origin,
@@ -142,7 +138,7 @@ mod tests {
 
     fn make_test_raster(width: usize, height: usize) -> LayerRaster {
         LayerRaster {
-            grid: vec![0.0; width * height],
+            grid: vec![0; width * height],
             width,
             height,
             origin: Point::new(0.0, 0.0),
@@ -153,23 +149,23 @@ mod tests {
     #[test]
     fn test_zero_sigma_returns_clone() {
         let mut raster = make_test_raster(10, 10);
-        raster.set(5, 5, 1.0);
+        raster.set(5, 5, 1);
 
         let model = GaussianModel::new(0.0, 0.5);
         let result = model.predict(&raster);
 
-        assert!((result.get(5, 5) - 1.0).abs() < 1e-10);
-        assert!((result.get(0, 0) - 0.0).abs() < 1e-10);
+        assert_eq!(result.get(5, 5), 1);
+        assert_eq!(result.get(0, 0), 0);
     }
 
     #[test]
     fn test_gaussian_blur_spreads() {
-        // Create a raster with a single filled pixel
+        // Create a raster with a filled block
         let mut raster = make_test_raster(20, 20);
         // Fill a block so the blur has enough material to spread
         for r in 8..12 {
             for c in 8..12 {
-                raster.set(c, r, 1.0);
+                raster.set(c, r, 1);
             }
         }
 
@@ -177,7 +173,7 @@ mod tests {
         let result = model.predict(&raster);
 
         // Center should still be filled
-        assert!(result.get(10, 10) > 0.5);
+        assert_eq!(result.get(10, 10), 1);
 
         // Some spreading should occur — nearby pixels that were empty
         // should now potentially be filled (depending on threshold)
@@ -191,13 +187,13 @@ mod tests {
     fn test_gaussian_blur_erodes_small_features() {
         // A single pixel should be eroded away by gaussian blur at high threshold
         let mut raster = make_test_raster(20, 20);
-        raster.set(10, 10, 1.0);
+        raster.set(10, 10, 1);
 
         let model = GaussianModel::new(3.0, 0.5);
         let result = model.predict(&raster);
 
         // Single pixel should be blurred below threshold
-        assert!(result.get(10, 10) < 0.5 || result.filled_count() < 5);
+        assert!(result.get(10, 10) == 0 || result.filled_count() < 5);
     }
 
     #[test]

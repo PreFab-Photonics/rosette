@@ -3,8 +3,9 @@
 use pyo3::prelude::*;
 
 use rosette_dfm::{
-    DfmConfig, DfmResult, DfmTolerances, DfmViolation, DfmViolationType, GaussianModel,
-    LayerDfmConfig, LayerMetrics, LayerPrediction, RasterConfig, Severity, run_dfm,
+    run_dfm, DfmConfig, DfmResult, DfmTolerances, DfmViolation, DfmViolationType, GaussianModel,
+    LayerDfmConfig, LayerMetrics, LayerPrediction, RasterConfig, Severity, DEFAULT_SIGMA,
+    DEFAULT_THRESHOLD,
 };
 
 use crate::extract_layer;
@@ -71,8 +72,8 @@ impl PyDfmConfig {
             contour_threshold,
             keep_raster,
             tolerances,
-            default_sigma: 0.08,
-            default_threshold: 0.5,
+            default_sigma: DEFAULT_SIGMA,
+            default_threshold: DEFAULT_THRESHOLD,
             layer_configs: std::collections::HashMap::new(),
         }))
     }
@@ -407,12 +408,12 @@ impl PyLayerPrediction {
         self.0.raster.is_some()
     }
 
-    /// Raster data as a flat list of floats (row-major order).
+    /// Raster data as a flat list of integers (row-major order, 0 or 1).
     ///
     /// Returns None if keep_raster was False in the config.
     /// Use raster_width and raster_height to reshape.
     #[getter]
-    fn raster_data(&self) -> Option<Vec<f64>> {
+    fn raster_data(&self) -> Option<Vec<u8>> {
         self.0.raster.as_ref().map(|r| r.grid.clone())
     }
 

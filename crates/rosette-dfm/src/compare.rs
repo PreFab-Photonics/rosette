@@ -109,24 +109,22 @@ pub fn compare_layer(
     let designed_boundary = extract_boundary_pixels(designed);
     let predicted_boundary = extract_boundary_pixels(predicted);
 
-    // Handle degenerate cases: if one has boundary and the other doesn't,
-    // the feature was completely erased or appeared from nothing.
-    // Use the diagonal of the raster as a conservative max deviation.
-    let raster_diagonal =
-        ((designed.width as f64).powi(2) + (designed.height as f64).powi(2)).sqrt();
-
     let w = designed.width;
     let h = designed.height;
 
     let (max_edge_deviation_px, worst_px, worst_py) =
         if !designed_boundary.is_empty() && predicted_boundary.is_empty() {
-            // Feature completely erased — use designed boundary centroid as location
+            // Feature completely erased — report deviation as the half-diagonal of
+            // the designed geometry's bounding box (the farthest any edge could have
+            // moved from center). This is more meaningful than the full raster diagonal.
             let (cx, cy) = boundary_centroid(&designed_boundary);
-            (raster_diagonal, cx, cy)
+            let dev = boundary_half_diagonal(&designed_boundary);
+            (dev, cx, cy)
         } else if designed_boundary.is_empty() && !predicted_boundary.is_empty() {
-            // Feature appeared from nothing
+            // Feature appeared from nothing — same logic using predicted boundary
             let (cx, cy) = boundary_centroid(&predicted_boundary);
-            (raster_diagonal, cx, cy)
+            let dev = boundary_half_diagonal(&predicted_boundary);
+            (dev, cx, cy)
         } else {
             // Normal case: both have boundaries, compute Hausdorff via distance transform
             // Take max of both directions for symmetric comparison
@@ -197,15 +195,15 @@ fn extract_boundary_pixels(raster: &LayerRaster) -> Vec<BoundaryPixel> {
 
     for row in 0..h {
         for col in 0..w {
-            if raster.get(col, row) <= 0.5 {
+            if raster.get(col, row) == 0 {
                 continue;
             }
 
             // Check 4-connected neighbors
-            let is_boundary = (col == 0 || raster.get(col - 1, row) <= 0.5)
-                || (col + 1 >= w || raster.get(col + 1, row) <= 0.5)
-                || (row == 0 || raster.get(col, row - 1) <= 0.5)
-                || (row + 1 >= h || raster.get(col, row + 1) <= 0.5);
+            let is_boundary = (col == 0 || raster.get(col - 1, row) == 0)
+                || (col + 1 >= w || raster.get(col + 1, row) == 0)
+                || (row == 0 || raster.get(col, row - 1) == 0)
+                || (row + 1 >= h || raster.get(col, row + 1) == 0);
 
             if is_boundary {
                 boundary.push((col, row));
@@ -224,6 +222,24 @@ fn boundary_centroid(boundary: &[BoundaryPixel]) -> (usize, usize) {
     let sum_c: usize = boundary.iter().map(|&(c, _)| c).sum();
     let sum_r: usize = boundary.iter().map(|&(_, r)| r).sum();
     (sum_c / boundary.len(), sum_r / boundary.len())
+}
+
+/// Half-diagonal of the bounding box around boundary pixels, in pixel units.
+///
+/// Used as a fallback edge deviation when one side has no boundary (feature
+/// completely erased or appeared from nothing). More meaningful than the
+/// full raster diagonal because it's proportional to the actual feature size.
+fn boundary_half_diagonal(boundary: &[BoundaryPixel]) -> f64 {
+    if boundary.is_empty() {
+        return 0.0;
+    }
+    let min_c = boundary.iter().map(|&(c, _)| c).min().unwrap();
+    let max_c = boundary.iter().map(|&(c, _)| c).max().unwrap();
+    let min_r = boundary.iter().map(|&(_, r)| r).min().unwrap();
+    let max_r = boundary.iter().map(|&(_, r)| r).max().unwrap();
+    let dc = (max_c - min_c) as f64;
+    let dr = (max_r - min_r) as f64;
+    (dc * dc + dr * dr).sqrt() / 2.0
 }
 
 /// One-way Hausdorff distance using a distance transform.
@@ -342,7 +358,7 @@ mod tests {
 
     fn make_raster(width: usize, height: usize) -> LayerRaster {
         LayerRaster {
-            grid: vec![0.0; width * height],
+            grid: vec![0; width * height],
             width,
             height,
             origin: Point::new(0.0, 0.0),
@@ -356,7 +372,7 @@ mod tests {
         // Fill a block
         for r in 5..15 {
             for c in 5..15 {
-                designed.set(c, r, 1.0);
+                designed.set(c, r, 1);
             }
         }
         let predicted = designed.clone();
@@ -377,13 +393,13 @@ mod tests {
         // Designed: 10x10 block
         for r in 5..15 {
             for c in 5..15 {
-                designed.set(c, r, 1.0);
+                designed.set(c, r, 1);
             }
         }
         // Predicted: 8x8 block (smaller)
         for r in 6..14 {
             for c in 6..14 {
-                predicted.set(c, r, 1.0);
+                predicted.set(c, r, 1);
             }
         }
 
@@ -403,13 +419,13 @@ mod tests {
         // Designed: block at cols 5-14
         for r in 5..15 {
             for c in 5..15 {
-                designed.set(c, r, 1.0);
+                designed.set(c, r, 1);
             }
         }
         // Predicted: block shifted right by 2 pixels
         for r in 5..15 {
             for c in 7..17 {
-                predicted.set(c, r, 1.0);
+                predicted.set(c, r, 1);
             }
         }
 
@@ -430,12 +446,12 @@ mod tests {
 
         for r in 5..15 {
             for c in 5..15 {
-                designed.set(c, r, 1.0);
+                designed.set(c, r, 1);
             }
         }
         for r in 6..14 {
             for c in 6..14 {
-                predicted.set(c, r, 1.0);
+                predicted.set(c, r, 1);
             }
         }
 
@@ -460,7 +476,7 @@ mod tests {
         let mut designed = make_raster(20, 20);
         for r in 5..15 {
             for c in 5..15 {
-                designed.set(c, r, 1.0);
+                designed.set(c, r, 1);
             }
         }
         let predicted = designed.clone();
@@ -495,7 +511,7 @@ mod tests {
         // Fill a 4x4 block at (3,3)-(6,6)
         for r in 3..7 {
             for c in 3..7 {
-                raster.set(c, r, 1.0);
+                raster.set(c, r, 1);
             }
         }
 
@@ -519,14 +535,14 @@ mod tests {
     fn test_design_units_scaling() {
         // Use resolution=0.1 to verify pixel-to-design-unit conversion
         let mut designed = LayerRaster {
-            grid: vec![0.0; 100],
+            grid: vec![0; 100],
             width: 10,
             height: 10,
             origin: Point::new(0.0, 0.0),
             resolution: 0.1,
         };
         let mut predicted = LayerRaster {
-            grid: vec![0.0; 100],
+            grid: vec![0; 100],
             width: 10,
             height: 10,
             origin: Point::new(0.0, 0.0),
@@ -536,13 +552,13 @@ mod tests {
         // 5x5 block
         for r in 2..7 {
             for c in 2..7 {
-                designed.set(c, r, 1.0);
+                designed.set(c, r, 1);
             }
         }
         // Same block shifted right by 1 pixel = 0.1 design units
         for r in 2..7 {
             for c in 3..8 {
-                predicted.set(c, r, 1.0);
+                predicted.set(c, r, 1);
             }
         }
 

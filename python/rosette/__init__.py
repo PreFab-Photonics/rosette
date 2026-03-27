@@ -82,6 +82,10 @@ try:
 except PackageNotFoundError:
     __version__ = "0.0.0-dev"
 
+# DFM default model parameters — keep in sync with Rust DEFAULT_SIGMA / DEFAULT_THRESHOLD
+_DFM_DEFAULT_SIGMA = 0.08
+_DFM_DEFAULT_THRESHOLD = 0.5
+
 # =============================================================================
 # Source tracking for two-way editing (rosette serve)
 # =============================================================================
@@ -1171,8 +1175,8 @@ def load_dfm_config(
             "PreFab models coming soon."
         )
 
-    sigma = dfm_config.get("sigma", 0.08)
-    threshold = dfm_config.get("threshold", 0.5)
+    sigma = dfm_config.get("sigma", _DFM_DEFAULT_SIGMA)
+    threshold = dfm_config.get("threshold", _DFM_DEFAULT_THRESHOLD)
 
     # Validate numeric values
     if not isinstance(resolution, (int, float)) or resolution <= 0:
@@ -1242,7 +1246,7 @@ def run_dfm(
     Args:
         cell: The cell to predict
         layers: Layers to process
-        model: The prediction model (default: GaussianModel with sigma=0.08)
+        model: The prediction model (default: GaussianModel with default sigma)
         config: DFM configuration (default: DfmConfig())
         library: Library containing referenced cells (required if cell has refs)
 
@@ -1262,7 +1266,7 @@ def run_dfm(
 
     # Default model
     if model is None:
-        model = GaussianModel(sigma=0.08)
+        model = GaussianModel(sigma=_DFM_DEFAULT_SIGMA)
 
     # Default config
     if config is None:

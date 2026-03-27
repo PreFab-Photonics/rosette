@@ -994,7 +994,7 @@ class LayerPrediction:
     metrics: LayerMetrics | None
     violations: list[DfmViolation]
     has_raster: bool
-    raster_data: list[float] | None
+    raster_data: list[int] | None
     raster_width: int | None
     raster_height: int | None
     raster_origin: tuple[float, float] | None
