@@ -6,7 +6,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-const navLinks = [{ label: "Docs", href: "/docs", external: false }] as const;
+const navLinks = [
+  { label: "Docs", href: "/docs", external: false },
+  { label: "Blog", href: "/blog", external: false },
+] as const;
 
 export function Header({ trailing }: { trailing?: ReactNode }) {
   const { setOpenSearch, hotKey } = useSearchContext();
