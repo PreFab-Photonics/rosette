@@ -61,7 +61,7 @@ pub fn check_width(
 /// # Arguments
 /// * `polygon` - The polygon to measure
 /// * `samples_per_edge` - Number of sample points per edge (more = more accurate)
-fn estimate_min_width_sampling(polygon: &Polygon, samples_per_edge: usize) -> f64 {
+pub fn estimate_min_width_sampling(polygon: &Polygon, samples_per_edge: usize) -> f64 {
     let vertices = polygon.vertices();
     let n = vertices.len();
 
@@ -126,7 +126,7 @@ fn estimate_min_width_sampling(polygon: &Polygon, samples_per_edge: usize) -> f6
 ///
 /// # Returns
 /// The distance to the nearest intersection, or None if no intersection found.
-fn cast_ray_to_boundary(
+pub fn cast_ray_to_boundary(
     edges: &[(Point, Point)],
     source_edge_idx: usize,
     origin: Point,

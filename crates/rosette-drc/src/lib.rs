@@ -2,11 +2,14 @@
 //!
 //! This crate provides configurable rule checking for:
 //! - Minimum width
-//! - Minimum spacing  
+//! - Maximum width (single-mode waveguide enforcement)
+//! - Minimum spacing
 //! - Minimum area
+//! - Minimum edge length (lithography resolution)
 //! - Enclosure
 //! - Overlap (required/forbidden)
 //! - Edge angles
+//! - Self-intersection detection
 //!
 //! # Example
 //!

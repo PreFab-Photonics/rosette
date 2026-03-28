@@ -113,3 +113,13 @@ layers = ["1/0"]      # Layers to predict
 # [dfm.layer."1/0"]
 # sigma = 0.05              # override model params per layer
 # max_area_deviation = 0.05
+
+# ---------------------------------------------------------------------------
+# Design checks — connectivity + bend radius
+# ---------------------------------------------------------------------------
+# [checks]
+# position_tolerance = 0.001   # um — max gap between "connected" ports
+# angle_tolerance = 0.1        # degrees — max deviation from anti-parallel
+# check_widths = true           # error on width mismatch between connected ports
+# min_bend_radius = 5.0        # um — minimum allowed bend radius (omit to skip)
+# severity = "error"            # "error" or "warning"

@@ -114,6 +114,39 @@ impl PyDrcRules {
         ))
     }
 
+    /// Add minimum edge length rule.
+    #[pyo3(signature = (layer, length, name=None))]
+    fn min_edge_length(
+        &self,
+        layer: &Bound<'_, PyAny>,
+        length: f64,
+        name: Option<&str>,
+    ) -> PyResult<Self> {
+        let layer = extract_layer(layer)?;
+        Ok(PyDrcRules(
+            self.0.clone().min_edge_length(layer, length, name),
+        ))
+    }
+
+    /// Add self-intersection check.
+    #[pyo3(signature = (layer, name=None))]
+    fn no_self_intersection(&self, layer: &Bound<'_, PyAny>, name: Option<&str>) -> PyResult<Self> {
+        let layer = extract_layer(layer)?;
+        Ok(PyDrcRules(self.0.clone().no_self_intersection(layer, name)))
+    }
+
+    /// Add maximum width rule.
+    #[pyo3(signature = (layer, width, name=None))]
+    fn max_width(
+        &self,
+        layer: &Bound<'_, PyAny>,
+        width: f64,
+        name: Option<&str>,
+    ) -> PyResult<Self> {
+        let layer = extract_layer(layer)?;
+        Ok(PyDrcRules(self.0.clone().max_width(layer, width, name)))
+    }
+
     fn __repr__(&self) -> String {
         format!("DrcRules({} rules)", self.0.rules().len())
     }
@@ -158,6 +191,9 @@ impl PyDrcViolation {
             RuleType::ForbiddenOverlap => "forbidden_overlap".to_string(),
             RuleType::MissingOverlap => "missing_overlap".to_string(),
             RuleType::ForbiddenAngle { .. } => "forbidden_angle".to_string(),
+            RuleType::MinEdgeLength { .. } => "min_edge_length".to_string(),
+            RuleType::SelfIntersection => "self_intersection".to_string(),
+            RuleType::MaxWidth { .. } => "max_width".to_string(),
         }
     }
 

@@ -178,12 +178,53 @@ impl CellRef {
     }
 }
 
+/// Information about a single bend in a cell.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct BendInfo {
+    /// Effective bend radius (after any auto-reduction).
+    pub radius: f64,
+    /// Location of the bend center.
+    pub position: Point,
+    /// Original requested radius, if the bend was auto-reduced.
+    pub requested_radius: Option<f64>,
+}
+
+impl BendInfo {
+    /// Create a new bend info entry.
+    pub fn new(radius: f64, position: Point) -> Self {
+        Self {
+            radius,
+            position,
+            requested_radius: None,
+        }
+    }
+
+    /// Create a bend info entry for an auto-reduced bend.
+    pub fn auto_reduced(radius: f64, position: Point, requested_radius: f64) -> Self {
+        Self {
+            radius,
+            position,
+            requested_radius: Some(requested_radius),
+        }
+    }
+
+    /// Whether this bend was auto-reduced from a larger requested radius.
+    pub fn was_auto_reduced(&self) -> bool {
+        self.requested_radius.is_some()
+    }
+}
+
 /// Metadata associated with a cell.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CellMetadata {
     /// Total optical path length (if built from a Route).
     pub path_length: Option<f64>,
+    /// Bend information for bends in this cell.
+    pub bends: Vec<BendInfo>,
+    /// Warnings generated during cell construction.
+    pub warnings: Vec<String>,
 }
 
 /// A cell containing geometry and references to other cells.
@@ -284,6 +325,26 @@ impl Cell {
     /// Get the path length metadata.
     pub fn path_length(&self) -> Option<f64> {
         self.metadata.path_length
+    }
+
+    /// Add a bend info entry to the cell metadata.
+    pub fn add_bend(&mut self, bend: BendInfo) {
+        self.metadata.bends.push(bend);
+    }
+
+    /// Get bend info entries from the cell metadata.
+    pub fn bends(&self) -> &[BendInfo] {
+        &self.metadata.bends
+    }
+
+    /// Get warnings from the cell metadata.
+    pub fn warnings(&self) -> &[String] {
+        &self.metadata.warnings
+    }
+
+    /// Add a warning to the cell metadata.
+    pub fn add_warning(&mut self, warning: String) {
+        self.metadata.warnings.push(warning);
     }
 
     /// Add a polygon to the cell.

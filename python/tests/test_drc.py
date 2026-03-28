@@ -278,6 +278,87 @@ class TestRunDrc:
         assert len(result.violations) == 2
         assert result.rules_checked == 2
 
+    # --- New check types ---
+
+    def test_min_edge_length_pass(self):
+        """Rectangle with long edges passes min edge length."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 10.0, 5.0), Layer(1, 0))
+
+        rules = DrcRules().min_edge_length(Layer(1, 0), 4.0)
+        result = run_drc(cell, rules)
+
+        assert result.passed
+
+    def test_min_edge_length_fail(self):
+        """Thin rectangle has short edges that fail."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 10.0, 0.05), Layer(1, 0))
+
+        rules = DrcRules().min_edge_length(Layer(1, 0), 0.1, name="EDGE_LEN")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 2  # Two 0.05-length edges
+        v = result.violations[0]
+        assert v.rule_type == "min_edge_length"
+        assert v.rule_name == "EDGE_LEN"
+
+    def test_max_width_pass(self):
+        """Narrow waveguide passes max width check."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 20.0, 0.5), Layer(1, 0))
+
+        rules = DrcRules().max_width(Layer(1, 0), 1.0)
+        result = run_drc(cell, rules)
+
+        assert result.passed
+
+    def test_max_width_fail(self):
+        """Wide waveguide fails max width check."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 20.0, 3.0), Layer(1, 0))
+
+        rules = DrcRules().max_width(Layer(1, 0), 1.0, name="MAX_W")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        v = result.violations[0]
+        assert v.rule_type == "max_width"
+        assert v.rule_name == "MAX_W"
+
+    def test_self_intersection_pass(self):
+        """Simple rectangle passes self-intersection check."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 10.0, 5.0), Layer(1, 0))
+
+        rules = DrcRules().no_self_intersection(Layer(1, 0))
+        result = run_drc(cell, rules)
+
+        assert result.passed
+
+    def test_self_intersection_fail(self):
+        """Bowtie polygon fails self-intersection check."""
+        cell = Cell("test")
+        # Bowtie: edges cross in the middle
+        bowtie = Polygon(
+            [
+                Point(0.0, 0.0),
+                Point(10.0, 5.0),
+                Point(10.0, 0.0),
+                Point(0.0, 5.0),
+            ]
+        )
+        cell.add_polygon(bowtie, Layer(1, 0))
+
+        rules = DrcRules().no_self_intersection(Layer(1, 0), name="NO_SELF_X")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        v = result.violations[0]
+        assert v.rule_type == "self_intersection"
+        assert v.rule_name == "NO_SELF_X"
+
 
 class TestDrcResult:
     """Tests for DrcResult class."""
@@ -591,6 +672,94 @@ min_spacing = 0.5
 
         rules = load_drc_rules(config_file)
         assert "1 rules" in repr(rules)
+
+    def test_load_min_edge_length(self, tmp_path):
+        """Can load min_edge_length from per-layer config."""
+        toml_content = """
+[drc.layers."1/0"]
+min_edge_length = 0.1
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+        # Verify it works: thin rect has short edges
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 10.0, 0.05), Layer(1, 0))
+        result = run_drc(cell, rules)
+        assert not result.passed
+        assert result.violations[0].rule_type == "min_edge_length"
+
+    def test_load_max_width(self, tmp_path):
+        """Can load max_width from per-layer config."""
+        toml_content = """
+[drc.layers."1/0"]
+max_width = 1.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+        # Verify it works: wide rectangle fails
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 20.0, 3.0), Layer(1, 0))
+        result = run_drc(cell, rules)
+        assert not result.passed
+        assert result.violations[0].rule_type == "max_width"
+
+    def test_load_no_self_intersection(self, tmp_path):
+        """Can load no_self_intersection from per-layer config."""
+        toml_content = """
+[drc.layers."1/0"]
+no_self_intersection = true
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+    def test_auto_generated_rule_names(self, tmp_path):
+        """Per-layer rules get auto-generated names like L1/0.min_width."""
+        toml_content = """
+[drc.layers."1/0"]
+min_width = 5.0
+min_spacing = 10.0
+min_area = 100.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+
+        # Create cell that violates all rules
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 2.0, 2.0), Layer(1, 0))
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        names = {v.rule_name for v in result.violations}
+        assert "L1/0.min_width" in names
+        assert "L1/0.min_area" in names
+
+    def test_load_all_new_per_layer_rules(self, tmp_path):
+        """All new per-layer rule types load together."""
+        toml_content = """
+[drc.layers."1/0"]
+min_width = 0.1
+max_width = 10.0
+min_edge_length = 0.05
+no_self_intersection = true
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "4 rules" in repr(rules)
 
 
 def _write_design_and_config(tmp_path, *, passing: bool):

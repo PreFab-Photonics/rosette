@@ -41,6 +41,10 @@ from pathlib import Path
 from rosette._core import (
     # Geometry
     BBox,
+    ChecksConfig,
+    ChecksResult,
+    # Checks
+    CheckViolation,
     # DFM
     DfmConfig,
     DfmResult,
@@ -73,6 +77,7 @@ from rosette._core import CellRef as _CellRef
 from rosette._core import Library as _Library
 from rosette._core import Route as _Route
 from rosette._core import read_gds as _read_gds
+from rosette._core import run_checks as _run_checks
 from rosette._core import run_dfm as _run_dfm
 from rosette._core import run_drc as _run_drc
 from rosette._core import write_gds as _write_gds
@@ -518,6 +523,37 @@ class Cell:
     @path_length.setter
     def path_length(self, value: float) -> None:
         self._inner.path_length = value
+
+    def add_bend(
+        self,
+        radius: float,
+        x: float,
+        y: float,
+        requested_radius: float | None = None,
+    ) -> None:
+        """Add a bend info entry to the cell metadata.
+
+        Args:
+            radius: Effective bend radius in um.
+            x: X coordinate of bend location.
+            y: Y coordinate of bend location.
+            requested_radius: Original requested radius if auto-reduced.
+        """
+        self._inner.add_bend(radius, x, y, requested_radius)
+
+    @property
+    def bends(self) -> list[dict]:
+        """Bend info entries as list of dicts."""
+        return self._inner.bends
+
+    def add_warning(self, warning: str) -> None:
+        """Add a warning to the cell metadata."""
+        self._inner.add_warning(warning)
+
+    @property
+    def cell_warnings(self) -> list[str]:
+        """Warnings from cell construction."""
+        return self._inner.cell_warnings
 
     # --- Delegated methods ---
 
@@ -1052,18 +1088,35 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         # Parse layer string "number/datatype"
         layer = _parse_layer_string(layer_str)
 
+        # Auto-generate rule names from layer string so violations are
+        # identifiable (e.g., "L1/0.min_width") when no explicit name is given.
+        prefix = f"L{layer_str}"
+
         # Apply rules for this layer
         if "min_width" in layer_rules:
-            rules = rules.min_width(layer, layer_rules["min_width"])
+            rules = rules.min_width(layer, layer_rules["min_width"], f"{prefix}.min_width")
 
         if "min_spacing" in layer_rules:
-            rules = rules.min_spacing(layer, layer, layer_rules["min_spacing"])
+            rules = rules.min_spacing(
+                layer, layer, layer_rules["min_spacing"], f"{prefix}.min_spacing"
+            )
 
         if "min_area" in layer_rules:
-            rules = rules.min_area(layer, layer_rules["min_area"])
+            rules = rules.min_area(layer, layer_rules["min_area"], f"{prefix}.min_area")
 
         if "angles" in layer_rules:
-            rules = rules.allowed_angles(layer, layer_rules["angles"])
+            rules = rules.allowed_angles(layer, layer_rules["angles"], f"{prefix}.allowed_angles")
+
+        if "min_edge_length" in layer_rules:
+            rules = rules.min_edge_length(
+                layer, layer_rules["min_edge_length"], f"{prefix}.min_edge_length"
+            )
+
+        if "max_width" in layer_rules:
+            rules = rules.max_width(layer, layer_rules["max_width"], f"{prefix}.max_width")
+
+        if layer_rules.get("no_self_intersection", False):
+            rules = rules.no_self_intersection(layer, f"{prefix}.no_self_intersection")
 
     # Process inter-layer rules
     inter_layer_rules = drc_config.get("rules", [])
@@ -1170,6 +1223,121 @@ def run_drc(
         inner_library = library._inner if isinstance(library, Library) else library
 
     return _run_drc(inner_cell, rules, inner_library)
+
+
+# =============================================================================
+# Connectivity checking
+# =============================================================================
+
+
+def load_checks_config(
+    config_path: str | Path | None = None,
+) -> ChecksConfig:
+    """Load checks config from rosette.toml.
+
+    Reads the [checks] section. If the section is absent, returns
+    a ChecksConfig with sensible defaults.
+
+    Args:
+        config_path: Optional explicit path to rosette.toml. If None, searches
+                     from current directory upward.
+
+    Returns:
+        ChecksConfig built from the configuration
+
+    Example:
+        # In rosette.toml:
+        # [checks]
+        # position_tolerance = 0.001
+        # angle_tolerance = 0.1
+        # check_widths = true
+        # min_bend_radius = 5.0
+        # severity = "error"
+
+        config = load_checks_config()
+        result = run_checks(cell, config)
+    """
+    # Find config file
+    if config_path is not None:
+        toml_path = Path(config_path)
+        if not toml_path.exists():
+            raise FileNotFoundError(f"Config file not found: {toml_path}")
+    else:
+        toml_path = _find_rosette_toml()
+        if toml_path is None:
+            # No config file — return defaults
+            return ChecksConfig()
+
+    # Parse TOML
+    with open(toml_path, "rb") as f:
+        config = tomllib.load(f)
+
+    checks_config = config.get("checks", {})
+    if not checks_config:
+        return ChecksConfig()
+
+    return ChecksConfig(
+        position_tolerance=checks_config.get("position_tolerance", 0.001),
+        angle_tolerance=checks_config.get("angle_tolerance", 0.1),
+        check_widths=checks_config.get("check_widths", True),
+        min_bend_radius=checks_config.get("min_bend_radius"),
+        severity=checks_config.get("severity", "error"),
+    )
+
+
+def run_checks(
+    cell: Cell | _Cell,
+    config: ChecksConfig | None = None,
+    library: Library | _Library | None = None,
+) -> ChecksResult:
+    """Run design checks on a cell.
+
+    Runs all design checks: connectivity (unconnected ports, width/angle
+    mismatch) and bend radius (below minimum, auto-reduced).
+
+    When called with a Cell that was built using Instance references (via
+    cell.at()), child cells are automatically collected into a Library for
+    hierarchy resolution. You can also pass a Library explicitly.
+
+    Ports on the top-level cell are treated as external I/O and are not
+    flagged as unconnected.
+
+    Args:
+        cell: The cell to check
+        config: Checks config (default: ChecksConfig())
+        library: Library containing referenced cells. If None and cell is a
+                 Python Cell with Instance tracking, a Library is auto-built.
+
+    Returns:
+        ChecksResult with violations and statistics
+
+    Example:
+        config = ChecksConfig(min_bend_radius=5.0)
+        result = run_checks(cell, config)
+        if result.passed:
+            print("All checks passed!")
+        else:
+            for v in result.violations:
+                print(f"  {v.message}")
+    """
+    # Extract inner Rust objects
+    inner_cell = cell._inner if isinstance(cell, Cell) else cell
+
+    inner_library = None
+    if library is not None:
+        inner_library = library._inner if isinstance(library, Library) else library
+    elif isinstance(cell, Cell):
+        # Auto-collect child cells into a Library for hierarchy resolution
+        collected: set[Cell] = set()
+        _collect_all_cells(cell, collected)
+        if collected:
+            lib = Library("_checks")
+            for child in collected:
+                lib.add_cell(child)
+            lib.add_cell(cell)
+            inner_library = lib._inner
+
+    return _run_checks(inner_cell, config, inner_library)
 
 
 def load_dfm_config(
@@ -1755,6 +1923,9 @@ __all__ = [
     "BBox",
     "Cell",
     "CellRef",
+    "CheckViolation",
+    "ChecksConfig",
+    "ChecksResult",
     "DfmConfig",
     "DfmResult",
     "DfmViolation",
@@ -1779,6 +1950,7 @@ __all__ = [
     "arc_points",
     "fresnel_c",
     "fresnel_s",
+    "load_checks_config",
     "load_dfm_config",
     "load_drc_rules",
     "load_layer_map",
@@ -1786,6 +1958,7 @@ __all__ = [
     "offset_polygon_varying",
     "path_length",
     "read_gds",
+    "run_checks",
     "run_dfm",
     "run_drc",
     "write_gds",

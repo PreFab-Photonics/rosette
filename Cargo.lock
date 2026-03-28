@@ -3558,8 +3558,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
 
 [[package]]
+name = "rosette-checks"
+version = "0.1.6"
+dependencies = [
+ "rosette-core",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "rosette-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -3567,7 +3575,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-desktop"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "rosette-core",
  "rosette-io",
@@ -3585,7 +3593,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-dfm"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "rayon",
  "rosette-core",
@@ -3594,7 +3602,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-drc"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "geo 0.29.3",
  "rosette-core",
@@ -3604,7 +3612,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-io"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "byteorder",
  "rosette-core",
@@ -3615,9 +3623,10 @@ dependencies = [
 
 [[package]]
 name = "rosette-python"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "pyo3",
+ "rosette-checks",
  "rosette-core",
  "rosette-dfm",
  "rosette-drc",
@@ -3626,7 +3635,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-wasm"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "bytemuck",
  "console_error_panic_hook",

@@ -252,6 +252,13 @@ class Port:
         width: float | None = None,
     ) -> None: ...
     def angle(self) -> float: ...
+    def can_connect_to(self, other: Port, tolerance: float = 0.001) -> bool:
+        """Check if this port can connect to another port.
+
+        Ports can connect if they are at the same position (within tolerance)
+        and have opposite directions.
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class CellRef:
@@ -304,6 +311,10 @@ class CellRef:
 class Cell:
     name: str
     path_length: float | None
+    bends: list[dict]
+    """Bend info entries as list of dicts with keys: radius, x, y, and optionally requested_radius."""
+    cell_warnings: list[str]
+    """Warnings from cell construction."""
     def __init__(self, name: str) -> None:
         """Create a new empty cell.
 
@@ -365,6 +376,25 @@ class Cell:
         """
         ...
     def add_port(self, port: Port) -> None: ...
+    def add_bend(
+        self,
+        radius: float,
+        x: float,
+        y: float,
+        requested_radius: float | None = None,
+    ) -> None:
+        """Add a bend info entry to the cell metadata.
+
+        Args:
+            radius: Effective bend radius in um
+            x: X coordinate of bend location
+            y: Y coordinate of bend location
+            requested_radius: Original requested radius if auto-reduced (optional)
+        """
+        ...
+    def add_warning(self, warning: str) -> None:
+        """Add a warning to the cell metadata."""
+        ...
     def port(self, name: str) -> Port: ...
     def ports(self) -> list[Port]: ...
     def polygon_count(self) -> int: ...
@@ -852,6 +882,29 @@ class DrcRules:
     ) -> DrcRules:
         """Add rule restricting edge angles to specified values (degrees)."""
         ...
+    def min_edge_length(
+        self,
+        layer: Layer | int | tuple[int, int],
+        length: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add minimum edge length rule for a layer (catches tiny jogs/notches)."""
+        ...
+    def no_self_intersection(
+        self,
+        layer: Layer | int | tuple[int, int],
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add self-intersection check for a layer (invalid geometry detection)."""
+        ...
+    def max_width(
+        self,
+        layer: Layer | int | tuple[int, int],
+        width: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add maximum width rule for a layer (e.g., single-mode waveguide enforcement)."""
+        ...
     def __repr__(self) -> str: ...
 
 class DrcViolation:
@@ -1107,5 +1160,94 @@ def run_dfm(
             m = lp.metrics
             if m:
                 print(f"  Layer {lp.layer}: edge dev {m.max_edge_deviation:.3f} um")
+    """
+    ...
+
+# ---------------------------------------------------------------------------
+# Design checks
+# ---------------------------------------------------------------------------
+
+class ChecksConfig:
+    """Configuration for design checks."""
+
+    def __init__(
+        self,
+        position_tolerance: float = 0.001,
+        angle_tolerance: float = 0.1,
+        check_widths: bool = True,
+        min_bend_radius: float | None = None,
+        severity: str = "error",
+    ) -> None:
+        """Create a new checks config.
+
+        Args:
+            position_tolerance: Max gap between port centres to count as connected (default 0.001)
+            angle_tolerance: Max angular deviation from anti-parallel in degrees (default 0.1)
+            check_widths: Whether to flag width mismatches (default True)
+            min_bend_radius: Minimum allowed bend radius in um, or None to skip (default None)
+            severity: Default severity, "error" or "warning" (default "error")
+        """
+        ...
+    def __repr__(self) -> str: ...
+
+class CheckViolation:
+    """A single check violation."""
+
+    violation_type: str
+    """Type: "unconnected_port", "width_mismatch", "angle_mismatch", "bend_radius_too_small", "bend_radius_auto_reduced"."""
+    name: str
+    """Name of the relevant port or component."""
+    cell_path: str
+    """Hierarchy path (e.g. "mmi_1/out_2")."""
+    partner_name: str | None
+    """Name of the partner port (for connectivity mismatch violations)."""
+    partner_path: str | None
+    """Hierarchy path to the partner port."""
+    message: str
+    """Human-readable description."""
+    severity: str
+    """Severity: "error" or "warning"."""
+    bbox: tuple[tuple[float, float], tuple[float, float]]
+    """Bounding box as ((min_x, min_y), (max_x, max_y))."""
+    def __repr__(self) -> str: ...
+
+class ChecksResult:
+    """Result of running design checks."""
+
+    passed: bool
+    """True if no violations were found."""
+    violations: list[CheckViolation]
+    """List of violations found."""
+    ports_checked: int
+    """Number of ports checked."""
+    connections_found: int
+    """Number of port-to-port connections found."""
+    bends_checked: int
+    """Number of bends checked."""
+    elapsed_ms: float
+    """Elapsed time in milliseconds."""
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+def run_checks(
+    cell: Cell,
+    config: ChecksConfig | None = None,
+    library: Library | None = None,
+) -> ChecksResult:
+    """Run design checks on a cell.
+
+    Runs all design checks: connectivity (unconnected ports, width/angle
+    mismatch) and bend radius (below minimum, auto-reduced).
+
+    Ports on the top-level cell are treated as external I/O and are not
+    flagged as unconnected.
+
+    Args:
+        cell: The cell to check
+        config: Checks config (default: ChecksConfig())
+        library: Library containing referenced cells (required if cell has refs)
+
+    Returns:
+        ChecksResult with violations and statistics
     """
     ...

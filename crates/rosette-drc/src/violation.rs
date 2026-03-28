@@ -53,6 +53,22 @@ pub enum RuleType {
         /// List of allowed angles (degrees).
         allowed: Vec<f64>,
     },
+    /// Polygon edge is shorter than minimum.
+    MinEdgeLength {
+        /// Required minimum edge length.
+        required: f64,
+        /// Actual measured edge length.
+        actual: f64,
+    },
+    /// Polygon has self-intersecting edges.
+    SelfIntersection,
+    /// Polygon width exceeds maximum.
+    MaxWidth {
+        /// Maximum allowed width.
+        limit: f64,
+        /// Actual measured width.
+        actual: f64,
+    },
 }
 
 /// A single DRC violation.

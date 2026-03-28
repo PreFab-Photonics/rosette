@@ -25,7 +25,7 @@
 
 use std::f64::consts::PI;
 
-use crate::cell::Cell;
+use crate::cell::{BendInfo, Cell};
 use crate::geometry::{Point, Polygon, Vector2};
 use crate::layer::Layer;
 use crate::port::Port;
@@ -86,6 +86,8 @@ pub struct RouteResult {
     pub port_out: Port,
     /// Warnings generated during routing.
     pub warnings: Vec<String>,
+    /// Bend information for each non-trivial corner.
+    pub bends: Vec<BendInfo>,
 }
 
 /// A path-based waveguide route.
@@ -351,11 +353,12 @@ impl Route {
                 port_in: Port::new("in", Point::origin(), Vector2::unit_x()),
                 port_out: Port::new("out", Point::origin(), Vector2::unit_x()),
                 warnings: vec!["Route requires at least 2 points".to_string()],
+                bends: Vec::new(),
             };
         }
 
         // Analyze corners and calculate setbacks
-        let corners = self.analyze_corners(&points, &mut warnings);
+        let (corners, bends) = self.analyze_corners(&points, &mut warnings);
 
         // Generate polygons
         let polygons = self.generate_polygons(&points, &corners, &mut warnings);
@@ -387,12 +390,18 @@ impl Route {
             port_in,
             port_out,
             warnings,
+            bends,
         }
     }
 
     /// Analyze corners to determine turn angles and setbacks.
-    fn analyze_corners(&self, points: &[PathPoint], warnings: &mut Vec<String>) -> Vec<Corner> {
+    fn analyze_corners(
+        &self,
+        points: &[PathPoint],
+        warnings: &mut Vec<String>,
+    ) -> (Vec<Corner>, Vec<BendInfo>) {
         let mut corners = Vec::new();
+        let mut bends = Vec::new();
 
         for i in 1..points.len().saturating_sub(1) {
             let prev = &points[i - 1];
@@ -417,7 +426,8 @@ impl Route {
             }
 
             // Calculate setback for this bend radius
-            let mut radius = curr.bend_radius;
+            let requested_radius = curr.bend_radius;
+            let mut radius = requested_radius;
             let mut setback = radius * (turn_angle.abs() / 2.0).tan();
 
             // Check if there's enough space
@@ -434,6 +444,7 @@ impl Route {
 
             let available = min_dist - prev_setback;
 
+            let mut was_reduced = false;
             if setback > available * 0.9 {
                 // Need to reduce bend radius
                 let new_setback = available * 0.9;
@@ -441,10 +452,22 @@ impl Route {
                 warnings.push(format!(
                     "Bend radius auto-reduced from {:.1} to {:.1} um at ({:.1}, {:.1}). \
                      Fix: increase spacing or use smaller bend_radius",
-                    radius, new_radius, curr.position.x, curr.position.y
+                    requested_radius, new_radius, curr.position.x, curr.position.y
                 ));
                 radius = new_radius;
                 setback = new_setback;
+                was_reduced = true;
+            }
+
+            // Record bend info
+            if was_reduced {
+                bends.push(BendInfo::auto_reduced(
+                    radius,
+                    curr.position,
+                    requested_radius,
+                ));
+            } else {
+                bends.push(BendInfo::new(radius, curr.position));
             }
 
             corners.push(Corner {
@@ -454,7 +477,7 @@ impl Route {
             });
         }
 
-        corners
+        (corners, bends)
     }
 
     /// Calculate signed angle between two vectors.
@@ -659,6 +682,14 @@ impl Route {
         cell.add_port(result.port_in);
         cell.add_port(result.port_out);
         cell.set_path_length(result.path_length);
+
+        // Persist bend info and warnings on the cell
+        for bend in result.bends {
+            cell.add_bend(bend);
+        }
+        for warning in result.warnings {
+            cell.add_warning(warning);
+        }
 
         cell
     }

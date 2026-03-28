@@ -7,6 +7,7 @@
 
 use pyo3::prelude::*;
 
+mod checks;
 mod dfm;
 mod drc;
 mod geometry;
@@ -14,6 +15,7 @@ mod io;
 mod layout;
 mod route;
 
+use checks::{PyCheckViolation, PyChecksConfig, PyChecksResult, py_run_checks};
 use dfm::{
     PyDfmConfig, PyDfmResult, PyDfmViolation, PyGaussianModel, PyLayerMetrics, PyLayerPrediction,
     py_run_dfm,
@@ -74,6 +76,12 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Iterators
     m.add_class::<PyPolygonIterator>()?;
+
+    // Check types
+    m.add_class::<PyChecksConfig>()?;
+    m.add_class::<PyChecksResult>()?;
+    m.add_class::<PyCheckViolation>()?;
+    m.add_function(wrap_pyfunction!(py_run_checks, m)?)?;
 
     // DRC types
     m.add_class::<PyDrcRules>()?;

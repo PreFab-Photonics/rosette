@@ -10,6 +10,7 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
+rosette-checks.workspace = true
 rosette-core.workspace = true
 rosette-dfm.workspace = true
 rosette-drc.workspace = true
