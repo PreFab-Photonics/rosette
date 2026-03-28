@@ -89,7 +89,6 @@ except PackageNotFoundError:
 
 # DFM default model parameters — keep in sync with Rust DEFAULT_SIGMA / DEFAULT_THRESHOLD
 _DFM_DEFAULT_SIGMA = 0.08
-_DFM_DEFAULT_THRESHOLD = 0.5
 
 # =============================================================================
 # Source tracking for two-way editing (rosette serve)
@@ -1407,15 +1406,31 @@ def load_dfm_config(
         )
 
     sigma = dfm_config.get("sigma", _DFM_DEFAULT_SIGMA)
-    threshold = dfm_config.get("threshold", _DFM_DEFAULT_THRESHOLD)
+    # "threshold" in rosette.toml maps to contour_threshold (binarization level)
+    threshold = dfm_config.get("threshold")
+    if threshold is not None:
+        if "contour_threshold" in dfm_config and dfm_config["contour_threshold"] != threshold:
+            import warnings
+
+            warnings.warn(
+                f"Both 'threshold' ({threshold}) and 'contour_threshold' "
+                f"({dfm_config['contour_threshold']}) are set in [dfm]. "
+                f"Using 'threshold' ({threshold}). Remove one to silence this warning.",
+                stacklevel=2,
+            )
+        contour_threshold = threshold
 
     # Validate numeric values
     if not isinstance(resolution, (int, float)) or resolution <= 0:
         raise ValueError(f"DFM 'resolution' must be a positive number, got {resolution!r}")
     if not isinstance(sigma, (int, float)) or sigma < 0:
         raise ValueError(f"DFM 'sigma' must be a non-negative number, got {sigma!r}")
-    if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
-        raise ValueError(f"DFM 'threshold' must be between 0.0 and 1.0, got {threshold!r}")
+    if (
+        not isinstance(contour_threshold, (int, float))
+        or contour_threshold < 0
+        or contour_threshold > 1
+    ):
+        raise ValueError(f"DFM 'threshold' must be between 0.0 and 1.0, got {contour_threshold!r}")
 
     # Parse layers
     layer_strs = dfm_config.get("layers", [])
@@ -1443,7 +1458,7 @@ def load_dfm_config(
         max_area_deviation=max_area_deviation,
         severity=severity,
     )
-    model = GaussianModel(sigma=float(sigma), threshold=float(threshold))
+    model = GaussianModel(sigma=float(sigma))
 
     # Parse per-layer overrides from [dfm.layer."1/0"] sections
     per_layer = dfm_config.get("layer", {})
@@ -1454,7 +1469,6 @@ def load_dfm_config(
         dfm_cfg.set_layer_config(
             layer_obj,
             sigma=layer_params.get("sigma"),
-            threshold=layer_params.get("threshold"),
             max_area_deviation=layer_params.get("max_area_deviation"),
             severity=layer_params.get("severity"),
         )
@@ -1504,6 +1518,37 @@ def run_dfm(
         config = DfmConfig()
 
     return _run_dfm(inner_cell, layers, model, config, inner_library)
+
+
+def add_dfm_predictions(
+    cell: Cell,
+    result: DfmResult,
+    datatype_offset: int = 100,
+) -> None:
+    """Add DFM predicted polygons to a cell on offset layers.
+
+    For each layer in the DFM result, adds the predicted polygons to the cell
+    on a new layer with the same layer number but datatype offset by
+    ``datatype_offset``. This makes it easy to visualize designed vs predicted
+    geometry side-by-side in a GDS viewer.
+
+    Args:
+        cell: The cell to add predicted polygons to (modified in-place)
+        result: DFM prediction result from ``run_dfm``
+        datatype_offset: Offset added to the original datatype (default 100).
+            E.g., layer (1, 0) predictions go to (1, 100).
+
+    Example:
+        result = run_dfm(cell, layers=[Layer(1, 0)], model=model)
+        add_dfm_predictions(cell, result)
+        write_gds("output.gds", cell)
+        # Layer 1/0 = designed, Layer 1/100 = predicted
+    """
+    for lp in result.layers:
+        layer_num, datatype = lp.layer
+        pred_layer = Layer(layer_num, datatype + datatype_offset)
+        for poly in lp.predicted_polygons:
+            cell.add_polygon(poly, pred_layer)
 
 
 def read_gds(path: str | Path) -> Library:
@@ -1947,6 +1992,7 @@ __all__ = [
     "Route",
     "Transform",
     "Vector2",
+    "add_dfm_predictions",
     "arc_points",
     "fresnel_c",
     "fresnel_s",

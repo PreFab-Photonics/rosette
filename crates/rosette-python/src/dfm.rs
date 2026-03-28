@@ -1,11 +1,12 @@
 //! Python bindings for DFM (Design for Manufacturability) prediction.
 
+use std::sync::Arc;
+
 use pyo3::prelude::*;
 
 use rosette_dfm::{
-    DEFAULT_SIGMA, DEFAULT_THRESHOLD, DfmConfig, DfmResult, DfmTolerances, DfmViolation,
-    DfmViolationType, GaussianModel, LayerDfmConfig, LayerMetrics, LayerPrediction, RasterConfig,
-    Severity, run_dfm,
+    DfmConfig, DfmResult, DfmTolerances, DfmViolation, DfmViolationType, GaussianModel,
+    LayerDfmConfig, LayerMetrics, LayerPrediction, RasterConfig, Severity, run_dfm,
 };
 
 use crate::extract_layer;
@@ -24,7 +25,9 @@ impl PyDfmConfig {
     /// Args:
     ///     resolution: Pixel size in design units (default 0.01)
     ///     padding: Margin around cell bounding box in design units (default 1.0)
-    ///     contour_threshold: Threshold for contour extraction, 0.0-1.0 (default 0.5)
+    ///     contour_threshold: Binarization threshold for contour extraction and comparison,
+    ///         0.0-1.0 (default 0.5). This determines when a continuous prediction
+    ///         value is considered "filled".
     ///     keep_raster: Whether to retain raster data in results (default False)
     ///     max_area_deviation: Max allowed relative area deviation, 0.0-1.0 (None = no check)
     ///     severity: Violation severity, "error" or "warning" (default "error")
@@ -72,8 +75,6 @@ impl PyDfmConfig {
             contour_threshold,
             keep_raster,
             tolerances,
-            default_sigma: DEFAULT_SIGMA,
-            default_threshold: DEFAULT_THRESHOLD,
             layer_configs: std::collections::HashMap::new(),
         }))
     }
@@ -85,16 +86,15 @@ impl PyDfmConfig {
     ///
     /// Args:
     ///     layer: Layer to configure (Layer, int, or (int, int) tuple)
-    ///     sigma: Override Gaussian sigma in design units (None = use global)
-    ///     threshold: Override binarization threshold (None = use global)
+    ///     sigma: Override Gaussian sigma in design units for this layer (None = use global model).
+    ///         Creates a per-layer GaussianModel with the specified sigma.
     ///     max_area_deviation: Override area deviation tolerance (None = use global)
     ///     severity: Override violation severity, "error" or "warning" (None = use global)
-    #[pyo3(signature = (layer, sigma=None, threshold=None, max_area_deviation=None, severity=None))]
+    #[pyo3(signature = (layer, sigma=None, max_area_deviation=None, severity=None))]
     fn set_layer_config(
         &mut self,
         layer: Bound<'_, PyAny>,
         sigma: Option<f64>,
-        threshold: Option<f64>,
         max_area_deviation: Option<f64>,
         severity: Option<&str>,
     ) -> PyResult<()> {
@@ -111,11 +111,18 @@ impl PyDfmConfig {
             None => None,
         };
 
+        // If sigma is provided, create a per-layer GaussianModel
+        let model = sigma.map(|s| {
+            Arc::new(GaussianModel::from_design_units(
+                s,
+                self.0.raster.resolution,
+            )) as Arc<dyn rosette_dfm::DfmModel>
+        });
+
         self.0.layer_configs.insert(
             rust_layer,
             LayerDfmConfig {
-                sigma,
-                threshold,
+                model,
                 max_area_deviation,
                 severity: sev,
             },
@@ -135,7 +142,7 @@ impl PyDfmConfig {
         self.0.raster.padding
     }
 
-    /// Threshold for contour extraction.
+    /// Binarization threshold for contour extraction and comparison.
     #[getter]
     fn contour_threshold(&self) -> f64 {
         self.0.contour_threshold
@@ -174,13 +181,16 @@ impl PyDfmConfig {
 }
 
 /// Gaussian blur DFM model for proximity effect simulation.
+///
+/// Applies a 2D Gaussian blur to simulate optical proximity effects
+/// during lithography. The model produces continuous values in [0.0, 1.0]
+/// representing fabrication probability. Binarization is controlled by the
+/// contour_threshold parameter in DfmConfig.
 #[pyclass(name = "GaussianModel")]
 #[derive(Clone)]
 pub struct PyGaussianModel {
     /// Sigma in design units (user-facing).
     sigma: f64,
-    /// Binarization threshold.
-    threshold: f64,
 }
 
 #[pymethods]
@@ -188,24 +198,18 @@ impl PyGaussianModel {
     /// Create a new Gaussian DFM model.
     ///
     /// Args:
-    ///     sigma: Gaussian sigma in design units (e.g., 0.08 um)
-    ///     threshold: Binarization threshold, 0.0-1.0 (default 0.5)
+    ///     sigma: Gaussian sigma in design units (e.g., 0.08 um).
+    ///         Controls the amount of blur applied to simulate proximity effects.
     #[new]
-    #[pyo3(signature = (sigma, threshold=0.5))]
-    fn new(sigma: f64, threshold: f64) -> Self {
-        PyGaussianModel { sigma, threshold }
+    #[pyo3(signature = (sigma))]
+    fn new(sigma: f64) -> Self {
+        PyGaussianModel { sigma }
     }
 
     /// Gaussian sigma in design units.
     #[getter]
     fn sigma(&self) -> f64 {
         self.sigma
-    }
-
-    /// Binarization threshold.
-    #[getter]
-    fn threshold(&self) -> f64 {
-        self.threshold
     }
 
     /// Model name.
@@ -215,17 +219,14 @@ impl PyGaussianModel {
     }
 
     fn __repr__(&self) -> String {
-        format!(
-            "GaussianModel(sigma={}, threshold={})",
-            self.sigma, self.threshold
-        )
+        format!("GaussianModel(sigma={})", self.sigma)
     }
 }
 
 impl PyGaussianModel {
     /// Convert to a Rust GaussianModel using the given resolution.
     pub(crate) fn to_rust_model(&self, resolution: f64) -> GaussianModel {
-        GaussianModel::from_design_units(self.sigma, resolution, self.threshold)
+        GaussianModel::from_design_units(self.sigma, resolution)
     }
 }
 
@@ -266,13 +267,27 @@ impl PyLayerMetrics {
         self.0.predicted_area
     }
 
+    /// Number of connected components in the designed raster.
+    #[getter]
+    fn designed_feature_count(&self) -> usize {
+        self.0.designed_feature_count
+    }
+
+    /// Number of connected components in the predicted raster.
+    #[getter]
+    fn predicted_feature_count(&self) -> usize {
+        self.0.predicted_feature_count
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "LayerMetrics(layer=({}, {}), edge_dev={:.4}, area_dev={:.1}%)",
+            "LayerMetrics(layer=({}, {}), edge_dev={:.4}, area_dev={:.1}%, features={}->{})",
             self.0.layer.number,
             self.0.layer.datatype,
             self.0.max_edge_deviation,
-            self.0.area_deviation * 100.0
+            self.0.area_deviation * 100.0,
+            self.0.designed_feature_count,
+            self.0.predicted_feature_count,
         )
     }
 }
@@ -290,11 +305,13 @@ impl PyDfmViolation {
         (self.0.layer.number, self.0.layer.datatype)
     }
 
-    /// Violation type: "area_deviation".
+    /// Violation type: "area_deviation", "feature_erasure", or "feature_merge".
     #[getter]
     fn violation_type(&self) -> &str {
         match &self.0.violation_type {
             DfmViolationType::AreaDeviation { .. } => "area_deviation",
+            DfmViolationType::FeatureErasure { .. } => "feature_erasure",
+            DfmViolationType::FeatureMerge { .. } => "feature_merge",
         }
     }
 
@@ -313,7 +330,7 @@ impl PyDfmViolation {
         }
     }
 
-    /// Bounding box of worst deviation: ((min_x, min_y), (max_x, max_y)).
+    /// Bounding box of the violation location: ((min_x, min_y), (max_x, max_y)).
     #[getter]
     fn bbox(&self) -> ((f64, f64), (f64, f64)) {
         let loc = &self.0.location;
@@ -322,19 +339,45 @@ impl PyDfmViolation {
         ((min.x, min.y), (max.x, max.y))
     }
 
-    /// Maximum allowed value (relative for area deviation).
+    /// Maximum allowed value (for area_deviation violations), or None.
     #[getter]
-    fn max_allowed(&self) -> f64 {
+    fn max_allowed(&self) -> Option<f64> {
         match &self.0.violation_type {
-            DfmViolationType::AreaDeviation { max_allowed, .. } => *max_allowed,
+            DfmViolationType::AreaDeviation { max_allowed, .. } => Some(*max_allowed),
+            _ => None,
         }
     }
 
-    /// Actual measured value.
+    /// Actual measured value (for area_deviation violations), or None.
     #[getter]
-    fn actual(&self) -> f64 {
+    fn actual(&self) -> Option<f64> {
         match &self.0.violation_type {
-            DfmViolationType::AreaDeviation { actual, .. } => *actual,
+            DfmViolationType::AreaDeviation { actual, .. } => Some(*actual),
+            _ => None,
+        }
+    }
+
+    /// Number of designed features (for feature_erasure/feature_merge), or None.
+    #[getter]
+    fn designed_count(&self) -> Option<usize> {
+        match &self.0.violation_type {
+            DfmViolationType::FeatureErasure { designed_count, .. } => Some(*designed_count),
+            DfmViolationType::FeatureMerge { designed_count, .. } => Some(*designed_count),
+            _ => None,
+        }
+    }
+
+    /// Number of predicted features (for feature_erasure/feature_merge), or None.
+    #[getter]
+    fn predicted_count(&self) -> Option<usize> {
+        match &self.0.violation_type {
+            DfmViolationType::FeatureErasure {
+                predicted_count, ..
+            } => Some(*predicted_count),
+            DfmViolationType::FeatureMerge {
+                predicted_count, ..
+            } => Some(*predicted_count),
+            _ => None,
         }
     }
 
@@ -408,12 +451,12 @@ impl PyLayerPrediction {
         self.0.raster.is_some()
     }
 
-    /// Raster data as a flat list of integers (row-major order, 0 or 1).
+    /// Raster data as a flat list of floats (row-major order, values in [0.0, 1.0]).
     ///
     /// Returns None if keep_raster was False in the config.
     /// Use raster_width and raster_height to reshape.
     #[getter]
-    fn raster_data(&self) -> Option<Vec<u8>> {
+    fn raster_data(&self) -> Option<Vec<f32>> {
         self.0.raster.as_ref().map(|r| r.grid.clone())
     }
 
@@ -564,10 +607,7 @@ pub fn py_run_dfm(
         .map(|l| extract_layer(l))
         .collect::<PyResult<Vec<_>>>()?;
 
-    // Use provided config or default, and set global model defaults for per-layer fallback
-    let mut dfm_config = config.map(|c| c.0.clone()).unwrap_or_default();
-    dfm_config.default_sigma = model.sigma;
-    dfm_config.default_threshold = model.threshold;
+    let dfm_config = config.map(|c| c.0.clone()).unwrap_or_default();
 
     // Build the Rust model with correct resolution
     let rust_model = model.to_rust_model(dfm_config.raster.resolution);

@@ -3597,7 +3597,6 @@ version = "0.1.6"
 dependencies = [
  "rayon",
  "rosette-core",
- "thiserror 1.0.69",
 ]
 
 [[package]]

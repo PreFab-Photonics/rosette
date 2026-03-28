@@ -20,7 +20,7 @@
 //! let mut cell = Cell::new("test");
 //! cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 2.0), Layer::new(1, 0));
 //!
-//! let model = GaussianModel::from_design_units(0.08, 0.01, 0.5);
+//! let model = GaussianModel::from_design_units(0.08, 0.01);
 //! let config = DfmConfig::default();
 //! let layers = vec![Layer::new(1, 0)];
 //!
@@ -46,6 +46,7 @@ pub use rasterize::{LayerRaster, RasterConfig};
 pub use result::{DfmResult, DfmStats, LayerPrediction};
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Default Gaussian sigma in design units.
@@ -54,7 +55,7 @@ use std::time::Instant;
 /// This value approximates typical lithographic proximity effects at ~80nm.
 pub const DEFAULT_SIGMA: f64 = 0.08;
 
-/// Default binarization threshold for Gaussian model output.
+/// Default binarization threshold for contour extraction and comparison.
 pub const DEFAULT_THRESHOLD: f64 = 0.5;
 
 use rayon::prelude::*;
@@ -65,16 +66,16 @@ use rosette_core::{Cell, Layer, Library, Transform};
 pub struct DfmConfig {
     /// Rasterization configuration.
     pub raster: RasterConfig,
-    /// Threshold for contour extraction (0.0 - 1.0).
+    /// Binarization threshold for contour extraction and comparison (0.0 - 1.0).
+    ///
+    /// This threshold determines when a continuous prediction value is
+    /// considered "filled". Applied during contour extraction (vectorization)
+    /// and when comparing designed vs predicted rasters.
     pub contour_threshold: f64,
     /// Whether to retain the raster data in results.
     pub keep_raster: bool,
     /// Optional tolerances for pass/fail checking (global default).
     pub tolerances: Option<DfmTolerances>,
-    /// Default model sigma in design units (used as fallback for per-layer overrides).
-    pub default_sigma: f64,
-    /// Default model threshold (used as fallback for per-layer overrides).
-    pub default_threshold: f64,
     /// Per-layer overrides. Values here take precedence over the global config.
     pub layer_configs: HashMap<Layer, LayerDfmConfig>,
 }
@@ -83,11 +84,9 @@ impl Default for DfmConfig {
     fn default() -> Self {
         Self {
             raster: RasterConfig::default(),
-            contour_threshold: 0.5,
+            contour_threshold: DEFAULT_THRESHOLD,
             keep_raster: false,
             tolerances: None,
-            default_sigma: DEFAULT_SIGMA,
-            default_threshold: DEFAULT_THRESHOLD,
             layer_configs: HashMap::new(),
         }
     }
@@ -97,16 +96,28 @@ impl Default for DfmConfig {
 ///
 /// Any field set to `Some` overrides the corresponding global config value.
 /// Fields left as `None` fall back to the global default.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct LayerDfmConfig {
-    /// Override Gaussian sigma in design units for this layer.
-    pub sigma: Option<f64>,
-    /// Override binarization threshold for this layer.
-    pub threshold: Option<f64>,
+    /// Override the prediction model for this layer.
+    ///
+    /// When set, this model is used instead of the global model.
+    /// This allows different model parameters per layer (e.g., different
+    /// sigma for different feature types).
+    pub model: Option<Arc<dyn DfmModel>>,
     /// Override area deviation tolerance for this layer.
     pub max_area_deviation: Option<f64>,
     /// Override severity for this layer.
     pub severity: Option<Severity>,
+}
+
+impl std::fmt::Debug for LayerDfmConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LayerDfmConfig")
+            .field("model", &self.model.as_ref().map(|m| m.name()))
+            .field("max_area_deviation", &self.max_area_deviation)
+            .field("severity", &self.severity)
+            .finish()
+    }
 }
 
 /// Run DFM prediction on a cell.
@@ -176,20 +187,11 @@ pub fn run_dfm(
             rasterize::rasterize_polygons(&mut designed_raster, polygons);
             let pixel_count = designed_raster.pixel_count();
 
-            // Build per-layer model if overrides exist, otherwise use the global model
-            let layer_model: Option<GaussianModel>;
+            // Use per-layer model override if available, otherwise use the global model
             let effective_model: &dyn DfmModel = if let Some(lcfg) = layer_cfg
-                && (lcfg.sigma.is_some() || lcfg.threshold.is_some())
+                && let Some(ref layer_model) = lcfg.model
             {
-                // Create a layer-specific Gaussian model with overrides
-                let sigma = lcfg.sigma.unwrap_or(config.default_sigma);
-                let threshold = lcfg.threshold.unwrap_or(config.default_threshold);
-                layer_model = Some(GaussianModel::from_design_units(
-                    sigma,
-                    config.raster.resolution,
-                    threshold,
-                ));
-                layer_model.as_ref().unwrap()
+                layer_model.as_ref()
             } else {
                 model
             };
@@ -223,6 +225,8 @@ pub fn run_dfm(
                 &designed_raster,
                 &predicted_raster,
                 layer,
+                config.contour_threshold as f32,
+                &bbox,
                 effective_tolerances.as_ref(),
             );
 
@@ -269,7 +273,7 @@ mod tests {
         let layer = Layer::new(1, 0);
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), layer);
 
-        let model = GaussianModel::new(0.0, 0.5); // No blur — passthrough
+        let model = GaussianModel::new(0.0); // No blur — passthrough
         let config = DfmConfig {
             raster: RasterConfig {
                 resolution: 0.5,
@@ -304,7 +308,7 @@ mod tests {
     #[test]
     fn test_run_dfm_empty_layer() {
         let cell = Cell::new("empty");
-        let model = GaussianModel::new(1.0, 0.5);
+        let model = GaussianModel::new(1.0);
         let config = DfmConfig::default();
 
         let result = run_dfm(&cell, None, &[Layer::new(1, 0)], &model, &config);
@@ -322,7 +326,7 @@ mod tests {
         let layer = Layer::new(1, 0);
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0), layer);
 
-        let model = GaussianModel::new(1.0, 0.5);
+        let model = GaussianModel::new(1.0);
         let config = DfmConfig {
             raster: RasterConfig {
                 resolution: 0.5,
@@ -348,7 +352,7 @@ mod tests {
         // A narrow waveguide — blur should affect its shape
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 20.0, 0.5), layer);
 
-        let model = GaussianModel::new(2.0, 0.5);
+        let model = GaussianModel::new(2.0);
         let config = DfmConfig {
             raster: RasterConfig {
                 resolution: 0.1,
@@ -375,7 +379,7 @@ mod tests {
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0), l1);
         cell.add_polygon(Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0), l2);
 
-        let model = GaussianModel::new(0.0, 0.5);
+        let model = GaussianModel::new(0.0);
         let config = DfmConfig {
             raster: RasterConfig {
                 resolution: 0.5,
@@ -402,7 +406,7 @@ mod tests {
         let layer = Layer::new(1, 0);
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), layer);
 
-        let model = GaussianModel::new(0.0, 0.5); // No blur
+        let model = GaussianModel::new(0.0); // No blur
         let config = DfmConfig {
             raster: RasterConfig {
                 resolution: 0.5,
@@ -429,7 +433,7 @@ mod tests {
         // Narrow feature that blur will heavily affect
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 20.0, 0.3), layer);
 
-        let model = GaussianModel::new(3.0, 0.5); // Strong blur
+        let model = GaussianModel::new(3.0); // Strong blur
         let config = DfmConfig {
             raster: RasterConfig {
                 resolution: 0.1,
@@ -456,7 +460,7 @@ mod tests {
         let layer = Layer::new(1, 0);
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 20.0, 0.3), layer);
 
-        let model = GaussianModel::new(3.0, 0.5);
+        let model = GaussianModel::new(3.0);
         let config = DfmConfig {
             raster: RasterConfig {
                 resolution: 0.1,
@@ -486,15 +490,14 @@ mod tests {
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), l1);
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), l2);
 
-        let model = GaussianModel::new(0.0, 0.5); // Global: no blur
+        let model = GaussianModel::new(0.0); // Global: no blur
 
         let mut layer_configs = HashMap::new();
-        // Layer 2 gets a strong blur override
+        // Layer 2 gets a strong blur override via a per-layer model
         layer_configs.insert(
             l2,
             LayerDfmConfig {
-                sigma: Some(2.0),
-                threshold: None,
+                model: Some(Arc::new(GaussianModel::new(2.0))),
                 max_area_deviation: None,
                 severity: None,
             },
@@ -532,15 +535,14 @@ mod tests {
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.3), l1);
         cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.3), l2);
 
-        let model = GaussianModel::new(3.0, 0.5); // Strong blur
+        let model = GaussianModel::new(3.0); // Strong blur
 
         let mut layer_configs = HashMap::new();
         // Layer 2 gets a loose tolerance — should pass
         layer_configs.insert(
             l2,
             LayerDfmConfig {
-                sigma: None,
-                threshold: None,
+                model: None,
                 max_area_deviation: Some(1.0), // 100% — anything passes
                 severity: None,
             },
@@ -563,10 +565,21 @@ mod tests {
 
         let result = run_dfm(&cell, None, &[l1, l2], &model, &config);
 
-        // L1: uses global tight tolerance — should fail
-        assert!(!result.layers[0].violations.is_empty());
+        // L1: uses global tight tolerance — should have area violation
+        assert!(
+            result.layers[0]
+                .violations
+                .iter()
+                .any(|v| matches!(v.violation_type, DfmViolationType::AreaDeviation { .. }))
+        );
 
-        // L2: uses per-layer loose tolerance — should pass
-        assert!(result.layers[1].violations.is_empty());
+        // L2: uses per-layer loose area tolerance — no area violation,
+        // but may still have feature erasure/merge warnings
+        assert!(
+            !result.layers[1]
+                .violations
+                .iter()
+                .any(|v| matches!(v.violation_type, DfmViolationType::AreaDeviation { .. }))
+        );
     }
 }
