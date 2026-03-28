@@ -2,40 +2,47 @@
 title: Library
 ---
 
-A library containing multiple cells.
+A container for multiple cells.
 
-This wrapper accepts our Cell wrapper in addition to Rust Cell objects.
+Libraries group cells together for GDS I/O. When using `write_gds()` with
+a single Cell built using Instance references (via `cell.at()`), child cells
+are auto-collected — you typically don't need to create a Library manually.
+
+Libraries are primarily useful when reading GDS files with `read_gds()` or
+when you need explicit control over which cells are included.
+
+```python
+# Reading: read_gds returns a Library
+lib = read_gds("input.gds")
+top = lib.top_cell()
+for cell in lib.cells():
+    print(cell.name)
+
+# Writing: usually not needed (write_gds auto-collects)
+write_gds("output.gds", top_cell)  # Auto-collects child cells
+```
 
 ## Attributes
 
-<PyAttribute name={"__slots__"} type={null} value={"('_inner',)"} />
-
-<PyAttribute name={"name"} type={"str"} value={null}>
+<PyAttribute name={"name"} type={"str"}>
 
 Library name.
 
 </PyAttribute>
 
-## Functions
+## Methods
 
-<PyFunction name={"__init__"} type={"(self, name) -> None"}>
+<PyFunction name={"__init__"} type={"(name) -> None"}>
 
-Create a new library.
+Create a new empty library.
 
-<PySourceCode >
+<div>
 
-```python
-def __init__(self, name: str) -> None:
-    """Create a new library."""
-    self._inner = _Library(name)
-```
+<PyParameter name={"name"} type={"str"}>
 
-</PySourceCode>
+Library name.
 
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"name"} type={"str"} value={null} />
+</PyParameter>
 
 </div>
 
@@ -43,30 +50,19 @@ def __init__(self, name: str) -> None:
 
 </PyFunction>
 
-<PyFunction name={"add_cell"} type={"(self, cell) -> None"}>
+<PyFunction name={"add_cell"} type={"(cell) -> None"}>
 
 Add a cell to the library.
 
-If a cell with the same name already exists, this is a no-op.
+If a cell with the same name already exists, it is silently skipped.
 
-<PySourceCode >
+<div>
 
-```python
-def add_cell(self, cell: Cell | _Cell) -> None:
-    """Add a cell to the library.
+<PyParameter name={"cell"} type={"Cell"}>
 
-    If a cell with the same name already exists, this is a no-op.
-    """
-    inner_cell = cell._inner if isinstance(cell, Cell) else cell
-    self._inner.add_cell(inner_cell)
-```
+The cell to add.
 
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"cell"} type={"Cell | _Cell"} value={null} />
+</PyParameter>
 
 </div>
 
@@ -74,34 +70,27 @@ def add_cell(self, cell: Cell | _Cell) -> None:
 
 </PyFunction>
 
-<PyFunction name={"add_cell_recursive"} type={"(self, cell, available_cells) -> None"}>
+<PyFunction name={"add_cell_recursive"} type={"(cell, available_cells) -> None"}>
 
 Add a cell and all its referenced cells recursively.
 
 This method automatically adds all cells that are referenced by the
-given cell, resolving the entire hierarchy.
+given cell, resolving the entire hierarchy. You must provide a list
+of all available cells that may be referenced. Cells that already
+exist in the library (by name) are skipped.
 
-<PySourceCode >
+<div>
 
-```python
-def add_cell_recursive(self, cell: Cell | _Cell, available_cells: list[Cell | _Cell]) -> None:
-    """Add a cell and all its referenced cells recursively.
+<PyParameter name={"cell"} type={"Cell"}>
 
-    This method automatically adds all cells that are referenced by the
-    given cell, resolving the entire hierarchy.
-    """
-    inner_cell = cell._inner if isinstance(cell, Cell) else cell
-    inner_available = [c._inner if isinstance(c, Cell) else c for c in available_cells]
-    self._inner.add_cell_recursive(inner_cell, inner_available)
-```
+The cell to add (typically the top-level cell).
 
-</PySourceCode>
+</PyParameter>
+<PyParameter name={"available_cells"} type={"list[Cell]"}>
 
-<div >
+List of all cells that may be referenced.
 
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"cell"} type={"Cell | _Cell"} value={null} />
-<PyParameter name={"available_cells"} type={"list[Cell | _Cell]"} value={null} />
+</PyParameter>
 
 </div>
 
@@ -109,98 +98,36 @@ def add_cell_recursive(self, cell: Cell | _Cell, available_cells: list[Cell | _C
 
 </PyFunction>
 
-<PyFunction name={"cell"} type={"(self, name) -> Cell | None"}>
+<PyFunction name={"cell"} type={"(name) -> Cell | None"}>
 
-Get a cell by name.
+Get a cell by name, or `None` if not found.
 
-<PySourceCode >
+<div>
 
-```python
-def cell(self, name: str) -> Cell | None:
-    """Get a cell by name."""
-    inner = self._inner.cell(name)
-    return Cell._from_inner(inner) if inner is not None else None
-```
+<PyParameter name={"name"} type={"str"}>
 
-</PySourceCode>
+Cell name to look up.
 
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"name"} type={"str"} value={null} />
+</PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"rosette.Cell | None"} />
+<PyFunctionReturn type={"Cell | None"} />
 
 </PyFunction>
 
-<PyFunction name={"cells"} type={"(self) -> list[Cell]"}>
+<PyFunction name={"cells"} type={"() -> list[Cell]"}>
 
-Get all cells.
+Get all cells in the library.
 
-<PySourceCode >
-
-```python
-def cells(self) -> list[Cell]:
-    """Get all cells."""
-    return [Cell._from_inner(c) for c in self._inner.cells()]
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"list[rosette.Cell]"} />
+<PyFunctionReturn type={"list[Cell]"} />
 
 </PyFunction>
 
-<PyFunction name={"top_cell"} type={"(self) -> Cell | None"}>
+<PyFunction name={"top_cell"} type={"() -> Cell | None"}>
 
-Get the top cell (last added).
+Get the top cell (last added), or `None` if the library is empty.
 
-<PySourceCode >
-
-```python
-def top_cell(self) -> Cell | None:
-    """Get the top cell (last added)."""
-    inner = self._inner.top_cell()
-    return Cell._from_inner(inner) if inner is not None else None
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"rosette.Cell | None"} />
-
-</PyFunction>
-
-<PyFunction name={"__repr__"} type={"(self) -> str"}>
-
-<PySourceCode >
-
-```python
-def __repr__(self) -> str:
-    return repr(self._inner)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"str"} />
+<PyFunctionReturn type={"Cell | None"} />
 
 </PyFunction>

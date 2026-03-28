@@ -1,0 +1,65 @@
+---
+title: ChecksConfig
+---
+
+Configuration for design checks.
+
+Controls tolerances for port connectivity checks (position, angle, width)
+and bend radius validation. Pass to `run_checks()` to customize checking
+behavior.
+
+```python
+config = ChecksConfig(
+    position_tolerance=0.001,
+    angle_tolerance=0.1,
+    check_widths=True,
+    min_bend_radius=5.0,
+    severity="error",
+)
+result = run_checks(cell, config=config)
+```
+
+## Methods
+
+<PyFunction name={"__init__"} type={"(position_tolerance=0.001, angle_tolerance=0.1, check_widths=True, min_bend_radius=None, severity='error') -> None"}>
+
+Create a new checks configuration.
+
+<div>
+
+<PyParameter name={"position_tolerance"} type={"float"} value={"0.001"}>
+
+Maximum gap between port centres (in design units) to count as connected.
+Ports closer than this distance are considered a valid connection.
+
+</PyParameter>
+<PyParameter name={"angle_tolerance"} type={"float"} value={"0.1"}>
+
+Maximum angular deviation from anti-parallel (in degrees) to count as
+a valid connection. Two ports must face each other within this tolerance.
+
+</PyParameter>
+<PyParameter name={"check_widths"} type={"bool"} value={"True"}>
+
+Whether to flag width mismatches between connected ports. When enabled,
+connected ports with different widths generate a violation.
+
+</PyParameter>
+<PyParameter name={"min_bend_radius"} type={"float | None"} value={"None"}>
+
+Minimum allowed bend radius in design units. Set to `None` to skip bend
+radius checking. When set, bends recorded in cell metadata are validated
+against this limit.
+
+</PyParameter>
+<PyParameter name={"severity"} type={"str"} value={"\"error\""}>
+
+Default severity for violations: `"error"` or `"warning"`.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

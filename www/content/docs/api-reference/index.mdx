@@ -7,9 +7,6 @@ description: Complete reference for every class and function in the Rosette Pyth
 Rosette is pre-1.0. Function signatures, class interfaces, and behavior may change between releases without notice.
 </Callout>
 
-rosette - Photonic layout library.
-
-Example usage:
 ```python
 from rosette import *
 
@@ -29,207 +26,265 @@ cell = route.to_cell("my_route")
 In user projects (after `rosette init`), components are local:
 ```python
 from components import waveguide, bend, mmi_1x2
-wg_cell = waveguide(length=10.0, width=0.5)
-bend_cell = bend(radius=5.0, angle=90, width=0.5)
 ```
 
-For library development, import from rosette.components:
+For library development, import from `rosette.components`:
 ```python
 from rosette.components import waveguide, bend, mmi_1x2
 ```
-<PyAttribute name={"DEFAULT_LAYERS"} type={"list[dict]"} value={"[{'name': 'silicon', 'number': 1, 'datatype': 0, 'color': '#ff69b4', 'fill': 'solid', 'opacity': 0.7, 'description': 'Silicon waveguides'}, {'name': 'metal', 'number': 10, 'datatype': 0, 'color': '#ffeb3b', 'fill': 'solid', 'opacity': 0.7, 'description': 'Metal routing'}, {'name': 'text', 'number': 100, 'datatype': 0, 'color': '#607d8b', 'fill': 'dotted', 'opacity': 0.7, 'description': 'Text annotations'}]"} />
 
-<Tabs items={["Class","Functions","Modules"]}>
+<PyAttribute name={"DEFAULT_LAYERS"} type={"list[dict]"} value={"[{'name': 'silicon', ...}, {'name': 'metal', ...}, {'name': 'text', ...}]"}>
 
-<Tab value={"Class"}>
+Default layer definitions used as fallback when `rosette.toml` has no `[layers]`
+section. Contains three layers: silicon (1/0), metal (10/0), text (100/0).
 
-<Cards >
+</PyAttribute>
 
-<Card title={"Instance"} href={"/docs/api-reference/Instance"} />
-<Card title={"CellRef"} href={"/docs/api-reference/CellRef"} />
+<Tabs items={["Classes","Functions"]}>
+
+<Tab value={"Classes"}>
+
+### Geometry
+
+<Cards>
+
+<Card title={"Point"} href={"/docs/api-reference/Point"} />
+<Card title={"Vector2"} href={"/docs/api-reference/Vector2"} />
+<Card title={"Polygon"} href={"/docs/api-reference/Polygon"} />
+<Card title={"BBox"} href={"/docs/api-reference/BBox"} />
+<Card title={"Transform"} href={"/docs/api-reference/Transform"} />
+
+</Cards>
+
+### Layout
+
+<Cards>
+
 <Card title={"Cell"} href={"/docs/api-reference/Cell"} />
+<Card title={"CellRef"} href={"/docs/api-reference/CellRef"} />
+<Card title={"Instance"} href={"/docs/api-reference/Instance"} />
 <Card title={"Route"} href={"/docs/api-reference/Route"} />
 <Card title={"Library"} href={"/docs/api-reference/Library"} />
+<Card title={"Layer"} href={"/docs/api-reference/Layer"} />
+<Card title={"Port"} href={"/docs/api-reference/Port"} />
+<Card title={"PathEndType"} href={"/docs/api-reference/PathEndType"} />
+
+</Cards>
+
+### Configuration
+
+<Cards>
+
 <Card title={"LayerInfo"} href={"/docs/api-reference/LayerInfo"} />
 <Card title={"LayerMap"} href={"/docs/api-reference/LayerMap"} />
+
+</Cards>
+
+### DRC
+
+<Cards>
+
+<Card title={"DrcRules"} href={"/docs/api-reference/DrcRules"} />
+<Card title={"DrcViolation"} href={"/docs/api-reference/DrcViolation"} />
+<Card title={"DrcResult"} href={"/docs/api-reference/DrcResult"} />
+
+</Cards>
+
+### Design Checks
+
+<Cards>
+
+<Card title={"ChecksConfig"} href={"/docs/api-reference/ChecksConfig"} />
+<Card title={"CheckViolation"} href={"/docs/api-reference/CheckViolation"} />
+<Card title={"ChecksResult"} href={"/docs/api-reference/ChecksResult"} />
+
+</Cards>
+
+### DFM
+
+<Cards>
+
+<Card title={"DfmConfig"} href={"/docs/api-reference/DfmConfig"} />
+<Card title={"GaussianModel"} href={"/docs/api-reference/GaussianModel"} />
+<Card title={"LayerMetrics"} href={"/docs/api-reference/LayerMetrics"} />
+<Card title={"DfmViolation"} href={"/docs/api-reference/DfmViolation"} />
+<Card title={"LayerPrediction"} href={"/docs/api-reference/LayerPrediction"} />
+<Card title={"DfmResult"} href={"/docs/api-reference/DfmResult"} />
 
 </Cards>
 
 </Tab>
 <Tab value={"Functions"}>
 
-<PyFunction name={"load_drc_rules"} type={"(config_path=None) -> DrcRules"}>
+### I/O
 
-Load DRC rules from rosette.toml.
+<PyFunction name={"read_gds"} type={"(path) -> Library"}>
 
-Searches for rosette.toml in the current directory and parent directories.
-Rules are defined per-layer in the [drc.layers] section, and inter-layer
-rules in the [[drc.rules]] array.
+Read a GDS file and return a Library.
 
 <Callout title={"Example"} type={"example"}>
 
 ```python
-# In rosette.toml:
-# [drc.layers."1/0"]
-# min_width = 0.12
-# min_spacing = 0.13
-# min_area = 0.01
-# angles = [0, 90]
-#
-# [[drc.rules]]
-# type = "enclosure"
-# inner = "11/0"
-# outer = "10/0"
-# min_enclosure = 0.10
-# name = "VIA_ENC"
-
-rules = load_drc_rules()
-result = run_drc(cell, rules)
+lib = read_gds("input.gds")
+for cell in lib.cells():
+    print(cell.name)
 ```
 
 </Callout>
 
-<PySourceCode >
+<div>
+
+<PyParameter name={"path"} type={"str | Path"}>
+
+Path to the GDS file.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Library"}>
+
+A Library containing all cells from the GDS file.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"write_gds"} type={"(path, design, cells=None, *, quiet=False, verbose=False) -> None"}>
+
+Write a Cell or Library to a GDS file.
+
+When writing a Cell built using Instance references (via `cell.at()`),
+child cells are automatically collected. A build summary is printed
+to stderr by default.
+
+<Callout title={"Example"} type={"example"}>
 
 ```python
-def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
-    """Load DRC rules from rosette.toml.
+# Auto-collection (recommended):
+top = Cell("top")
+top.add_ref(gc_cell.at(0, 0))
+write_gds("output.gds", top)
 
-    Searches for rosette.toml in the current directory and parent directories.
-    Rules are defined per-layer in the [drc.layers] section, and inter-layer
-    rules in the [[drc.rules]] array.
-
-    Args:
-        config_path: Optional explicit path to rosette.toml. If None, searches
-                     from current directory upward.
-
-    Returns:
-        DrcRules built from the configuration
-
-    Raises:
-        FileNotFoundError: If rosette.toml is not found
-        ValueError: If the config has invalid DRC settings
-
-    Example:
-        # In rosette.toml:
-        # [drc.layers."1/0"]
-        # min_width = 0.12
-        # min_spacing = 0.13
-        # min_area = 0.01
-        # angles = [0, 90]
-        #
-        # [[drc.rules]]
-        # type = "enclosure"
-        # inner = "11/0"
-        # outer = "10/0"
-        # min_enclosure = 0.10
-        # name = "VIA_ENC"
-
-        rules = load_drc_rules()
-        result = run_drc(cell, rules)
-    """
-    # Find config file
-    if config_path is not None:
-        toml_path = Path(config_path)
-        if not toml_path.exists():
-            raise FileNotFoundError(f"Config file not found: {toml_path}")
-    else:
-        toml_path = _find_rosette_toml()
-        if toml_path is None:
-            raise FileNotFoundError(
-                "rosette.toml not found. Run 'rosette init' to create a project, "
-                "or specify config_path explicitly."
-            )
-
-    # Parse TOML
-    with open(toml_path, "rb") as f:
-        config = tomllib.load(f)
-
-    # Build rules from config
-    rules = DrcRules()
-
-    drc_config = config.get("drc", {})
-    layers_config = drc_config.get("layers", {})
-
-    # Process per-layer rules
-    for layer_str, layer_rules in layers_config.items():
-        # Parse layer string "number/datatype"
-        layer = _parse_layer_string(layer_str)
-
-        # Apply rules for this layer
-        if "min_width" in layer_rules:
-            rules = rules.min_width(layer, layer_rules["min_width"])
-
-        if "min_spacing" in layer_rules:
-            rules = rules.min_spacing(layer, layer, layer_rules["min_spacing"])
-
-        if "min_area" in layer_rules:
-            rules = rules.min_area(layer, layer_rules["min_area"])
-
-        if "angles" in layer_rules:
-            rules = rules.allowed_angles(layer, layer_rules["angles"])
-
-    # Process inter-layer rules
-    inter_layer_rules = drc_config.get("rules", [])
-    for i, rule in enumerate(inter_layer_rules):
-        rule_type = rule.get("type")
-        name = rule.get("name")
-
-        if rule_type is None:
-            raise ValueError(f"DRC rule #{i + 1} missing required 'type' field")
-
-        if rule_type == "enclosure":
-            _validate_rule_fields(rule, ["inner", "outer", "min_enclosure"], i)
-            inner = _parse_layer_string(rule["inner"])
-            outer = _parse_layer_string(rule["outer"])
-            enclosure = rule["min_enclosure"]
-            rules = rules.min_enclosure(inner, outer, enclosure, name)
-
-        elif rule_type == "spacing":
-            _validate_rule_fields(rule, ["layer1", "layer2", "min_spacing"], i)
-            layer1 = _parse_layer_string(rule["layer1"])
-            layer2 = _parse_layer_string(rule["layer2"])
-            spacing = rule["min_spacing"]
-            rules = rules.min_spacing(layer1, layer2, spacing, name)
-
-        elif rule_type == "require_overlap":
-            _validate_rule_fields(rule, ["layer1", "layer2"], i)
-            layer1 = _parse_layer_string(rule["layer1"])
-            layer2 = _parse_layer_string(rule["layer2"])
-            rules = rules.require_overlap(layer1, layer2, name)
-
-        elif rule_type == "forbid_overlap":
-            _validate_rule_fields(rule, ["layer1", "layer2"], i)
-            layer1 = _parse_layer_string(rule["layer1"])
-            layer2 = _parse_layer_string(rule["layer2"])
-            rules = rules.forbid_overlap(layer1, layer2, name)
-
-        else:
-            raise ValueError(f"Unknown DRC rule type: {rule_type}")
-
-    return rules
+# Suppress output for batch processing:
+write_gds("output.gds", top, quiet=True)
 ```
 
-</PySourceCode>
+</Callout>
 
-<div >
+<div>
+
+<PyParameter name={"path"} type={"str | Path"}>
+
+Output file path.
+
+</PyParameter>
+<PyParameter name={"design"} type={"Cell | Library"}>
+
+Cell or Library to write.
+
+</PyParameter>
+<PyParameter name={"cells"} type={"list[Cell] | None"} value={"None"}>
+
+Optional list of child cells. If `None` and design is a Cell,
+child cells are auto-collected from Instance references.
+
+</PyParameter>
+<PyParameter name={"quiet"} type={"bool"} value={"False"}>
+
+If `True`, suppress the build summary.
+
+</PyParameter>
+<PyParameter name={"verbose"} type={"bool"} value={"False"}>
+
+If `True`, print detailed build info including port positions.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+### Configuration
+
+<PyFunction name={"load_layer_map"} type={"(config_path=None) -> LayerMap"}>
+
+Load layer definitions from `rosette.toml`.
+
+Reads the `[layers]` section which maps semantic names to GDS layer
+numbers with optional display properties (color, fill, opacity).
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+layers = load_layer_map()
+layers.silicon.layer   # Layer(1, 0)
+layers.silicon.color   # "#ff69b4"
+```
+
+</Callout>
+
+<div>
 
 <PyParameter name={"config_path"} type={"str | Path | None"} value={"None"}>
 
-Optional explicit path to rosette.toml. If None, searches
+Optional explicit path to `rosette.toml`. If `None`, searches
 from current directory upward.
 
 </PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"rosette._core.DrcRules"}>
+<PyFunctionReturn type={"LayerMap"}>
 
-DrcRules built from the configuration
+LayerMap with named layer access.
 
 </PyFunctionReturn>
 
 </PyFunction>
+
+### DRC
+
+<PyFunction name={"load_drc_rules"} type={"(config_path=None) -> DrcRules"}>
+
+Load DRC rules from `rosette.toml`.
+
+Searches for `rosette.toml` in the current directory and parent directories.
+Rules are defined per-layer in the `[drc.layers]` section (supporting
+`min_width`, `min_spacing`, `min_area`, `angles`, `min_edge_length`,
+`max_width`, and `no_self_intersection`), and inter-layer rules in the
+`[[drc.rules]]` array.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+rules = load_drc_rules()
+result = run_drc(cell, rules)
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"config_path"} type={"str | Path | None"} value={"None"}>
+
+Optional explicit path to `rosette.toml`. If `None`, searches
+from current directory upward.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+DrcRules built from the configuration.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
 <PyFunction name={"run_drc"} type={"(cell, rules, library=None) -> DrcResult"}>
 
 Run DRC on a cell.
@@ -237,7 +292,7 @@ Run DRC on a cell.
 <Callout title={"Example"} type={"example"}>
 
 ```python
-rules = DrcRules().min_width(Layer(1), 0.1).min_spacing(Layer(1), Layer(1), 0.15)
+rules = load_drc_rules()
 result = run_drc(cell, rules)
 if result.passed:
     print("DRC passed!")
@@ -248,252 +303,251 @@ else:
 
 </Callout>
 
-<PySourceCode >
+<div>
 
-```python
-def run_drc(
-    cell: Cell | _Cell,
-    rules: DrcRules,
-    library: Library | _Library | None = None,
-) -> DrcResult:
-    """Run DRC on a cell.
+<PyParameter name={"cell"} type={"Cell"}>
 
-    Args:
-        cell: The cell to check
-        rules: DRC rules to apply
-        library: Library containing referenced cells (required if cell has refs)
-
-    Returns:
-        DrcResult with violations and statistics
-
-    Example:
-        rules = DrcRules().min_width(Layer(1), 0.1).min_spacing(Layer(1), Layer(1), 0.15)
-        result = run_drc(cell, rules)
-        if result.passed:
-            print("DRC passed!")
-        else:
-            for v in result.violations:
-                print(f"  {v.message}")
-    """
-    # Extract inner Rust objects
-    inner_cell = cell._inner if isinstance(cell, Cell) else cell
-    inner_library = None
-    if library is not None:
-        inner_library = library._inner if isinstance(library, Library) else library
-
-    return _run_drc(inner_cell, rules, inner_library)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"cell"} type={"Cell | _Cell"} value={undefined}>
-
-The cell to check
+The cell to check.
 
 </PyParameter>
-<PyParameter name={"rules"} type={"DrcRules"} value={undefined}>
+<PyParameter name={"rules"} type={"DrcRules"}>
 
-DRC rules to apply
+DRC rules to apply.
 
 </PyParameter>
-<PyParameter name={"library"} type={"Library | _Library | None"} value={"None"}>
+<PyParameter name={"library"} type={"Library | None"} value={"None"}>
 
-Library containing referenced cells (required if cell has refs)
+Library containing referenced cells (required if cell has refs).
 
 </PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"rosette._core.DrcResult"}>
+<PyFunctionReturn type={"DrcResult"}>
 
-DrcResult with violations and statistics
+DrcResult with violations and statistics.
 
 </PyFunctionReturn>
 
 </PyFunction>
-<PyFunction name={"read_gds"} type={"(path) -> Library"}>
 
-Read a GDS file and return a Library.
+### Design Checks
+
+<PyFunction name={"load_checks_config"} type={"(config_path=None) -> ChecksConfig"}>
+
+Load design checks config from `rosette.toml`.
+
+Reads the `[checks]` section. If absent, returns a `ChecksConfig`
+with sensible defaults.
 
 <Callout title={"Example"} type={"example"}>
 
 ```python
->>> lib = read_gds("input.gds")
->>> for cell in lib.cells():
-...     print(cell.name)
+config = load_checks_config()
+result = run_checks(cell, config)
 ```
 
 </Callout>
 
-<PySourceCode >
+<div>
 
-```python
-def read_gds(path: str | Path) -> Library:
-    """Read a GDS file and return a Library.
+<PyParameter name={"config_path"} type={"str | Path | None"} value={"None"}>
 
-    Args:
-        path: Path to the GDS file
-
-    Returns:
-        A Library containing all cells from the GDS file
-
-    Example:
-        >>> lib = read_gds("input.gds")
-        >>> for cell in lib.cells():
-        ...     print(cell.name)
-    """
-    inner_lib = _read_gds(str(path))
-    return Library._from_inner(inner_lib)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"path"} type={"str | Path"} value={undefined}>
-
-Path to the GDS file
+Optional explicit path to `rosette.toml`. If `None`, searches
+from current directory upward.
 
 </PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"rosette.Library"}>
+<PyFunctionReturn type={"ChecksConfig"}>
 
-A Library containing all cells from the GDS file
+ChecksConfig built from the configuration.
 
 </PyFunctionReturn>
 
 </PyFunction>
-<PyFunction name={"write_gds"} type={"(path, design, cells=None, *, quiet=False, verbose=False) -> None"}>
 
-Write a Cell or Library to a GDS file.
+<PyFunction name={"run_checks"} type={"(cell, config=None, library=None) -> ChecksResult"}>
 
-When writing a Cell that was built using Instance references (via cell.at()),
-child cells are automatically collected and included. You can still pass
-cells explicitly if needed.
+Run design checks on a cell.
 
-A build summary is printed to stderr by default, providing feedback about
-the design (bounding box, cell count, ports). This helps both users and
-AI agents validate builds without opening a viewer.
+Runs all design checks: connectivity (unconnected ports, width/angle
+mismatch) and bend radius (below minimum, auto-reduced). Ports on
+the top-level cell are treated as external I/O and are not flagged
+as unconnected.
+
+When called with a Cell built using Instance references, child cells
+are automatically collected into a Library for hierarchy resolution.
 
 <Callout title={"Example"} type={"example"}>
 
 ```python
-# Auto-collection (recommended):
-top = Cell("top")
-top.add_ref(gc_cell.at(0, 0))
-top.add_ref(wg_cell.at(0, 0))
-write_gds("output.gds", top)  # No manual cell list needed!
-
-# Explicit cell list (still supported):
-write_gds("output.gds", top, [gc_cell, wg_cell])
-
-# Suppress output for batch processing:
-write_gds("output.gds", top, quiet=True)
+config = ChecksConfig(min_bend_radius=5.0)
+result = run_checks(cell, config)
+if not result.passed:
+    for v in result.violations:
+        print(f"  {v.message}")
 ```
 
 </Callout>
 
-<PySourceCode >
+<div>
+
+<PyParameter name={"cell"} type={"Cell"}>
+
+The cell to check.
+
+</PyParameter>
+<PyParameter name={"config"} type={"ChecksConfig | None"} value={"None"}>
+
+Checks configuration. Defaults to `ChecksConfig()`.
+
+</PyParameter>
+<PyParameter name={"library"} type={"Library | None"} value={"None"}>
+
+Library containing referenced cells. If `None` and cell has Instance
+tracking, a Library is auto-built.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"ChecksResult"}>
+
+ChecksResult with violations and statistics.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+### DFM
+
+<PyFunction name={"load_dfm_config"} type={"(config_path=None) -> tuple[DfmConfig, GaussianModel, list[Layer]]"}>
+
+Load DFM configuration from `rosette.toml`.
+
+Reads the `[dfm]` section which configures the virtual nanofabrication
+prediction tool.
+
+<Callout title={"Example"} type={"example"}>
 
 ```python
-def write_gds(
-    path: str | Path,
-    design: Cell | Library,
-    cells: list[Cell] | None = None,
-    *,
-    quiet: bool = False,
-    verbose: bool = False,
-) -> None:
-    """Write a Cell or Library to a GDS file.
-
-    When writing a Cell that was built using Instance references (via cell.at()),
-    child cells are automatically collected and included. You can still pass
-    cells explicitly if needed.
-
-    A build summary is printed to stderr by default, providing feedback about
-    the design (bounding box, cell count, ports). This helps both users and
-    AI agents validate builds without opening a viewer.
-
-    Args:
-        path: Output file path
-        design: Cell or Library to write
-        cells: Optional list of child cells. If None and design is a Cell,
-               child cells are auto-collected from Instance references.
-        quiet: If True, suppress the build summary (default: False)
-        verbose: If True, print detailed build info including port positions
-
-    Example:
-        # Auto-collection (recommended):
-        top = Cell("top")
-        top.add_ref(gc_cell.at(0, 0))
-        top.add_ref(wg_cell.at(0, 0))
-        write_gds("output.gds", top)  # No manual cell list needed!
-
-        # Explicit cell list (still supported):
-        write_gds("output.gds", top, [gc_cell, wg_cell])
-
-        # Suppress output for batch processing:
-        write_gds("output.gds", top, quiet=True)
-    """
-    if cells is None and isinstance(design, Cell):
-        # Auto-collect child cells from Instance tracking
-        collected: set[Cell] = set()
-        _collect_all_cells(design, collected)
-        if collected:
-            cells = list(collected)
-
-    # Extract inner Rust objects for the Rust write_gds function
-    inner_design: _Cell | _Library
-    if isinstance(design, Cell):
-        inner_design = design._inner
-    elif isinstance(design, Library):
-        inner_design = design._inner
-    else:
-        inner_design = design
-
-    inner_cells: list[_Cell] | None = None
-    if cells is not None:
-        inner_cells = [c._inner if isinstance(c, Cell) else c for c in cells]  # type: ignore[misc]
-
-    # Check environment variables for CLI compatibility (rosette build -v)
-    if os.environ.get("ROSETTE_VERBOSE"):
-        verbose = True
-
-    _write_gds(str(path), inner_design, inner_cells, quiet, verbose)
+config, model, layers = load_dfm_config()
+result = run_dfm(cell, layers=layers, model=model, config=config)
 ```
 
-</PySourceCode>
+</Callout>
 
-<div >
+<div>
 
-<PyParameter name={"path"} type={"str | Path"} value={undefined}>
+<PyParameter name={"config_path"} type={"str | Path | None"} value={"None"}>
 
-Output file path
-
-</PyParameter>
-<PyParameter name={"design"} type={"Cell | Library"} value={undefined}>
-
-Cell or Library to write
+Optional explicit path to `rosette.toml`. If `None`, searches
+from current directory upward.
 
 </PyParameter>
-<PyParameter name={"cells"} type={"list[Cell] | None"} value={"None"}>
 
-Optional list of child cells. If None and design is a Cell,
-child cells are auto-collected from Instance references.
+</div>
+
+<PyFunctionReturn type={"tuple[DfmConfig, GaussianModel, list[Layer]]"}>
+
+Tuple of (config, model, layers) where layers is the list
+of layers to predict (empty list means all layers).
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"run_dfm"} type={"(cell, layers, model=None, config=None, library=None) -> DfmResult"}>
+
+Run DFM prediction on a cell.
+
+Rasterizes each specified layer, applies the fabrication prediction model,
+and extracts contour polygons representing the predicted fabricated geometry.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+result = run_dfm(cell, layers=[Layer(1, 0)])
+for lp in result.layers:
+    print(f"  Layer {lp.layer}: {lp.input_polygon_count} -> {lp.predicted_polygon_count}")
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"cell"} type={"Cell"}>
+
+The cell to predict.
 
 </PyParameter>
-<PyParameter name={"quiet"} type={"bool"} value={"False"}>
+<PyParameter name={"layers"} type={"list[Layer]"}>
 
-If True, suppress the build summary (default: False)
+Layers to process.
 
 </PyParameter>
-<PyParameter name={"verbose"} type={"bool"} value={"False"}>
+<PyParameter name={"model"} type={"GaussianModel | None"} value={"None"}>
 
-If True, print detailed build info including port positions
+The prediction model. Defaults to `GaussianModel(sigma=0.08)`.
+
+</PyParameter>
+<PyParameter name={"config"} type={"DfmConfig | None"} value={"None"}>
+
+DFM configuration. Defaults to `DfmConfig()`.
+
+</PyParameter>
+<PyParameter name={"library"} type={"Library | None"} value={"None"}>
+
+Library containing referenced cells (required if cell has refs).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DfmResult"}>
+
+DfmResult with per-layer predictions and statistics.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"add_dfm_predictions"} type={"(cell, result, datatype_offset=100) -> None"}>
+
+Add DFM predicted polygons to a cell on offset layers.
+
+For each layer in the DFM result, adds the predicted polygons to the cell
+on a new layer with the same number but datatype offset by `datatype_offset`.
+This makes it easy to visualize designed vs predicted geometry side-by-side.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+result = run_dfm(cell, layers=[Layer(1, 0)])
+add_dfm_predictions(cell, result)
+write_gds("output.gds", cell)
+# Layer 1/0 = designed, Layer 1/100 = predicted
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"cell"} type={"Cell"}>
+
+The cell to add predicted polygons to (modified in-place).
+
+</PyParameter>
+<PyParameter name={"result"} type={"DfmResult"}>
+
+DFM prediction result from `run_dfm`.
+
+</PyParameter>
+<PyParameter name={"datatype_offset"} type={"int"} value={"100"}>
+
+Offset added to the original datatype.
 
 </PyParameter>
 
@@ -502,192 +556,174 @@ If True, print detailed build info including port positions
 <PyFunctionReturn type={"None"} />
 
 </PyFunction>
-<PyFunction name={"load_layer_map"} type={"(config_path=None) -> LayerMap"}>
 
-Load layer definitions from rosette.toml.
+### Geometry Utilities
 
-Reads the [layers] section of rosette.toml which maps semantic names
-to GDS layer numbers with optional display properties (color, fill, opacity).
+<PyFunction name={"arc_points"} type={"(center, radius, start_angle, end_angle, num_points=64) -> list[Point]"}>
 
-<Callout title={"Example"} type={"example"}>
+Generate points along a circular arc.
 
-In rosette.toml:
+<div>
 
-```python
-[layers.silicon]
-number = 1
-datatype = 0
-color = "#ff69b4"
-description = "Silicon waveguides"
+<PyParameter name={"center"} type={"Point"}>
 
-[layers.metal]
-number = 10
-color = "#ffeb3b"
-```
-Usage:
+Center point of the arc.
 
-```python
-layers = load_layer_map()
-layers.silicon.layer   # Layer(1, 0)
-layers.silicon.color   # "#ff69b4"
-layers.metal.number    # 10
-```
+</PyParameter>
+<PyParameter name={"radius"} type={"float"}>
 
-</Callout>
+Radius of the arc.
 
-<PySourceCode >
+</PyParameter>
+<PyParameter name={"start_angle"} type={"float"}>
 
-```python
-def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
-    """Load layer definitions from rosette.toml.
+Starting angle in degrees (0 = +X direction).
 
-    Reads the [layers] section of rosette.toml which maps semantic names
-    to GDS layer numbers with optional display properties (color, fill, opacity).
+</PyParameter>
+<PyParameter name={"end_angle"} type={"float"}>
 
-    Args:
-        config_path: Optional explicit path to rosette.toml. If None, searches
-                     from current directory upward.
+Ending angle in degrees.
 
-    Returns:
-        LayerMap with named layer access
+</PyParameter>
+<PyParameter name={"num_points"} type={"int"} value={"64"}>
 
-    Raises:
-        FileNotFoundError: If rosette.toml is not found
-        ValueError: If the config has invalid layer definitions
-
-    Example:
-        In rosette.toml:
-
-            [layers.silicon]
-            number = 1
-            datatype = 0
-            color = "#ff69b4"
-            description = "Silicon waveguides"
-
-            [layers.metal]
-            number = 10
-            color = "#ffeb3b"
-
-        Usage:
-
-            layers = load_layer_map()
-            layers.silicon.layer   # Layer(1, 0)
-            layers.silicon.color   # "#ff69b4"
-            layers.metal.number    # 10
-    """
-    # Find config file
-    if config_path is not None:
-        toml_path = Path(config_path)
-        if not toml_path.exists():
-            raise FileNotFoundError(f"Config file not found: {toml_path}")
-    else:
-        toml_path = _find_rosette_toml()
-        if toml_path is None:
-            raise FileNotFoundError(
-                "rosette.toml not found. Run 'rosette init' to create a project, "
-                "or specify config_path explicitly."
-            )
-
-    # Parse TOML
-    with open(toml_path, "rb") as f:
-        config = tomllib.load(f)
-
-    layers_config = config.get("layers", {})
-    if not layers_config:
-        return _default_layer_map()
-
-    layer_infos = []
-    seen_pairs: dict[tuple[int, int], str] = {}
-
-    for name, props in layers_config.items():
-        if not isinstance(props, dict):
-            raise ValueError(f"Layer '{name}': expected a table, got {type(props).__name__}")
-
-        # Required: number
-        if "number" not in props:
-            raise ValueError(f"Layer '{name}': missing required field 'number'")
-
-        number = props["number"]
-        if not isinstance(number, int) or number < 0 or number > 999:
-            raise ValueError(f"Layer '{name}': 'number' must be an integer 0-999, got {number!r}")
-
-        datatype = props.get("datatype", 0)
-        if not isinstance(datatype, int) or datatype < 0 or datatype > 999:
-            raise ValueError(
-                f"Layer '{name}': 'datatype' must be an integer 0-999, got {datatype!r}"
-            )
-
-        # Check for duplicate (number, datatype) pairs
-        pair = (number, datatype)
-        if pair in seen_pairs:
-            raise ValueError(
-                f"Layer '{name}': layer ({number}, {datatype}) already defined "
-                f"as '{seen_pairs[pair]}'"
-            )
-        seen_pairs[pair] = name
-
-        # Optional display properties
-        color = props.get("color", "#808080")
-        if not isinstance(color, str) or not _HEX_COLOR_RE.match(color):
-            raise ValueError(
-                f"Layer '{name}': 'color' must be a hex string like '#ff0000', got {color!r}"
-            )
-
-        fill = props.get("fill", "solid")
-        if fill not in _VALID_FILL_PATTERNS:
-            raise ValueError(
-                f"Layer '{name}': 'fill' must be one of {_VALID_FILL_PATTERNS}, got {fill!r}"
-            )
-
-        opacity = props.get("opacity", 0.7)
-        if not isinstance(opacity, (int, float)) or opacity < 0.0 or opacity > 1.0:
-            raise ValueError(f"Layer '{name}': 'opacity' must be a number 0.0-1.0, got {opacity!r}")
-
-        description = props.get("description", "")
-
-        layer_infos.append(
-            LayerInfo(
-                name=name,
-                layer=Layer(number, datatype),
-                color=color,
-                fill=fill,
-                opacity=float(opacity),
-                description=description,
-            )
-        )
-
-    return LayerMap(layer_infos)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"config_path"} type={"str | Path | None"} value={"None"}>
-
-Optional explicit path to rosette.toml. If None, searches
-from current directory upward.
+Number of points to generate.
 
 </PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"rosette.LayerMap"}>
+<PyFunctionReturn type={"list[Point]"}>
 
-LayerMap with named layer access
+List of points along the arc.
 
 </PyFunctionReturn>
 
 </PyFunction>
 
-</Tab>
-<Tab value={"Modules"}>
+<PyFunction name={"offset_polygon"} type={"(centerline, width) -> Polygon"}>
 
-<Cards >
+Create a polygon from a centerline and uniform width.
 
-<Card href={"/docs/api-reference/components"} title={"components"} />
+The polygon is created by offsetting the centerline perpendicular to the
+path direction at each point, forming a "ribbon" shape.
 
-</Cards>
+<div>
+
+<PyParameter name={"centerline"} type={"list[Point]"}>
+
+List of points defining the centerline path (minimum 2 points).
+
+</PyParameter>
+<PyParameter name={"width"} type={"float"}>
+
+Width of the polygon.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Polygon"}>
+
+A closed polygon.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"offset_polygon_varying"} type={"(centerline, widths) -> Polygon"}>
+
+Create a polygon from a centerline with varying width.
+
+Similar to `offset_polygon`, but allows specifying a different width at each
+centerline point for tapered or variable-width shapes.
+
+<div>
+
+<PyParameter name={"centerline"} type={"list[Point]"}>
+
+List of points defining the centerline path.
+
+</PyParameter>
+<PyParameter name={"widths"} type={"list[float]"}>
+
+Width at each centerline point (must have same length as centerline).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Polygon"}>
+
+A closed polygon.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"path_length"} type={"(points) -> float"}>
+
+Calculate the total length of a polyline path.
+
+<div>
+
+<PyParameter name={"points"} type={"list[Point]"}>
+
+List of points defining the path.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"float"}>
+
+Sum of distances between consecutive points.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"fresnel_c"} type={"(t) -> float"}>
+
+Fresnel cosine integral C(t).
+
+Used for generating Euler (clothoid) spiral bends.
+C(t) = integral from 0 to t of cos(pi/2 * u^2) du.
+
+<div>
+
+<PyParameter name={"t"} type={"float"}>
+
+Upper limit of integration.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>
+
+<PyFunction name={"fresnel_s"} type={"(t) -> float"}>
+
+Fresnel sine integral S(t).
+
+Used for generating Euler (clothoid) spiral bends.
+S(t) = integral from 0 to t of sin(pi/2 * u^2) du.
+
+<div>
+
+<PyParameter name={"t"} type={"float"}>
+
+Upper limit of integration.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>
 
 </Tab>
 

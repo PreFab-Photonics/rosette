@@ -1,0 +1,60 @@
+---
+title: DrcViolation
+---
+
+A single DRC violation.
+
+Returned as part of a `DrcResult` after running `run_drc()`. Each violation
+describes a specific rule failure, including the rule name, affected layer(s),
+severity, and a bounding box around the offending geometry.
+
+```python
+result = run_drc(cell, rules)
+for v in result.violations:
+    print(f"[{v.severity}] {v.rule_type} on {v.layer}: {v.message}")
+```
+
+## Attributes
+
+<PyAttribute name={"rule_name"} type={"str | None"}>
+
+Name of the rule that was violated, or `None` if the rule was not named.
+
+</PyAttribute>
+
+<PyAttribute name={"message"} type={"str"}>
+
+Human-readable description of the violation.
+
+</PyAttribute>
+
+<PyAttribute name={"severity"} type={"str"}>
+
+Severity level: `"error"` or `"warning"`.
+
+</PyAttribute>
+
+<PyAttribute name={"rule_type"} type={"str"}>
+
+Type of the DRC rule that was violated (e.g., `"min_width"`, `"min_spacing"`).
+
+</PyAttribute>
+
+<PyAttribute name={"layer"} type={"tuple[int, int]"}>
+
+The `(number, datatype)` of the primary layer involved in the violation.
+
+</PyAttribute>
+
+<PyAttribute name={"layer2"} type={"tuple[int, int] | None"}>
+
+The `(number, datatype)` of the second layer, for inter-layer rules (e.g.,
+spacing, enclosure). `None` for single-layer rules.
+
+</PyAttribute>
+
+<PyAttribute name={"bbox"} type={"tuple[tuple[float, float], tuple[float, float]]"}>
+
+Bounding box of the violation as `((min_x, min_y), (max_x, max_y))`.
+
+</PyAttribute>

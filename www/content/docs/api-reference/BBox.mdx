@@ -1,0 +1,132 @@
+---
+title: BBox
+---
+
+An axis-aligned bounding box defined by minimum and maximum corner points.
+
+Bounding boxes are used to query the spatial extent of geometry. They are
+returned by `Polygon.bbox()` and `Cell.bbox()`, and can be merged to
+compute the bounds of composite shapes.
+
+```python
+box = BBox(Point(0, 0), Point(10, 5))
+box.width()     # 10.0
+box.height()    # 5.0
+box.center()    # Point(5.0, 2.5)
+box.area()      # 50.0
+
+# Merge two bounding boxes
+other = BBox(Point(8, 3), Point(15, 9))
+combined = box.merge(other)  # BBox(Point(0, 0), Point(15, 9))
+```
+
+## Attributes
+
+<PyAttribute name={"min"} type={"Point"}>
+
+The minimum corner (bottom-left) of the bounding box.
+
+</PyAttribute>
+
+<PyAttribute name={"max"} type={"Point"}>
+
+The maximum corner (top-right) of the bounding box.
+
+</PyAttribute>
+
+## Methods
+
+<PyFunction name={"__init__"} type={"(min, max) -> None"}>
+
+Create a bounding box from two corner points.
+
+<div>
+
+<PyParameter name={"min"} type={"Point"}>
+
+Minimum corner (bottom-left).
+
+</PyParameter>
+<PyParameter name={"max"} type={"Point"}>
+
+Maximum corner (top-right).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"width"} type={"() -> float"}>
+
+Return the width of the bounding box (extent along the X axis).
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>
+
+<PyFunction name={"height"} type={"() -> float"}>
+
+Return the height of the bounding box (extent along the Y axis).
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>
+
+<PyFunction name={"center"} type={"() -> Point"}>
+
+Return the center point of the bounding box.
+
+<PyFunctionReturn type={"Point"} />
+
+</PyFunction>
+
+<PyFunction name={"area"} type={"() -> float"}>
+
+Return the area of the bounding box (`width * height`).
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>
+
+<PyFunction name={"contains"} type={"(p) -> bool"}>
+
+Check whether a point lies inside (or on the boundary of) the bounding box.
+
+<div>
+
+<PyParameter name={"p"} type={"Point"}>
+
+The point to test.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"bool"} />
+
+</PyFunction>
+
+<PyFunction name={"merge"} type={"(other) -> BBox"}>
+
+Return a new bounding box that encloses both this box and `other`.
+
+<div>
+
+<PyParameter name={"other"} type={"BBox"}>
+
+The other bounding box.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"BBox"}>
+
+A new bounding box covering the union of both boxes.
+
+</PyFunctionReturn>
+
+</PyFunction>

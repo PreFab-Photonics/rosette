@@ -1,0 +1,81 @@
+---
+title: DfmResult
+---
+
+Full DFM prediction result.
+
+Returned by `run_dfm()`. Contains per-layer predictions, aggregate
+statistics, and all violations. Use the `passed` attribute for a quick
+pass/fail check when tolerances are configured.
+
+```python
+result = run_dfm(cell, layers=[Layer(1)], config=config)
+if result.passed:
+    print(f"DFM passed ({result.layers_processed} layers, {result.total_pixels} pixels)")
+else:
+    print(f"DFM failed with {len(result.violations)} violations")
+    for v in result.violations:
+        print(f"  {v.message}")
+
+for lp in result.layers:
+    m = lp.metrics
+    if m:
+        print(f"Layer {lp.layer}: edge dev {m.max_edge_deviation:.3f} um")
+```
+
+## Attributes
+
+<PyAttribute name={"layers"} type={"list[LayerPrediction]"}>
+
+Per-layer prediction results.
+
+</PyAttribute>
+
+<PyAttribute name={"total_predicted_polygons"} type={"int"}>
+
+Total number of predicted polygons across all layers.
+
+</PyAttribute>
+
+<PyAttribute name={"total_input_polygons"} type={"int"}>
+
+Total number of input (designed) polygons across all layers.
+
+</PyAttribute>
+
+<PyAttribute name={"passed"} type={"bool"}>
+
+`True` if no violations were found. Always `True` when no tolerances are
+configured.
+
+</PyAttribute>
+
+<PyAttribute name={"violations"} type={"list[DfmViolation]"}>
+
+Aggregate list of all DFM violations across all layers.
+
+</PyAttribute>
+
+<PyAttribute name={"layers_processed"} type={"int"}>
+
+Number of layers processed.
+
+</PyAttribute>
+
+<PyAttribute name={"total_pixels"} type={"int"}>
+
+Total number of raster pixels computed across all layers.
+
+</PyAttribute>
+
+<PyAttribute name={"resolution"} type={"float"}>
+
+Rasterization resolution used (design units per pixel).
+
+</PyAttribute>
+
+<PyAttribute name={"elapsed_ms"} type={"float"}>
+
+Elapsed time in milliseconds.
+
+</PyAttribute>

@@ -1,0 +1,65 @@
+---
+title: Layer
+---
+
+GDS layer identity defined by a (number, datatype) pair.
+
+Every polygon, path, and text element in a GDS file belongs to a layer.
+Layer encodes the two integers that GDS uses to identify layers: a layer
+`number` and a `datatype`. By convention, `datatype` defaults to 0.
+
+```python
+silicon = Layer(1, 0)   # Silicon waveguide layer
+metal = Layer(10, 0)    # Metal routing layer
+text = Layer(100)       # Text annotations (datatype defaults to 0)
+```
+
+Layer objects are hashable and can be used as dictionary keys or in sets.
+
+## Attributes
+
+<PyAttribute name={"number"} type={"int"}>
+
+GDS layer number (0--999).
+
+</PyAttribute>
+
+<PyAttribute name={"datatype"} type={"int"}>
+
+GDS datatype (0--999). Defaults to 0.
+
+</PyAttribute>
+
+## Methods
+
+<PyFunction name={"__init__"} type={"(number, datatype=0) -> None"}>
+
+Create a new Layer.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+Layer(1, 0)   # Explicit number and datatype
+Layer(1)      # Equivalent — datatype defaults to 0
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"number"} type={"int"}>
+
+GDS layer number.
+
+</PyParameter>
+<PyParameter name={"datatype"} type={"int"} value={"0"}>
+
+GDS datatype. Defaults to 0.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

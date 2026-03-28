@@ -1,0 +1,78 @@
+---
+title: DfmViolation
+---
+
+A single DFM violation.
+
+Returned as part of a `DfmResult` or per-layer `LayerPrediction` after
+running `run_dfm()`. Each violation describes a manufacturability issue
+detected by comparing designed and predicted geometry.
+
+```python
+result = run_dfm(cell, layers=[Layer(1)], config=config)
+for v in result.violations:
+    print(f"[{v.severity}] {v.violation_type} on {v.layer}: {v.message}")
+```
+
+## Attributes
+
+<PyAttribute name={"layer"} type={"tuple[int, int]"}>
+
+The `(number, datatype)` of the affected layer.
+
+</PyAttribute>
+
+<PyAttribute name={"violation_type"} type={"str"}>
+
+Type of violation. One of:
+- `"area_deviation"` — predicted area deviates beyond the allowed threshold
+- `"feature_erasure"` — a designed feature is missing from the prediction
+- `"feature_merge"` — separate designed features merged in the prediction
+
+</PyAttribute>
+
+<PyAttribute name={"message"} type={"str"}>
+
+Human-readable description of the violation.
+
+</PyAttribute>
+
+<PyAttribute name={"severity"} type={"str"}>
+
+Severity level: `"error"` or `"warning"`.
+
+</PyAttribute>
+
+<PyAttribute name={"bbox"} type={"tuple[tuple[float, float], tuple[float, float]]"}>
+
+Bounding box of the violation as `((min_x, min_y), (max_x, max_y))`.
+
+</PyAttribute>
+
+<PyAttribute name={"max_allowed"} type={"float | None"}>
+
+Maximum allowed value for `area_deviation` violations, or `None` for other
+violation types.
+
+</PyAttribute>
+
+<PyAttribute name={"actual"} type={"float | None"}>
+
+Actual measured value for `area_deviation` violations, or `None` for other
+violation types.
+
+</PyAttribute>
+
+<PyAttribute name={"designed_count"} type={"int | None"}>
+
+Number of designed features, for `feature_erasure` and `feature_merge`
+violations. `None` for `area_deviation`.
+
+</PyAttribute>
+
+<PyAttribute name={"predicted_count"} type={"int | None"}>
+
+Number of predicted features, for `feature_erasure` and `feature_merge`
+violations. `None` for `area_deviation`.
+
+</PyAttribute>

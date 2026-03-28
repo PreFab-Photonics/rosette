@@ -1,0 +1,156 @@
+---
+title: DfmConfig
+---
+
+Configuration for DFM prediction.
+
+Controls rasterization resolution, padding, contour extraction, and
+tolerance thresholds for pass/fail checking. Use `set_layer_config()` to
+override settings for specific layers.
+
+```python
+# Basic usage
+config = DfmConfig(resolution=0.01, padding=1.0)
+result = run_dfm(cell, layers=[Layer(1)], config=config)
+
+# With tolerances for pass/fail checking
+config = DfmConfig(resolution=0.01, max_area_deviation=0.10, severity="error")
+config.set_layer_config(Layer(1, 0), sigma=0.05, max_area_deviation=0.05)
+config.set_layer_config(Layer(2, 0), sigma=0.15)
+```
+
+## Attributes
+
+<PyAttribute name={"resolution"} type={"float"}>
+
+Rasterization resolution in design units per pixel.
+
+</PyAttribute>
+
+<PyAttribute name={"padding"} type={"float"}>
+
+Padding around the geometry bounding box in design units.
+
+</PyAttribute>
+
+<PyAttribute name={"contour_threshold"} type={"float"}>
+
+Threshold for binarizing the prediction output. Values above this
+threshold are treated as fabricated.
+
+</PyAttribute>
+
+<PyAttribute name={"keep_raster"} type={"bool"}>
+
+Whether to retain raw raster data in the result. When `True`, each
+`LayerPrediction` includes `raster_data`, `raster_width`, `raster_height`,
+and `raster_origin`.
+
+</PyAttribute>
+
+<PyAttribute name={"max_area_deviation"} type={"float | None"}>
+
+Global maximum allowed relative area deviation. Set to `None` to skip
+area deviation checking.
+
+</PyAttribute>
+
+<PyAttribute name={"has_tolerances"} type={"bool"}>
+
+`True` if any tolerance thresholds are configured (global or per-layer).
+
+</PyAttribute>
+
+## Methods
+
+<PyFunction name={"__init__"} type={"(resolution=0.01, padding=1.0, contour_threshold=0.5, keep_raster=False, max_area_deviation=None, severity='error') -> None"}>
+
+Create a new DFM configuration.
+
+<div>
+
+<PyParameter name={"resolution"} type={"float"} value={"0.01"}>
+
+Rasterization resolution in design units per pixel. Smaller values give
+higher fidelity but use more memory and time.
+
+</PyParameter>
+<PyParameter name={"padding"} type={"float"} value={"1.0"}>
+
+Padding around the geometry bounding box in design units.
+
+</PyParameter>
+<PyParameter name={"contour_threshold"} type={"float"} value={"0.5"}>
+
+Threshold for binarizing the prediction. Values in `[0.0, 1.0]`.
+
+</PyParameter>
+<PyParameter name={"keep_raster"} type={"bool"} value={"False"}>
+
+Whether to retain raw raster data in the result.
+
+</PyParameter>
+<PyParameter name={"max_area_deviation"} type={"float | None"} value={"None"}>
+
+Global maximum allowed relative area deviation (e.g., `0.10` for 10%).
+Set to `None` to skip area deviation checking.
+
+</PyParameter>
+<PyParameter name={"severity"} type={"str"} value={"\"error\""}>
+
+Default severity for violations: `"error"` or `"warning"`.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"set_layer_config"} type={"(layer, sigma=None, max_area_deviation=None, severity=None) -> None"}>
+
+Set per-layer model and tolerance overrides.
+
+Per-layer settings override the global defaults for a specific layer.
+Parameters left as `None` fall back to the global config. If `sigma` is
+provided, a per-layer `GaussianModel` is created with the specified sigma.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+config = DfmConfig(resolution=0.01)
+config.set_layer_config(Layer(1, 0), sigma=0.05, max_area_deviation=0.05)
+config.set_layer_config(Layer(2, 0), sigma=0.15)
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer.
+
+</PyParameter>
+<PyParameter name={"sigma"} type={"float | None"} value={"None"}>
+
+Gaussian blur sigma for this layer. Creates a per-layer `GaussianModel`.
+
+</PyParameter>
+<PyParameter name={"max_area_deviation"} type={"float | None"} value={"None"}>
+
+Maximum allowed relative area deviation for this layer.
+
+</PyParameter>
+<PyParameter name={"severity"} type={"str | None"} value={"None"}>
+
+Severity override for this layer: `"error"` or `"warning"`.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

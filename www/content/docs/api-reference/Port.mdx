@@ -1,0 +1,152 @@
+---
+title: Port
+---
+
+A named port with position, direction, and optional width.
+
+Ports are the primary mechanism for connecting components and routing
+waveguides. Each port has a position in layout space, a unit vector
+`direction` pointing **outward** from the component, and an optional
+`width` used for waveguide width matching.
+
+```python
+# Port facing +X at the origin, 0.5 um wide
+p = Port("opt", Point(0, 0), Vector2(1, 0), width=0.5)
+
+# Check the angle (degrees)
+p.angle()  # 0.0
+
+# Two ports can connect if they are co-located with opposite directions
+other = Port("in", Point(0, 0), Vector2(-1, 0), width=0.5)
+p.can_connect_to(other)  # True
+```
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"}>
+
+Name of the port (e.g. `"opt"`, `"in"`, `"out_1"`).
+
+</PyAttribute>
+
+<PyAttribute name={"position"} type={"Point"}>
+
+Position of the port in layout coordinates.
+
+</PyAttribute>
+
+<PyAttribute name={"direction"} type={"Vector2"}>
+
+Unit vector pointing **outward** from the component. For example, a port
+on the right edge of a component has direction `(1, 0)`.
+
+</PyAttribute>
+
+<PyAttribute name={"width"} type={"float | None"}>
+
+Waveguide width at this port, or `None` if unspecified.
+
+</PyAttribute>
+
+## Methods
+
+<PyFunction name={"__init__"} type={"(name, position, direction, width=None) -> None"}>
+
+Create a new Port.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+Port("opt", Point(0, 0), Vector2(1, 0), width=0.5)
+Port("elec", Point(10, 5), Vector2(0, 1))  # No width
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"name"} type={"str"}>
+
+Name of the port.
+
+</PyParameter>
+<PyParameter name={"position"} type={"Point"}>
+
+Position in layout coordinates.
+
+</PyParameter>
+<PyParameter name={"direction"} type={"Vector2"}>
+
+Outward-facing unit vector.
+
+</PyParameter>
+<PyParameter name={"width"} type={"float | None"} value={"None"}>
+
+Waveguide width at the port, or `None`.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"angle"} type={"() -> float"}>
+
+Return the port direction as an angle in degrees.
+
+The angle is measured counter-clockwise from the +X axis. For example,
+a direction of `(1, 0)` returns `0.0`, and `(0, 1)` returns `90.0`.
+
+<PyFunctionReturn type={"float"}>
+
+Direction angle in degrees.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"can_connect_to"} type={"(other, tolerance=0.001) -> bool"}>
+
+Check if this port can connect to another port.
+
+Two ports can connect when they are at the same position (within
+`tolerance`) and have opposite directions. This is the geometric
+condition for a flush waveguide junction.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+a = Port("out", Point(100, 0), Vector2(1, 0), width=0.5)
+b = Port("in", Point(100, 0), Vector2(-1, 0), width=0.5)
+a.can_connect_to(b)  # True — same position, opposite directions
+
+c = Port("in", Point(100, 1), Vector2(-1, 0), width=0.5)
+a.can_connect_to(c)  # False — positions differ
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"other"} type={"Port"}>
+
+The other port to check against.
+
+</PyParameter>
+<PyParameter name={"tolerance"} type={"float"} value={"0.001"}>
+
+Maximum position distance for ports to be considered co-located.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"bool"}>
+
+`True` if the ports can connect, `False` otherwise.
+
+</PyFunctionReturn>
+
+</PyFunction>

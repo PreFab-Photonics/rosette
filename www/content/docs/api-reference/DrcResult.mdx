@@ -1,0 +1,50 @@
+---
+title: DrcResult
+---
+
+Result of running DRC.
+
+Returned by `run_drc()`. Contains a list of violations and summary statistics
+about the check. Use the `passed` attribute for a quick pass/fail check.
+
+```python
+result = run_drc(cell, rules)
+if result.passed:
+    print(f"DRC passed ({result.polygons_checked} polygons, {result.rules_checked} rules)")
+else:
+    print(f"DRC failed with {len(result.violations)} violations")
+    for v in result.violations:
+        print(f"  {v.message}")
+```
+
+## Attributes
+
+<PyAttribute name={"violations"} type={"list[DrcViolation]"}>
+
+List of all DRC violations found.
+
+</PyAttribute>
+
+<PyAttribute name={"passed"} type={"bool"}>
+
+`True` if no violations were found.
+
+</PyAttribute>
+
+<PyAttribute name={"polygons_checked"} type={"int"}>
+
+Number of polygons checked during the DRC run.
+
+</PyAttribute>
+
+<PyAttribute name={"rules_checked"} type={"int"}>
+
+Number of rules evaluated.
+
+</PyAttribute>
+
+<PyAttribute name={"elapsed_ms"} type={"float"}>
+
+Elapsed time in milliseconds.
+
+</PyAttribute>

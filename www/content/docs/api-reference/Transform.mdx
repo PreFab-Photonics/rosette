@@ -1,0 +1,176 @@
+---
+title: Transform
+---
+
+A 2D affine transform (rotation, translation, scaling).
+
+Transforms encode geometric operations that can be applied to points. They
+are used internally by `CellRef` and `Instance` to position and orient
+cells, and can be composed together with `then()`.
+
+```python
+# Rotate 90 degrees then translate
+t = Transform.rotate(90).then(Transform.translate(100, 0))
+p = t.apply(Point(1, 0))  # Point(100, 1)
+```
+
+## Static constructors
+
+<PyFunction name={"identity"} type={"() -> Transform"}>
+
+Return the identity transform (no change).
+
+<PyFunctionReturn type={"Transform"} />
+
+</PyFunction>
+
+<PyFunction name={"translate"} type={"(tx, ty) -> Transform"}>
+
+Create a translation transform.
+
+<div>
+
+<PyParameter name={"tx"} type={"float"}>
+
+Translation along the X axis.
+
+</PyParameter>
+<PyParameter name={"ty"} type={"float"}>
+
+Translation along the Y axis.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Transform"} />
+
+</PyFunction>
+
+<PyFunction name={"rotate"} type={"(angle_deg) -> Transform"}>
+
+Create a rotation transform around the origin.
+
+<div>
+
+<PyParameter name={"angle_deg"} type={"float"}>
+
+Rotation angle in degrees (counter-clockwise).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Transform"} />
+
+</PyFunction>
+
+<PyFunction name={"scale_uniform"} type={"(s) -> Transform"}>
+
+Create a uniform scaling transform (same factor for both axes).
+
+<div>
+
+<PyParameter name={"s"} type={"float"}>
+
+Scale factor.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Transform"} />
+
+</PyFunction>
+
+<PyFunction name={"scale"} type={"(sx, sy) -> Transform"}>
+
+Create an anisotropic scaling transform.
+
+<div>
+
+<PyParameter name={"sx"} type={"float"}>
+
+Scale factor along the X axis.
+
+</PyParameter>
+<PyParameter name={"sy"} type={"float"}>
+
+Scale factor along the Y axis.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Transform"} />
+
+</PyFunction>
+
+## Methods
+
+<PyFunction name={"__init__"} type={"() -> None"}>
+
+Create the identity transform. Equivalent to `Transform.identity()`.
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"apply"} type={"(p) -> Point"}>
+
+Apply the transform to a point, returning the transformed point.
+
+<div>
+
+<PyParameter name={"p"} type={"Point"}>
+
+The point to transform.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Point"}>
+
+The transformed point.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"then"} type={"(other) -> Transform"}>
+
+Compose this transform with another, returning a new transform that
+applies `self` first, then `other`.
+
+Transform composition reads left to right: `a.then(b)` means "apply `a`
+first, then apply `b` to the result." This is the reverse of
+mathematical matrix multiplication order but matches the natural reading
+order for chained operations.
+
+```python
+# Rotate 45 degrees, then translate by (10, 0)
+t = Transform.rotate(45).then(Transform.translate(10, 0))
+
+# Equivalent to:
+p = Transform.rotate(45).apply(Point(1, 0))  # rotated
+p = Transform.translate(10, 0).apply(p)       # then translated
+```
+
+<div>
+
+<PyParameter name={"other"} type={"Transform"}>
+
+The transform to apply after `self`.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Transform"}>
+
+A new composed transform.
+
+</PyFunctionReturn>
+
+</PyFunction>

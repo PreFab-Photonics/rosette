@@ -2,12 +2,11 @@
 title: LayerMap
 ---
 
-Named layer definitions loaded from layers.toml.
+Named layer definitions loaded from `rosette.toml`.
 
 Provides attribute-style access to layers by semantic name, so
 components and designs can reference layers without hardcoded numbers.
 
-Example:
 ```python
 layers = load_layer_map()
 layers.silicon        # -> LayerInfo('silicon', Layer(1, 0), color='#ff69b4')
@@ -15,45 +14,31 @@ layers.silicon.layer  # -> Layer(1, 0)
 layers.silicon.color  # -> '#ff69b4'
 
 # Use directly in component calls and cell operations
-wg = waveguide(layers.silicon.layer, width=0.5, length=10.0)
+wg = waveguide(layers.silicon.layer, waveguide_width=0.5, length=10.0)
 cell.add_polygon(poly, layers.silicon.layer)
 
 # Iterate over all layers
 for info in layers:
     print(f"{info.name}: Layer({info.number}, {info.datatype})")
 
-# Export as list of dicts (for app/viewer consumption)
-layers.to_dict_list()
+# Check if a layer exists
+if "silicon" in layers:
+    print("has silicon layer")
 ```
-## Functions
 
-<PyFunction name={"__init__"} type={"(self, layer_infos=None) -> None"}>
+## Methods
+
+<PyFunction name={"__init__"} type={"(layer_infos=None) -> None"}>
 
 Create a LayerMap from a list of LayerInfo objects.
 
-<PySourceCode >
+Usually you don't create this directly — use `load_layer_map()` instead.
 
-```python
-def __init__(self, layer_infos: list[LayerInfo] | None = None) -> None:
-    """Create a LayerMap from a list of LayerInfo objects.
+<div>
 
-    Args:
-        layer_infos: List of layer definitions. If None, creates an empty map.
-    """
-    self._layers: dict[str, LayerInfo] = {}
-    if layer_infos:
-        for info in layer_infos:
-            self._layers[info.name] = info
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
 <PyParameter name={"layer_infos"} type={"list[LayerInfo] | None"} value={"None"}>
 
-List of layer definitions. If None, creates an empty map.
+List of layer definitions. If `None`, creates an empty map.
 
 </PyParameter>
 
@@ -63,213 +48,46 @@ List of layer definitions. If None, creates an empty map.
 
 </PyFunction>
 
-<PyFunction name={"__getattr__"} type={"(self, name) -> LayerInfo"}>
+<PyFunction name={"get"} type={"(name) -> LayerInfo | None"}>
 
-<PySourceCode >
+Get a layer by name, or `None` if not found.
 
-```python
-def __getattr__(self, name: str) -> LayerInfo:
-    # Avoid infinite recursion for dunder/private attrs
-    if name.startswith("_"):
-        raise AttributeError(name)
-    try:
-        return self._layers[name]
-    except KeyError:
-        available = ", ".join(self._layers.keys()) if self._layers else "(none)"
-        raise AttributeError(
-            f"No layer named '{name}'. Available layers: {available}"
-        ) from None
-```
+<div>
 
-</PySourceCode>
+<PyParameter name={"name"} type={"str"}>
 
-<div >
+Layer name to look up.
 
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"name"} type={"str"} value={null} />
+</PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"rosette.LayerInfo"} />
+<PyFunctionReturn type={"LayerInfo | None"} />
 
 </PyFunction>
 
-<PyFunction name={"__contains__"} type={"(self, name) -> bool"}>
-
-<PySourceCode >
-
-```python
-def __contains__(self, name: str) -> bool:
-    return name in self._layers
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"name"} type={"str"} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"bool"} />
-
-</PyFunction>
-
-<PyFunction name={"__iter__"} type={"(self)"}>
-
-<PySourceCode >
-
-```python
-def __iter__(self):
-    return iter(self._layers.values())
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
-<PyFunctionReturn type={null} />
-
-</PyFunction>
-
-<PyFunction name={"__len__"} type={"(self) -> int"}>
-
-<PySourceCode >
-
-```python
-def __len__(self) -> int:
-    return len(self._layers)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"int"} />
-
-</PyFunction>
-
-<PyFunction name={"get"} type={"(self, name) -> LayerInfo | None"}>
-
-Get a layer by name, or None if not found.
-
-<PySourceCode >
-
-```python
-def get(self, name: str) -> LayerInfo | None:
-    """Get a layer by name, or None if not found."""
-    return self._layers.get(name)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"name"} type={"str"} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"rosette.LayerInfo | None"} />
-
-</PyFunction>
-
-<PyFunction name={"names"} type={"(self) -> list[str]"}>
+<PyFunction name={"names"} type={"() -> list[str]"}>
 
 Get all layer names.
-
-<PySourceCode >
-
-```python
-def names(self) -> list[str]:
-    """Get all layer names."""
-    return list(self._layers.keys())
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
 
 <PyFunctionReturn type={"list[str]"} />
 
 </PyFunction>
 
-<PyFunction name={"to_dict_list"} type={"(self) -> list[dict]"}>
+<PyFunction name={"to_dict_list"} type={"() -> list[dict]"}>
 
 Export as a list of dicts for serialization.
 
-Returns a list suitable for JSON serialization, with keys matching
-the app's Layer interface.
-
-<PySourceCode >
-
-```python
-def to_dict_list(self) -> list[dict]:
-    """Export as a list of dicts for serialization.
-
-    Returns a list suitable for JSON serialization, with keys matching
-    the app's Layer interface.
-    """
-    result = []
-    for i, info in enumerate(self._layers.values(), start=1):
-        result.append(
-            {
-                "id": i,
-                "layerNumber": info.number,
-                "datatype": info.datatype,
-                "name": info.name,
-                "color": info.color,
-                "visible": True,
-                "fillPattern": info.fill,
-                "opacity": info.opacity,
-            }
-        )
-    return result
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
+Returns a list suitable for JSON serialization, matching
+the viewer's layer interface.
 
 <PyFunctionReturn type={"list[dict]"} />
 
 </PyFunction>
 
-<PyFunction name={"__repr__"} type={"(self) -> str"}>
+### Supported operations
 
-<PySourceCode >
-
-```python
-def __repr__(self) -> str:
-    names = ", ".join(self._layers.keys())
-    return f"LayerMap([{names}])"
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"str"} />
-
-</PyFunction>
+- **Attribute access:** `layers.silicon` returns the `LayerInfo` for `"silicon"`
+- **Containment:** `"silicon" in layers` checks if a layer name exists
+- **Iteration:** `for info in layers:` iterates over all `LayerInfo` objects
+- **Length:** `len(layers)` returns the number of layers

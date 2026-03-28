@@ -1,0 +1,281 @@
+---
+title: Polygon
+---
+
+A closed polygon defined by a list of vertices.
+
+Polygons are the primary geometry primitive for layout. They represent
+filled shapes on a layer -- waveguides, pads, gratings, and any other
+structure. Polygons are immutable; all transformation methods return new
+Polygon instances.
+
+```python
+# Rectangle from origin
+rect = Polygon.rect(Point.origin(), 10, 5)
+
+# Centered rectangle
+square = Polygon.rect_centered(Point(50, 50), 20, 20)
+
+# Regular hexagon
+hex = Polygon.regular(Point(0, 0), radius=10, sides=6)
+
+# Custom shape
+tri = Polygon([Point(0, 0), Point(10, 0), Point(5, 8)])
+```
+
+## Static constructors
+
+<PyFunction name={"rect"} type={"(origin, width, height) -> Polygon"}>
+
+Create a rectangle with one corner at `origin`, extending in +X and +Y.
+
+<div>
+
+<PyParameter name={"origin"} type={"Point"}>
+
+Bottom-left corner of the rectangle.
+
+</PyParameter>
+<PyParameter name={"width"} type={"float"}>
+
+Width along the X axis.
+
+</PyParameter>
+<PyParameter name={"height"} type={"float"}>
+
+Height along the Y axis.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Polygon"} />
+
+</PyFunction>
+
+<PyFunction name={"rect_centered"} type={"(center, width, height) -> Polygon"}>
+
+Create a rectangle centered on a point.
+
+<div>
+
+<PyParameter name={"center"} type={"Point"}>
+
+Center of the rectangle.
+
+</PyParameter>
+<PyParameter name={"width"} type={"float"}>
+
+Width along the X axis.
+
+</PyParameter>
+<PyParameter name={"height"} type={"float"}>
+
+Height along the Y axis.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Polygon"} />
+
+</PyFunction>
+
+<PyFunction name={"regular"} type={"(center, radius, sides) -> Polygon"}>
+
+Create a regular polygon (equilateral triangle, square, hexagon, etc.)
+inscribed in a circle.
+
+<div>
+
+<PyParameter name={"center"} type={"Point"}>
+
+Center of the polygon.
+
+</PyParameter>
+<PyParameter name={"radius"} type={"float"}>
+
+Circumscribed radius (distance from center to each vertex).
+
+</PyParameter>
+<PyParameter name={"sides"} type={"int"}>
+
+Number of sides.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Polygon"} />
+
+</PyFunction>
+
+## Methods
+
+<PyFunction name={"__init__"} type={"(vertices) -> None"}>
+
+Create a polygon from a list of vertices. The polygon is automatically
+closed (you do not need to repeat the first vertex).
+
+<div>
+
+<PyParameter name={"vertices"} type={"list[Point]"}>
+
+Ordered list of vertex points.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"vertices"} type={"() -> list[Point]"}>
+
+Return the list of vertices.
+
+<PyFunctionReturn type={"list[Point]"} />
+
+</PyFunction>
+
+<PyFunction name={"area"} type={"() -> float"}>
+
+Compute the signed area of the polygon. Positive for counter-clockwise
+winding, negative for clockwise.
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>
+
+<PyFunction name={"centroid"} type={"() -> Point"}>
+
+Compute the centroid (geometric center of mass) of the polygon.
+
+<PyFunctionReturn type={"Point"} />
+
+</PyFunction>
+
+<PyFunction name={"bbox"} type={"() -> BBox"}>
+
+Compute the axis-aligned bounding box of the polygon.
+
+<PyFunctionReturn type={"BBox"} />
+
+</PyFunction>
+
+### Transformations
+
+<PyFunction name={"translate"} type={"(v) -> Polygon"}>
+
+Return a new polygon translated by a vector.
+
+<div>
+
+<PyParameter name={"v"} type={"Vector2"}>
+
+Translation vector.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Polygon"} />
+
+</PyFunction>
+
+<PyFunction name={"rotate"} type={"(angle_deg) -> Polygon"}>
+
+Rotate the polygon around the origin.
+
+<div>
+
+<PyParameter name={"angle_deg"} type={"float"}>
+
+Rotation angle in degrees (counter-clockwise).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Polygon"} />
+
+</PyFunction>
+
+<PyFunction name={"rotate_around"} type={"(center, angle_deg) -> Polygon"}>
+
+Rotate the polygon around an arbitrary center point.
+
+<div>
+
+<PyParameter name={"center"} type={"Point"}>
+
+Center of rotation.
+
+</PyParameter>
+<PyParameter name={"angle_deg"} type={"float"}>
+
+Rotation angle in degrees (counter-clockwise).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Polygon"} />
+
+</PyFunction>
+
+<PyFunction name={"scale"} type={"(sx, sy) -> Polygon"}>
+
+Scale the polygon by independent factors along each axis.
+
+<div>
+
+<PyParameter name={"sx"} type={"float"}>
+
+Scale factor along the X axis.
+
+</PyParameter>
+<PyParameter name={"sy"} type={"float"}>
+
+Scale factor along the Y axis.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Polygon"} />
+
+</PyFunction>
+
+<PyFunction name={"mirror_x"} type={"() -> Polygon"}>
+
+Mirror the polygon across the X axis (flip Y coordinates).
+
+<PyFunctionReturn type={"Polygon"} />
+
+</PyFunction>
+
+<PyFunction name={"mirror_y"} type={"() -> Polygon"}>
+
+Mirror the polygon across the Y axis (flip X coordinates).
+
+<PyFunctionReturn type={"Polygon"} />
+
+</PyFunction>
+
+## Supported operations
+
+**Length**: `len(polygon)` returns the number of vertices.
+
+```python
+rect = Polygon.rect(Point.origin(), 10, 5)
+len(rect)  # 4
+```
+
+**Iteration**: Polygons support iteration over their vertices.
+
+```python
+for vertex in polygon:
+    print(vertex.x, vertex.y)
+```

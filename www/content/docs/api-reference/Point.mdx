@@ -1,0 +1,177 @@
+---
+title: Point
+---
+
+A 2D point with x and y coordinates.
+
+Points represent positions in the layout plane. They are the fundamental
+coordinate type used throughout Rosette for specifying polygon vertices,
+port locations, and transform targets. Points are immutable -- all
+transformation methods return new Point instances.
+
+```python
+p = Point(10, 20)
+q = Point.origin()
+d = p.distance_to(q)  # 22.36...
+
+# Translate by a vector
+moved = p.translate(Vector2(5, 0))  # Point(15, 20)
+```
+
+## Attributes
+
+<PyAttribute name={"x"} type={"float"}>
+
+X coordinate.
+
+</PyAttribute>
+
+<PyAttribute name={"y"} type={"float"}>
+
+Y coordinate.
+
+</PyAttribute>
+
+## Methods
+
+<PyFunction name={"__init__"} type={"(x=0.0, y=0.0) -> None"}>
+
+Create a new point.
+
+<div>
+
+<PyParameter name={"x"} type={"float"} value={"0.0"}>
+
+X coordinate.
+
+</PyParameter>
+<PyParameter name={"y"} type={"float"} value={"0.0"}>
+
+Y coordinate.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"origin"} type={"() -> Point"}>
+
+Create a point at the origin `(0, 0)`. This is a static method.
+
+```python
+p = Point.origin()  # Point(0.0, 0.0)
+```
+
+<PyFunctionReturn type={"Point"} />
+
+</PyFunction>
+
+<PyFunction name={"distance_to"} type={"(other) -> float"}>
+
+Compute the Euclidean distance to another point.
+
+<div>
+
+<PyParameter name={"other"} type={"Point"}>
+
+The other point.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"float"}>
+
+Distance between the two points.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"translate"} type={"(v) -> Point"}>
+
+Return a new point translated by a vector.
+
+<div>
+
+<PyParameter name={"v"} type={"Vector2"}>
+
+Translation vector.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Point"}>
+
+A new translated point.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"rotate"} type={"(angle_deg) -> Point"}>
+
+Rotate the point around the origin by the given angle.
+
+<div>
+
+<PyParameter name={"angle_deg"} type={"float"}>
+
+Rotation angle in degrees (counter-clockwise).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Point"}>
+
+A new rotated point.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"rotate_around"} type={"(center, angle_deg) -> Point"}>
+
+Rotate the point around an arbitrary center point.
+
+<div>
+
+<PyParameter name={"center"} type={"Point"}>
+
+Center of rotation.
+
+</PyParameter>
+<PyParameter name={"angle_deg"} type={"float"}>
+
+Rotation angle in degrees (counter-clockwise).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Point"}>
+
+A new rotated point.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+## Supported operations
+
+**Addition**: `point + vector` returns a new `Point` offset by the vector. Equivalent to `point.translate(vector)`.
+
+```python
+Point(1, 2) + Vector2(3, 4)  # Point(4, 6)
+```
+
+**Subtraction**: `point - point` returns a `Vector2` representing the displacement from the right-hand point to the left-hand point.
+
+```python
+Point(5, 7) - Point(1, 2)  # Vector2(4, 5)
+```

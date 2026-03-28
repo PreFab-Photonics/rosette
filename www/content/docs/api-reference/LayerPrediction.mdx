@@ -1,0 +1,90 @@
+---
+title: LayerPrediction
+---
+
+Prediction result for a single layer.
+
+Each `LayerPrediction` in a `DfmResult` contains the predicted polygons,
+comparison metrics, violations, and optional raster data for one layer.
+
+```python
+result = run_dfm(cell, layers=[Layer(1)])
+for lp in result.layers:
+    print(f"Layer {lp.layer}: {lp.predicted_polygon_count} predicted polygons")
+    if lp.metrics:
+        print(f"  Area deviation: {lp.metrics.area_deviation:.1%}")
+    for v in lp.violations:
+        print(f"  Violation: {v.message}")
+```
+
+## Attributes
+
+<PyAttribute name={"layer"} type={"tuple[int, int]"}>
+
+The `(number, datatype)` of the layer.
+
+</PyAttribute>
+
+<PyAttribute name={"predicted_polygons"} type={"list[Polygon]"}>
+
+List of predicted (post-fabrication) polygons extracted from the contour.
+
+</PyAttribute>
+
+<PyAttribute name={"input_polygon_count"} type={"int"}>
+
+Number of input (designed) polygons on this layer.
+
+</PyAttribute>
+
+<PyAttribute name={"predicted_polygon_count"} type={"int"}>
+
+Number of predicted polygons on this layer.
+
+</PyAttribute>
+
+<PyAttribute name={"metrics"} type={"LayerMetrics | None"}>
+
+Comparison metrics between designed and predicted geometry. `None` if
+metrics computation was skipped.
+
+</PyAttribute>
+
+<PyAttribute name={"violations"} type={"list[DfmViolation]"}>
+
+List of DFM violations detected on this layer.
+
+</PyAttribute>
+
+<PyAttribute name={"has_raster"} type={"bool"}>
+
+`True` if raw raster data is available (requires `keep_raster=True` in
+`DfmConfig`).
+
+</PyAttribute>
+
+<PyAttribute name={"raster_data"} type={"list[float] | None"}>
+
+Raw raster data as a flat list of float values in `[0.0, 1.0]`, row-major
+order. `None` if `keep_raster` was `False`.
+
+</PyAttribute>
+
+<PyAttribute name={"raster_width"} type={"int | None"}>
+
+Width of the raster in pixels. `None` if `keep_raster` was `False`.
+
+</PyAttribute>
+
+<PyAttribute name={"raster_height"} type={"int | None"}>
+
+Height of the raster in pixels. `None` if `keep_raster` was `False`.
+
+</PyAttribute>
+
+<PyAttribute name={"raster_origin"} type={"tuple[float, float] | None"}>
+
+Origin `(x, y)` of the raster in design units. `None` if `keep_raster`
+was `False`.
+
+</PyAttribute>

@@ -1,0 +1,40 @@
+---
+title: PathEndType
+---
+
+GDS path end type.
+
+PathEndType controls how the start and end of a path are rendered. It is
+used with `Cell.add_path()` to select the cap style.
+
+```python
+cell.add_path(
+    [Point(0, 0), Point(100, 0)],
+    width=0.5,
+    layer=Layer(1, 0),
+    end_type=PathEndType.ROUND,
+)
+```
+
+## Variants
+
+<PyAttribute name={"FLUSH"} type={"PathEndType"}>
+
+Flush (square) ends at path endpoints. The path terminates exactly at the
+first and last point with no extension. This is the default.
+
+</PyAttribute>
+
+<PyAttribute name={"ROUND"} type={"PathEndType"}>
+
+Round ends. A semicircle with diameter equal to the path width is drawn
+at each endpoint.
+
+</PyAttribute>
+
+<PyAttribute name={"HALF_WIDTH_EXTENSION"} type={"PathEndType"}>
+
+Square ends extending half the path width past the endpoints. Each end is
+extended by `width / 2` along the path direction.
+
+</PyAttribute>

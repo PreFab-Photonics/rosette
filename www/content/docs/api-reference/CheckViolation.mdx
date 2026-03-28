@@ -1,0 +1,72 @@
+---
+title: CheckViolation
+---
+
+A single check violation.
+
+Returned as part of a `ChecksResult` after running `run_checks()`. Each
+violation describes a connectivity or bend radius issue found in the design,
+including the hierarchy path to the affected port or component.
+
+```python
+result = run_checks(cell, config=config)
+for v in result.violations:
+    print(f"[{v.severity}] {v.violation_type}: {v.message}")
+    print(f"  at {v.cell_path}/{v.name}")
+```
+
+## Attributes
+
+<PyAttribute name={"violation_type"} type={"str"}>
+
+Type of violation. One of:
+- `"unconnected_port"` — a port has no matching partner
+- `"width_mismatch"` — connected ports have different widths
+- `"angle_mismatch"` — connected ports are not anti-parallel within tolerance
+- `"bend_radius_too_small"` — a bend is below the minimum radius
+- `"bend_radius_auto_reduced"` — a bend radius was automatically reduced by the router
+
+</PyAttribute>
+
+<PyAttribute name={"name"} type={"str"}>
+
+Name of the relevant port or component.
+
+</PyAttribute>
+
+<PyAttribute name={"cell_path"} type={"str"}>
+
+Hierarchy path to the cell containing the violation (e.g., `"mmi_1/out_2"`).
+
+</PyAttribute>
+
+<PyAttribute name={"partner_name"} type={"str | None"}>
+
+Name of the partner port, for connectivity mismatch violations. `None` for
+unconnected ports and bend radius violations.
+
+</PyAttribute>
+
+<PyAttribute name={"partner_path"} type={"str | None"}>
+
+Hierarchy path to the partner port. `None` when there is no partner.
+
+</PyAttribute>
+
+<PyAttribute name={"message"} type={"str"}>
+
+Human-readable description of the violation.
+
+</PyAttribute>
+
+<PyAttribute name={"severity"} type={"str"}>
+
+Severity level: `"error"` or `"warning"`.
+
+</PyAttribute>
+
+<PyAttribute name={"bbox"} type={"tuple[tuple[float, float], tuple[float, float]]"}>
+
+Bounding box around the violation as `((min_x, min_y), (max_x, max_y))`.
+
+</PyAttribute>

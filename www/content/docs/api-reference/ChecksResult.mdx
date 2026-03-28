@@ -1,0 +1,57 @@
+---
+title: ChecksResult
+---
+
+Result of running design checks.
+
+Returned by `run_checks()`. Contains connectivity and bend radius violations
+along with summary statistics. Use the `passed` attribute for a quick
+pass/fail check.
+
+```python
+result = run_checks(cell, config=config)
+if result.passed:
+    print(f"All checks passed ({result.ports_checked} ports, {result.connections_found} connections)")
+else:
+    print(f"Found {len(result.violations)} violations")
+    for v in result.violations:
+        print(f"  {v.message}")
+```
+
+## Attributes
+
+<PyAttribute name={"passed"} type={"bool"}>
+
+`True` if no violations were found.
+
+</PyAttribute>
+
+<PyAttribute name={"violations"} type={"list[CheckViolation]"}>
+
+List of all check violations found.
+
+</PyAttribute>
+
+<PyAttribute name={"ports_checked"} type={"int"}>
+
+Number of ports checked during the run.
+
+</PyAttribute>
+
+<PyAttribute name={"connections_found"} type={"int"}>
+
+Number of valid port-to-port connections found.
+
+</PyAttribute>
+
+<PyAttribute name={"bends_checked"} type={"int"}>
+
+Number of bends checked against the minimum radius.
+
+</PyAttribute>
+
+<PyAttribute name={"elapsed_ms"} type={"float"}>
+
+Elapsed time in milliseconds.
+
+</PyAttribute>

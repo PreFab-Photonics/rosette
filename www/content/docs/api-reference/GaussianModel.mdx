@@ -1,0 +1,50 @@
+---
+title: GaussianModel
+---
+
+Gaussian blur DFM model for proximity effect simulation.
+
+Simulates optical proximity effects during lithography by applying a
+Gaussian blur to the rasterized geometry. The model produces continuous
+values in `[0.0, 1.0]` representing fabrication probability. Binarization
+is controlled by `contour_threshold` in `DfmConfig`.
+
+```python
+model = GaussianModel(sigma=0.08)
+result = run_dfm(cell, layers=[Layer(1)], model=model)
+```
+
+## Attributes
+
+<PyAttribute name={"sigma"} type={"float"}>
+
+Gaussian blur sigma in design units. Larger values simulate stronger
+proximity effects (more blurring).
+
+</PyAttribute>
+
+<PyAttribute name={"name"} type={"str"}>
+
+Model name identifier.
+
+</PyAttribute>
+
+## Methods
+
+<PyFunction name={"__init__"} type={"(sigma) -> None"}>
+
+Create a Gaussian blur DFM model.
+
+<div>
+
+<PyParameter name={"sigma"} type={"float"}>
+
+Gaussian blur sigma in design units.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

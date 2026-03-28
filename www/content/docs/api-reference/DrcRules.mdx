@@ -1,0 +1,361 @@
+---
+title: DrcRules
+---
+
+Builder for DRC rule sets.
+
+DrcRules uses a fluent builder pattern — each method returns a new `DrcRules`
+with the rule added, so you can chain calls together. Start with an empty
+`DrcRules()` and add rules for minimum width, spacing, area, enclosure,
+overlap, angles, and more.
+
+```python
+rules = (
+    DrcRules()
+    .min_width(Layer(1), 0.12, name="WG.W.1")
+    .min_spacing(Layer(1), Layer(1), 0.15, name="WG.S.1")
+    .min_area(Layer(1), 0.01)
+    .min_enclosure(Layer(11), Layer(10), 0.10, name="VIA_ENC")
+    .allowed_angles(Layer(1), [0, 90], name="WG.ANG")
+)
+
+result = run_drc(cell, rules)
+```
+
+## Methods
+
+<PyFunction name={"__init__"} type={"() -> None"}>
+
+Create an empty DRC rule set.
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"min_width"} type={"(layer, width, name=None) -> DrcRules"}>
+
+Add a minimum width rule for a layer.
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer. Accepts a `Layer` object, a single int (datatype defaults to 0),
+or a `(number, datatype)` tuple.
+
+</PyParameter>
+<PyParameter name={"width"} type={"float"}>
+
+Minimum allowed width in design units.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"min_spacing"} type={"(layer1, layer2, spacing, name=None) -> DrcRules"}>
+
+Add a minimum spacing rule between two layers.
+
+Use the same layer for both arguments to check intra-layer spacing.
+
+<div>
+
+<PyParameter name={"layer1"} type={"Layer | int | tuple[int, int]"}>
+
+First layer.
+
+</PyParameter>
+<PyParameter name={"layer2"} type={"Layer | int | tuple[int, int]"}>
+
+Second layer.
+
+</PyParameter>
+<PyParameter name={"spacing"} type={"float"}>
+
+Minimum allowed spacing in design units.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"min_area"} type={"(layer, area, name=None) -> DrcRules"}>
+
+Add a minimum area rule for a layer.
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer.
+
+</PyParameter>
+<PyParameter name={"area"} type={"float"}>
+
+Minimum allowed polygon area in design units squared.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"min_enclosure"} type={"(inner, outer, enclosure, name=None) -> DrcRules"}>
+
+Add an enclosure rule (inner layer must be enclosed by outer layer).
+
+<div>
+
+<PyParameter name={"inner"} type={"Layer | int | tuple[int, int]"}>
+
+Inner layer that must be enclosed.
+
+</PyParameter>
+<PyParameter name={"outer"} type={"Layer | int | tuple[int, int]"}>
+
+Outer layer that must enclose the inner layer.
+
+</PyParameter>
+<PyParameter name={"enclosure"} type={"float"}>
+
+Minimum enclosure distance in design units.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"require_overlap"} type={"(layer1, layer2, name=None) -> DrcRules"}>
+
+Add a rule requiring overlap between two layers.
+
+<div>
+
+<PyParameter name={"layer1"} type={"Layer | int | tuple[int, int]"}>
+
+First layer.
+
+</PyParameter>
+<PyParameter name={"layer2"} type={"Layer | int | tuple[int, int]"}>
+
+Second layer.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"forbid_overlap"} type={"(layer1, layer2, name=None) -> DrcRules"}>
+
+Add a rule forbidding overlap between two layers.
+
+<div>
+
+<PyParameter name={"layer1"} type={"Layer | int | tuple[int, int]"}>
+
+First layer.
+
+</PyParameter>
+<PyParameter name={"layer2"} type={"Layer | int | tuple[int, int]"}>
+
+Second layer.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"allowed_angles"} type={"(layer, angles, name=None) -> DrcRules"}>
+
+Add a rule restricting polygon edge angles to specified values (in degrees).
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer.
+
+</PyParameter>
+<PyParameter name={"angles"} type={"list[float]"}>
+
+List of allowed edge angles in degrees (e.g., `[0, 90]` for Manhattan geometry).
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"min_edge_length"} type={"(layer, length, name=None) -> DrcRules"}>
+
+Add a minimum edge length rule for a layer. Catches tiny jogs and notches.
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer.
+
+</PyParameter>
+<PyParameter name={"length"} type={"float"}>
+
+Minimum allowed edge length in design units.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"no_self_intersection"} type={"(layer, name=None) -> DrcRules"}>
+
+Add a self-intersection check for a layer. Detects invalid (self-crossing) geometry.
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"max_width"} type={"(layer, width, name=None) -> DrcRules"}>
+
+Add a maximum width rule for a layer. Useful for enforcing single-mode waveguide constraints.
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer.
+
+</PyParameter>
+<PyParameter name={"width"} type={"float"}>
+
+Maximum allowed width in design units.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>

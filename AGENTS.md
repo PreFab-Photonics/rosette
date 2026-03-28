@@ -58,3 +58,5 @@ rosette --version                                  # Print version
 **Python wrappers:** `__slots__` on all classes. `_inner` holds the Rust object. `_from_inner` classmethod to wrap existing Rust objects.
 
 **Templates:** `rosette init` copies from `python/rosette/templates/blank/` or `python/rosette/templates/generic/`. Check if changes need template updates.
+
+**API docs:** Every symbol in `__all__` (in `python/rosette/__init__.py`) must have a corresponding docs page in `www/content/docs/api-reference/`. Classes get their own `.mdx` file, functions and constants are documented on `index.mdx`. Run `uv run python www/scripts/check-api-docs.py` to verify. When adding or changing a public API symbol, update the docs page to match.

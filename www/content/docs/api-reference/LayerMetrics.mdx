@@ -1,0 +1,63 @@
+---
+title: LayerMetrics
+---
+
+Per-layer DFM comparison metrics between designed and predicted geometry.
+
+Available on each `LayerPrediction` in a `DfmResult`. Provides quantitative
+measures of how the predicted (post-fabrication) geometry differs from the
+designed geometry.
+
+```python
+result = run_dfm(cell, layers=[Layer(1)])
+for lp in result.layers:
+    m = lp.metrics
+    if m:
+        print(f"Layer {m.layer}: edge dev {m.max_edge_deviation:.3f} um, "
+              f"area dev {m.area_deviation:.1%}")
+```
+
+## Attributes
+
+<PyAttribute name={"layer"} type={"tuple[int, int]"}>
+
+The `(number, datatype)` of the layer.
+
+</PyAttribute>
+
+<PyAttribute name={"max_edge_deviation"} type={"float"}>
+
+Maximum edge deviation between designed and predicted geometry, in design units.
+
+</PyAttribute>
+
+<PyAttribute name={"area_deviation"} type={"float"}>
+
+Relative area change (signed). Negative values indicate shrinkage,
+positive values indicate expansion.
+
+</PyAttribute>
+
+<PyAttribute name={"designed_area"} type={"float"}>
+
+Designed area in design units squared.
+
+</PyAttribute>
+
+<PyAttribute name={"predicted_area"} type={"float"}>
+
+Predicted area in design units squared.
+
+</PyAttribute>
+
+<PyAttribute name={"designed_feature_count"} type={"int"}>
+
+Number of connected components in the designed raster.
+
+</PyAttribute>
+
+<PyAttribute name={"predicted_feature_count"} type={"int"}>
+
+Number of connected components in the predicted raster.
+
+</PyAttribute>

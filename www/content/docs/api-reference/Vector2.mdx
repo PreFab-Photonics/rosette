@@ -1,0 +1,200 @@
+---
+title: Vector2
+---
+
+A 2D vector with x and y components.
+
+Vectors represent directions and displacements in the layout plane. They
+are used for translations, port directions, and geometric calculations.
+Vectors are immutable -- all methods return new Vector2 instances.
+
+```python
+v = Vector2(3, 4)
+v.length()      # 5.0
+v.normalize()   # Vector2(0.6, 0.8)
+
+# Unit vectors and angle construction
+right = Vector2.unit_x()            # Vector2(1, 0)
+diagonal = Vector2.from_angle(45)   # Vector2(0.707..., 0.707...)
+```
+
+## Attributes
+
+<PyAttribute name={"x"} type={"float"}>
+
+X component.
+
+</PyAttribute>
+
+<PyAttribute name={"y"} type={"float"}>
+
+Y component.
+
+</PyAttribute>
+
+## Static methods
+
+<PyFunction name={"unit_x"} type={"() -> Vector2"}>
+
+Return the unit vector along the X axis: `Vector2(1, 0)`.
+
+<PyFunctionReturn type={"Vector2"} />
+
+</PyFunction>
+
+<PyFunction name={"unit_y"} type={"() -> Vector2"}>
+
+Return the unit vector along the Y axis: `Vector2(0, 1)`.
+
+<PyFunctionReturn type={"Vector2"} />
+
+</PyFunction>
+
+<PyFunction name={"from_angle"} type={"(angle_deg) -> Vector2"}>
+
+Create a unit vector from an angle in degrees. 0 degrees points along +X,
+90 degrees points along +Y.
+
+<div>
+
+<PyParameter name={"angle_deg"} type={"float"}>
+
+Angle in degrees (counter-clockwise from +X).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Vector2"}>
+
+A unit vector pointing in the given direction.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+## Methods
+
+<PyFunction name={"__init__"} type={"(x=0.0, y=0.0) -> None"}>
+
+Create a new vector.
+
+<div>
+
+<PyParameter name={"x"} type={"float"} value={"0.0"}>
+
+X component.
+
+</PyParameter>
+<PyParameter name={"y"} type={"float"} value={"0.0"}>
+
+Y component.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"length"} type={"() -> float"}>
+
+Return the Euclidean length (magnitude) of the vector.
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>
+
+<PyFunction name={"normalize"} type={"() -> Vector2"}>
+
+Return a unit vector in the same direction. The original vector must be
+non-zero.
+
+<PyFunctionReturn type={"Vector2"}>
+
+A new vector with length 1.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"dot"} type={"(other) -> float"}>
+
+Compute the dot product with another vector.
+
+<div>
+
+<PyParameter name={"other"} type={"Vector2"}>
+
+The other vector.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"float"}>
+
+The scalar dot product.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"perpendicular"} type={"() -> Vector2"}>
+
+Return a vector perpendicular to this one (rotated 90 degrees
+counter-clockwise).
+
+<PyFunctionReturn type={"Vector2"} />
+
+</PyFunction>
+
+<PyFunction name={"rotate"} type={"(angle_deg) -> Vector2"}>
+
+Rotate the vector by the given angle.
+
+<div>
+
+<PyParameter name={"angle_deg"} type={"float"}>
+
+Rotation angle in degrees (counter-clockwise).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Vector2"}>
+
+A new rotated vector.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+## Supported operations
+
+**Addition**: `v1 + v2` returns a new `Vector2` that is the component-wise sum.
+
+```python
+Vector2(1, 2) + Vector2(3, 4)  # Vector2(4, 6)
+```
+
+**Subtraction**: `v1 - v2` returns a new `Vector2` that is the component-wise difference.
+
+```python
+Vector2(5, 7) - Vector2(1, 2)  # Vector2(4, 5)
+```
+
+**Scalar multiplication**: `v * scalar` or `scalar * v` scales both components.
+
+```python
+Vector2(3, 4) * 2    # Vector2(6, 8)
+2 * Vector2(3, 4)    # Vector2(6, 8)
+```
+
+**Negation**: `-v` returns a vector pointing in the opposite direction.
+
+```python
+-Vector2(3, -4)  # Vector2(-3, 4)
+```

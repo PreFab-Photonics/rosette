@@ -4,60 +4,48 @@ title: Cell
 
 A cell containing geometry and references to other cells.
 
-This wrapper around the core Cell adds:
-- `at(x, y)` method returning an Instance for ergonomic positioning
-- Automatic child cell tracking for simplified write_gds() calls
+Cells are the primary container for layout geometry. Each cell has a unique
+name and holds polygons, paths, text labels, ports, and references to other
+cells. Use `cell.at(x, y)` to create positioned instances for ergonomic
+placement and port queries.
 
-All other methods delegate to the underlying Rust Cell.
+```python
+cell = Cell("my_design")
+cell.add_polygon(Polygon.rect(Point.origin(), 10, 5), Layer(1, 0))
+cell.add_port(Port("in", Point(0, 2.5), Vector2(-1, 0), width=0.5))
+
+# Position and add to a parent cell
+top = Cell("top")
+top.add_ref(cell.at(100, 50))
+```
 
 ## Attributes
 
-<PyAttribute name={"__slots__"} type={null} value={"('_child_cells', '_def_source', '_element_sources', '_inner')"} />
+<PyAttribute name={"name"} type={"str"}>
 
-<PyAttribute name={"name"} type={"str"} value={null}>
-
-Cell name.
+Cell name (unique within a design).
 
 </PyAttribute>
 
-<PyAttribute name={"path_length"} type={"float | None"} value={null}>
+<PyAttribute name={"path_length"} type={"float | None"}>
 
-Path length metadata (if built from a Route).
+Path length metadata. Automatically set when a cell is created from a Route
+via `to_cell()`. Can also be set manually for component cells.
 
 </PyAttribute>
 
-## Functions
+## Methods
 
-<PyFunction name={"__init__"} type={"(self, name) -> None"}>
+<PyFunction name={"__init__"} type={"(name) -> None"}>
 
 Create a new empty cell.
 
-<PySourceCode >
+<div>
 
-```python
-def __init__(self, name: str) -> None:
-    """Create a new empty cell.
+<PyParameter name={"name"} type={"str"}>
 
-    Args:
-        name: Name of the cell (must be unique within a design)
-    """
-    self._inner = _Cell(name)
-    self._child_cells: set[Cell] = set()
-    self._element_sources: list[SourceLocation | None] = []
-    if _SOURCE_TRACKING:
-        self._def_source: SourceLocation | None = _capture_source("cell_def")
-    else:
-        self._def_source = None
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"name"} type={"str"} value={undefined}>
-
-Name of the cell (must be unique within a design)
+Name of the cell. Must be unique within a design, non-empty, at most 32
+characters, and contain only printable ASCII (no spaces or Unicode).
 
 </PyParameter>
 
@@ -67,27 +55,25 @@ Name of the cell (must be unique within a design)
 
 </PyFunction>
 
-<PyFunction name={"add_polygon"} type={"(self, polygon, layer) -> None"}>
+### Geometry
+
+<PyFunction name={"add_polygon"} type={"(polygon, layer) -> None"}>
 
 Add a polygon to the cell.
 
-<PySourceCode >
+<div>
 
-```python
-def add_polygon(self, polygon: Polygon, layer: Layer | int | tuple[int, int]) -> None:
-    """Add a polygon to the cell."""
-    if _SOURCE_TRACKING:
-        self._element_sources.append(_capture_source("polygon"))
-    self._inner.add_polygon(polygon, layer)
-```
+<PyParameter name={"polygon"} type={"Polygon"}>
 
-</PySourceCode>
+The polygon to add.
 
-<div >
+</PyParameter>
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
 
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"polygon"} type={"Polygon"} value={null} />
-<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"} value={null} />
+Target layer. Accepts a `Layer` object, a single int (datatype defaults to 0),
+or a `(number, datatype)` tuple.
+
+</PyParameter>
 
 </div>
 
@@ -95,7 +81,7 @@ def add_polygon(self, polygon: Polygon, layer: Layer | int | tuple[int, int]) ->
 
 </PyFunction>
 
-<PyFunction name={"add_path"} type={"(self, points, width, layer, end_type=None) -> None"}>
+<PyFunction name={"add_path"} type={"(points, width, layer, end_type=None) -> None"}>
 
 Add a path (centerline with width) to the cell.
 
@@ -116,64 +102,26 @@ cell.add_path(
 
 </Callout>
 
-<PySourceCode >
+<div>
 
-```python
-def add_path(
-    self,
-    points: list[Point],
-    width: float,
-    layer: Layer | int | tuple[int, int],
-    end_type: PathEndType | None = None,
-) -> None:
-    """Add a path (centerline with width) to the cell.
+<PyParameter name={"points"} type={"list[Point]"}>
 
-    Paths are an alternative to polygons for representing waveguides and
-    similar structures. They store a centerline and width, which can be
-    more compact than storing the full polygon outline.
-
-    Args:
-        points: List of Point objects along the path centerline
-        width: Width of the path
-        layer: Layer number or Layer object
-        end_type: Path end type (default: PathEndType.FLUSH)
-
-    Example:
-        cell.add_path(
-            [Point(0, 0), Point(100, 0), Point(100, 50)],
-            width=0.5,
-            layer=1,
-            end_type=PathEndType.ROUND
-        )
-    """
-    if _SOURCE_TRACKING:
-        self._element_sources.append(_capture_source("path"))
-    self._inner.add_path(points, width, layer, end_type)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"points"} type={"list[Point]"} value={undefined}>
-
-List of Point objects along the path centerline
+List of Point objects along the path centerline.
 
 </PyParameter>
-<PyParameter name={"width"} type={"float"} value={undefined}>
+<PyParameter name={"width"} type={"float"}>
 
-Width of the path
+Width of the path.
 
 </PyParameter>
-<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"} value={undefined}>
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
 
-Layer number or Layer object
+Target layer.
 
 </PyParameter>
 <PyParameter name={"end_type"} type={"PathEndType | None"} value={"None"}>
 
-Path end type (default: PathEndType.FLUSH)
+Path end type. Defaults to `PathEndType.FLUSH`.
 
 </PyParameter>
 
@@ -183,7 +131,7 @@ Path end type (default: PathEndType.FLUSH)
 
 </PyFunction>
 
-<PyFunction name={"add_text"} type={"(self, text, position, layer, height=1.0) -> None"}>
+<PyFunction name={"add_text"} type={"(text, position, layer, height=1.0) -> None"}>
 
 Add a text label to the cell.
 
@@ -199,59 +147,26 @@ cell.add_text("Big Label", Point(0, 10), layer=10, height=5.0)
 
 </Callout>
 
-<PySourceCode >
+<div>
 
-```python
-def add_text(
-    self,
-    text: str,
-    position: Point,
-    layer: Layer | int | tuple[int, int],
-    height: float = 1.0,
-) -> None:
-    """Add a text label to the cell.
+<PyParameter name={"text"} type={"str"}>
 
-    Text labels are useful for debugging and documentation but are
-    typically not fabricated.
-
-    Args:
-        text: The text string
-        position: Position of the text
-        layer: Layer number or Layer object
-        height: Text height in user units (default: 1.0)
-
-    Example:
-        cell.add_text("Input", Point(0, 5), layer=10)
-        cell.add_text("Big Label", Point(0, 10), layer=10, height=5.0)
-    """
-    if _SOURCE_TRACKING:
-        self._element_sources.append(_capture_source("text"))
-    self._inner.add_text(text, position, layer, height)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"text"} type={"str"} value={undefined}>
-
-The text string
+The text string.
 
 </PyParameter>
-<PyParameter name={"position"} type={"Point"} value={undefined}>
+<PyParameter name={"position"} type={"Point"}>
 
-Position of the text
+Position of the text.
 
 </PyParameter>
-<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"} value={undefined}>
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
 
-Layer number or Layer object
+Target layer.
 
 </PyParameter>
 <PyParameter name={"height"} type={"float"} value={"1.0"}>
 
-Text height in user units (default: 1.0)
+Text height in user units.
 
 </PyParameter>
 
@@ -261,24 +176,19 @@ Text height in user units (default: 1.0)
 
 </PyFunction>
 
-<PyFunction name={"add_port"} type={"(self, port) -> None"}>
+### Ports
+
+<PyFunction name={"add_port"} type={"(port) -> None"}>
 
 Add a port to the cell.
 
-<PySourceCode >
+<div>
 
-```python
-def add_port(self, port: Port) -> None:
-    """Add a port to the cell."""
-    self._inner.add_port(port)
-```
+<PyParameter name={"port"} type={"Port"}>
 
-</PySourceCode>
+The port to add.
 
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"port"} type={"Port"} value={null} />
+</PyParameter>
 
 </div>
 
@@ -286,205 +196,89 @@ def add_port(self, port: Port) -> None:
 
 </PyFunction>
 
-<PyFunction name={"port"} type={"(self, name) -> Port"}>
+<PyFunction name={"port"} type={"(name) -> Port"}>
 
-Get a port by name. Raises KeyError if not found.
+Get a port by name.
 
-<PySourceCode >
+<div>
 
-```python
-def port(self, name: str) -> Port:
-    """Get a port by name. Raises KeyError if not found."""
-    return self._inner.port(name)
-```
+<PyParameter name={"name"} type={"str"}>
 
-</PySourceCode>
+Name of the port to retrieve.
 
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"name"} type={"str"} value={null} />
+</PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"rosette._core.Port"} />
+<PyFunctionReturn type={"Port"}>
+
+The port object.
+
+</PyFunctionReturn>
 
 </PyFunction>
 
-<PyFunction name={"ports"} type={"(self) -> list[Port]"}>
+<PyFunction name={"ports"} type={"() -> list[Port]"}>
 
-Get all ports.
+Get all ports defined on this cell.
 
-<PySourceCode >
+<PyFunctionReturn type={"list[Port]"}>
 
-```python
-def ports(self) -> list[Port]:
-    """Get all ports."""
-    return self._inner.ports()
-```
+List of all ports.
 
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"list[rosette._core.Port]"} />
+</PyFunctionReturn>
 
 </PyFunction>
 
-<PyFunction name={"polygon_count"} type={"(self) -> int"}>
+### Counts
 
-Number of polygons in the cell.
+<PyFunction name={"polygon_count"} type={"() -> int"}>
 
-<PySourceCode >
-
-```python
-def polygon_count(self) -> int:
-    """Number of polygons in the cell."""
-    return self._inner.polygon_count()
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
+Number of polygons in the cell (not counting child cells).
 
 <PyFunctionReturn type={"int"} />
 
 </PyFunction>
 
-<PyFunction name={"path_count"} type={"(self) -> int"}>
+<PyFunction name={"path_count"} type={"() -> int"}>
 
 Number of paths in the cell.
 
-<PySourceCode >
-
-```python
-def path_count(self) -> int:
-    """Number of paths in the cell."""
-    return self._inner.path_count()
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
 <PyFunctionReturn type={"int"} />
 
 </PyFunction>
 
-<PyFunction name={"text_count"} type={"(self) -> int"}>
+<PyFunction name={"text_count"} type={"() -> int"}>
 
 Number of text labels in the cell.
 
-<PySourceCode >
-
-```python
-def text_count(self) -> int:
-    """Number of text labels in the cell."""
-    return self._inner.text_count()
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
 <PyFunctionReturn type={"int"} />
 
 </PyFunction>
 
-<PyFunction name={"ref_count"} type={"(self) -> int"}>
+<PyFunction name={"ref_count"} type={"() -> int"}>
 
 Number of cell references.
 
-<PySourceCode >
-
-```python
-def ref_count(self) -> int:
-    """Number of cell references."""
-    return self._inner.ref_count()
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
 <PyFunctionReturn type={"int"} />
 
 </PyFunction>
 
-<PyFunction name={"bbox"} type={"(self) -> BBox | None"}>
+### Bounding box
 
-Calculate the bounding box of all polygons.
+<PyFunction name={"bbox"} type={"() -> BBox | None"}>
 
-<PySourceCode >
+Calculate the bounding box of all polygons in the cell.
 
-```python
-def bbox(self) -> BBox | None:
-    """Calculate the bounding box of all polygons."""
-    return self._inner.bbox()
-```
+Returns `None` if the cell contains no polygons.
 
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"rosette._core.BBox | None"} />
+<PyFunctionReturn type={"BBox | None"} />
 
 </PyFunction>
 
-<PyFunction name={"place_at_port"} type={"(self, cell_ref, cell_port, target_port) -> CellRef"}>
+### Placement
 
-Place a cell reference by aligning its port to a target port.
-
-<PySourceCode >
-
-```python
-def place_at_port(self, cell_ref: CellRef, cell_port: Port, target_port: Port) -> CellRef:
-    """Place a cell reference by aligning its port to a target port."""
-    inner_ref = cell_ref._inner if isinstance(cell_ref, CellRef) else cell_ref
-    result = self._inner.place_at_port(inner_ref, cell_port, target_port)
-    return CellRef._from_inner(result)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"cell_ref"} type={"CellRef"} value={null} />
-<PyParameter name={"cell_port"} type={"Port"} value={null} />
-<PyParameter name={"target_port"} type={"Port"} value={null} />
-
-</div>
-
-<PyFunctionReturn type={"rosette.CellRef"} />
-
-</PyFunction>
-
-<PyFunction name={"at"} type={"(self, x, y) -> Instance"}>
+<PyFunction name={"at"} type={"(x, y) -> Instance"}>
 
 Create a positioned instance of this cell.
 
@@ -495,7 +289,7 @@ redundantly passing the cell.
 <Callout title={"Example"} type={"example"}>
 
 ```python
-gc_cell = grating_coupler(...)
+gc_cell = grating_coupler(layer=layers.silicon.layer)
 gc_in = gc_cell.at(0, 0)
 gc_out = gc_cell.at(0, 127)
 
@@ -506,67 +300,36 @@ port_out = gc_out.port("opt")
 
 </Callout>
 
-<PySourceCode >
+<div>
 
-```python
-def at(self, x: float, y: float) -> Instance:
-    """Create a positioned instance of this cell.
+<PyParameter name={"x"} type={"float"}>
 
-    This is the recommended way to place cells in a design. The returned
-    Instance tracks the cell reference, allowing port queries without
-    redundantly passing the cell.
-
-    Args:
-        x: X coordinate
-        y: Y coordinate
-
-    Returns:
-        An Instance positioned at (x, y)
-
-    Example:
-        gc_cell = grating_coupler(...)
-        gc_in = gc_cell.at(0, 0)
-        gc_out = gc_cell.at(0, 127)
-
-        # Get ports directly from instances
-        port_in = gc_in.port("opt")
-        port_out = gc_out.port("opt")
-    """
-    return Instance(self, Transform.translate(x, y))
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"x"} type={"float"} value={undefined}>
-
-X coordinate
+X coordinate.
 
 </PyParameter>
-<PyParameter name={"y"} type={"float"} value={undefined}>
+<PyParameter name={"y"} type={"float"}>
 
-Y coordinate
+Y coordinate.
 
 </PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"rosette.Instance"}>
+<PyFunctionReturn type={"Instance"}>
 
-An Instance positioned at (x, y)
+An Instance positioned at (x, y).
 
 </PyFunctionReturn>
 
 </PyFunction>
 
-<PyFunction name={"add_ref"} type={"(self, ref) -> None"}>
+<PyFunction name={"add_ref"} type={"(ref) -> None"}>
 
-Add a cell, cell reference, or instance.
+Add a cell, cell reference, or instance to this cell.
 
 When adding a Cell or Instance, the child cell is automatically
-tracked for write_gds().
+tracked so that `write_gds()` can collect the full hierarchy without
+a manual cell list.
 
 <Callout title={"Example"} type={"example"}>
 
@@ -577,72 +340,11 @@ top.add_ref(route.to_cell("wg"))     # Cell at origin
 
 </Callout>
 
-<PySourceCode >
+<div>
 
-```python
-def add_ref(self, ref: Cell | CellRef | Instance) -> None:
-    """Add a cell, cell reference, or instance.
+<PyParameter name={"ref"} type={"Cell | CellRef | Instance"}>
 
-    When adding a Cell or Instance, the child cell is automatically
-    tracked for write_gds().
-
-    Args:
-        ref: A Cell (placed at origin), Instance, or CellRef to add
-
-    Example:
-        top.add_ref(gc_cell.at(0, 0))        # Instance at position
-        top.add_ref(route.to_cell("wg"))     # Cell at origin
-    """
-    if _SOURCE_TRACKING:
-        self._element_sources.append(_capture_source("ref"))
-
-    # Convert Cell to Instance at origin
-    if isinstance(ref, Cell):
-        ref = ref.at(0, 0)
-
-    if isinstance(ref, Instance):
-        instance = ref
-        # Track the child cell for auto-collection
-        self._child_cells.add(instance.cell)
-        # Also recursively include any children from the instance's cell
-        if hasattr(instance.cell, "_child_cells"):
-            self._child_cells.update(instance.cell._child_cells)
-        # Convert to Rust CellRef for the underlying Rust call
-        rust_ref = _CellRef(instance.cell.name)
-        # Apply the instance's transform by positioning
-        pos = instance.transform.apply(Point.origin())
-        rust_ref = rust_ref.at(pos.x, pos.y)
-        # Handle rotation - extract from transform
-        angle = instance._rotation_angle()
-        if abs(angle) > 0.001:
-            rust_ref = rust_ref.rotate(angle)
-        # Handle mirroring
-        if instance._is_mirrored_x():
-            rust_ref = rust_ref.mirror_x()
-        if instance._is_mirrored_y():
-            rust_ref = rust_ref.mirror_y()
-        self._inner.add_ref(rust_ref)
-    else:
-        # Raw CellRef - issue warning about untracked cell
-        warnings.warn(
-            f"Adding CellRef('{ref.cell_name}') without automatic child tracking. "
-            "Consider using cell.at(x, y) instead for automatic tracking, "
-            "or pass child cells explicitly to write_gds().",
-            stacklevel=2,
-        )
-        # Extract inner CellRef if it's our wrapper
-        inner_ref = ref._inner if isinstance(ref, CellRef) else ref
-        self._inner.add_ref(inner_ref)
-```
-
-</PySourceCode>
-
-<div >
-
-<PyParameter name={"self"} type={null} value={null} />
-<PyParameter name={"ref"} type={"Cell | CellRef | Instance"} value={undefined}>
-
-A Cell (placed at origin), Instance, or CellRef to add
+A Cell (placed at origin), Instance, or CellRef to add.
 
 </PyParameter>
 
@@ -652,55 +354,116 @@ A Cell (placed at origin), Instance, or CellRef to add
 
 </PyFunction>
 
-<PyFunction name={"get_child_cells"} type={"(self) -> set[Cell]"}>
+<PyFunction name={"place_at_port"} type={"(cell_ref, cell_port, target_port) -> CellRef"}>
 
-Get all tracked child cells (for write_gds auto-collection).
+Place a cell reference by aligning its port to a target port.
 
-<PySourceCode >
+<div>
 
-```python
-def get_child_cells(self) -> set[Cell]:
-    """Get all tracked child cells (for write_gds auto-collection).
+<PyParameter name={"cell_ref"} type={"CellRef"}>
 
-    Returns:
-        Set of child cells that have been added via add_ref(Instance)
-    """
-    return self._child_cells.copy()
-```
+The cell reference to place.
 
-</PySourceCode>
+</PyParameter>
+<PyParameter name={"cell_port"} type={"Port"}>
 
-<div >
+Port on the referenced cell to align.
 
-<PyParameter name={"self"} type={null} value={null} />
+</PyParameter>
+<PyParameter name={"target_port"} type={"Port"}>
+
+Target port to align to.
+
+</PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"set"}>
+<PyFunctionReturn type={"CellRef"}>
 
-Set of child cells that have been added via add_ref(Instance)
+The transformed cell reference.
 
 </PyFunctionReturn>
 
 </PyFunction>
 
-<PyFunction name={"__repr__"} type={"(self) -> str"}>
+<PyFunction name={"get_child_cells"} type={"() -> set[Cell]"}>
 
-<PySourceCode >
+Get all tracked child cells (for `write_gds()` auto-collection).
 
-```python
-def __repr__(self) -> str:
-    return f"Cell('{self.name}', {self.polygon_count()} polygons, {self.ref_count()} refs)"
-```
+<PyFunctionReturn type={"set[Cell]"}>
 
-</PySourceCode>
+Set of child cells that have been added via `add_ref()`.
 
-<div >
+</PyFunctionReturn>
 
-<PyParameter name={"self"} type={null} value={null} />
+</PyFunction>
+
+### Metadata
+
+<PyFunction name={"add_bend"} type={"(radius, x, y, requested_radius=None) -> None"}>
+
+Add a bend info entry to the cell metadata.
+
+This is used by component authors to record bend locations for
+design checks (`run_checks`). The bend radius and location are
+stored so that minimum bend radius violations can be detected.
+
+<div>
+
+<PyParameter name={"radius"} type={"float"}>
+
+Effective bend radius in um.
+
+</PyParameter>
+<PyParameter name={"x"} type={"float"}>
+
+X coordinate of bend location.
+
+</PyParameter>
+<PyParameter name={"y"} type={"float"}>
+
+Y coordinate of bend location.
+
+</PyParameter>
+<PyParameter name={"requested_radius"} type={"float | None"} value={"None"}>
+
+Original requested radius, if the router auto-reduced it.
+
+</PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"str"} />
+<PyFunctionReturn type={"None"} />
 
 </PyFunction>
+
+<PyAttribute name={"bends"} type={"list[dict]"}>
+
+Bend info entries as list of dicts with keys: `radius`, `x`, `y`,
+and optionally `requested_radius`.
+
+</PyAttribute>
+
+<PyFunction name={"add_warning"} type={"(warning) -> None"}>
+
+Add a warning to the cell metadata.
+
+<div>
+
+<PyParameter name={"warning"} type={"str"}>
+
+Warning message string.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyAttribute name={"cell_warnings"} type={"list[str]"}>
+
+Warnings from cell construction (e.g., auto-reduced bend radii).
+
+</PyAttribute>
