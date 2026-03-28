@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Connectivity checking for photonic layouts (port-to-port, floating ports, shorted nets)
+- Unified `rosette-checks` crate combining connectivity and bend-radius analysis
+- DRC: self-intersection, max-width, and minimum-edge-length checks
+- DFM: continuous rasterization, feature detection, decoupled from check CLI
+- 20 new API reference doc pages (BBox, Point, Polygon, Port, Transform, Vector2, DRC/DFM types, etc.)
+- CI check for API docs completeness (`check-api-docs.py`)
+- Bend-radius metadata on Route, Bend, Ring, and Spiral components
+
+### Changed
+
+- Replaced `rosette-connectivity` crate with unified `rosette-checks` crate
+- Overhauled DFM pipeline: continuous rasters, contour comparison improvements, configurable via `rosette.toml`
+- Overhauled DRC runner: fixed 5 bugs, improved config and violation reporting
+- Rewrote API reference docs from scratch, removing stale auto-generated component pages
+
+### Removed
+
+- `rosette-connectivity` crate (merged into `rosette-checks`)
+- Auto-generated component doc pages (bend, crossing, coupler, grating, MMI, ring, s-bend, spiral, taper, waveguide, y-branch)
+- Example design scripts (`connectivity_fail.py`, `connectivity_pass.py`, `dfm_test.py`, `gc_loopback.py`)
+
 ## [0.1.6] - 2026-03-27
 
 ### Added
