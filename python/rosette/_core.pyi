@@ -882,6 +882,29 @@ class DrcRules:
     ) -> DrcRules:
         """Add rule restricting edge angles to specified values (degrees)."""
         ...
+    def min_edge_length(
+        self,
+        layer: Layer | int | tuple[int, int],
+        length: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add minimum edge length rule for a layer (catches tiny jogs/notches)."""
+        ...
+    def no_self_intersection(
+        self,
+        layer: Layer | int | tuple[int, int],
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add self-intersection check for a layer (invalid geometry detection)."""
+        ...
+    def max_width(
+        self,
+        layer: Layer | int | tuple[int, int],
+        width: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add maximum width rule for a layer (e.g., single-mode waveguide enforcement)."""
+        ...
     def __repr__(self) -> str: ...
 
 class DrcViolation:

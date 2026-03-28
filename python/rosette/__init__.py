@@ -1088,18 +1088,35 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         # Parse layer string "number/datatype"
         layer = _parse_layer_string(layer_str)
 
+        # Auto-generate rule names from layer string so violations are
+        # identifiable (e.g., "L1/0.min_width") when no explicit name is given.
+        prefix = f"L{layer_str}"
+
         # Apply rules for this layer
         if "min_width" in layer_rules:
-            rules = rules.min_width(layer, layer_rules["min_width"])
+            rules = rules.min_width(layer, layer_rules["min_width"], f"{prefix}.min_width")
 
         if "min_spacing" in layer_rules:
-            rules = rules.min_spacing(layer, layer, layer_rules["min_spacing"])
+            rules = rules.min_spacing(
+                layer, layer, layer_rules["min_spacing"], f"{prefix}.min_spacing"
+            )
 
         if "min_area" in layer_rules:
-            rules = rules.min_area(layer, layer_rules["min_area"])
+            rules = rules.min_area(layer, layer_rules["min_area"], f"{prefix}.min_area")
 
         if "angles" in layer_rules:
-            rules = rules.allowed_angles(layer, layer_rules["angles"])
+            rules = rules.allowed_angles(layer, layer_rules["angles"], f"{prefix}.allowed_angles")
+
+        if "min_edge_length" in layer_rules:
+            rules = rules.min_edge_length(
+                layer, layer_rules["min_edge_length"], f"{prefix}.min_edge_length"
+            )
+
+        if "max_width" in layer_rules:
+            rules = rules.max_width(layer, layer_rules["max_width"], f"{prefix}.max_width")
+
+        if layer_rules.get("no_self_intersection", False):
+            rules = rules.no_self_intersection(layer, f"{prefix}.no_self_intersection")
 
     # Process inter-layer rules
     inter_layer_rules = drc_config.get("rules", [])

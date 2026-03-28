@@ -49,6 +49,20 @@ pub enum Rule {
         allowed_angles: Vec<f64>,
         name: Option<String>,
     },
+    /// Minimum edge length for polygons on a layer.
+    MinEdgeLength {
+        layer: Layer,
+        length: f64,
+        name: Option<String>,
+    },
+    /// Check polygons for self-intersection on a layer.
+    SelfIntersection { layer: Layer, name: Option<String> },
+    /// Maximum width for polygons on a layer.
+    MaxWidth {
+        layer: Layer,
+        width: f64,
+        name: Option<String>,
+    },
 }
 
 /// Builder for DRC rule sets.
@@ -178,6 +192,49 @@ impl DrcRules {
         self.rules.push(Rule::AllowedAngles {
             layer: layer.into(),
             allowed_angles: angles.to_vec(),
+            name: name.map(String::from),
+        });
+        self
+    }
+
+    /// Add a minimum edge length rule for polygons on a layer.
+    ///
+    /// Catches tiny jogs, notches, or vertices that are closer together than
+    /// the lithography resolution.
+    pub fn min_edge_length(
+        mut self,
+        layer: impl Into<Layer>,
+        length: f64,
+        name: Option<&str>,
+    ) -> Self {
+        self.rules.push(Rule::MinEdgeLength {
+            layer: layer.into(),
+            length,
+            name: name.map(String::from),
+        });
+        self
+    }
+
+    /// Add a self-intersection check for polygons on a layer.
+    ///
+    /// Self-intersecting polygons are geometrically invalid and will be
+    /// rejected by foundries.
+    pub fn no_self_intersection(mut self, layer: impl Into<Layer>, name: Option<&str>) -> Self {
+        self.rules.push(Rule::SelfIntersection {
+            layer: layer.into(),
+            name: name.map(String::from),
+        });
+        self
+    }
+
+    /// Add a maximum width rule for polygons on a layer.
+    ///
+    /// In photonics, prevents multimode waveguides by enforcing the single-mode
+    /// width cutoff.
+    pub fn max_width(mut self, layer: impl Into<Layer>, width: f64, name: Option<&str>) -> Self {
+        self.rules.push(Rule::MaxWidth {
+            layer: layer.into(),
+            width,
             name: name.map(String::from),
         });
         self

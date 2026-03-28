@@ -55,8 +55,8 @@ impl PointDistance for IndexedPolygon {
 ///
 /// Uses R-tree for efficient spatial indexing to avoid O(n²) comparisons.
 ///
-/// When checking the same layer against itself (layer1 == layer2 and same polygon list),
-/// pass the same slice for both polygons1 and polygons2 to enable deduplication.
+/// When `same_layer` is true, deduplication logic ensures each polygon pair is
+/// only checked once (A-B, not B-A) and self-comparisons are skipped.
 pub fn check_spacing(
     polygons1: &[(Polygon, usize)],
     layer1: Layer,
@@ -64,6 +64,7 @@ pub fn check_spacing(
     layer2: Layer,
     min_spacing: f64,
     rule_name: Option<&str>,
+    same_layer: bool,
 ) -> Vec<DrcViolation> {
     if polygons1.is_empty() || polygons2.is_empty() {
         return Vec::new();
@@ -83,10 +84,6 @@ pub fn check_spacing(
 
     let mut violations = Vec::new();
 
-    // Check if we're comparing a layer against itself with the same polygon list
-    // This is detected by checking if both slices have the same pointer
-    let same_list = std::ptr::eq(polygons1.as_ptr(), polygons2.as_ptr());
-
     for (poly1, orig_idx1) in polygons1 {
         // Expand bbox by spacing to find candidates
         let search_bbox = poly1.bbox().expand_by(min_spacing);
@@ -99,10 +96,10 @@ pub fn check_spacing(
 
         // Use locate_in_envelope_intersecting for proper intersection query
         for candidate in tree.locate_in_envelope_intersecting(&search_envelope) {
-            // When comparing the same list against itself:
+            // When checking same-layer spacing:
             // - Skip if candidate has lower or equal index to avoid duplicates (A-B and B-A)
             // - This also prevents self-comparison (A-A)
-            if same_list && candidate.orig_index <= *orig_idx1 {
+            if same_layer && candidate.orig_index <= *orig_idx1 {
                 continue;
             }
 
@@ -161,6 +158,7 @@ mod tests {
             Layer::new(1, 0),
             4.0,
             None,
+            true,
         );
 
         assert!(violations.is_empty());
@@ -184,6 +182,7 @@ mod tests {
             Layer::new(2, 0),
             2.0,
             None,
+            false,
         );
 
         assert_eq!(violations.len(), 1);
@@ -200,7 +199,7 @@ mod tests {
         let poly = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
         let polys = vec![(poly, 0)];
 
-        // Same polygon list for both - should not compare against itself
+        // Same layer — should not compare against itself
         let violations = check_spacing(
             &polys,
             Layer::new(1, 0),
@@ -208,6 +207,7 @@ mod tests {
             Layer::new(1, 0),
             1.0,
             None,
+            true,
         );
 
         assert!(violations.is_empty());
