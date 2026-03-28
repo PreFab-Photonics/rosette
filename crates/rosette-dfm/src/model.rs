@@ -4,6 +4,8 @@
 //! Start with [`GaussianModel`] for simple proximity effect simulation;
 //! future models will integrate PreFab for foundry-calibrated predictions.
 
+use rayon::prelude::*;
+
 use crate::rasterize::LayerRaster;
 
 /// A fabrication prediction model that operates on rasterized geometry.
@@ -21,8 +23,10 @@ pub trait DfmModel: Send + Sync {
 /// Gaussian blur model for proximity effect simulation.
 ///
 /// Applies a 2D Gaussian blur to the rasterized geometry to simulate
-/// optical proximity effects during lithography. The blurred result is
-/// then thresholded to produce a binary predicted geometry.
+/// optical proximity effects during lithography. The blurred result
+/// contains continuous values in `[0.0, 1.0]` representing fabrication
+/// probability at each pixel. Binarization is deferred to contour
+/// extraction, where the user-configured threshold is applied.
 ///
 /// This is a simplified model suitable for quick iteration.
 /// For foundry-calibrated predictions, use PreFab models (coming soon).
@@ -30,8 +34,6 @@ pub trait DfmModel: Send + Sync {
 pub struct GaussianModel {
     /// Gaussian sigma in pixels.
     pub sigma_px: f64,
-    /// Threshold for binarization after blur (0.0 - 1.0).
-    pub threshold: f64,
 }
 
 impl GaussianModel {
@@ -40,21 +42,16 @@ impl GaussianModel {
     /// # Arguments
     ///
     /// * `sigma_px` - Gaussian sigma in pixels
-    /// * `threshold` - Binarization threshold (default 0.5)
-    pub fn new(sigma_px: f64, threshold: f64) -> Self {
-        Self {
-            sigma_px,
-            threshold,
-        }
+    pub fn new(sigma_px: f64) -> Self {
+        Self { sigma_px }
     }
 
     /// Create from design-unit sigma and resolution.
     ///
     /// Converts sigma from design units to pixels.
-    pub fn from_design_units(sigma: f64, resolution: f64, threshold: f64) -> Self {
+    pub fn from_design_units(sigma: f64, resolution: f64) -> Self {
         Self {
             sigma_px: sigma / resolution,
-            threshold,
         }
     }
 }
@@ -86,36 +83,44 @@ impl DfmModel for GaussianModel {
         }
 
         // Separable 2D Gaussian: horizontal pass, then vertical pass.
-        // f64 intermediates are allocated here and freed at the end — the
-        // returned raster is compact u8.
+        // Both passes are row-parallel via rayon for large rasters.
+        // Uses f64 intermediates for precision, final output is f32.
+
+        // Horizontal pass (reads f32 input, writes f64 temp) — parallel by row
         let mut temp = vec![0.0f64; width * height];
-
-        // Horizontal pass (reads u8 input, writes f64 temp)
-        for row in 0..height {
-            for col in 0..width {
-                let mut acc = 0.0;
-                for (k, &kv) in kernel.iter().enumerate() {
-                    let src_col = col as isize + k as isize - radius as isize;
-                    let src_col = src_col.clamp(0, width as isize - 1) as usize;
-                    acc += input.grid[row * width + src_col] as f64 * kv;
+        temp.par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(row, temp_row)| {
+                let row_offset = row * width;
+                for (col, pixel) in temp_row.iter_mut().enumerate() {
+                    let mut acc = 0.0;
+                    for (k, &kv) in kernel.iter().enumerate() {
+                        let src_col = (col as isize + k as isize - radius as isize)
+                            .clamp(0, width as isize - 1)
+                            as usize;
+                        acc += input.grid[row_offset + src_col] as f64 * kv;
+                    }
+                    *pixel = acc;
                 }
-                temp[row * width + col] = acc;
-            }
-        }
+            });
 
-        // Vertical pass + threshold in one step to avoid a third allocation
-        let mut output = vec![0u8; width * height];
-        for row in 0..height {
-            for col in 0..width {
-                let mut acc = 0.0;
-                for (k, &kv) in kernel.iter().enumerate() {
-                    let src_row = row as isize + k as isize - radius as isize;
-                    let src_row = src_row.clamp(0, height as isize - 1) as usize;
-                    acc += temp[src_row * width + col] * kv;
+        // Vertical pass — parallel by row, produces continuous f32 output
+        let mut output = vec![0.0f32; width * height];
+        output
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(row, out_row)| {
+                for col in 0..width {
+                    let mut acc = 0.0;
+                    for (k, &kv) in kernel.iter().enumerate() {
+                        let src_row = (row as isize + k as isize - radius as isize)
+                            .clamp(0, height as isize - 1)
+                            as usize;
+                        acc += temp[src_row * width + col] * kv;
+                    }
+                    out_row[col] = acc.clamp(0.0, 1.0) as f32;
                 }
-                output[row * width + col] = if acc >= self.threshold { 1 } else { 0 };
-            }
-        }
+            });
 
         LayerRaster {
             grid: output,
@@ -138,7 +143,7 @@ mod tests {
 
     fn make_test_raster(width: usize, height: usize) -> LayerRaster {
         LayerRaster {
-            grid: vec![0; width * height],
+            grid: vec![0.0; width * height],
             width,
             height,
             origin: Point::new(0.0, 0.0),
@@ -149,57 +154,87 @@ mod tests {
     #[test]
     fn test_zero_sigma_returns_clone() {
         let mut raster = make_test_raster(10, 10);
-        raster.set(5, 5, 1);
+        raster.set(5, 5, 1.0);
 
-        let model = GaussianModel::new(0.0, 0.5);
+        let model = GaussianModel::new(0.0);
         let result = model.predict(&raster);
 
-        assert_eq!(result.get(5, 5), 1);
-        assert_eq!(result.get(0, 0), 0);
+        assert_eq!(result.get(5, 5), 1.0);
+        assert_eq!(result.get(0, 0), 0.0);
     }
 
     #[test]
-    fn test_gaussian_blur_spreads() {
-        // Create a raster with a filled block
-        let mut raster = make_test_raster(20, 20);
-        // Fill a block so the blur has enough material to spread
-        for r in 8..12 {
-            for c in 8..12 {
-                raster.set(c, r, 1);
+    fn test_gaussian_blur_produces_continuous_values() {
+        // Create a raster with a large filled block so the center survives blur
+        let mut raster = make_test_raster(40, 40);
+        for r in 10..30 {
+            for c in 10..30 {
+                raster.set(c, r, 1.0);
             }
         }
 
-        let model = GaussianModel::new(2.0, 0.3);
+        let model = GaussianModel::new(2.0);
         let result = model.predict(&raster);
 
-        // Center should still be filled
-        assert_eq!(result.get(10, 10), 1);
+        // Center of a large block should be near 1.0
+        assert!(result.get(20, 20) > 0.9);
 
-        // Some spreading should occur — nearby pixels that were empty
-        // should now potentially be filled (depending on threshold)
+        // Edge pixels should have intermediate (non-binary) values
+        let edge_val = result.get(9, 20); // just outside the filled block
+        assert!(
+            edge_val > 0.0 && edge_val < 1.0,
+            "Edge should be continuous, got {edge_val}"
+        );
+
+        // Output should NOT be binary — the model returns continuous values
+        assert!(
+            !result.is_binary(),
+            "Blurred result should contain continuous values"
+        );
+    }
+
+    #[test]
+    fn test_gaussian_blur_binarized_spreads() {
+        // Verify that binarizing at a low threshold shows spreading
+        let mut raster = make_test_raster(20, 20);
+        for r in 8..12 {
+            for c in 8..12 {
+                raster.set(c, r, 1.0);
+            }
+        }
+
+        let model = GaussianModel::new(2.0);
+        let result = model.predict(&raster);
+        let binarized = result.binarize(0.3);
+
         let filled_input = raster.filled_count();
-        let filled_output = result.filled_count();
+        let filled_output = binarized.filled_count();
         // With low threshold and spreading, output should have >= input filled
         assert!(filled_output >= filled_input);
     }
 
     #[test]
     fn test_gaussian_blur_erodes_small_features() {
-        // A single pixel should be eroded away by gaussian blur at high threshold
+        // A single pixel blurred with large sigma should have low center value
         let mut raster = make_test_raster(20, 20);
-        raster.set(10, 10, 1);
+        raster.set(10, 10, 1.0);
 
-        let model = GaussianModel::new(3.0, 0.5);
+        let model = GaussianModel::new(3.0);
         let result = model.predict(&raster);
 
-        // Single pixel should be blurred below threshold
-        assert!(result.get(10, 10) == 0 || result.filled_count() < 5);
+        // Single pixel should be blurred to a very low value at center
+        assert!(
+            result.get(10, 10) < 0.5,
+            "Single pixel center should be below 0.5 after large blur"
+        );
+        // Binarized at 0.5, it should disappear
+        let binarized = result.binarize(0.5);
+        assert_eq!(binarized.filled_count(), 0);
     }
 
     #[test]
     fn test_from_design_units() {
-        let model = GaussianModel::from_design_units(0.05, 0.01, 0.5);
+        let model = GaussianModel::from_design_units(0.05, 0.01);
         assert!((model.sigma_px - 5.0).abs() < 1e-10);
-        assert!((model.threshold - 0.5).abs() < 1e-10);
     }
 }

@@ -172,7 +172,7 @@ def _select_command_interactive() -> tuple[str, str | None]:
     commands = [
         ("serve", "serve", "Start dev server with live preview"),
         ("build", "build", "Build a design to GDS"),
-        ("check", "check", "Run all checks (DRC, DFM, ...)"),
+        ("check", "check", "Run all checks (DRC, design checks; --include-dfm for DFM)"),
         ("drc", "drc", "Run DRC only"),
         ("dfm", "dfm", "Run DFM prediction only"),
         ("run", "run", "View a GDS file"),
@@ -275,10 +275,15 @@ def main():
     )
 
     # check command - run all checks
-    check_parser = subparsers.add_parser("check", help="Run all checks (DRC, ...)")
+    check_parser = subparsers.add_parser("check", help="Run all checks (DRC, design checks)")
     check_parser.add_argument("design", help="Design file (path or path:target)")
     check_parser.add_argument(
         "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
+    )
+    check_parser.add_argument(
+        "--include-dfm",
+        action="store_true",
+        help="Also run DFM prediction (requires [dfm] section in rosette.toml)",
     )
     check_parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed output")
 
@@ -295,6 +300,12 @@ def main():
     dfm_parser.add_argument("design", help="Design file (path or path:target)")
     dfm_parser.add_argument(
         "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
+    )
+    dfm_parser.add_argument(
+        "--gds",
+        default=None,
+        metavar="OUTPUT",
+        help="Write GDS with predicted polygons on offset layers (e.g., 1/0 -> 1/100)",
     )
     dfm_parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed output")
 
@@ -368,11 +379,11 @@ def main():
     elif args.command == "build":
         build_design(args.design, args.output, args.verbose, args.check, args.config)
     elif args.command == "check":
-        check_design(args.design, args.config, args.verbose)
+        check_design(args.design, args.config, args.verbose, args.include_dfm)
     elif args.command == "drc":
         drc_design(args.design, args.config, args.verbose)
     elif args.command == "dfm":
-        dfm_design(args.design, args.config, args.verbose)
+        dfm_design(args.design, args.config, args.verbose, args.gds)
     elif args.command == "serve":
         from rosette._serve import serve_design
 
@@ -1007,7 +1018,7 @@ def _run_dfm_check(
     cell=None,
     file_path: Path | None = None,
 ) -> tuple:
-    """Run DFM prediction on a design and return (result, file_path, has_tolerances).
+    """Run DFM prediction on a design and return (result, file_path, has_tolerances, cell).
 
     Loads the design (unless cell/file_path are provided), loads DFM config
     from rosette.toml, and runs prediction.
@@ -1031,7 +1042,7 @@ def _run_dfm_check(
 
     # Run DFM prediction (Rust engine)
     result = run_dfm(cell, layers=layers, model=model, config=dfm_config)
-    return result, file_path, dfm_config.has_tolerances
+    return result, file_path, dfm_config.has_tolerances, cell
 
 
 def _print_dfm_result(
@@ -1084,9 +1095,12 @@ def _print_dfm_result(
         if m is not None:
             area_pct = m.area_deviation * 100.0
             area_sign = "+" if area_pct >= 0 else ""
+            features = ""
+            if m.designed_feature_count != m.predicted_feature_count:
+                features = f", features: {m.designed_feature_count}->{m.predicted_feature_count}"
             print(
                 f"    edge deviation: {m.max_edge_deviation:.3f} um, "
-                f"area: {area_sign}{area_pct:.1f}%"
+                f"area: {area_sign}{area_pct:.1f}%{features}"
             )
 
         if verbose and lp.has_raster:
@@ -1125,10 +1139,15 @@ def _print_dfm_result(
     return result.passed
 
 
-def dfm_design(design: str, config: str | None = None, verbose: bool = False):
+def dfm_design(
+    design: str,
+    config: str | None = None,
+    verbose: bool = False,
+    gds_output: str | None = None,
+):
     """Run DFM prediction on a design."""
     try:
-        result, file_path, has_tol = _run_dfm_check(design, config)
+        result, file_path, has_tol, cell = _run_dfm_check(design, config)
     except FileNotFoundError as e:
         print(f"Error: {e}")
         sys.exit(1)
@@ -1136,14 +1155,112 @@ def dfm_design(design: str, config: str | None = None, verbose: bool = False):
         print(f"Error in DFM config: {e}")
         sys.exit(1)
     passed = _print_dfm_result(result, file_path, verbose, has_tolerances=has_tol)
+
+    # Write GDS with predicted polygons if requested
+    if gds_output is not None:
+        from rosette import add_dfm_predictions, write_gds
+
+        add_dfm_predictions(cell, result)
+        write_gds(gds_output, cell, quiet=False, verbose=verbose)
+        print(f"\n  {_green('wrote')} {gds_output} (predicted on datatype +100)")
+
     if not passed:
         sys.exit(1)
 
 
-def check_design(design: str, config: str | None = None, verbose: bool = False):
+def _run_checks_check(
+    design_spec: str,
+    config_path: str | None = None,
+    cell=None,
+    file_path: Path | None = None,
+) -> tuple:
+    """Run design checks on a design and return (result, file_path).
+
+    Loads the design (unless cell/file_path are provided), loads checks
+    config from rosette.toml, and runs all checks (connectivity + bend radius).
+    """
+    from rosette import load_checks_config, run_checks
+
+    # Load design if not provided
+    if cell is None:
+        cell, file_path, _ = load_design(design_spec)
+
+    # Load config (returns defaults if no [checks] section)
+    checks_config = load_checks_config(config_path)
+
+    # Run checks (Rust engine)
+    result = run_checks(cell, checks_config)
+    return result, file_path
+
+
+def _print_checks_result(result, file_path: Path, verbose: bool = False) -> bool:
+    """Print design check results. Returns True if passed."""
+    # Header with stats
+    stats_parts = [f"{result.ports_checked} ports", f"{result.connections_found} connections"]
+    if result.bends_checked > 0:
+        stats_parts.append(f"{result.bends_checked} bends")
+    print(f"{_bold('checks')}  {file_path}  {_dim(', '.join(stats_parts))}")
+
+    if result.passed:
+        print(f"\n  {_green('passed')} {_dim(f'({result.elapsed_ms:.1f}ms)')}")
+        return True
+
+    # Print violations
+    print()
+    errors = 0
+    warnings = 0
+    for v in result.violations:
+        if v.severity == "error":
+            errors += 1
+            label = _red("FAIL")
+        else:
+            warnings += 1
+            label = _yellow("WARN")
+
+        vtype = v.violation_type
+        path_str = v.cell_path or "top"
+
+        if v.partner_name is not None:
+            partner_str = f" \u2192 {v.partner_name}"
+            if v.partner_path:
+                partner_str += f" on {v.partner_path}"
+        else:
+            partner_str = ""
+
+        print(f"  {label}  {_bold(vtype)} {v.name} on {path_str}{partner_str}: {v.message}")
+
+        if verbose:
+            bbox = v.bbox
+            print(
+                f"        {_dim(f'at ({bbox[0][0]:.3f}, {bbox[0][1]:.3f})')}"
+                f" {_dim(f'to ({bbox[1][0]:.3f}, {bbox[1][1]:.3f})')}"
+            )
+
+    # Summary
+    parts = []
+    if errors:
+        parts.append(f"{errors} error{'s' if errors != 1 else ''}")
+    if warnings:
+        parts.append(f"{warnings} warning{'s' if warnings != 1 else ''}")
+    summary = ", ".join(parts)
+    count = len(result.violations)
+    print(
+        f"\n  {_red(f'{count} violation' + ('s' if count != 1 else ''))} "
+        f"({summary}) {_dim(f'in {result.elapsed_ms:.1f}ms')}"
+    )
+    return False
+
+
+def check_design(
+    design: str,
+    config: str | None = None,
+    verbose: bool = False,
+    include_dfm: bool = False,
+):
     """Run all checks on a design.
 
-    Runs DRC and DFM (if configured). More checks will be added in the future.
+    Runs DRC and design checks (connectivity + bend radius).
+    DFM prediction is only included when --include-dfm is passed.
     """
     all_passed = True
 
@@ -1166,15 +1283,22 @@ def check_design(design: str, config: str | None = None, verbose: bool = False):
         print(f"Error in DRC config: {e}")
         sys.exit(1)
 
-    # DFM (optional — only runs if [dfm] section exists in config)
-    try:
-        dfm_result, _, has_tol = _run_dfm_check(design, config, cell=cell, file_path=file_path)
-        print()  # Separator between DRC and DFM output
-        dfm_passed = _print_dfm_result(dfm_result, file_path, verbose, has_tolerances=has_tol)
-        if not dfm_passed:
-            all_passed = False
-    except (FileNotFoundError, ValueError):
-        pass  # No DFM config — skip silently
+    # DFM (opt-in via --include-dfm flag)
+    if include_dfm:
+        try:
+            dfm_result, _, has_tol, _ = _run_dfm_check(
+                design, config, cell=cell, file_path=file_path
+            )
+            print()  # Separator between DRC and DFM output
+            dfm_passed = _print_dfm_result(dfm_result, file_path, verbose, has_tolerances=has_tol)
+            if not dfm_passed:
+                all_passed = False
+        except FileNotFoundError:
+            print(
+                f"\n{_yellow('Warning: --include-dfm specified but no [dfm] section in rosette.toml')}"
+            )
+        except ValueError as e:
+            print(f"\n{_yellow(f'Warning: DFM config error: {e}')}")
 
     # Future checks would go here:
     # connectivity, LVS, etc.
@@ -1199,7 +1323,7 @@ def build_design(
     # Load design using convention
     cell, file_path, _ = load_design(design)
 
-    # Run DRC and DFM before building if --check is set
+    # Run DRC before building if --check is set
     if check:
         from rosette import load_drc_rules, run_drc
 
@@ -1215,19 +1339,15 @@ def build_design(
             print(_yellow(f"Warning: invalid DRC config: {e}"))
             print()
 
-        # DFM prediction (optional)
+        # Design checks (connectivity + bend radius)
         try:
-            from rosette import load_dfm_config, run_dfm
-
-            dfm_config, model, layers = load_dfm_config(config)
-            if layers:
-                dfm_result = run_dfm(cell, layers=layers, model=model, config=dfm_config)
-                _print_dfm_result(
-                    dfm_result, file_path, verbose, has_tolerances=dfm_config.has_tolerances
-                )
-                print()
+            checks_result, _ = _run_checks_check(design, config, cell=cell, file_path=file_path)
+            checks_passed = _print_checks_result(checks_result, file_path, verbose)
+            if not checks_passed:
+                print(_yellow("Warning: check issues found, building anyway"))
+            print()
         except (FileNotFoundError, ValueError):
-            pass  # No DFM config — skip silently
+            pass  # No checks config — skip silently
 
     # Output filename from design file name
     gds_output = output_path / f"{file_path.stem}.gds"

@@ -8,4 +8,3 @@ description = "DFM (Design for Manufacturability) prediction for rosette photoni
 [dependencies]
 rayon.workspace = true
 rosette-core.workspace = true
-thiserror.workspace = true

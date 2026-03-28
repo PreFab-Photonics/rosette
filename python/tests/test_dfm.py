@@ -88,17 +88,15 @@ class TestDfmConfig:
 class TestGaussianModel:
     """Tests for GaussianModel."""
 
-    def test_default_threshold(self):
-        """Default threshold is 0.5."""
+    def test_sigma(self):
+        """Sigma is stored correctly."""
         model = GaussianModel(sigma=0.05)
         assert model.sigma == 0.05
-        assert model.threshold == 0.5
 
-    def test_custom_threshold(self):
-        """Custom threshold is preserved."""
-        model = GaussianModel(sigma=0.1, threshold=0.3)
+    def test_custom_sigma(self):
+        """Custom sigma is preserved."""
+        model = GaussianModel(sigma=0.1)
         assert model.sigma == 0.1
-        assert model.threshold == 0.3
 
     def test_name(self):
         """Model name is 'gaussian'."""
@@ -481,7 +479,7 @@ layers = ["1/0", "2/0"]
         assert config.resolution == 0.02
         assert config.padding == 2.0
         assert model.sigma == 0.1
-        assert model.threshold == 0.4
+        assert config.contour_threshold == 0.4
         assert len(layers) == 2
 
     def test_load_with_tolerances(self, tmp_path):
@@ -557,7 +555,6 @@ layers = ["1/0"]
         assert config.padding == 1.0
         assert config.contour_threshold == 0.5
         assert model.sigma == 0.08
-        assert model.threshold == 0.5
         assert len(layers) == 1
 
     def test_empty_layers(self, tmp_path):
@@ -727,16 +724,17 @@ class TestDfmCli:
         """_run_dfm_check returns result for valid design."""
         design_py, config_file = _write_design_and_dfm_config(tmp_path)
 
-        result, file_path, has_tol = _run_dfm_check(str(design_py), str(config_file))
+        result, file_path, has_tol, cell = _run_dfm_check(str(design_py), str(config_file))
         assert isinstance(result, DfmResult)
         assert result.layers_processed == 1
         assert file_path.name == "design.py"
         assert has_tol is False
+        assert cell is not None
 
     def test_print_dfm_result_informational(self, tmp_path, capsys):
         """_print_dfm_result prints metrics in informational mode."""
         design_py, config_file = _write_design_and_dfm_config(tmp_path)
-        result, file_path, has_tol = _run_dfm_check(str(design_py), str(config_file))
+        result, file_path, has_tol, _ = _run_dfm_check(str(design_py), str(config_file))
 
         passed = _print_dfm_result(result, file_path, has_tolerances=has_tol)
         assert passed
@@ -750,7 +748,7 @@ class TestDfmCli:
     def test_print_dfm_result_with_tolerances_pass(self, tmp_path, capsys):
         """_print_dfm_result shows 'passed' when tolerances met."""
         design_py, config_file = _write_design_and_dfm_config(tmp_path, tolerances=True)
-        result, file_path, has_tol = _run_dfm_check(str(design_py), str(config_file))
+        result, file_path, has_tol, _ = _run_dfm_check(str(design_py), str(config_file))
 
         passed = _print_dfm_result(result, file_path, has_tolerances=has_tol)
         assert passed
@@ -772,7 +770,7 @@ class TestDfmCli:
             'layers = ["1/0"]\nmax_area_deviation = 0.01\n'
         )
 
-        result, file_path, has_tol = _run_dfm_check(str(design_py), str(config_file))
+        result, file_path, has_tol, _ = _run_dfm_check(str(design_py), str(config_file))
         passed = _print_dfm_result(result, file_path, has_tolerances=has_tol)
         assert not passed
 
@@ -794,7 +792,7 @@ class TestDfmCli:
             'layers = ["1/0"]\nkeep_raster = true\n'
         )
 
-        result, file_path, has_tol = _run_dfm_check(str(design_py), str(config_file))
+        result, file_path, has_tol, _ = _run_dfm_check(str(design_py), str(config_file))
         _print_dfm_result(result, file_path, verbose=True, has_tolerances=has_tol)
 
         captured = capsys.readouterr()

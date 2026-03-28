@@ -175,7 +175,7 @@ resolution = 0.01     # Pixel size in um (smaller = more accurate, slower)
 padding = 1.0         # Margin around cell bounding box in um
 model = "gaussian"    # Prediction model (approximate — PreFab models coming soon)
 sigma = 0.08          # Gaussian sigma in um (models lithography proximity blur)
-threshold = 0.5       # Binarization threshold (0.0-1.0)
+threshold = 0.5       # Binarization threshold (0.0-1.0) — when is a pixel "filled"?
 layers = ["1/0"]      # Layers to predict (waveguide layer)
 
 # Tolerances — deviations beyond these limits are reported as violations.

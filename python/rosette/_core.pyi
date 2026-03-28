@@ -985,7 +985,6 @@ class DfmConfig:
         self,
         layer: Layer | int | tuple[int, int],
         sigma: float | None = None,
-        threshold: float | None = None,
         max_area_deviation: float | None = None,
         severity: str | None = None,
     ) -> None:
@@ -994,8 +993,11 @@ class DfmConfig:
         Per-layer settings override the global defaults for a specific layer.
         Parameters left as None fall back to the global config.
 
+        If sigma is provided, a per-layer GaussianModel is created with the
+        specified sigma (using the config's resolution for pixel conversion).
+
         Example:
-            config = DfmConfig(resolution=0.01, sigma=0.08)
+            config = DfmConfig(resolution=0.01)
             config.set_layer_config(Layer(1, 0), sigma=0.05, max_area_deviation=0.05)
             config.set_layer_config(Layer(2, 0), sigma=0.15)
         """
@@ -1006,18 +1008,19 @@ class GaussianModel:
     """Gaussian blur DFM model for proximity effect simulation.
 
     Simulates optical proximity effects during lithography by applying
-    a Gaussian blur to the rasterized geometry.
+    a Gaussian blur to the rasterized geometry. The model produces
+    continuous values in [0.0, 1.0] representing fabrication probability.
+    Binarization is controlled by contour_threshold in DfmConfig.
 
     Example:
-        model = GaussianModel(sigma=0.08, threshold=0.5)
+        model = GaussianModel(sigma=0.08)
         result = run_dfm(cell, layers=[Layer(1)], model=model)
     """
 
     sigma: float
-    threshold: float
     name: str
 
-    def __init__(self, sigma: float, threshold: float = 0.5) -> None: ...
+    def __init__(self, sigma: float) -> None: ...
     def __repr__(self) -> str: ...
 
 class LayerMetrics:
@@ -1032,6 +1035,10 @@ class LayerMetrics:
     """Designed area in design units squared."""
     predicted_area: float
     """Predicted area in design units squared."""
+    designed_feature_count: int
+    """Number of connected components in the designed raster."""
+    predicted_feature_count: int
+    """Number of connected components in the predicted raster."""
     def __repr__(self) -> str: ...
 
 class DfmViolation:
@@ -1039,13 +1046,19 @@ class DfmViolation:
 
     layer: tuple[int, int]
     violation_type: str
-    """Type: "area_deviation"."""
+    """Type: "area_deviation", "feature_erasure", or "feature_merge"."""
     message: str
     severity: str
     """Severity: "error" or "warning"."""
     bbox: tuple[tuple[float, float], tuple[float, float]]
-    max_allowed: float
-    actual: float
+    max_allowed: float | None
+    """Maximum allowed value (for area_deviation), or None."""
+    actual: float | None
+    """Actual measured value (for area_deviation), or None."""
+    designed_count: int | None
+    """Number of designed features (for feature_erasure/feature_merge), or None."""
+    predicted_count: int | None
+    """Number of predicted features (for feature_erasure/feature_merge), or None."""
     def __repr__(self) -> str: ...
 
 class LayerPrediction:
@@ -1058,7 +1071,7 @@ class LayerPrediction:
     metrics: LayerMetrics | None
     violations: list[DfmViolation]
     has_raster: bool
-    raster_data: list[int] | None
+    raster_data: list[float] | None
     raster_width: int | None
     raster_height: int | None
     raster_origin: tuple[float, float] | None

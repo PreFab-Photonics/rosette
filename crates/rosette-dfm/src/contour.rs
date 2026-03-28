@@ -10,13 +10,14 @@ use crate::rasterize::LayerRaster;
 /// Extract contour polygons from a raster using marching squares.
 ///
 /// The threshold determines the iso-value for contour extraction.
+/// Pixels with values >= threshold are considered "filled".
 /// Coordinates are mapped back to design units using the raster's
 /// origin and resolution.
 ///
 /// # Arguments
 ///
 /// * `raster` - The predicted raster to extract contours from
-/// * `threshold` - Iso-value for contour extraction (typically 0.5)
+/// * `threshold` - Binarization threshold in `[0.0, 1.0]` (typically 0.5)
 ///
 /// # Returns
 ///
@@ -26,10 +27,8 @@ pub fn extract_contours(raster: &LayerRaster, threshold: f64) -> Vec<Polygon> {
         return Vec::new();
     }
 
-    // The raster is already binary (0/1). The threshold parameter is kept for
-    // API compatibility but for u8 grids we just check != 0.
-    let _ = threshold;
-    let binary: Vec<bool> = raster.grid.iter().map(|&v| v != 0).collect();
+    let threshold = threshold as f32;
+    let binary: Vec<bool> = raster.grid.iter().map(|&v| v >= threshold).collect();
 
     // Find all contour segments using marching squares
     let segments = march_squares(&binary, raster.width, raster.height);
@@ -312,7 +311,7 @@ mod tests {
     #[test]
     fn test_extract_contours_empty() {
         let raster = LayerRaster {
-            grid: vec![0; 25],
+            grid: vec![0.0; 25],
             width: 5,
             height: 5,
             origin: Point::new(0.0, 0.0),
@@ -326,10 +325,10 @@ mod tests {
     #[test]
     fn test_extract_contours_filled_block() {
         // Create a 10x10 grid with a 6x6 filled block in the center
-        let mut grid = vec![0u8; 100];
+        let mut grid = vec![0.0f32; 100];
         for row in 2..8 {
             for col in 2..8 {
-                grid[row * 10 + col] = 1;
+                grid[row * 10 + col] = 1.0;
             }
         }
 

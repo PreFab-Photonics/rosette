@@ -25,14 +25,17 @@ impl Default for RasterConfig {
     }
 }
 
-/// A rasterized single-layer binary grid.
+/// A rasterized single-layer grid.
 ///
-/// Pixels are stored as `u8` (0 = empty, 1 = filled) for memory efficiency.
-/// A 10k x 10k grid uses ~100 MB with f64 but only ~100 MB / 8 ≈ 12.5 MB with u8.
+/// Pixels are stored as `f32` values in the range `[0.0, 1.0]`.
+/// Input rasters from rasterization are binary (0.0 or 1.0).
+/// Prediction models may produce continuous values representing
+/// fabrication probability, which are then binarized at a chosen
+/// threshold during contour extraction.
 #[derive(Debug, Clone)]
 pub struct LayerRaster {
-    /// Pixel data: 1 = filled, 0 = empty.
-    pub grid: Vec<u8>,
+    /// Pixel data: 0.0 = empty, 1.0 = filled, intermediate = partial.
+    pub grid: Vec<f32>,
     /// Grid width in pixels.
     pub width: usize,
     /// Grid height in pixels.
@@ -51,7 +54,7 @@ impl LayerRaster {
         let height = ((padded.height()) / config.resolution).ceil() as usize + 1;
 
         Self {
-            grid: vec![0; width * height],
+            grid: vec![0.0; width * height],
             width,
             height,
             origin: padded.min(),
@@ -70,13 +73,13 @@ impl LayerRaster {
 
     /// Get pixel value at (col, row).
     #[inline]
-    pub fn get(&self, col: usize, row: usize) -> u8 {
+    pub fn get(&self, col: usize, row: usize) -> f32 {
         self.grid[row * self.width + col]
     }
 
-    /// Set pixel at (col, row) to filled (1) or empty (0).
+    /// Set pixel at (col, row).
     #[inline]
-    pub fn set(&mut self, col: usize, row: usize, value: u8) {
+    pub fn set(&mut self, col: usize, row: usize, value: f32) {
         self.grid[row * self.width + col] = value;
     }
 
@@ -85,9 +88,32 @@ impl LayerRaster {
         self.width * self.height
     }
 
-    /// Count of filled pixels.
+    /// Count of filled pixels (value >= 0.5).
     pub fn filled_count(&self) -> usize {
-        self.grid.iter().filter(|&&v| v != 0).count()
+        self.grid.iter().filter(|&&v| v >= 0.5).count()
+    }
+
+    /// Binarize the raster at the given threshold.
+    ///
+    /// Returns a new raster where pixels >= threshold become 1.0
+    /// and pixels below become 0.0.
+    pub fn binarize(&self, threshold: f32) -> Self {
+        Self {
+            grid: self
+                .grid
+                .iter()
+                .map(|&v| if v >= threshold { 1.0 } else { 0.0 })
+                .collect(),
+            width: self.width,
+            height: self.height,
+            origin: self.origin,
+            resolution: self.resolution,
+        }
+    }
+
+    /// Whether this raster contains only binary values (0.0 or 1.0).
+    pub fn is_binary(&self) -> bool {
+        self.grid.iter().all(|&v| v == 0.0 || v == 1.0)
     }
 }
 
@@ -135,14 +161,21 @@ pub fn flatten_cell(
 
 /// Rasterize polygons onto a layer raster using scanline fill.
 ///
-/// For each row, finds polygon edge intersections and fills spans.
+/// Uses the even-odd fill rule: a pixel is considered inside the polygon
+/// if a ray from it crosses an odd number of polygon edges. This correctly
+/// handles simple polygons but may produce unexpected results for
+/// self-intersecting polygons (use DRC self-intersection check to catch those).
+///
+/// Degenerate polygons (fewer than 3 vertices) are silently skipped.
 pub fn rasterize_polygons(raster: &mut LayerRaster, polygons: &[Polygon]) {
     for polygon in polygons {
         rasterize_polygon(raster, polygon);
     }
 }
 
-/// Rasterize a single polygon using scanline fill.
+/// Rasterize a single polygon using even-odd scanline fill.
+///
+/// Skips degenerate polygons with fewer than 3 vertices.
 fn rasterize_polygon(raster: &mut LayerRaster, polygon: &Polygon) {
     let vertices = polygon.vertices();
     let n = vertices.len();
@@ -190,7 +223,7 @@ fn rasterize_polygon(raster: &mut LayerRaster, polygon: &Polygon) {
             let col_end = (col_end as usize).min(raster.width.saturating_sub(1));
 
             for col in col_start..=col_end {
-                raster.set(col, row, 1);
+                raster.set(col, row, 1.0);
             }
         }
     }
@@ -243,7 +276,7 @@ mod tests {
         // Center should be filled
         let mid_col = raster.width / 2;
         let mid_row = raster.height / 2;
-        assert_eq!(raster.get(mid_col, mid_row), 1);
+        assert_eq!(raster.get(mid_col, mid_row), 1.0);
     }
 
     #[test]
