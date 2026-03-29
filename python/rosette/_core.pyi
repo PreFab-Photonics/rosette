@@ -116,6 +116,14 @@ class Instance:
     around the origin -- moving the component to an unexpected position.
     To rotate then place: ``.at(0, 0).rotate(deg).at(x, y)``.
 
+    Bounding-box shift after transform: even with the correct ordering,
+    transforms change where geometry sits relative to the anchor point.
+    For example, an 8×5 rect at (0,0)–(8,5) rotated 45° becomes a
+    diamond whose extents are completely different. The final ``.at(x, y)``
+    places the *transformed origin*, not the visual center or corner.
+    To align transformed instances with other geometry, account for the
+    new bounds when choosing placement coordinates.
+
     Example:
         gc_cell = grating_coupler(layer=layer)
         gc_in = gc_cell.at(0, 0)              # Position at origin
@@ -131,6 +139,11 @@ class Instance:
 
         # Rotate then place at a specific position:
         rotated = some_cell.at(0, 0).rotate(90).at(50, 100)
+
+        # Caution: rotation shifts the bounding box relative to the
+        # anchor. A 45° rotation moves the geometry's visual center,
+        # so you may need to adjust the final .at() offset:
+        rotated45 = block.at(0, 0).rotate(45).at(x + 4, y - 2)
     """
 
     @property

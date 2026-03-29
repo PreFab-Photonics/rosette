@@ -180,6 +180,17 @@ class Instance:
         # To rotate a component then place it at a specific position,
         # rotate first, then translate:
         inst = cell.at(0, 0).rotate(90).at(25, 50)  # rotate, then move to (25,50)
+
+    **Bounding-box shift after transform:** Even with the correct ordering,
+    transforms change where geometry sits relative to the anchor point.
+    For example, an 8×5 rect at (0,0)–(8,5) rotated 45° becomes a diamond
+    whose extents are completely different. The final ``.at(x, y)`` places
+    the *transformed origin*, not the visual center or corner. To align
+    transformed instances with other geometry, account for the new bounds
+    when choosing placement coordinates::
+
+        # 45° rotation shifts the bbox — adjust the final offset:
+        rotated45 = block.at(0, 0).rotate(45).at(x + 4, y - 2)
     """
 
     __slots__ = ("_cell", "_transform")
