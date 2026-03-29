@@ -44,6 +44,7 @@ output_dir = "output"
 # min_width = 0.12
 # min_spacing = 0.13
 # min_area = 0.01
+# no_overlap = true   # Forbid overlapping polygons on same layer
 # # angles = [0, 90]  # Restrict to Manhattan geometry
 #
 # [drc.layers."10/0"]

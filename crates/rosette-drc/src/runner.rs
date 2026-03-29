@@ -350,13 +350,18 @@ impl DrcRunner {
             } => {
                 let polys1 = polygons_by_layer.get(layer1);
                 let polys2 = polygons_by_layer.get(layer2);
+                let same_layer = layer1 == layer2;
 
                 match (polys1, polys2) {
                     (Some(p1), Some(p2)) => {
                         let mut violations = Vec::new();
-                        for (poly1, _) in p1 {
+                        for (poly1, idx1) in p1 {
                             let mut has_overlap = false;
-                            for (poly2, _) in p2 {
+                            for (poly2, idx2) in p2 {
+                                // Same-layer: skip self-comparison
+                                if same_layer && idx2 == idx1 {
+                                    continue;
+                                }
                                 if check_require_overlap(
                                     poly1,
                                     *layer1,
@@ -428,12 +433,17 @@ impl DrcRunner {
             } => {
                 let polys1 = polygons_by_layer.get(layer1);
                 let polys2 = polygons_by_layer.get(layer2);
+                let same_layer = layer1 == layer2;
 
                 match (polys1, polys2) {
                     (Some(p1), Some(p2)) => {
                         let mut violations = Vec::new();
-                        for (poly1, _) in p1 {
-                            for (poly2, _) in p2 {
+                        for (poly1, idx1) in p1 {
+                            for (poly2, idx2) in p2 {
+                                // Same-layer: skip self-comparison and duplicate pairs
+                                if same_layer && idx2 <= idx1 {
+                                    continue;
+                                }
                                 if let Some(v) = check_forbid_overlap(
                                     poly1,
                                     *layer1,
@@ -623,6 +633,77 @@ mod tests {
     }
 
     #[test]
+    fn test_require_overlap_same_layer_isolated_polygon_fails() {
+        // A single polygon has no other polygon to overlap with
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new().require_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("SELF_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            !result.passed(),
+            "Single polygon should fail same-layer require_overlap (no other polygon to overlap)"
+        );
+        assert_eq!(result.violations.len(), 1);
+    }
+
+    #[test]
+    fn test_require_overlap_same_layer_overlapping_passes() {
+        // Two overlapping polygons on the same layer should pass
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new().require_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("SELF_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            result.passed(),
+            "Two overlapping same-layer polygons should pass require_overlap"
+        );
+    }
+
+    #[test]
+    fn test_require_overlap_same_layer_non_overlapping_fails() {
+        // Two non-overlapping polygons should each fail (neither overlaps another)
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new().require_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("SELF_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            !result.passed(),
+            "Two non-overlapping same-layer polygons should fail require_overlap"
+        );
+        assert_eq!(
+            result.violations.len(),
+            2,
+            "Each polygon should have its own violation"
+        );
+    }
+
+    #[test]
     fn test_enclosure_any_outer_sufficient() {
         // Inner polygon enclosed by the second outer polygon but not the first.
         // Should pass because ANY outer is sufficient.
@@ -703,6 +784,77 @@ mod tests {
         let v = &result.violations[0];
         assert_eq!(v.rule_name, Some("ENC_MISSING".to_string()));
         assert_eq!(v.layer2, Some(Layer::new(1, 0)));
+    }
+
+    #[test]
+    fn test_forbid_overlap_same_layer_no_self_compare() {
+        // A single polygon on a layer must not be flagged against itself
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            result.passed(),
+            "Single polygon should not trigger same-layer forbid_overlap (self-comparison)"
+        );
+    }
+
+    #[test]
+    fn test_forbid_overlap_same_layer_detects_overlap() {
+        // Two overlapping polygons on the same layer should be flagged
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            !result.passed(),
+            "Two overlapping same-layer polygons should fail forbid_overlap"
+        );
+        assert_eq!(
+            result.violations.len(),
+            1,
+            "Should produce exactly one violation (no duplicate)"
+        );
+        assert_eq!(result.violations[0].rule_name, Some("NO_OVLP".to_string()));
+    }
+
+    #[test]
+    fn test_forbid_overlap_same_layer_non_overlapping_passes() {
+        // Two non-overlapping polygons on the same layer should pass
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            result.passed(),
+            "Two non-overlapping same-layer polygons should pass forbid_overlap"
+        );
     }
 
     #[test]
