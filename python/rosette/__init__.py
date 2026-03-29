@@ -183,7 +183,7 @@ class Instance:
 
     **Bounding-box shift after transform:** Even with the correct ordering,
     transforms change where geometry sits relative to the anchor point.
-    For example, an 8×5 rect at (0,0)–(8,5) rotated 45° becomes a diamond
+    For example, an 8x5 rect at (0,0)-(8,5) rotated 45° becomes a diamond
     whose extents are completely different. The final ``.at(x, y)`` places
     the *transformed origin*, not the visual center or corner. To align
     transformed instances with other geometry, account for the new bounds
