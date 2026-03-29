@@ -24,6 +24,15 @@ export function getPageImage(page: InferPageType<typeof source>) {
   };
 }
 
+export function getBlogPostImage(page: InferPageType<typeof blog>) {
+  const segments = [...page.slugs, "image.webp"];
+
+  return {
+    segments,
+    url: `/og/blog/${segments.join("/")}`,
+  };
+}
+
 export async function getLLMText(page: InferPageType<typeof source>) {
   const processed = await page.data.getText("processed");
 

@@ -1,16 +1,18 @@
 import { ImageResponse } from "@takumi-rs/image-response";
 import { generate as DefaultImage } from "fumadocs-ui/og/takumi";
 import { notFound } from "next/navigation";
-import { getPageImage, source } from "@/lib/source";
+import { blog, getBlogPostImage } from "@/lib/source";
 
 export const revalidate = false;
 
 export async function GET(
   _req: Request,
-  { params }: RouteContext<"/og/docs/[...slug]">,
+  { params }: RouteContext<"/og/blog/[...slug]">,
 ) {
   const { slug } = await params;
-  const page = source.getPage(slug.slice(0, -1));
+  // slug is ["my-post", "image.webp"] — take everything except the last segment
+  const postSlug = slug.slice(0, -1);
+  const page = blog.getPage(postSlug);
   if (!page) notFound();
 
   return new ImageResponse(
@@ -28,8 +30,7 @@ export async function GET(
 }
 
 export function generateStaticParams() {
-  return source.getPages().map((page) => ({
-    lang: page.locale,
-    slug: getPageImage(page).segments,
+  return blog.getPages().map((page) => ({
+    slug: getBlogPostImage(page).segments,
   }));
 }

@@ -2,7 +2,7 @@ import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { blog } from "@/lib/source";
+import { blog, getBlogPostImage } from "@/lib/source";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -79,5 +79,8 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   return {
     title: page.data.title,
     description: page.data.description,
+    openGraph: {
+      images: getBlogPostImage(page).url,
+    },
   };
 }

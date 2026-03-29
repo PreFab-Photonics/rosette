@@ -1,6 +1,24 @@
+import type { Metadata } from "next";
 import { CopyButton } from "./components/copy-button";
 import { HeroViewer } from "./components/hero-viewer";
 import { RedactedText } from "./components/redacted-text";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "Rosette - The modern GDSII layout editor",
+  },
+  description:
+    "A fast, intelligent, and accessible GDSII layout editor. Rust core, Python SDK, and a WebGPU desktop app for integrated photonic circuit design.",
+  keywords: [
+    "GDSII",
+    "layout editor",
+    "photonics",
+    "integrated circuits",
+    "Python",
+    "EDA",
+    "photonic design",
+  ],
+};
 
 /* -------------------------------------------------------------------------- */
 /*  Hero                                                                      */
