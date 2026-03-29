@@ -30,6 +30,7 @@ import { useCommandPaletteStore } from "@/stores/command-palette";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useUIStore } from "@/stores/ui";
 import { useExplorerStore } from "@/stores/explorer";
+import { useLayerStore } from "@/stores/layer";
 import { useTextStore } from "@/stores/text";
 import { centerViewOnSelection, getEffectiveViewport } from "@/lib/utils";
 
@@ -60,6 +61,7 @@ const PAN_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
  * - `Tab`: Cycle selection to next object
  * - `Shift+Tab`: Cycle selection to previous object
  * - `Shift+E`: Focus Explorer panel for keyboard navigation
+ * - `Shift+L`: Focus Layers panel for keyboard navigation
  */
 export function useKeyboardShortcuts(
   canvasRef: RefObject<HTMLCanvasElement | null>,
@@ -495,9 +497,10 @@ export function useKeyboardShortcuts(
           }
           break;
         case "L":
-          // Shift+L: Switch sidebar to Layers tab
+          // Shift+L: Focus Layers panel for keyboard navigation
           e.preventDefault();
           useUIStore.getState().setSidebarTab("layers");
+          useLayerStore.getState().setFocused(true);
           break;
         case "I":
           // Shift+I: Switch sidebar to Inspector tab

@@ -335,12 +335,14 @@ export function restoreTabSnapshot(tabId: string): void {
     canRedo: snapshot.history.redoStack.length > 0,
   });
 
-  // Restore layers
+  // Restore layers (clear transient keyboard focus state)
   useLayerStore.setState({
     layers: new Map(snapshot.layers.layers),
     activeLayerId: snapshot.layers.activeLayerId,
     editingLayerId: null,
     expandedLayerId: null,
+    isFocused: false,
+    focusedLayerId: null,
   });
 
   // Restore explorer (clear transient keyboard focus state)

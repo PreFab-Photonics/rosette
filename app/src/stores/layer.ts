@@ -124,6 +124,11 @@ interface LayerState {
   /** Layer ID with expanded editor open. Null when none expanded. */
   expandedLayerId: number | null;
 
+  /** Whether the Layers panel has keyboard focus for arrow-key navigation. */
+  isFocused: boolean;
+  /** The layer ID currently highlighted by the keyboard cursor. */
+  focusedLayerId: number | null;
+
   /** Get a layer by ID. */
   getLayer: (id: number) => Layer | undefined;
   /** Get the active layer. */
@@ -152,6 +157,10 @@ interface LayerState {
   setEditingLayerId: (id: number | null) => void;
   /** Set the layer with expanded editor. */
   setExpandedLayerId: (id: number | null) => void;
+  /** Set keyboard focus state for the Layers panel. */
+  setFocused: (focused: boolean) => void;
+  /** Set the keyboard-cursor layer ID. */
+  setFocusedLayerId: (id: number | null) => void;
 }
 
 export const useLayerStore = create<LayerState>((set, get) => ({
@@ -159,6 +168,8 @@ export const useLayerStore = create<LayerState>((set, get) => ({
   activeLayerId: 1,
   editingLayerId: null,
   expandedLayerId: null,
+  isFocused: false,
+  focusedLayerId: null,
 
   getLayer: (id) => get().layers.get(id),
 
@@ -236,7 +247,8 @@ export const useLayerStore = create<LayerState>((set, get) => ({
         newActiveId = newLayers.keys().next().value ?? 1;
       }
 
-      return { layers: newLayers, activeLayerId: newActiveId };
+      const focusedLayerId = state.focusedLayerId === id ? null : state.focusedLayerId;
+      return { layers: newLayers, activeLayerId: newActiveId, focusedLayerId };
     }),
 
   toggleVisibility: (id) =>
@@ -289,11 +301,23 @@ export const useLayerStore = create<LayerState>((set, get) => ({
         activeLayerId,
         editingLayerId: null,
         expandedLayerId: null,
+        isFocused: false,
+        focusedLayerId: null,
       };
     }),
 
   setEditingLayerId: (id) => set({ editingLayerId: id }),
   setExpandedLayerId: (id) => set({ expandedLayerId: id }),
+  setFocused: (focused) => {
+    if (focused) {
+      const state = get();
+      const focusedLayerId = state.activeLayerId;
+      set({ isFocused: true, focusedLayerId });
+    } else {
+      set({ isFocused: false, focusedLayerId: null });
+    }
+  },
+  setFocusedLayerId: (id) => set({ focusedLayerId: id }),
 }));
 
 /**

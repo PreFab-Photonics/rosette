@@ -283,6 +283,18 @@ export function getCommands(): CommandItem[] {
       searchableText: "Focus explorer panel cells tree navigate keyboard",
     },
     {
+      id: "view-focus-layers",
+      type: "command",
+      name: "View: Focus Layers",
+      shortcut: { modifiers: [keys.shift], key: "L" },
+      action: () => {
+        useUIStore.getState().setSidebarTab("layers");
+        useLayerStore.getState().setFocused(true);
+        close();
+      },
+      searchableText: "Focus layers panel navigate keyboard",
+    },
+    {
       id: "view-zoom-in",
       type: "command",
       name: "View: Zoom In",
