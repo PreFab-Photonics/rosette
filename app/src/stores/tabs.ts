@@ -343,7 +343,7 @@ export function restoreTabSnapshot(tabId: string): void {
     expandedLayerId: null,
   });
 
-  // Restore explorer
+  // Restore explorer (clear transient keyboard focus state)
   useExplorerStore.setState({
     projectName: snapshot.explorer.projectName,
     cells: [...snapshot.explorer.cells],
@@ -355,6 +355,8 @@ export function restoreTabSnapshot(tabId: string): void {
     hierarchyLevelLimit: snapshot.explorer.hierarchyLevelLimit,
     maxTreeDepth: snapshot.explorer.maxTreeDepth,
     hiddenCells: new Set(snapshot.explorer.hiddenCells),
+    isFocused: false,
+    focusedItem: null,
   });
 
   // Restore tool

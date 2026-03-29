@@ -268,6 +268,21 @@ export function getCommands(): CommandItem[] {
       searchableText: "Show inspector panel sidebar switch tab properties",
     },
     {
+      id: "view-focus-explorer",
+      type: "command",
+      name: "View: Focus Explorer",
+      shortcut: { modifiers: [keys.shift], key: "E" },
+      action: () => {
+        // Expand the explorer if collapsed
+        if (useUIStore.getState().explorerCollapsed) {
+          useUIStore.getState().toggleExplorerCollapsed();
+        }
+        useExplorerStore.getState().setFocused(true);
+        close();
+      },
+      searchableText: "Focus explorer panel cells tree navigate keyboard",
+    },
+    {
       id: "view-zoom-in",
       type: "command",
       name: "View: Zoom In",

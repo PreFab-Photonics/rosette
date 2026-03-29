@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavArrowLeft, NavArrowRight, Menu } from "iconoir-react";
 import { useExplorerStore } from "@/stores/explorer";
-import type { CellNode } from "@/stores/explorer";
+import type { CellNode, FocusedItem } from "@/stores/explorer";
 import { useContextMenuStore } from "@/stores/context-menu";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
@@ -16,6 +16,7 @@ import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useResize } from "@/hooks/use-resize";
 import {
   RenameCellCommand,
+  DeleteCellCommand,
   PasteElementsCommand,
   DuplicateElementsCommand,
   DeleteElementsCommand,
@@ -62,6 +63,107 @@ interface TopLevelMenu {
   id: string;
   label: string;
   buildItems: () => SubMenuEntry[];
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Flatten the cell tree into a visible-order list, respecting expanded state.
+ *
+ * Only descends into children of nodes that are in the `expandedCells` set.
+ * Returns cell names in the order they appear visually in the Explorer.
+ */
+function getVisibleCells(
+  cellTree: CellNode[] | null,
+  cells: string[],
+  expandedCells: Set<string>,
+): string[] {
+  if (!cellTree) return cells;
+  const result: string[] = [];
+  function walk(nodes: CellNode[]) {
+    for (const node of nodes) {
+      result.push(node.name);
+      if (node.children.length > 0 && expandedCells.has(node.name)) {
+        walk(node.children);
+      }
+    }
+  }
+  walk(cellTree);
+  return result;
+}
+
+/**
+ * Find the parent cell name for a given cell name in the tree.
+ * Returns null if the cell is a root or not found.
+ */
+function findParentInTree(cellTree: CellNode[] | null, targetName: string): string | null {
+  if (!cellTree) return null;
+  function search(nodes: CellNode[], parent: string | null): string | null {
+    for (const node of nodes) {
+      if (node.name === targetName) return parent;
+      const found = search(node.children, node.name);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  return search(cellTree, null);
+}
+
+/**
+ * Find a CellNode by name in the tree.
+ */
+function findNodeInTree(cellTree: CellNode[] | null, name: string): CellNode | null {
+  if (!cellTree) return null;
+  function search(nodes: CellNode[]): CellNode | null {
+    for (const node of nodes) {
+      if (node.name === name) return node;
+      const found = search(node.children);
+      if (found) return found;
+    }
+    return null;
+  }
+  return search(cellTree);
+}
+
+/**
+ * Build a unified list of focusable items: tabs (when 2+) followed by visible cells.
+ * This determines the order for ArrowUp/ArrowDown navigation.
+ */
+function getVisibleItems(
+  tabs: Array<{ id: string }>,
+  cellTree: CellNode[] | null,
+  cells: string[],
+  expandedCells: Set<string>,
+): FocusedItem[] {
+  const items: FocusedItem[] = [];
+  // Include tabs only when 2+ are open (matches TabList render condition)
+  if (tabs.length > 1) {
+    for (const tab of tabs) {
+      items.push({ type: "tab", id: tab.id });
+    }
+  }
+  const visibleCells = getVisibleCells(cellTree, cells, expandedCells);
+  for (const name of visibleCells) {
+    items.push({ type: "cell", name });
+  }
+  return items;
+}
+
+/** Check if two FocusedItem values are equal. */
+function focusedItemEquals(a: FocusedItem | null, b: FocusedItem | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.type !== b.type) return false;
+  if (a.type === "tab" && b.type === "tab") return a.id === b.id;
+  if (a.type === "cell" && b.type === "cell") return a.name === b.name;
+  return false;
+}
+
+/** Find the index of a FocusedItem in a list. Returns -1 if not found. */
+function findItemIndex(items: FocusedItem[], target: FocusedItem | null): number {
+  if (!target) return -1;
+  return items.findIndex((item) => focusedItemEquals(item, target));
 }
 
 // =============================================================================
@@ -602,6 +704,7 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
 function CellRow({
   name,
   isActive,
+  isFocused,
   isDark,
   depth,
   hasChildren,
@@ -615,6 +718,8 @@ function CellRow({
 }: {
   name: string;
   isActive: boolean;
+  /** Whether this cell has the keyboard navigation cursor. */
+  isFocused: boolean;
   isDark: boolean;
   depth: number;
   hasChildren: boolean;
@@ -631,6 +736,14 @@ function CellRow({
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const rowRef = useRef<HTMLButtonElement>(null);
+
+  // Scroll the focused row into view when it becomes focused
+  useEffect(() => {
+    if (isFocused && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [isFocused]);
 
   // Enter edit mode when triggered externally (e.g., from context menu "Rename")
   useEffect(() => {
@@ -739,6 +852,7 @@ function CellRow({
 
   return (
     <button
+      ref={rowRef}
       type="button"
       className={cn(
         "mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center rounded-lg py-1.5 text-left transition-colors focus:outline-none",
@@ -746,9 +860,14 @@ function CellRow({
           ? isDark
             ? "bg-[rgb(54,54,54)] text-white/90"
             : "bg-[rgb(217,217,217)] text-black/90"
-          : isDark
-            ? "text-white/70 hover:bg-[rgb(54,54,54)] hover:text-white/90"
-            : "text-black/70 hover:bg-[rgb(217,217,217)] hover:text-black/90",
+          : isFocused
+            ? isDark
+              ? "bg-[rgb(44,44,44)] text-white/90"
+              : "bg-[rgb(227,227,227)] text-black/90"
+            : isDark
+              ? "text-white/70 hover:bg-[rgb(54,54,54)] hover:text-white/90"
+              : "text-black/70 hover:bg-[rgb(217,217,217)] hover:text-black/90",
+        isFocused && (isDark ? "ring-1 ring-white/25" : "ring-1 ring-black/20"),
       )}
       style={{ paddingLeft: `${7 + depth * 10}px`, paddingRight: "7px" }}
       onClick={onSelect}
@@ -812,6 +931,7 @@ function CellTreeNode({
   depth,
   isDark,
   activeCell,
+  focusedCellName,
   editingCellName,
   expandedCells,
   hiddenCells,
@@ -823,6 +943,7 @@ function CellTreeNode({
   depth: number;
   isDark: boolean;
   activeCell: string | null;
+  focusedCellName: string | null;
   editingCellName: string | null;
   expandedCells: Set<string>;
   hiddenCells: Set<string>;
@@ -842,6 +963,7 @@ function CellTreeNode({
       <CellRow
         name={node.name}
         isActive={node.name === activeCell}
+        isFocused={node.name === focusedCellName}
         isDark={isDark}
         depth={depth}
         hasChildren={hasChildren}
@@ -862,6 +984,7 @@ function CellTreeNode({
             depth={depth + 1}
             isDark={isDark}
             activeCell={activeCell}
+            focusedCellName={focusedCellName}
             editingCellName={editingCellName}
             expandedCells={expandedCells}
             hiddenCells={hiddenCells}
@@ -885,6 +1008,7 @@ function CellTreeNode({
 function TabRow({
   tab,
   isActive,
+  isFocused,
   isDark,
   onSelect,
   onClose,
@@ -892,13 +1016,25 @@ function TabRow({
 }: {
   tab: Tab;
   isActive: boolean;
+  /** Whether this tab has the keyboard navigation cursor. */
+  isFocused: boolean;
   isDark: boolean;
   onSelect: () => void;
   onClose: (e: React.MouseEvent) => void;
   onMiddleClick: (e: React.MouseEvent) => void;
 }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // Scroll the focused row into view when it becomes focused
+  useEffect(() => {
+    if (isFocused && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [isFocused]);
+
   return (
     <div
+      ref={rowRef}
       role="tab"
       tabIndex={0}
       aria-selected={isActive}
@@ -908,9 +1044,14 @@ function TabRow({
           ? isDark
             ? "bg-[rgb(54,54,54)] text-white/90"
             : "bg-[rgb(217,217,217)] text-black/90"
-          : isDark
-            ? "text-white/70 hover:bg-[rgb(54,54,54)] hover:text-white/90"
-            : "text-black/70 hover:bg-[rgb(217,217,217)] hover:text-black/90",
+          : isFocused
+            ? isDark
+              ? "bg-[rgb(44,44,44)] text-white/90"
+              : "bg-[rgb(227,227,227)] text-black/90"
+            : isDark
+              ? "text-white/70 hover:bg-[rgb(54,54,54)] hover:text-white/90"
+              : "text-black/70 hover:bg-[rgb(217,217,217)] hover:text-black/90",
+        isFocused && (isDark ? "ring-1 ring-white/25" : "ring-1 ring-black/20"),
       )}
       onClick={onSelect}
       onKeyDown={(e) => {
@@ -970,7 +1111,7 @@ function TabRow({
  * Rendered inside the Explorer panel between the header and cell tree.
  * Only shown when there are 2+ tabs (a single tab is implicit).
  */
-function TabList({ isDark }: { isDark: boolean }) {
+function TabList({ isDark, focusedItem }: { isDark: boolean; focusedItem: FocusedItem | null }) {
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
 
@@ -1007,6 +1148,7 @@ function TabList({ isDark }: { isDark: boolean }) {
             key={tab.id}
             tab={tab}
             isActive={tab.id === activeTabId}
+            isFocused={focusedItem?.type === "tab" && focusedItem.id === tab.id}
             isDark={isDark}
             onSelect={() => handleTabSelect(tab.id)}
             onClose={(e) => handleTabClose(e, tab.id)}
@@ -1102,6 +1244,7 @@ function CollapsedExplorer({ isDark, onExpand }: { isDark: boolean; onExpand: ()
  * - Right-click context menu (add, rename, delete)
  * - Inline rename (double-click or context menu)
  * - Hamburger menu with Edit, View, and Preferences actions
+ * - Keyboard navigation (Shift+E to focus, arrows to navigate, Space/Enter/Delete for actions)
  */
 export function Explorer() {
   const theme = useUIStore((s) => s.theme);
@@ -1132,6 +1275,13 @@ export function Explorer() {
   const setHierarchyLevelLimit = useExplorerStore((s) => s.setHierarchyLevelLimit);
   const maxTreeDepth = useExplorerStore((s) => s.maxTreeDepth);
   const hiddenCells = useExplorerStore((s) => s.hiddenCells);
+  const isFocused = useExplorerStore((s) => s.isFocused);
+  const focusedItem = useExplorerStore((s) => s.focusedItem);
+  const setFocused = useExplorerStore((s) => s.setFocused);
+  const setFocusedItem = useExplorerStore((s) => s.setFocusedItem);
+
+  // Claim keyboard focus when Explorer is keyboard-navigating
+  useKeyboardFocus("explorer-panel", isFocused);
 
   // On sm, the expanded Explorer is an overlay — track if it was manually opened
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1215,6 +1365,199 @@ export function Explorer() {
     },
     [activeCell, cells.length, setActiveCell],
   );
+
+  // =========================================================================
+  // Keyboard navigation for the Explorer (tabs + cell list)
+  // =========================================================================
+
+  // Unfocus Explorer on click outside the panel (when keyboard-focused)
+  useEffect(() => {
+    if (!isFocused) return;
+    const handler = (e: MouseEvent) => {
+      if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) {
+        setFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [isFocused, setFocused]);
+
+  // Keyboard event handler for arrow-key navigation, actions, and escape.
+  // Navigates a unified list of tabs (when 2+) followed by visible cells.
+  useEffect(() => {
+    if (!isFocused) return;
+
+    const handler = (e: KeyboardEvent) => {
+      // Don't handle if an input is focused (e.g., rename input, level input)
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const {
+        focusedItem: current,
+        cellTree: tree,
+        cells: allCells,
+        expandedCells: expanded,
+        activeCell: active,
+        editingCellName: editing,
+      } = useExplorerStore.getState();
+
+      // Skip navigation while inline editing
+      if (editing) return;
+
+      const allTabs = useTabsStore.getState().tabs;
+      const items = getVisibleItems(allTabs, tree, allCells, expanded);
+      if (items.length === 0) return;
+
+      const currentIndex = findItemIndex(items, current);
+
+      switch (e.key) {
+        case "ArrowDown": {
+          e.preventDefault();
+          const nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
+          setFocusedItem(items[nextIndex]);
+          break;
+        }
+        case "ArrowUp": {
+          e.preventDefault();
+          const prevIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+          setFocusedItem(items[prevIndex]);
+          break;
+        }
+        case "ArrowRight": {
+          // Only applies to cell items — expand tree node or move to first child
+          e.preventDefault();
+          if (current?.type === "cell" && tree) {
+            const node = findNodeInTree(tree, current.name);
+            if (node && node.children.length > 0 && !expanded.has(current.name)) {
+              toggleExpanded(current.name);
+            } else if (node && node.children.length > 0 && expanded.has(current.name)) {
+              setFocusedItem({ type: "cell", name: node.children[0].name });
+            }
+          }
+          break;
+        }
+        case "ArrowLeft": {
+          // Only applies to cell items — collapse tree node or move to parent
+          e.preventDefault();
+          if (current?.type === "cell" && tree) {
+            const node = findNodeInTree(tree, current.name);
+            if (node && node.children.length > 0 && expanded.has(current.name)) {
+              toggleExpanded(current.name);
+            } else {
+              const parent = findParentInTree(tree, current.name);
+              if (parent) {
+                setFocusedItem({ type: "cell", name: parent });
+              }
+            }
+          }
+          break;
+        }
+        case " ": {
+          // Space: activate the focused item
+          e.preventDefault();
+          if (!current) break;
+          if (current.type === "tab") {
+            // Switch to the focused tab
+            const activeTabId = useTabsStore.getState().activeTabId;
+            if (current.id !== activeTabId) {
+              switchTab(activeTabId, current.id);
+              useTabsStore.getState().setActiveTab(current.id);
+            }
+          } else {
+            // Set focused cell as active cell
+            if (current.name === active) {
+              if (allCells.length > 1) {
+                setActiveCell(null);
+              }
+            } else {
+              setActiveCell(current.name);
+            }
+          }
+          break;
+        }
+        case "Enter": {
+          // Enter: rename (cells only)
+          e.preventDefault();
+          if (current?.type === "cell") {
+            useExplorerStore.getState().setEditingCellName(current.name);
+          }
+          break;
+        }
+        case "Delete":
+        case "Backspace": {
+          e.preventDefault();
+          if (!current) break;
+          if (current.type === "tab") {
+            // Close the focused tab. The close-tab event is handled async,
+            // so defer focus update to after the tab list has been updated.
+            const closedIndex = currentIndex;
+            window.dispatchEvent(new CustomEvent("rosette-close-tab", { detail: current.id }));
+            setTimeout(() => {
+              const freshState = useExplorerStore.getState();
+              const freshTabs = useTabsStore.getState().tabs;
+              const freshItems = getVisibleItems(
+                freshTabs,
+                freshState.cellTree,
+                freshState.cells,
+                freshState.expandedCells,
+              );
+              if (freshItems.length === 0) {
+                setFocusedItem(null);
+              } else {
+                const idx = Math.min(closedIndex, freshItems.length - 1);
+                setFocusedItem(freshItems[idx]);
+              }
+            }, 0);
+          } else {
+            // Delete the focused cell
+            if (allCells.length > 1) {
+              const { library, renderer } = useWasmContextStore.getState();
+              if (library && renderer) {
+                const nextIndex =
+                  currentIndex < items.length - 1 ? currentIndex + 1 : currentIndex - 1;
+                const nextFocus = nextIndex >= 0 ? items[nextIndex] : null;
+
+                const command = new DeleteCellCommand(current.name);
+                useHistoryStore.getState().execute(command, { library, renderer });
+
+                if (nextFocus && !focusedItemEquals(nextFocus, current)) {
+                  setFocusedItem(nextFocus);
+                }
+              }
+            }
+          }
+          break;
+        }
+        case "z":
+        case "Z": {
+          // Cmd+Z / Cmd+Shift+Z: Undo/Redo (pass through while Explorer is focused)
+          const mod = e.metaKey || e.ctrlKey;
+          if (!mod) return;
+          e.preventDefault();
+          const { library, renderer } = useWasmContextStore.getState();
+          if (!library || !renderer) break;
+          if (e.shiftKey) {
+            useHistoryStore.getState().redo({ library, renderer });
+          } else {
+            useHistoryStore.getState().undo({ library, renderer });
+          }
+          break;
+        }
+        case "Escape": {
+          // Escape: release keyboard focus
+          e.preventDefault();
+          setFocused(false);
+          break;
+        }
+        default:
+          return; // Don't prevent default for unhandled keys
+      }
+    };
+
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isFocused, setFocused, setFocusedItem, setActiveCell, toggleExpanded]);
 
   const handleExpand = useCallback(() => {
     if (isSm) {
@@ -1317,7 +1660,7 @@ export function Explorer() {
         <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
 
         {/* Vertical tab list (shown when 2+ tabs are open) */}
-        <TabList isDark={isDark} />
+        <TabList isDark={isDark} focusedItem={isFocused ? focusedItem : null} />
 
         {/* Cell tree / list */}
         <div
@@ -1334,6 +1677,9 @@ export function Explorer() {
                   depth={0}
                   isDark={isDark}
                   activeCell={activeCell}
+                  focusedCellName={
+                    isFocused && focusedItem?.type === "cell" ? focusedItem.name : null
+                  }
                   editingCellName={editingCellName}
                   expandedCells={expandedCells}
                   hiddenCells={hiddenCells}
@@ -1348,6 +1694,7 @@ export function Explorer() {
                   key={name}
                   name={name}
                   isActive={name === activeCell}
+                  isFocused={isFocused && focusedItem?.type === "cell" && focusedItem.name === name}
                   isDark={isDark}
                   depth={0}
                   hasChildren={false}
