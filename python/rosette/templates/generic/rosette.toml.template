@@ -45,6 +45,7 @@ description = "Text annotations"
 min_width = 0.15      # Minimum waveguide width
 min_spacing = 0.15    # Minimum gap between waveguides
 min_area = 0.02       # Minimum polygon area
+no_overlap = true     # Forbid overlapping polygons on same layer
 
 # -----------------------------------------------------------------------------
 # Metal Layer (heaters, contacts)

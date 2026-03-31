@@ -1128,6 +1128,9 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         if layer_rules.get("no_self_intersection", False):
             rules = rules.no_self_intersection(layer, f"{prefix}.no_self_intersection")
 
+        if layer_rules.get("no_overlap", False):
+            rules = rules.forbid_overlap(layer, layer, f"{prefix}.no_overlap")
+
     # Process inter-layer rules
     inter_layer_rules = drc_config.get("rules", [])
     for i, rule in enumerate(inter_layer_rules):

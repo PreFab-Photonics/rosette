@@ -11,7 +11,8 @@ import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useUIStore } from "@/stores/ui";
 import { useStatusMessageStore } from "@/stores/status-message";
-import { EditLayerCommand } from "@/lib/commands";
+import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
+import { EditLayerCommand, DeleteLayerCommand } from "@/lib/commands";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
@@ -639,6 +640,7 @@ function LayerEditor({ layer, isDark }: { layer: Layer; isDark: boolean }) {
 function LayerRow({
   layer,
   isActive,
+  isFocused,
   isExpanded,
   isDark,
   onSelect,
@@ -647,6 +649,8 @@ function LayerRow({
 }: {
   layer: Layer;
   isActive: boolean;
+  /** Whether this layer has the keyboard navigation cursor. */
+  isFocused: boolean;
   isExpanded: boolean;
   isDark: boolean;
   onSelect: () => void;
@@ -656,6 +660,14 @@ function LayerRow({
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(layer.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const rowRef = useRef<HTMLButtonElement>(null);
+
+  // Scroll the focused row into view when it becomes focused
+  useEffect(() => {
+    if (isFocused && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [isFocused]);
 
   // Enter edit mode when triggered externally (e.g., from context menu "Rename")
   useEffect(() => {
@@ -724,6 +736,7 @@ function LayerRow({
     <div className="flex flex-col gap-0.5">
       {/* Compact row */}
       <button
+        ref={rowRef}
         type="button"
         className={cn(
           "group relative mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center gap-2 rounded-lg px-[7px] py-1.5 text-left transition-colors",
@@ -731,9 +744,14 @@ function LayerRow({
             ? isDark
               ? "bg-[rgb(54,54,54)] text-white/90"
               : "bg-[rgb(217,217,217)] text-black/90"
-            : isDark
-              ? "text-white/70 hover:bg-[rgb(54,54,54)] hover:text-white/90"
-              : "text-black/70 hover:bg-[rgb(217,217,217)] hover:text-black/90",
+            : isFocused
+              ? isDark
+                ? "bg-[rgb(44,44,44)] text-white/90"
+                : "bg-[rgb(227,227,227)] text-black/90"
+              : isDark
+                ? "text-white/70 hover:bg-[rgb(54,54,54)] hover:text-white/90"
+                : "text-black/70 hover:bg-[rgb(217,217,217)] hover:text-black/90",
+          isFocused && (isDark ? "ring-1 ring-white/25" : "ring-1 ring-black/20"),
         )}
         onClick={onSelect}
         onContextMenu={handleContextMenu}
@@ -821,6 +839,7 @@ function LayerRow({
  * - Inline rename (double-click name)
  * - Right-click context menu (add, delete, rename, toggle visibility)
  * - All edits are undoable via the command/history system
+ * - Keyboard navigation (Shift+L to focus, arrows to navigate, Space/Enter/Delete for actions)
  */
 export function LayersPanel() {
   const theme = useUIStore((s) => s.theme);
@@ -830,6 +849,13 @@ export function LayersPanel() {
   const editingLayerId = useLayerStore((s) => s.editingLayerId);
   const expandedLayerId = useLayerStore((s) => s.expandedLayerId);
   const setExpandedLayerId = useLayerStore((s) => s.setExpandedLayerId);
+  const isFocused = useLayerStore((s) => s.isFocused);
+  const focusedLayerId = useLayerStore((s) => s.focusedLayerId);
+  const setFocused = useLayerStore((s) => s.setFocused);
+  const setFocusedLayerId = useLayerStore((s) => s.setFocusedLayerId);
+
+  // Claim keyboard focus when Layers panel is keyboard-navigating
+  useKeyboardFocus("layers-panel", isFocused);
 
   const layers = getAllLayers();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -841,6 +867,129 @@ export function LayersPanel() {
     },
     [setExpandedLayerId],
   );
+
+  // =========================================================================
+  // Keyboard navigation for the Layers panel
+  // =========================================================================
+
+  // Unfocus on click outside the panel
+  useEffect(() => {
+    if (!isFocused) return;
+    const handler = (e: MouseEvent) => {
+      if (scrollRef.current && !scrollRef.current.contains(e.target as Node)) {
+        setFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [isFocused, setFocused]);
+
+  // Keyboard event handler
+  useEffect(() => {
+    if (!isFocused) return;
+
+    const handler = (e: KeyboardEvent) => {
+      // Don't handle if an input is focused (e.g., rename input, editor fields)
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const {
+        focusedLayerId: currentFocus,
+        editingLayerId: editing,
+        expandedLayerId: expanded,
+      } = useLayerStore.getState();
+
+      // Skip navigation while inline editing or editor is expanded
+      if (editing || expanded) return;
+
+      const allLayers = useLayerStore.getState().getAllLayers();
+      if (allLayers.length === 0) return;
+
+      const currentIndex =
+        currentFocus != null ? allLayers.findIndex((l) => l.id === currentFocus) : -1;
+
+      switch (e.key) {
+        case "ArrowDown": {
+          e.preventDefault();
+          const nextIndex = currentIndex < allLayers.length - 1 ? currentIndex + 1 : 0;
+          setFocusedLayerId(allLayers[nextIndex].id);
+          break;
+        }
+        case "ArrowUp": {
+          e.preventDefault();
+          const prevIndex = currentIndex > 0 ? currentIndex - 1 : allLayers.length - 1;
+          setFocusedLayerId(allLayers[prevIndex].id);
+          break;
+        }
+        case " ": {
+          // Space: set focused layer as active layer
+          e.preventDefault();
+          if (currentFocus != null) {
+            setActiveLayer(currentFocus);
+          }
+          break;
+        }
+        case "Enter": {
+          // Enter: toggle expanded editor for the focused layer
+          e.preventDefault();
+          if (currentFocus != null) {
+            const current = useLayerStore.getState().expandedLayerId;
+            setExpandedLayerId(current === currentFocus ? null : currentFocus);
+          }
+          break;
+        }
+        case "Delete":
+        case "Backspace": {
+          // Delete the focused layer
+          e.preventDefault();
+          if (currentFocus != null && allLayers.length > 1) {
+            const { library, renderer } = useWasmContextStore.getState();
+            if (library && renderer) {
+              // Move focus to neighbor before deleting
+              const nextIndex =
+                currentIndex < allLayers.length - 1 ? currentIndex + 1 : currentIndex - 1;
+              const nextFocus = nextIndex >= 0 ? allLayers[nextIndex].id : null;
+
+              const command = new DeleteLayerCommand(currentFocus);
+              useHistoryStore.getState().execute(command, { library, renderer });
+
+              if (nextFocus != null && nextFocus !== currentFocus) {
+                setFocusedLayerId(nextFocus);
+              }
+            }
+          }
+          break;
+        }
+        case "z":
+        case "Z": {
+          // Cmd+Z / Cmd+Shift+Z: Undo/Redo
+          const mod = e.metaKey || e.ctrlKey;
+          if (!mod) return;
+          e.preventDefault();
+          const { library, renderer } = useWasmContextStore.getState();
+          if (!library || !renderer) break;
+          if (e.shiftKey) {
+            useHistoryStore.getState().redo({ library, renderer });
+          } else {
+            useHistoryStore.getState().undo({ library, renderer });
+          }
+          break;
+        }
+        case "Escape": {
+          // Escape: release keyboard focus
+          e.preventDefault();
+          setFocused(false);
+          break;
+        }
+        default:
+          return; // Don't prevent default for unhandled keys
+      }
+    };
+
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isFocused, setFocused, setFocusedLayerId, setActiveLayer, setExpandedLayerId]);
 
   return (
     <div className="flex h-full flex-col">
@@ -855,6 +1004,7 @@ export function LayersPanel() {
             key={layer.id}
             layer={layer}
             isActive={layer.id === activeLayerId}
+            isFocused={isFocused && layer.id === focusedLayerId}
             isExpanded={expandedLayerId === layer.id}
             isDark={isDark}
             onSelect={() => setActiveLayer(layer.id)}

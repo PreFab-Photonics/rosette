@@ -644,6 +644,75 @@ layer2 = "10/0"
         # 2 (layer 1/0) + 1 (layer 10/0) + 2 (inter-layer) = 5 rules
         assert "5 rules" in repr(rules)
 
+    def test_load_no_overlap_per_layer(self, tmp_path):
+        """Can load no_overlap per-layer config that generates forbid_overlap(L, L)."""
+        toml_content = """
+[drc.layers."1/0"]
+min_width = 0.15
+no_overlap = true
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        # min_width + forbid_overlap(same layer) = 2 rules
+        assert "2 rules" in repr(rules)
+
+    def test_no_overlap_detects_same_layer_overlap(self, tmp_path):
+        """no_overlap = true catches overlapping polygons on the same layer."""
+        toml_content = """
+[drc.layers."1/0"]
+no_overlap = true
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+        cell.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+
+        result = run_drc(cell, rules)
+        assert not result.passed
+        assert len(result.violations) == 1
+        assert result.violations[0].rule_type == "forbidden_overlap"
+
+    def test_no_overlap_passes_non_overlapping(self, tmp_path):
+        """no_overlap = true passes when polygons don't overlap."""
+        toml_content = """
+[drc.layers."1/0"]
+no_overlap = true
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+        cell.add_polygon(Polygon.rect(Point(10, 0), 5.0, 5.0), Layer(1, 0))
+
+        result = run_drc(cell, rules)
+        assert result.passed
+
+    def test_no_overlap_no_self_compare(self, tmp_path):
+        """no_overlap = true does not flag a single polygon against itself."""
+        toml_content = """
+[drc.layers."1/0"]
+no_overlap = true
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+
+        result = run_drc(cell, rules)
+        assert result.passed
+
     def test_unknown_rule_type_raises(self, tmp_path):
         """Unknown rule type raises ValueError."""
         toml_content = """

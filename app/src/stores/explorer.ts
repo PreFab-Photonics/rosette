@@ -11,6 +11,9 @@ export interface CellNode {
   children: CellNode[];
 }
 
+/** Item currently highlighted by the keyboard cursor in the Explorer. */
+export type FocusedItem = { type: "tab"; id: string } | { type: "cell"; name: string };
+
 /**
  * Explorer state for browsing cells in a design.
  *
@@ -39,6 +42,11 @@ interface ExplorerState {
   /** Set of cell names whose internal geometry is hidden. */
   hiddenCells: Set<string>;
 
+  /** Whether the Explorer panel has keyboard focus for arrow-key navigation. */
+  isFocused: boolean;
+  /** The item currently highlighted by the keyboard cursor (tab or cell). */
+  focusedItem: FocusedItem | null;
+
   /** Set the project name. */
   setProjectName: (name: string) => void;
   /** Replace the cell list (called when a design loads or updates). */
@@ -65,6 +73,10 @@ interface ExplorerState {
   showAllCells: () => void;
   /** Hide all cells. */
   hideAllCells: () => void;
+  /** Set keyboard focus state for the Explorer panel. */
+  setFocused: (focused: boolean) => void;
+  /** Set the keyboard-cursor item (tab or cell). */
+  setFocusedItem: (item: FocusedItem | null) => void;
 }
 
 /** Collect all cell names from a single tree node into a flat list. */
@@ -133,6 +145,8 @@ export const useExplorerStore = create<ExplorerState>()(
       hierarchyLevelLimit: Infinity,
       maxTreeDepth: 0,
       hiddenCells: new Set<string>(),
+      isFocused: false,
+      focusedItem: null,
 
       setProjectName: (name) => set({ projectName: name }),
       setCells: (cells) =>
@@ -157,11 +171,17 @@ export const useExplorerStore = create<ExplorerState>()(
             state.activeCell && cells.includes(state.activeCell)
               ? state.activeCell
               : (cells[0] ?? null);
+          // Clear keyboard cursor if the focused cell no longer exists
+          const focusedItem =
+            state.focusedItem?.type === "cell" && !cells.includes(state.focusedItem.name)
+              ? null
+              : state.focusedItem;
           return {
             cellTree: roots,
             cells,
             expandedCells,
             activeCell,
+            focusedItem,
             maxTreeDepth,
             cellsLoaded: true,
           };
@@ -183,20 +203,28 @@ export const useExplorerStore = create<ExplorerState>()(
         set((state) => {
           const cells = state.cells.map((c) => (c === oldName ? newName : c));
           const activeCell = state.activeCell === oldName ? newName : state.activeCell;
+          const focusedItem =
+            state.focusedItem?.type === "cell" && state.focusedItem.name === oldName
+              ? { type: "cell" as const, name: newName }
+              : state.focusedItem;
           const hiddenCells = new Set(state.hiddenCells);
           if (hiddenCells.has(oldName)) {
             hiddenCells.delete(oldName);
             hiddenCells.add(newName);
           }
-          return { cells, activeCell, hiddenCells };
+          return { cells, activeCell, focusedItem, hiddenCells };
         }),
       removeCell: (name) =>
         set((state) => {
           const cells = state.cells.filter((c) => c !== name);
           const activeCell = state.activeCell === name ? (cells[0] ?? null) : state.activeCell;
+          const focusedItem =
+            state.focusedItem?.type === "cell" && state.focusedItem.name === name
+              ? null
+              : state.focusedItem;
           const hiddenCells = new Set(state.hiddenCells);
           hiddenCells.delete(name);
-          return { cells, activeCell, hiddenCells };
+          return { cells, activeCell, focusedItem, hiddenCells };
         }),
       addCell: (name) =>
         set((state) => {
@@ -215,6 +243,19 @@ export const useExplorerStore = create<ExplorerState>()(
         }),
       showAllCells: () => set({ hiddenCells: new Set<string>() }),
       hideAllCells: () => set((state) => ({ hiddenCells: new Set(state.cells) })),
+      setFocused: (focused) =>
+        set((state) => {
+          if (focused) {
+            // When focusing, initialize cursor to activeCell or first cell
+            const cellName = state.activeCell ?? state.cells[0] ?? null;
+            const focusedItem: FocusedItem | null = cellName
+              ? { type: "cell", name: cellName }
+              : null;
+            return { isFocused: true, focusedItem };
+          }
+          return { isFocused: false, focusedItem: null };
+        }),
+      setFocusedItem: (item) => set({ focusedItem: item }),
     }),
     {
       name: "rosette-explorer",

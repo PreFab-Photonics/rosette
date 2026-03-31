@@ -207,18 +207,21 @@ A new DrcRules with the rule added.
 
 <PyFunction name={"forbid_overlap"} type={"(layer1, layer2, name=None) -> DrcRules"}>
 
-Add a rule forbidding overlap between two layers.
+Add a rule forbidding overlap between two layers. Can also be used with the
+same layer for both arguments to detect overlapping polygons within a single
+layer. In TOML config, use `no_overlap = true` in a per-layer section as a
+shorthand for `forbid_overlap(layer, layer)`.
 
 <div>
 
 <PyParameter name={"layer1"} type={"Layer | int | tuple[int, int]"}>
 
-First layer.
+First layer (can equal `layer2` for same-layer overlap detection).
 
 </PyParameter>
 <PyParameter name={"layer2"} type={"Layer | int | tuple[int, int]"}>
 
-Second layer.
+Second layer (can equal `layer1` for same-layer overlap detection).
 
 </PyParameter>
 <PyParameter name={"name"} type={"str | None"} value={"None"}>

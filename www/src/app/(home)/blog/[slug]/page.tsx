@@ -1,4 +1,5 @@
 import defaultMdxComponents from "fumadocs-ui/mdx";
+import { ImageZoom } from "fumadocs-ui/components/image-zoom";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -56,8 +57,13 @@ export default async function BlogPost(props: Props) {
           </p>
         )}
 
-        <div className="prose mt-10 max-w-prose">
-          <Mdx components={defaultMdxComponents} />
+        <div className="prose mt-10 max-w-none">
+          <Mdx
+            components={{
+              ...defaultMdxComponents,
+              img: (props) => <ImageZoom {...(props as any)} />,
+            }}
+          />
         </div>
       </article>
     </div>
@@ -79,7 +85,12 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   return {
     title: page.data.title,
     description: page.data.description,
+    alternates: {
+      canonical: `/blog/${params.slug}`,
+    },
     openGraph: {
+      type: "article",
+      publishedTime: new Date(page.data.date).toISOString(),
       images: getBlogPostImage(page).url,
     },
   };

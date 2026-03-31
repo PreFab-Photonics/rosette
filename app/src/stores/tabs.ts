@@ -335,15 +335,17 @@ export function restoreTabSnapshot(tabId: string): void {
     canRedo: snapshot.history.redoStack.length > 0,
   });
 
-  // Restore layers
+  // Restore layers (clear transient keyboard focus state)
   useLayerStore.setState({
     layers: new Map(snapshot.layers.layers),
     activeLayerId: snapshot.layers.activeLayerId,
     editingLayerId: null,
     expandedLayerId: null,
+    isFocused: false,
+    focusedLayerId: null,
   });
 
-  // Restore explorer
+  // Restore explorer (clear transient keyboard focus state)
   useExplorerStore.setState({
     projectName: snapshot.explorer.projectName,
     cells: [...snapshot.explorer.cells],
@@ -355,6 +357,8 @@ export function restoreTabSnapshot(tabId: string): void {
     hierarchyLevelLimit: snapshot.explorer.hierarchyLevelLimit,
     maxTreeDepth: snapshot.explorer.maxTreeDepth,
     hiddenCells: new Set(snapshot.explorer.hiddenCells),
+    isFocused: false,
+    focusedItem: null,
   });
 
   // Restore tool

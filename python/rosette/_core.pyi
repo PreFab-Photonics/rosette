@@ -885,7 +885,12 @@ class DrcRules:
         layer2: Layer | int | tuple[int, int],
         name: str | None = None,
     ) -> DrcRules:
-        """Add rule forbidding overlap between two layers."""
+        """Add rule forbidding overlap between two layers.
+
+        Supports same-layer usage (layer1 == layer2) to detect overlapping
+        polygons within a single layer. In TOML config, use ``no_overlap = true``
+        in a per-layer section as a shorthand.
+        """
         ...
     def allowed_angles(
         self,
@@ -983,7 +988,7 @@ def grating_coupler(
     period: float = 0.63,
     fill_factor: float = 0.5,
     num_periods: int = 25,
-    focusing_angle: float | None = None,
+    focusing_angle: float | None = 20.0,
     grating_width: float = 12.0,
     taper_length: float = 20.0,
 ) -> Cell:

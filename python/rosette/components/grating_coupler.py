@@ -25,6 +25,21 @@ then extend **away** from the component::
 
     # Example: place GC with opt facing -X (toward a port on the left)
     gc_inst = gc.at(0, 0).rotate(180).at(x, y)
+
+Spacing
+-------
+Grating couplers couple to optical fibers, which have a standard
+center-to-center pitch of **127 um** in fiber arrays. When placing
+multiple GCs (e.g., for a splitter with two outputs), space them at
+this pitch or wider. The grating body is typically ~12 um wide, so
+placing GCs closer than ~20 um will cause physical overlap.
+
+Use S-bend routes (via intermediate waypoints) to fan out from
+closely-spaced component ports to the wider GC pitch::
+
+    # Fan out from MMI outputs (2 um apart) to GC pitch (127 um apart)
+    gc_out1 = gc.at(0, 0).rotate(180).at(x, -63.5)
+    gc_out2 = gc.at(0, 0).rotate(180).at(x, +63.5)
 """
 
 import math
@@ -43,7 +58,7 @@ def grating_coupler(
     fill_factor: float = 0.5,
     num_periods: int = 25,
     grating_type: Literal["uniform", "apodized"] = "uniform",
-    focusing_angle: float | None = None,
+    focusing_angle: float | None = 20.0,
     grating_width: float = 12.0,
     taper_length: float = 20.0,
 ) -> Cell:
@@ -87,7 +102,8 @@ def grating_coupler(
         grating_type: ``"uniform"`` or ``"apodized"`` (Gaussian
             modulation of fill factor).
         focusing_angle: Full angular aperture of the curved grating
-            fan in degrees. ``None`` for straight (rectangular) teeth.
+            fan in degrees (default: 20.0). Set to ``None`` for straight
+            (rectangular) teeth.
         grating_width: Width of the grating region in microns (only
             used when *focusing_angle* is ``None``).
         taper_length: Length of the taper from waveguide to grating
@@ -105,7 +121,7 @@ def grating_coupler(
     Example:
         >>> from rosette import Layer
         >>> from rosette.components import grating_coupler
-        >>> gc = grating_coupler(Layer(1, 0), focusing_angle=20.0)
+        >>> gc = grating_coupler(Layer(1, 0))  # focused by default
     """
     if waveguide_width <= 0:
         raise ValueError("Waveguide width must be positive")

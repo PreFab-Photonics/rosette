@@ -29,6 +29,8 @@ import { isImageId, imageIdToKey } from "@/stores/image";
 import { useCommandPaletteStore } from "@/stores/command-palette";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useUIStore } from "@/stores/ui";
+import { useExplorerStore } from "@/stores/explorer";
+import { useLayerStore } from "@/stores/layer";
 import { useTextStore } from "@/stores/text";
 import { centerViewOnSelection, getEffectiveViewport } from "@/lib/utils";
 
@@ -58,6 +60,8 @@ const PAN_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
  * - `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y`: Redo
  * - `Tab`: Cycle selection to next object
  * - `Shift+Tab`: Cycle selection to previous object
+ * - `Shift+E`: Focus Explorer panel for keyboard navigation
+ * - `Shift+L`: Focus Layers panel for keyboard navigation
  */
 export function useKeyboardShortcuts(
   canvasRef: RefObject<HTMLCanvasElement | null>,
@@ -468,8 +472,24 @@ export function useKeyboardShortcuts(
             }
           }
           break;
-        case "e":
         case "E":
+          // Shift+E: Focus Explorer panel for keyboard navigation
+          if (e.shiftKey) {
+            e.preventDefault();
+            // Expand the explorer if collapsed
+            if (useUIStore.getState().explorerCollapsed) {
+              useUIStore.getState().toggleExplorerCollapsed();
+            }
+            useExplorerStore.getState().setFocused(true);
+            break;
+          }
+          // No shift — fall through to edit-selection behavior
+          e.preventDefault();
+          if (useSelectionStore.getState().selectedIds.size > 0) {
+            useUIStore.getState().requestInspectorFocus();
+          }
+          break;
+        case "e":
           // Edit selection in inspector panel
           e.preventDefault();
           if (useSelectionStore.getState().selectedIds.size > 0) {
@@ -477,9 +497,10 @@ export function useKeyboardShortcuts(
           }
           break;
         case "L":
-          // Shift+L: Switch sidebar to Layers tab
+          // Shift+L: Focus Layers panel for keyboard navigation
           e.preventDefault();
           useUIStore.getState().setSidebarTab("layers");
+          useLayerStore.getState().setFocused(true);
           break;
         case "I":
           // Shift+I: Switch sidebar to Inspector tab
