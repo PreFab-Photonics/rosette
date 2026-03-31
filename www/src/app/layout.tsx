@@ -28,13 +28,17 @@ export const metadata: Metadata = {
   },
   description: "The modern GDSII layout editor",
   metadataBase: new URL("https://rosette.dev"),
+  alternates: {
+    canonical: "./",
+  },
   openGraph: {
     type: "website",
     siteName: "Rosette",
     locale: "en_US",
+    images: "/og/default",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
   },
 };
 

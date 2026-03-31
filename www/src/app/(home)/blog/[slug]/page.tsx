@@ -85,7 +85,12 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   return {
     title: page.data.title,
     description: page.data.description,
+    alternates: {
+      canonical: `/blog/${params.slug}`,
+    },
     openGraph: {
+      type: "article",
+      publishedTime: new Date(page.data.date).toISOString(),
       images: getBlogPostImage(page).url,
     },
   };
