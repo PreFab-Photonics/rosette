@@ -559,14 +559,6 @@ export class WasmLibrary {
      */
     set_layer_fill_pattern(layer: number, datatype: number, pattern: number): void;
     /**
-     * Convert a text element to polygon contours.
-     *
-     * Removes the text element and replaces it with polygon contours
-     * generated from the embedded Source Code Pro font.
-     * Returns UUIDs of the new polygons.
-     */
-    text_to_polygons(id: string): string[];
-    /**
      * Update the height of a text element.
      *
      * Returns true if the element was found and updated.
@@ -578,6 +570,15 @@ export class WasmLibrary {
      * Returns true if the element was found and updated.
      */
     set_text_position(id: string, x: number, y: number): boolean;
+    /**
+     * Convert a text element to polygon outlines.
+     *
+     * Removes the text element and replaces it with polygon contours extracted
+     * from the embedded Source Code Pro font. Holes in glyphs (e.g. 'd', 'o')
+     * are boolean-subtracted so they render correctly.
+     * Returns UUIDs of the new polygons.
+     */
+    text_to_polygons(id: string): string[];
     /**
      * Export the library as GDS II binary bytes.
      *
@@ -990,6 +991,7 @@ export interface InitOutput {
     readonly wasmlibrary_set_layer_fill_pattern: (a: number, b: number, c: number, d: number) => void;
     readonly wasmlibrary_set_text_height: (a: number, b: number, c: number, d: number) => number;
     readonly wasmlibrary_set_text_position: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_text_to_polygons: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_to_gds: (a: number) => [number, number, number, number];
     readonly wasmlibrary_to_json: (a: number) => [number, number, number, number];
     readonly wasmlibrary_to_library_json: (a: number) => [number, number, number, number];
@@ -1035,11 +1037,12 @@ export interface InitOutput {
     readonly wasmrenderer_toggle_selection: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_update_shape: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly init: () => void;
-    readonly wasm_bindgen__closure__destroy__h52ff4e9cf9be43a2: (a: number, b: number) => void;
-    readonly wasm_bindgen__closure__destroy__hb39ba80c733e6d38: (a: number, b: number) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h4aa216712475f51d: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h93c31ecaa1a59c3c: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h1aa1ab0756435612: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__closure__destroy__h7dd5bf82945e395a: (a: number, b: number) => void;
+    readonly wasm_bindgen__closure__destroy__h0fd3ff6dab0181dc: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h5b288fd1558165db: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen__convert__closures_____invoke__h6c09c0fd764b5b1f: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h279f6c0dd15b205e: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h279f6c0dd15b205e_1: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

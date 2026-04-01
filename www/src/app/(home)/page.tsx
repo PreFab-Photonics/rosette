@@ -226,29 +226,16 @@ const capabilities = [
       "A clean, typed Python interface over a compiled Rust core. Ergonomic placement, automatic routing, and hierarchical cells.",
   },
   {
-    label: "fabrication",
-    title: "Fabrication awareness",
-    description: (
-      <>
-        Built on{" "}
-        <a
-          href="https://prefabphotonics.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline decoration-fd-border underline-offset-2 transition-colors hover:text-fd-foreground"
-        >
-          PreFab
-        </a>
-        &rsquo;s process knowledge. Move beyond basic design rules with foundry
-        models that have true predictive capabilities.
-      </>
-    ),
-  },
-  {
     label: "agents",
     title: "Agentic workflows",
     description:
       "AI-native from day one. Agent instructions and direct code access gives LLM agents the context to design circuits alongside you.",
+  },
+  {
+    label: "cli",
+    title: "Powerful CLI",
+    description:
+      "Build, check, and preview from the terminal. One command to init a project, one to export GDS, and a dev server that live-reloads as you edit.",
   },
   {
     label: "docs",

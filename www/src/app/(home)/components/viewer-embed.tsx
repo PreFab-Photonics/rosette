@@ -43,7 +43,7 @@ export function ViewerEmbed({
   // Still checking — show placeholder matching the viewer dimensions
   if (supported === null) {
     return (
-      <div className="aspect-[2/1] w-full rounded-xl border border-fd-border bg-fd-card shadow-md shadow-fd-border/20" />
+      <div className="aspect-[16/9] w-full rounded-xl border border-fd-border bg-fd-card shadow-md shadow-fd-border/20" />
     );
   }
 
@@ -67,7 +67,7 @@ export function ViewerEmbed({
         ref={iframeRef}
         src={src}
         title="Rosette layout viewer"
-        className="aspect-[2/1] w-full border-0"
+        className="aspect-[16/9] w-full border-0"
         loading="lazy"
         sandbox="allow-scripts allow-same-origin"
       />
