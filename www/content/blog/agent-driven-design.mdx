@@ -5,7 +5,11 @@ date: 2026-03-31
 ---
 
 <Callout type="warn" title="Early days">
-Rosette is still early. The API is unstable, things will break, and there's a lot of ground to cover. If this direction resonates with you, the best way to follow along is to watch the [GitHub repo](https://github.com/prefab-photonics/rosette). We're building in the open. Contributions, feedback, and sharp questions are all welcome.
+  Rosette is still early. The API is unstable, things will break, and there's a
+  lot of ground to cover. If this direction resonates with you, the best way to
+  follow along is to watch the [GitHub
+  repo](https://github.com/prefab-photonics/rosette). We're building in the
+  open. Contributions, feedback, and sharp questions are all welcome.
 </Callout>
 
 ## 01 The shift
@@ -14,7 +18,7 @@ A year ago, AI-assisted coding meant tab-completing a few lines of boilerplate. 
 
 This changes how software gets made. And the tools keep getting better, quickly enough that it's worth designing around the assumption that they will be meaningfully more capable a year from now.
 
-There's another field where code is becoming the primary medium of expression: chip design. Specifically, photonic chip design, where the physical layout of waveguides, splitters, and couplers is increasingly defined in code rather than drawn by hand.
+The same shift is happening in chip design. Specifically, photonic chip design, where the physical layout of waveguides, splitters, and couplers is increasingly defined in code rather than drawn by hand.
 
 As chip development becomes more code-driven, agent-driven workflows follow naturally. That's what we're building for.
 
@@ -36,11 +40,11 @@ For an agent to do useful work, it needs three things:
 
 **Tools.** How does it check its own work? How does it know it's actually done, not just "the script ran without errors" done, but "this design is physically correct" done?
 
-Any one of these on its own is useful. But the real leverage comes when all three come together: the agent has clear instructions, full context, *and* a way to verify its own work.
+Any one of these on its own is useful. But the real leverage comes when all three come together: the agent has clear instructions, full context, _and_ a way to verify its own work.
 
 Here's what this looks like in a Rosette project. When you run `rosette init` and pick your agent tool, four things land in your project:
 
-**`AGENTS.md`** — the instruction file. It tells the agent: always read the reference files before coding. Always build, then check. A passing build only means the GDS was written. It does *not* mean the design is correct.
+**`AGENTS.md`** — the instruction file. It tells the agent: always read the reference files before coding. Always build, then check. A passing build only means the GDS was written. It does _not_ mean the design is correct.
 
 **`.rosette/api.pyi`** — the complete typed API for the installed version of Rosette. Every class, every method, every parameter, every type. This is the agent's source of truth. No hallucinating function signatures that don't exist. The API is intentionally minimal: a small surface area means the agent can hold the entire thing in context, and there are fewer ways to get lost.
 
@@ -50,9 +54,9 @@ Here's what this looks like in a Rosette project. When you run `rosette init` an
 
 And then the verification loop: `rosette build` produces the GDS layout. `rosette check` runs DRC and connectivity checks against it. The agent builds, checks, reads the violations, fixes them, and runs again, autonomously.
 
-It's worth noting what's *not* on this list. No custom or fine-tuned LLM. No MCP servers. No dedicated agent harness. No paywall. Everything the agent needs is included in the project itself: plain files it can read with the tools it already has. This works with Claude Code, OpenCode, Cursor, or whatever comes next because we're not coupling to any particular agent runtime.
+It's worth noting what's _not_ on this list. No custom or fine-tuned LLM. No MCP servers. No dedicated agent harness. No paywall. Everything the agent needs is included in the project itself: plain files it can read with the tools it already has. This works with Claude Code, OpenCode, Cursor, or whatever comes next because we're not coupling to any particular agent runtime.
 
-The philosophy is simple: give the agent the right instructions, context, and tools, and get out of its way.
+The philosophy is simple: give the agent the right instructions, context, and tools, and don't add unnecessary layers between it and the work.
 
 This same pattern is showing up elsewhere. Vercel's engineering team [found](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash) that replacing custom retrieval tooling with structured files and bash outperformed their previous approaches for agent context management. The domain is different, but the principle is the same: LLMs already know how to navigate filesystems. Give them well-structured files and they do the rest.
 
@@ -64,7 +68,7 @@ Let's start with something simple. No photonics, no components. Just shapes on a
 Generate a test layout with a few different geometries, using a few different layers, and some cell instancing.
 ```
 
-That's it. A single sentence. The agent reads `.rosette/api.pyi` and `rosette.toml`, sees the full geometry API, and produces a layout with six reusable child cells (waveguide sections, metal pads, hexagons, a ring, alignment crosses, triangles) placed across four layers with rotation, mirroring, routing, arc paths, and a custom star polygon. Here's a trimmed version of what it wrote:
+That's it. A single sentence. The agent reads `.rosette/api.pyi` and `rosette.toml`, sees the full geometry API, and produces a layout with multiple reusable child cells (waveguide sections, metal pads, hexagons, a ring, alignment crosses, triangles) placed across four layers with rotation, mirroring, routing, arc paths, and a custom star polygon. Here's a trimmed version of what it wrote:
 
 ```python
 from rosette import *
@@ -129,7 +133,9 @@ $ uv run rosette check designs/test_layout.py
 
 ![Test layout with geometries and cell instancing](/blog/agent-driven-design/test-layout.png)
 
-Twenty-two cells, four layers, rotations, mirrors, routes, arcs, custom polygons, all from a one-sentence prompt. For purely geometric layouts, the workflow holds up well. The agent reads the API, writes the script, runs into issues, fixes them, and delivers a clean build.
+Twenty-two cell references, four layers, rotations, mirrors, routes, arcs, custom polygons, all from a one-sentence prompt. For purely geometric layouts, the workflow holds up well. The agent reads the API, writes the script, runs into issues, fixes them, and delivers a clean build.
+
+Worth noting: this is the extreme end of vague prompts. The output exercises the API, but it's not something you'd fabricate. More specific intent produces more useful designs, as the next examples show.
 
 ## 05 A fiber loopback
 
@@ -139,7 +145,7 @@ Now let's add photonics. Something like the "hello world" of photonic design is 
 Design a simple grating coupler loopback.
 ```
 
-Six words. The agent reads `.rosette/api.pyi`, `rosette.toml`, and the `components/` directory, all before writing a single line of code. It finds `grating_coupler`, reads the docstring (port `"opt"` faces +X, grating body extends in -X, 127 um fiber pitch), and writes:
+Six words. The agent reads `.rosette/api.pyi`, `rosette.toml`, and the `components/` directory, all before writing a single line of code. It finds `grating_coupler`, reads the docstring (port `"opt"` faces +X, grating body extends in -X, 127 µm fiber pitch), and writes:
 
 ```python
 from rosette import Cell, Layer, Route
@@ -169,7 +175,7 @@ design.add_ref(gc_out)
 design.add_ref(route.to_cell("route"))
 ```
 
-On its first attempt, the agent set `mid_x` too small. The build warned that the bend radius was auto-reduced from 10 um to 4.5 um. It read the warning, understood the geometry, increased the horizontal extent, and rebuilt clean. Then it ran checks:
+On its first attempt, the agent set `mid_x` too small. The build warned that the bend radius was auto-reduced from 10 µm to 4.5 µm. It read the warning, understood the geometry, increased the horizontal extent, and rebuilt clean. Then it ran checks:
 
 ```
 $ uv run rosette check designs/loopback.py
@@ -180,13 +186,13 @@ $ uv run rosette check designs/loopback.py
 
 ![Fiber loopback layout](/blog/agent-driven-design/loopback.png)
 
-A few things to notice. The agent didn't hallucinate the API. It read it from `.rosette/api.pyi`. It knew that grating couplers need 127 um spacing because that's in the `AGENTS.md` instructions. It caught a geometric issue in the bend radius, understood the fix, and iterated, all without human intervention. Details like fiber pitch will be part of the user-configurable project context as we continue building out that system.
+A few things to notice. The agent didn't hallucinate the API. It read it from `.rosette/api.pyi`. It knew that grating couplers need 127 µm spacing because that's in the instructions. It caught a geometric issue in the bend radius, understood the fix, and iterated, all without human intervention. Details like fiber pitch are part of the user-configurable project context.
 
 This is what "context" does. The agent reads the API, the constraints, and the conventions before writing a line of code.
 
 ## 06 A 1x16 splitter tree
 
-Now the slightly more complex case. A 1x16 MMI splitter tree: one input splits into 16 outputs via four stages of MMI 1x2 splitters, with grating couplers on all 17 ports, all aligned on the right side at 127 um fiber pitch.
+Now the slightly more complex case. A 1x16 MMI splitter tree: one input splits into 16 outputs via four stages of MMI 1x2 splitters, with grating couplers on all 17 ports, all aligned on the right side at 127 µm fiber pitch.
 
 This is a good stress test. A splitter tree isn't conceptually hard, but it's the kind of large, structural layout that's tedious to do by hand and non-trivial to script. Fifteen splitters, thirty routed connections, seventeen grating couplers fanned out to fiber pitch. All of it has to connect correctly, satisfy DRC, and respect bend radius limits. An agent can hold the full structure in context and iterate on the whole thing at once.
 
@@ -194,9 +200,9 @@ This is a good stress test. A splitter tree isn't conceptually hard, but it's th
 Design a 1x16 MMI tree using 1x2 MMIs, with grating couplers attached at the ends.
 ```
 
-The agent reads the component library, understands the MMI port layout (`in` at the left, `out1`/`out2` at the right with 2 um separation), and builds the tree stage by stage. Four stages of splitting, S-bend routes fanning out between each stage, and all 17 grating couplers placed in a column on the right at 127 um pitch. The input GC at the bottom connects back to the first MMI with a U-turn route.
+The agent reads the component library, understands the MMI port layout (`in` at the left, `out1`/`out2` at the right with 2 µm separation), and builds the tree stage by stage. Four stages of splitting, S-bend routes fanning out between each stage, and all 17 grating couplers placed in a column on the right at 127 µm pitch. The input GC at the bottom connects back to the first MMI with a U-turn route.
 
-On the first pass, the output GCs were split between left and right sides. We asked the agent to make them all inline on the right, which meant updating every GC placement and output route. It rewrote the layout, rebuilt, and checked:
+On the first pass, the output GCs were split between left and right sides. We asked the agent to make them all inline on the right, which meant updating the GC placement and route. It rewrote the layout, rebuilt, and checked:
 
 ```
 $ uv run rosette build designs/mmi_tree_1x16.py
@@ -213,8 +219,6 @@ $ uv run rosette check designs/mmi_tree_1x16.py
 ![1x16 MMI splitter tree with inline grating couplers](/blog/agent-driven-design/mmi-tree.png)
 
 Sixty-four cells in the hierarchy, 141 ports checked, 48 connections verified, 60 bends within limits. The agent built it, we asked for a layout change, and it updated the design without breaking a single connection.
-
-The agent doesn't need to understand the physics of multimode interference. It needs to know the API, the conventions, and the constraints, and it needs a way to verify that it got them right.
 
 <Callout type="info" title="Try it yourself">
 
@@ -237,10 +241,6 @@ For pure geometric layouts (test structures, alignment marks, parametric sweeps)
 
 For photonic chip design, it's harder. There are more abstractions. More foundry-specific rules. More configurations that interact in non-obvious ways. More things that can go wrong in ways that aren't captured by a min-width DRC check. Process design kits, simulation-driven optimization, multi-layer stacks with complex inter-layer constraints.
 
-And then there's fabrication awareness: understanding how a design will actually be manufactured and how process variations affect performance. This is where [PreFab](https://prefabphotonics.com) comes in, and deeper DFM integration into the agent workflow is something we're actively working on.
-
 These are hard problems. But they're tractable, and the tools are improving fast.
 
 The bet we're making is that the right architecture (agents with the right instructions, full context, and self-verification tools) will compound as the models improve. We don't need to wait for some future breakthrough. We need to build the scaffolding now so that each improvement in agent capability translates directly into better designs with less human intervention.
-
-That's what Rosette is. A tool built from the ground up for agent-driven design workflows.
