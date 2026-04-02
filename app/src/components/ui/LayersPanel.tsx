@@ -732,6 +732,17 @@ function LayerRow({
     [onSelect, onToggleExpand],
   );
 
+  const handleSwatchMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      // Prevent the LayerEditor's click-outside listener from firing first,
+      // which would clear expandedLayerId before onToggleExpand reads it.
+      if (isExpanded) {
+        e.stopPropagation();
+      }
+    },
+    [isExpanded],
+  );
+
   return (
     <div className="flex flex-col gap-0.5">
       {/* Compact row */}
@@ -770,6 +781,7 @@ function LayerRow({
           )}
           style={{ backgroundColor: layer.color }}
           onClick={handleSwatchClick}
+          onMouseDown={handleSwatchMouseDown}
           onKeyDown={() => {}}
         />
 
