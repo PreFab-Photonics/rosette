@@ -15,6 +15,7 @@ import {
   PAN_SPEED_FAST,
 } from "@/lib/constants";
 import {
+  AddCellCommand,
   DeleteElementsCommand,
   DeleteRulersCommand,
   RemoveImageCommand,
@@ -29,7 +30,7 @@ import { isImageId, imageIdToKey } from "@/stores/image";
 import { useCommandPaletteStore } from "@/stores/command-palette";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useUIStore } from "@/stores/ui";
-import { useExplorerStore } from "@/stores/explorer";
+import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useLayerStore } from "@/stores/layer";
 import { useTextStore } from "@/stores/text";
 import { centerViewOnSelection, getEffectiveViewport } from "@/lib/utils";
@@ -507,6 +508,21 @@ export function useKeyboardShortcuts(
           e.preventDefault();
           useUIStore.getState().setSidebarTab("inspector");
           break;
+        case "c": {
+          // Create a new cell, switch to it, and start inline rename
+          e.preventDefault();
+          if (!library || !renderer) break;
+          const cellName = generateUniqueCellName();
+          const addCmd = new AddCellCommand(cellName);
+          useHistoryStore.getState().execute(addCmd, { library, renderer });
+          // Expand explorer if collapsed
+          if (useUIStore.getState().explorerCollapsed) {
+            useUIStore.getState().toggleExplorerCollapsed();
+          }
+          useExplorerStore.getState().setActiveCell(cellName);
+          useExplorerStore.getState().setEditingCellName(cellName);
+          break;
+        }
       }
     };
 

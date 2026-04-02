@@ -35,7 +35,7 @@ import {
 } from "@/lib/commands";
 import type { AlignType } from "@/lib/align";
 import type { BooleanOpType } from "@/lib/commands";
-import { useExplorerStore } from "@/stores/explorer";
+import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { pickAndInsertImage } from "@/lib/image-ops";
 import { keys, getEffectiveViewport } from "@/lib/utils";
 
@@ -831,21 +831,23 @@ export function getCommands(): CommandItem[] {
       id: "cell-add",
       type: "cell",
       name: "Cell: Add",
+      shortcut: { key: "C" },
       action: () => {
         const { library, renderer } = useWasmContextStore.getState();
         if (!library || !renderer) {
           close();
           return;
         }
-        const existing = useExplorerStore.getState().cells;
-        let n = 1;
-        let name = `cell${n}`;
-        while (existing.includes(name)) {
-          n++;
-          name = `cell${n}`;
-        }
+        const name = generateUniqueCellName();
         const command = new AddCellCommand(name);
         useHistoryStore.getState().execute(command, { library, renderer });
+        // Expand explorer if collapsed
+        if (useUIStore.getState().explorerCollapsed) {
+          useUIStore.getState().toggleExplorerCollapsed();
+        }
+        // Switch to the new cell and start inline rename
+        useExplorerStore.getState().setActiveCell(name);
+        useExplorerStore.getState().setEditingCellName(name);
         close();
       },
       searchableText: "Add new cell create",
