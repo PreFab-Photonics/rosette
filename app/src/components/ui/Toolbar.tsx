@@ -627,22 +627,33 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
     setTimeout(() => executeShapeOp(op), 0);
   }, []);
 
-  // Clamp dropdown position to viewport
-  const getMenuPosition = useCallback(() => {
-    if (!buttonRef.current) return { left: 0, top: 0 };
-    const rect = buttonRef.current.getBoundingClientRect();
-    const menuWidth = 180; // approximate 4-col grid width
-    const menuHeight = 160;
-    let left = rect.left;
-    let top = rect.bottom + 8;
-    if (left + menuWidth > window.innerWidth - 8) {
-      left = window.innerWidth - menuWidth - 8;
-    }
-    if (top + menuHeight > window.innerHeight - 8) {
-      top = rect.top - menuHeight - 8;
-    }
-    return { left, top };
-  }, []);
+  // Position dropdown centered on button, measured from actual DOM sizes.
+  // Used as a callback ref so positioning happens immediately on mount.
+  const positionMenu = useCallback(
+    (node: HTMLDivElement | null) => {
+      menuRef.current = node;
+      if (!node || !buttonRef.current) return;
+      const btnRect = buttonRef.current.getBoundingClientRect();
+      const menuRect = node.getBoundingClientRect();
+      const buttonCenter = btnRect.left + btnRect.width / 2;
+      let left = buttonCenter - menuRect.width / 2;
+      let top = btnRect.bottom + 9;
+      // Clamp to viewport edges
+      if (left + menuRect.width > window.innerWidth - 8) {
+        left = window.innerWidth - menuRect.width - 8;
+      }
+      if (left < 8) {
+        left = 8;
+      }
+      if (top + menuRect.height > window.innerHeight - 8) {
+        top = btnRect.top - menuRect.height - 8;
+      }
+      node.style.left = `${left}px`;
+      node.style.top = `${top}px`;
+      node.style.visibility = "visible";
+    },
+    [],
+  );
 
   return (
     <>
@@ -667,7 +678,7 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
       {menuOpen &&
         createPortal(
           <div
-            ref={menuRef}
+            ref={positionMenu}
             onMouseEnter={handleMenuEnter}
             onMouseLeave={handleMenuLeave}
             className={cn(
@@ -676,14 +687,11 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
                 ? "border-white/10 bg-[rgb(29,29,29)]"
                 : "border-black/10 bg-[rgb(241,241,241)]",
             )}
-            style={(() => {
-              const pos = getMenuPosition();
-              return { left: `${pos.left}px`, top: `${pos.top}px` };
-            })()}
+            style={{ visibility: "hidden" }}
           >
             <div className="grid grid-cols-4 gap-1">
               {SHAPE_OPS.map((op) => (
-                <Tooltip key={op.id} label={op.label}>
+                <Tooltip key={op.id} label={op.label} className="[&>div:last-child]:mt-0.5">
                   <button
                     onClick={() => handleOpClick(op)}
                     className={cn(
