@@ -265,6 +265,21 @@ export const useExplorerStore = create<ExplorerState>()(
 );
 
 /**
+ * Generate a unique cell name (`cell1`, `cell2`, ...) that doesn't
+ * collide with any existing cell in the explorer store.
+ */
+export function generateUniqueCellName(): string {
+  const existing = useExplorerStore.getState().cells;
+  let n = 1;
+  let name = `cell${n}`;
+  while (existing.includes(name)) {
+    n++;
+    name = `cell${n}`;
+  }
+  return name;
+}
+
+/**
  * Sync project name changes to the active tab title.
  *
  * When the user renames the project in the Explorer header, update the

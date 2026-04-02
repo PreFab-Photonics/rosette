@@ -8,5 +8,5 @@ description = "Design Rule Checking for rosette photonic layouts"
 [dependencies]
 rosette-core.workspace = true
 thiserror.workspace = true
-geo = { version = "0.29", default-features = false }
+geo.workspace = true
 rstar = "0.12"

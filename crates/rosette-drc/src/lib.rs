@@ -36,7 +36,6 @@
 //! ```
 
 mod checks;
-mod convert;
 mod rules;
 mod runner;
 mod violation;

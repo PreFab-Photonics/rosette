@@ -42,6 +42,10 @@ pub use geometry::{
     offset_polygon,
     offset_polygon_varying,
     path_length,
+    // Geo conversion helpers for boolean operations
+    polygon_from_geo,
+    polygon_to_geo,
+    polygons_from_geo_multi,
 };
 pub use layer::Layer;
 pub use port::Port;

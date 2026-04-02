@@ -41,7 +41,7 @@ interface LaserState {
 const MAX_POINTS = 500;
 
 /** Minimum distance between points (in pixels) to avoid too many points. */
-const MIN_POINT_DISTANCE = 1;
+const MIN_POINT_DISTANCE = 3;
 
 export const useLaserStore = create<LaserState>((set, get) => ({
   points: [],

@@ -5,8 +5,9 @@
 //! Holes (inner contours) are boolean-subtracted from outer contours using the
 //! `geo` crate so that glyphs like 'd', 'o', 'A' render correctly.
 
-use geo::algorithm::bool_ops::BooleanOps;
+use geo::BooleanOps;
 use geo::{Coord, LineString, MultiPolygon, Polygon as GeoPolygon};
+use rosette_core::polygons_from_geo_multi;
 use ttf_parser::{Face, OutlineBuilder};
 
 /// Embedded Source Code Pro Regular font (SIL Open Font License).
@@ -122,86 +123,37 @@ fn signed_area(pts: &[[f64; 2]]) -> f64 {
 fn contour_to_geo(pts: &[[f64; 2]]) -> GeoPolygon<f64> {
     let mut coords: Vec<Coord<f64>> = pts.iter().map(|p| Coord { x: p[0], y: p[1] }).collect();
     // geo requires closed rings — ensure first == last.
-    if let (Some(first), Some(last)) = (coords.first(), coords.last()) {
-        if first != last {
-            coords.push(*first);
-        }
+    if let (Some(first), Some(last)) = (coords.first(), coords.last())
+        && first != last
+    {
+        coords.push(*first);
     }
     GeoPolygon::new(LineString::new(coords), vec![])
 }
 
 /// Convert a `geo::MultiPolygon` result into flat vertex lists for rosette.
 ///
-/// Each exterior ring becomes one flat `[x0, y0, x1, y1, ...]` vec.
-/// Interior rings (holes from boolean ops) are stored as separate polygons
-/// in the `hole_data` output so the caller can register them in the hole map.
-fn multi_poly_to_flat(mp: &MultiPolygon<f64>) -> Vec<(Vec<f64>, Vec<usize>)> {
-    let mut result = Vec::new();
-
-    for geo_poly in mp.iter() {
-        let exterior_coords: Vec<[f64; 2]> =
-            geo_poly.exterior().coords().map(|c| [c.x, c.y]).collect();
-
-        // Strip closing point if present (geo closes polygons, rosette doesn't).
-        let exterior =
-            if exterior_coords.len() > 1 && exterior_coords.first() == exterior_coords.last() {
-                &exterior_coords[..exterior_coords.len() - 1]
-            } else {
-                &exterior_coords[..]
-            };
-
-        if exterior.len() < 3 {
-            continue;
-        }
-
-        // Collect holes.
-        let holes: Vec<Vec<[f64; 2]>> = geo_poly
-            .interiors()
-            .iter()
-            .map(|ring| {
-                let mut coords: Vec<[f64; 2]> = ring.coords().map(|c| [c.x, c.y]).collect();
-                if coords.len() > 1 && coords.first() == coords.last() {
-                    coords.pop();
-                }
-                coords
-            })
-            .filter(|h| h.len() >= 3)
-            .collect();
-
-        // Build final vertex list: exterior + hole rings concatenated.
-        let mut all_points: Vec<[f64; 2]> = exterior.to_vec();
-        let mut hole_start_indices: Vec<usize> = Vec::new();
-        for hole in &holes {
-            hole_start_indices.push(all_points.len());
-            all_points.extend_from_slice(hole);
-        }
-
-        let flat: Vec<f64> = all_points.iter().flat_map(|p| [p[0], p[1]]).collect();
-        result.push((flat, hole_start_indices));
-    }
-
-    result
+/// Uses core's `polygons_from_geo_multi` which keyholes any interior rings,
+/// producing single-ring polygons.
+fn multi_poly_to_flat(mp: &MultiPolygon<f64>) -> Vec<Vec<f64>> {
+    polygons_from_geo_multi(mp)
+        .iter()
+        .map(|poly| poly.vertices().iter().flat_map(|p| [p.x, p.y]).collect())
+        .collect()
 }
 
 /// Convert a text string into polygon vertex data.
 ///
-/// Returns a list of `(flat_vertices, hole_start_indices)` tuples in world
-/// coordinates, ready for `add_polygon` + hole index registration.
-///
-/// Holes in glyphs (e.g., the counter of 'd', 'o', 'A') are properly
-/// boolean-subtracted from outer contours so they render as cutouts.
+/// Returns a list of flat vertex arrays (`[x0, y0, x1, y1, ...]`) in world
+/// coordinates. Holes in glyphs (e.g., the counter of 'd', 'o', 'A') are
+/// boolean-subtracted and keyholed into single-ring polygons.
 ///
 /// # Arguments
 ///
 /// * `text` — the text content (supports `\n` for multi-line)
 /// * `x`, `y` — world-space position of the text anchor (bottom-left)
 /// * `height` — visual cap-height in world units
-pub fn text_to_polygon_contours(
-    text: &str,
-    x: f64,
-    y: f64,
-    height: f64,
-) -> Vec<(Vec<f64>, Vec<usize>)> {
+pub fn text_to_polygon_contours(text: &str, x: f64, y: f64, height: f64) -> Vec<Vec<f64>> {
     let face = match Face::parse(FONT_DATA, 0) {
         Ok(f) => f,
         Err(_) => return Vec::new(),
@@ -224,7 +176,7 @@ pub fn text_to_polygon_contours(
 
     let line_height = units_per_em * 1.2 * scale;
 
-    let mut all_polys: Vec<(Vec<f64>, Vec<usize>)> = Vec::new();
+    let mut all_polys: Vec<Vec<f64>> = Vec::new();
 
     for (line_idx, line) in text.split('\n').enumerate() {
         let mut cursor_x = 0.0_f64; // in font units
@@ -290,7 +242,7 @@ pub fn text_to_polygon_contours(
                 if holes.is_empty() {
                     for outer in &outers {
                         let flat: Vec<f64> = outer.iter().flat_map(|p| [p[0], p[1]]).collect();
-                        all_polys.push((flat, Vec::new()));
+                        all_polys.push(flat);
                     }
                 } else {
                     // Boolean subtract holes from the union of outers.
@@ -332,7 +284,7 @@ mod tests {
             !contours.is_empty(),
             "character 'A' should produce at least one contour"
         );
-        for (flat, _holes) in &contours {
+        for flat in &contours {
             assert!(flat.len() >= 6, "each contour needs at least 3 points");
         }
     }
@@ -354,11 +306,18 @@ mod tests {
     }
 
     #[test]
-    fn glyph_with_hole_has_hole_indices() {
-        // 'd' has a counter (hole) — the result should have hole_start_indices.
+    fn glyph_with_hole_produces_keyholed_polygon() {
+        // 'd' has a counter (hole) — the result should be a keyholed polygon
+        // with more vertices than a simple outline.
         let contours = text_to_polygon_contours("d", 0.0, 0.0, 100.0);
         assert!(!contours.is_empty(), "'d' should produce contours");
-        let has_holes = contours.iter().any(|(_, holes)| !holes.is_empty());
-        assert!(has_holes, "'d' should have at least one polygon with holes");
+        // A keyholed glyph has more vertices than a simple one.
+        let simple = text_to_polygon_contours("l", 0.0, 0.0, 100.0);
+        let max_d_verts = contours.iter().map(|c| c.len()).max().unwrap_or(0);
+        let max_l_verts = simple.iter().map(|c| c.len()).max().unwrap_or(0);
+        assert!(
+            max_d_verts > max_l_verts,
+            "'d' (keyholed) should have more vertices than 'l' (simple)"
+        );
     }
 }

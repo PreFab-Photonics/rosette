@@ -61,6 +61,57 @@ class Polygon:
     def scale(self, sx: float, sy: float) -> Polygon: ...
     def mirror_x(self) -> Polygon: ...
     def mirror_y(self) -> Polygon: ...
+    def union(self, other: Polygon) -> list[Polygon]:
+        """Compute the union of this polygon with another.
+
+        Returns a list of polygons covering the combined area of both inputs.
+        Overlapping regions are merged. Holes are keyholed into single-ring
+        polygons.
+
+        Args:
+            other: The polygon to union with.
+
+        Returns:
+            List of result polygons (may be more than one if inputs are disjoint).
+        """
+        ...
+    def subtract(self, other: Polygon) -> list[Polygon]:
+        """Subtract another polygon from this one.
+
+        Returns the area of this polygon that does not overlap with `other`.
+        If `other` cuts a hole, the result is a keyholed single-ring polygon.
+
+        Args:
+            other: The polygon to subtract.
+
+        Returns:
+            List of result polygons (empty if fully subtracted).
+        """
+        ...
+    def intersect(self, other: Polygon) -> list[Polygon]:
+        """Compute the intersection of this polygon with another.
+
+        Returns the overlapping area of both polygons.
+
+        Args:
+            other: The polygon to intersect with.
+
+        Returns:
+            List of result polygons (empty if no overlap).
+        """
+        ...
+    def xor(self, other: Polygon) -> list[Polygon]:
+        """Compute the symmetric difference (XOR) of this polygon with another.
+
+        Returns the area in either polygon but not both.
+
+        Args:
+            other: The polygon to XOR with.
+
+        Returns:
+            List of result polygons (empty if polygons are identical).
+        """
+        ...
     def __iter__(self) -> PolygonIterator: ...
     def __repr__(self) -> str: ...
 

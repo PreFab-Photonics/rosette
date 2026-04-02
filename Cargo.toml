@@ -33,6 +33,7 @@ rosette-core = { path = "crates/rosette-core" }
 rosette-dfm = { path = "crates/rosette-dfm" }
 rosette-drc = { path = "crates/rosette-drc" }
 rosette-io = { path = "crates/rosette-io" }
+geo = { version = "0.29", default-features = false }
 rayon = "1.10"
 thiserror = "1.0"
 byteorder = "1.5"
