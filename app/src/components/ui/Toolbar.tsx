@@ -629,31 +629,28 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
 
   // Position dropdown centered on button, measured from actual DOM sizes.
   // Used as a callback ref so positioning happens immediately on mount.
-  const positionMenu = useCallback(
-    (node: HTMLDivElement | null) => {
-      menuRef.current = node;
-      if (!node || !buttonRef.current) return;
-      const btnRect = buttonRef.current.getBoundingClientRect();
-      const menuRect = node.getBoundingClientRect();
-      const buttonCenter = btnRect.left + btnRect.width / 2;
-      let left = buttonCenter - menuRect.width / 2;
-      let top = btnRect.bottom + 9;
-      // Clamp to viewport edges
-      if (left + menuRect.width > window.innerWidth - 8) {
-        left = window.innerWidth - menuRect.width - 8;
-      }
-      if (left < 8) {
-        left = 8;
-      }
-      if (top + menuRect.height > window.innerHeight - 8) {
-        top = btnRect.top - menuRect.height - 8;
-      }
-      node.style.left = `${left}px`;
-      node.style.top = `${top}px`;
-      node.style.visibility = "visible";
-    },
-    [],
-  );
+  const positionMenu = useCallback((node: HTMLDivElement | null) => {
+    menuRef.current = node;
+    if (!node || !buttonRef.current) return;
+    const btnRect = buttonRef.current.getBoundingClientRect();
+    const menuRect = node.getBoundingClientRect();
+    const buttonCenter = btnRect.left + btnRect.width / 2;
+    let left = buttonCenter - menuRect.width / 2;
+    let top = btnRect.bottom + 9;
+    // Clamp to viewport edges
+    if (left + menuRect.width > window.innerWidth - 8) {
+      left = window.innerWidth - menuRect.width - 8;
+    }
+    if (left < 8) {
+      left = 8;
+    }
+    if (top + menuRect.height > window.innerHeight - 8) {
+      top = btnRect.top - menuRect.height - 8;
+    }
+    node.style.left = `${left}px`;
+    node.style.top = `${top}px`;
+    node.style.visibility = "visible";
+  }, []);
 
   return (
     <>
