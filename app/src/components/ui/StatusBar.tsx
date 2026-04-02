@@ -383,7 +383,7 @@ export function StatusBar({
             <>
               <span
                 className={cn(
-                  "select-none pointer-events-none",
+                  "leading-none select-none pointer-events-none",
                   isDark ? "text-white/40" : "text-black/40",
                 )}
               >
@@ -391,7 +391,7 @@ export function StatusBar({
               </span>
               <span
                 className={cn(
-                  "w-18 text-right select-none pointer-events-none",
+                  "w-18 text-right leading-none select-none pointer-events-none",
                   isDark ? "text-white/70" : "text-black/70",
                 )}
               >
@@ -399,7 +399,7 @@ export function StatusBar({
               </span>
               <span
                 className={cn(
-                  "text-[10px] select-none pointer-events-none",
+                  "text-[10px] leading-none select-none pointer-events-none",
                   isDark ? "text-white/30" : "text-black/30",
                 )}
               >
@@ -407,7 +407,7 @@ export function StatusBar({
               </span>
               <span
                 className={cn(
-                  "mx-1 select-none pointer-events-none",
+                  "mx-1 leading-none select-none pointer-events-none",
                   isDark ? "text-white/20" : "text-black/20",
                 )}
               >
@@ -415,7 +415,7 @@ export function StatusBar({
               </span>
               <span
                 className={cn(
-                  "select-none pointer-events-none",
+                  "leading-none select-none pointer-events-none",
                   isDark ? "text-white/40" : "text-black/40",
                 )}
               >
@@ -423,7 +423,7 @@ export function StatusBar({
               </span>
               <span
                 className={cn(
-                  "w-18 text-right select-none pointer-events-none",
+                  "w-18 text-right leading-none select-none pointer-events-none",
                   isDark ? "text-white/70" : "text-black/70",
                 )}
               >
@@ -431,7 +431,7 @@ export function StatusBar({
               </span>
               <span
                 className={cn(
-                  "text-[10px] select-none pointer-events-none",
+                  "text-[10px] leading-none select-none pointer-events-none",
                   isDark ? "text-white/30" : "text-black/30",
                 )}
               >
