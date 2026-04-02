@@ -20,6 +20,8 @@ import {
   TextToPolygonsCommand,
   MoveImageCommand,
   ResizeImageCommand,
+  SetInstanceTransformCommand,
+  SetInstanceArrayCommand,
   type ArrayParams,
 } from "@/lib/commands";
 import { useExplorerStore } from "@/stores/explorer";
@@ -2201,6 +2203,245 @@ export function InspectorPanel() {
         {/* Waypoints */}
         <SectionHeader label="Waypoints" isDark={isDark} />
         <div className="flex max-h-48 flex-col overflow-y-auto">{waypointRows}</div>
+      </div>
+    );
+  }
+
+  // Cell instance inspector (CellRef selected)
+  if (data.instance) {
+    const inst = data.instance;
+
+    // Instance position: transform tx/ty converted to display units.
+    // tx/ty are in world coordinates; convert world → nm → display, Y negated.
+    const instX = formatCoordinate(inst.tx / GRID_SIZE, unitInfo);
+    const instY = formatCoordinate(-inst.ty / GRID_SIZE, unitInfo);
+
+    // Bounding-box size (read-only)
+    const instW = bounds
+      ? formatCoordinate((bounds.maxX - bounds.minX) / GRID_SIZE, unitInfo)
+      : "—";
+    const instH = bounds
+      ? formatCoordinate((bounds.maxY - bounds.minY) / GRID_SIZE, unitInfo)
+      : "—";
+
+    // Rotation display (degrees, rounded to 3 decimals to avoid float noise)
+    const rotationDisplay = Number.isFinite(inst.rotation) ? inst.rotation.toFixed(3) : "0.000";
+    // Scale display
+    const scaleDisplay = Number.isFinite(inst.scale) ? inst.scale.toFixed(3) : "1.000";
+
+    // Array params (default to 1x1 with 0 spacing)
+    const arrayCols = inst.array?.columns ?? 1;
+    const arrayRows = inst.array?.rows ?? 1;
+    const arrayColSpacing = inst.array?.colSpacing ?? 0;
+    const arrayRowSpacing = inst.array?.rowSpacing ?? 0;
+    const isArrayed = arrayCols > 1 || arrayRows > 1;
+    const colSpacingDisplay = formatCoordinate(arrayColSpacing / GRID_SIZE, unitInfo);
+    const rowSpacingDisplay = formatCoordinate(arrayRowSpacing / GRID_SIZE, unitInfo);
+
+    // Detect whether the original transform is mirrored (negative determinant).
+    // A mirrored CellRef has det(linear) = a*d - b*c < 0.
+    const isMirrored =
+      inst.transform[0] * inst.transform[3] - inst.transform[1] * inst.transform[2] < 0;
+
+    /** Build a new affine transform [a, b, c, d, tx, ty] from rotation (deg) and scale,
+     *  preserving the mirror state of the original transform. */
+    const buildTransform = (rotDeg: number, s: number, tx: number, ty: number): Float64Array => {
+      const r = (rotDeg * Math.PI) / 180;
+      const cosR = Math.cos(r);
+      const sinR = Math.sin(r);
+      // Non-mirrored: [s*cos, -s*sin, s*sin, s*cos]
+      // Mirrored (Y-flip then rotate): [s*cos, s*sin, s*sin, -s*cos]
+      const a = s * cosR;
+      const b = isMirrored ? s * sinR : -s * sinR;
+      const c = s * sinR;
+      const d = isMirrored ? -s * cosR : s * cosR;
+      return new Float64Array([a, b, c, d, tx, ty]);
+    };
+
+    const handleInstancePositionChange = (axis: "x" | "y", displayValue: number) => {
+      if (!library || !renderer) return;
+      const valueInNm = displayValue * unitInfo.scale;
+      const worldValue = axis === "y" ? -valueInNm * GRID_SIZE : valueInNm * GRID_SIZE;
+      const newTransform = new Float64Array(inst.transform);
+      if (axis === "x") {
+        newTransform[4] = worldValue;
+      } else {
+        newTransform[5] = worldValue;
+      }
+      const cmd = new SetInstanceTransformCommand(
+        inst.refId,
+        inst.transform,
+        newTransform,
+        "Move instance",
+      );
+      useHistoryStore.getState().execute(cmd, { library, renderer });
+    };
+
+    const handleInstanceRotationChange = (displayValue: number) => {
+      if (!library || !renderer) return;
+      const newTransform = buildTransform(displayValue, inst.scale, inst.tx, inst.ty);
+      const cmd = new SetInstanceTransformCommand(
+        inst.refId,
+        inst.transform,
+        newTransform,
+        "Rotate instance",
+      );
+      useHistoryStore.getState().execute(cmd, { library, renderer });
+    };
+
+    const handleInstanceScaleChange = (displayValue: number) => {
+      if (!library || !renderer) return;
+      if (displayValue <= 0) return;
+      const newTransform = buildTransform(inst.rotation, displayValue, inst.tx, inst.ty);
+      const cmd = new SetInstanceTransformCommand(
+        inst.refId,
+        inst.transform,
+        newTransform,
+        "Scale instance",
+      );
+      useHistoryStore.getState().execute(cmd, { library, renderer });
+    };
+
+    const handleInstanceArrayChange = (
+      field: "columns" | "rows" | "colSpacing" | "rowSpacing",
+      displayValue: number,
+    ) => {
+      if (!library || !renderer) return;
+      const oldParams = inst.array;
+      let cols = arrayCols;
+      let rows = arrayRows;
+      let cSpacing = arrayColSpacing;
+      let rSpacing = arrayRowSpacing;
+
+      switch (field) {
+        case "columns":
+          cols = Math.max(1, Math.round(displayValue));
+          break;
+        case "rows":
+          rows = Math.max(1, Math.round(displayValue));
+          break;
+        case "colSpacing":
+          cSpacing = displayValue * unitInfo.scale * GRID_SIZE;
+          break;
+        case "rowSpacing":
+          rSpacing = displayValue * unitInfo.scale * GRID_SIZE;
+          break;
+      }
+
+      const newParams: ArrayParams = {
+        columns: cols,
+        rows: rows,
+        colSpacing: cSpacing,
+        rowSpacing: rSpacing,
+      };
+      const cmd = new SetInstanceArrayCommand(inst.refId, oldParams, newParams);
+      useHistoryStore.getState().execute(cmd, { library, renderer });
+    };
+
+    return (
+      <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
+        {/* Instance header */}
+        <div className="px-3 pt-2 pb-1">
+          <span
+            className={cn(
+              "text-xs font-medium select-none",
+              isDark ? "text-white/70" : "text-black/70",
+            )}
+          >
+            Instance · {inst.cellName}
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Position */}
+        <SectionHeader label="Position" isDark={isDark} />
+        <NumberField
+          label="X"
+          value={instX}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={(v) => handleInstancePositionChange("x", v)}
+        />
+        <NumberField
+          label="Y"
+          value={instY}
+          unit={unitInfo.unit}
+          isDark={isDark}
+          onChange={(v) => handleInstancePositionChange("y", v)}
+        />
+
+        {/* Divider */}
+        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Transform */}
+        <SectionHeader label="Transform" isDark={isDark} />
+        <NumberField
+          label="Rotation"
+          value={rotationDisplay}
+          unit="°"
+          isDark={isDark}
+          onChange={handleInstanceRotationChange}
+        />
+        <NumberField
+          label="Scale"
+          value={scaleDisplay}
+          isDark={isDark}
+          onChange={handleInstanceScaleChange}
+        />
+
+        {/* Divider */}
+        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Array */}
+        <SectionHeader label="Array" isDark={isDark} />
+        <NumberField
+          label="Columns"
+          value={String(arrayCols)}
+          isDark={isDark}
+          onChange={(v) => handleInstanceArrayChange("columns", v)}
+        />
+        <NumberField
+          label="Rows"
+          value={String(arrayRows)}
+          isDark={isDark}
+          onChange={(v) => handleInstanceArrayChange("rows", v)}
+        />
+        {isArrayed && (
+          <>
+            <NumberField
+              label="Col gap"
+              value={colSpacingDisplay}
+              unit={unitInfo.unit}
+              isDark={isDark}
+              onChange={(v) => handleInstanceArrayChange("colSpacing", v)}
+            />
+            <NumberField
+              label="Row gap"
+              value={rowSpacingDisplay}
+              unit={unitInfo.unit}
+              isDark={isDark}
+              onChange={(v) => handleInstanceArrayChange("rowSpacing", v)}
+            />
+          </>
+        )}
+
+        {/* Divider */}
+        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+
+        {/* Size (read-only bounding box) */}
+        <SectionHeader label="Size" isDark={isDark} />
+        <NumberField label="W" value={instW} unit={unitInfo.unit} isDark={isDark} readOnly />
+        <NumberField label="H" value={instH} unit={unitInfo.unit} isDark={isDark} readOnly />
+
+        {/* Source — two-way editing (rosette serve) */}
+        {sourceInfo && (
+          <>
+            <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+            <SourceSection sourceInfo={sourceInfo} isDark={isDark} />
+          </>
+        )}
       </div>
     );
   }
