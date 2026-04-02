@@ -4,8 +4,8 @@ use geo::{Distance, Euclidean};
 use rosette_core::{BBox, Layer, Polygon};
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 
-use crate::convert::polygon_to_geo;
 use crate::violation::{DrcViolation, RuleType, Severity};
+use rosette_core::polygon_to_geo;
 
 /// Wrapper for R-tree spatial indexing.
 #[derive(Clone)]

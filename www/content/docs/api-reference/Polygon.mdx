@@ -264,6 +264,102 @@ Mirror the polygon across the Y axis (flip X coordinates).
 
 </PyFunction>
 
+### Boolean operations
+
+Boolean operations combine or cut polygons. All four methods return a
+`list[Polygon]` because a single operation can produce multiple disjoint
+pieces. Holes created by subtraction are handled via keyholing
+(a zero-width bridge connecting the hole to the exterior), keeping every
+result a single-ring polygon compatible with GDS-II.
+
+```python
+a = Polygon.rect(Point(0, 0), 10, 10)
+b = Polygon.rect(Point(5, 0), 10, 10)
+
+merged = a.union(b)        # combined outline
+diff   = a.subtract(b)     # a minus overlap
+common = a.intersect(b)    # overlap only
+sym    = a.xor(b)          # either but not both
+```
+
+<PyFunction name={"union"} type={"(other) -> list[Polygon]"}>
+
+Compute the union (merge) of this polygon with another. Overlapping
+regions are merged into a single outline.
+
+<div>
+
+<PyParameter name={"other"} type={"Polygon"}>
+
+The polygon to union with.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"list[Polygon]"} />
+
+</PyFunction>
+
+<PyFunction name={"subtract"} type={"(other) -> list[Polygon]"}>
+
+Subtract another polygon from this one. Returns the area of this polygon
+that does not overlap with `other`. If `other` is fully contained, the
+result is a keyholed polygon with a zero-width bridge.
+
+<div>
+
+<PyParameter name={"other"} type={"Polygon"}>
+
+The polygon to subtract.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"list[Polygon]"} />
+
+</PyFunction>
+
+<PyFunction name={"intersect"} type={"(other) -> list[Polygon]"}>
+
+Compute the intersection of this polygon with another. Returns the
+overlapping area shared by both inputs. Empty list if no overlap.
+
+<div>
+
+<PyParameter name={"other"} type={"Polygon"}>
+
+The polygon to intersect with.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"list[Polygon]"} />
+
+</PyFunction>
+
+<PyFunction name={"xor"} type={"(other) -> list[Polygon]"}>
+
+Compute the symmetric difference (XOR) of this polygon with another.
+Returns the area in either polygon but not both. Empty list if
+polygons are identical.
+
+<div>
+
+<PyParameter name={"other"} type={"Polygon"}>
+
+The polygon to XOR with.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"list[Polygon]"} />
+
+</PyFunction>
+
 ## Supported operations
 
 **Length**: `len(polygon)` returns the number of vertices.

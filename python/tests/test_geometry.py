@@ -123,6 +123,106 @@ class TestPolygon:
         assert len(poly) == 4
 
 
+class TestPolygonBooleanOps:
+    """Tests for Polygon boolean operations - Python binding behavior."""
+
+    def test_union_overlapping(self):
+        """Union of overlapping rectangles merges them."""
+        a = Polygon.rect(Point(0, 0), 10, 10)
+        b = Polygon.rect(Point(5, 0), 10, 10)
+        result = a.union(b)
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], Polygon)
+        # 10*10 + 10*10 - 5*10 overlap = 150
+        total_area = sum(p.area() for p in result)
+        assert total_area == pytest.approx(150.0)
+
+    def test_union_disjoint(self):
+        """Union of disjoint rectangles returns two polygons."""
+        a = Polygon.rect(Point(0, 0), 5, 5)
+        b = Polygon.rect(Point(20, 20), 5, 5)
+        result = a.union(b)
+        assert len(result) == 2
+        total_area = sum(p.area() for p in result)
+        assert total_area == pytest.approx(50.0)
+
+    def test_subtract_overlapping(self):
+        """Subtract removes overlapping region."""
+        a = Polygon.rect(Point(0, 0), 10, 10)
+        b = Polygon.rect(Point(5, 0), 10, 10)
+        result = a.subtract(b)
+        assert len(result) == 1
+        # 10*10 - 5*10 = 50
+        total_area = sum(p.area() for p in result)
+        assert total_area == pytest.approx(50.0)
+
+    def test_subtract_creates_hole(self):
+        """Subtract with contained shape creates keyholed polygon."""
+        outer = Polygon.rect(Point(0, 0), 20, 20)
+        inner = Polygon.rect(Point(5, 5), 10, 10)
+        result = outer.subtract(inner)
+        assert len(result) == 1
+        poly = result[0]
+        # More vertices than a simple rectangle (keyhole bridge)
+        assert len(poly) > 4
+        # 20*20 - 10*10 = 300
+        assert poly.area() == pytest.approx(300.0)
+
+    def test_subtract_complete_coverage(self):
+        """Subtracting a larger polygon returns empty list."""
+        small = Polygon.rect(Point(2, 2), 3, 3)
+        big = Polygon.rect(Point(0, 0), 10, 10)
+        result = small.subtract(big)
+        assert result == []
+
+    def test_intersect_overlapping(self):
+        """Intersect returns overlapping area."""
+        a = Polygon.rect(Point(0, 0), 10, 10)
+        b = Polygon.rect(Point(5, 0), 10, 10)
+        result = a.intersect(b)
+        assert len(result) == 1
+        # 5*10 = 50
+        total_area = sum(p.area() for p in result)
+        assert total_area == pytest.approx(50.0)
+
+    def test_intersect_no_overlap(self):
+        """Intersect with no overlap returns empty list."""
+        a = Polygon.rect(Point(0, 0), 5, 5)
+        b = Polygon.rect(Point(20, 20), 5, 5)
+        result = a.intersect(b)
+        assert result == []
+
+    def test_xor_overlapping(self):
+        """XOR returns area in either but not both."""
+        a = Polygon.rect(Point(0, 0), 10, 10)
+        b = Polygon.rect(Point(5, 0), 10, 10)
+        result = a.xor(b)
+        # (10*10 + 10*10) - 2*(5*10) = 100
+        total_area = sum(p.area() for p in result)
+        assert total_area == pytest.approx(100.0)
+
+    def test_xor_identical(self):
+        """XOR of identical polygons returns empty list."""
+        a = Polygon.rect(Point(0, 0), 10, 10)
+        b = Polygon.rect(Point(0, 0), 10, 10)
+        result = a.xor(b)
+        assert result == []
+
+    def test_result_polygons_are_usable(self):
+        """Result polygons have working methods (area, vertices, bbox)."""
+        a = Polygon.rect(Point(0, 0), 10, 10)
+        b = Polygon.rect(Point(5, 0), 10, 10)
+        result = a.union(b)
+        poly = result[0]
+        # Methods work
+        assert poly.area() > 0
+        assert len(poly.vertices()) >= 4
+        bbox = poly.bbox()
+        assert bbox.width() == pytest.approx(15.0)
+        assert bbox.height() == pytest.approx(10.0)
+
+
 class TestTransform:
     """Tests for Transform class - Python binding behavior."""
 

@@ -1,9 +1,9 @@
 //! Overlap checks (required and forbidden).
 
+use geo::Area;
 use geo::BooleanOps;
-use rosette_core::{Layer, Polygon};
+use rosette_core::{Layer, Polygon, polygon_to_geo};
 
-use crate::convert::{polygon_area, polygon_to_geo};
 use crate::violation::{DrcViolation, RuleType, Severity};
 
 /// Check that two polygons do not overlap (forbidden overlap).
@@ -20,10 +20,7 @@ pub fn check_forbid_overlap(
     let intersection = geo1.intersection(&geo2);
 
     // Check if intersection has any area
-    let has_overlap = intersection.0.iter().any(|p| {
-        let coords: Vec<_> = p.exterior().coords().map(|c| (c.x, c.y)).collect();
-        polygon_area(&coords).abs() > 1e-10
-    });
+    let has_overlap = intersection.unsigned_area() > 1e-10;
 
     if has_overlap {
         let mut violation = DrcViolation::new(
@@ -64,10 +61,7 @@ pub fn check_require_overlap(
     let intersection = geo1.intersection(&geo2);
 
     // Check if intersection has any area
-    let has_overlap = intersection.0.iter().any(|p| {
-        let coords: Vec<_> = p.exterior().coords().map(|c| (c.x, c.y)).collect();
-        polygon_area(&coords).abs() > 1e-10
-    });
+    let has_overlap = intersection.unsigned_area() > 1e-10;
 
     if !has_overlap {
         let mut violation = DrcViolation::new(

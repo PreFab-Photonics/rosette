@@ -1,10 +1,10 @@
 //! Python bindings for geometry types.
 
 use pyo3::prelude::*;
-use rosette_core::{BBox, Point, Polygon, Transform, Vector2};
 use rosette_core::{
     arc_points, fresnel_c, fresnel_s, offset_polygon, offset_polygon_varying, path_length,
 };
+use rosette_core::{BBox, Point, Polygon, Transform, Vector2};
 use std::f64::consts::PI;
 
 /// A 2D point representing a position in space.
@@ -267,6 +267,47 @@ impl PyPolygon {
     /// Mirror across the Y axis.
     fn mirror_y(&self) -> Self {
         PyPolygon(self.0.mirror_y())
+    }
+
+    /// Compute the union of this polygon with another.
+    ///
+    /// Returns a list of polygons covering the combined area of both inputs.
+    /// Overlapping regions are merged. Holes are keyholed into single-ring
+    /// polygons.
+    fn union(&self, other: &PyPolygon) -> Vec<PyPolygon> {
+        self.0.union(&other.0).into_iter().map(PyPolygon).collect()
+    }
+
+    /// Subtract another polygon from this one.
+    ///
+    /// Returns a list of polygons covering the area of `self` that does not
+    /// overlap with `other`. If `other` cuts a hole, the result is a keyholed
+    /// single-ring polygon.
+    fn subtract(&self, other: &PyPolygon) -> Vec<PyPolygon> {
+        self.0
+            .subtract(&other.0)
+            .into_iter()
+            .map(PyPolygon)
+            .collect()
+    }
+
+    /// Compute the intersection of this polygon with another.
+    ///
+    /// Returns a list of polygons covering the area shared by both inputs.
+    fn intersect(&self, other: &PyPolygon) -> Vec<PyPolygon> {
+        self.0
+            .intersect(&other.0)
+            .into_iter()
+            .map(PyPolygon)
+            .collect()
+    }
+
+    /// Compute the symmetric difference (XOR) of this polygon with another.
+    ///
+    /// Returns a list of polygons covering the area in either input but not
+    /// both.
+    fn xor(&self, other: &PyPolygon) -> Vec<PyPolygon> {
+        self.0.xor(&other.0).into_iter().map(PyPolygon).collect()
     }
 
     fn __repr__(&self) -> String {

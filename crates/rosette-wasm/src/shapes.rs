@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use geo::algorithm::bool_ops::BooleanOps;
+use geo::BooleanOps;
 use geo::algorithm::line_intersection::{LineIntersection, line_intersection};
 use geo::{Coord, LineString, Polygon as GeoPolygon};
 
@@ -592,14 +592,50 @@ impl ShapeManager {
     }
 
     /// Draw border segments for a single closed ring of points.
+    ///
+    /// Bridge edges from keyholed polygons (zero-width bridges connecting
+    /// an exterior contour to a hole) are detected and skipped. A bridge
+    /// produces two directed edges with the same endpoints in opposite
+    /// directions; we emit only edges whose reverse does not also appear
+    /// in the ring.
     fn add_ring_border_segments(
         points: &[[f64; 2]],
         color: [f32; 4],
         segments: &mut Vec<ColoredSegment>,
     ) {
         let n = points.len();
+        if n < 2 {
+            return;
+        }
+
+        // Build a set of all directed edges so we can detect bridge pairs.
+        // An edge is stored as (p0_bits, p1_bits) using to_bits() for exact
+        // floating-point equality (safe here because bridge vertices are
+        // copied, not recomputed).
+        let mut edge_set: HashSet<(u64, u64, u64, u64)> = HashSet::with_capacity(n);
         for i in 0..n {
             let j = (i + 1) % n;
+            let key = (
+                points[i][0].to_bits(),
+                points[i][1].to_bits(),
+                points[j][0].to_bits(),
+                points[j][1].to_bits(),
+            );
+            edge_set.insert(key);
+        }
+
+        for i in 0..n {
+            let j = (i + 1) % n;
+            // Check if the reverse edge exists (bridge pair).
+            let reverse_key = (
+                points[j][0].to_bits(),
+                points[j][1].to_bits(),
+                points[i][0].to_bits(),
+                points[i][1].to_bits(),
+            );
+            if edge_set.contains(&reverse_key) {
+                continue; // Skip bridge edge
+            }
             segments.push(ColoredSegment {
                 p0: [points[i][0] as f32, points[i][1] as f32],
                 p1: [points[j][0] as f32, points[j][1] as f32],
@@ -679,7 +715,6 @@ impl ShapeManager {
     pub fn sync_from_polygons(
         &mut self,
         polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4], u32)>,
-        hole_map: &HashMap<String, Vec<usize>>,
     ) {
         // Build set of incoming IDs for removal detection
         let new_ids: HashSet<String> = polygons.iter().map(|(id, ..)| id.clone()).collect();
@@ -704,13 +739,11 @@ impl ShapeManager {
 
         // Add or update shapes
         for (id, points, color, fill_pattern) in polygons.into_iter() {
-            let hole_indices = hole_map.get(&id).cloned().unwrap_or_default();
             let is_new_or_changed = if let Some(existing) = self.shapes.get(&id) {
                 // Check if anything changed that affects triangulation
                 existing.points != points
                     || existing.color != color
                     || existing.fill_pattern != fill_pattern
-                    || existing.hole_indices != hole_indices
             } else {
                 true
             };
@@ -723,7 +756,7 @@ impl ShapeManager {
                         points,
                         color,
                         bbox,
-                        hole_indices,
+                        hole_indices: vec![],
                         fill_pattern,
                         // Polygons from the library (GDS) are known to be simple
                         known_simple: true,

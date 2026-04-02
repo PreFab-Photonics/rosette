@@ -6,6 +6,7 @@ license.workspace = true
 description = "Core geometry types for photonic layout"
 
 [dependencies]
+geo.workspace = true
 thiserror.workspace = true
 serde = { version = "1", features = ["derive"], optional = true }
 

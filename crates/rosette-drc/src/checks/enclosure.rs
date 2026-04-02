@@ -1,9 +1,8 @@
 //! Enclosure check for layer containment.
 
-use geo::{BooleanOps, Distance, Euclidean};
-use rosette_core::{Layer, Polygon};
+use geo::{Area, BooleanOps, Distance, Euclidean};
+use rosette_core::{Layer, Polygon, polygon_to_geo};
 
-use crate::convert::{polygon_area, polygon_to_geo};
 use crate::violation::{DrcViolation, RuleType, Severity};
 
 /// Check that inner polygon is enclosed by outer polygon with minimum margin.
@@ -22,14 +21,7 @@ pub fn check_enclosure(
     // Compute difference: inner - outer. If non-empty, inner extends outside outer.
     let difference = geo_inner.difference(&geo_outer);
 
-    let outside_area: f64 = difference
-        .0
-        .iter()
-        .map(|p| {
-            let coords: Vec<_> = p.exterior().coords().map(|c| (c.x, c.y)).collect();
-            polygon_area(&coords).abs()
-        })
-        .sum();
+    let outside_area = difference.unsigned_area();
 
     if outside_area > 1e-10 {
         // Inner extends outside outer
