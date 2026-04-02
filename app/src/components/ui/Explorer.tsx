@@ -26,7 +26,7 @@ import {
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 import { isTauri } from "@/lib/tauri";
 import { handleNewFile } from "@/lib/file-ops";
-import { cn, keys, centerViewOnSelection, getEffectiveViewport } from "@/lib/utils";
+import { cn, keys, centerViewOnSelection, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useTabsStore, switchTab } from "@/stores/tabs";
 import type { Tab } from "@/stores/tabs";
@@ -554,19 +554,7 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
             label: "Fit All",
             shortcut: { key: "F" },
             action: () => {
-              const canvas = document.querySelector("canvas");
-              if (!canvas || !library) return;
-              const boundsArray = library.get_all_bounds();
-              const bounds: WorldBounds | null = boundsArray
-                ? {
-                    minX: boundsArray[0],
-                    minY: boundsArray[1],
-                    maxX: boundsArray[2],
-                    maxY: boundsArray[3],
-                  }
-                : null;
-              const vp = getEffectiveViewport(canvas);
-              useViewportStore.getState().zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
+              zoomToFitAll();
             },
             disabled: false,
           },

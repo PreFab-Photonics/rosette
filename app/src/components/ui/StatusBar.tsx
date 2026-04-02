@@ -9,7 +9,7 @@ import { useStatusMessageStore } from "@/stores/status-message";
 import { usePathStore } from "@/stores/path";
 import { getDisplayUnit, formatCoordinate } from "@/lib/format";
 import { SCALE_BAR_TARGET_PIXELS, SCALE_BAR_MAX_WIDTH, NICE_NUMBERS } from "@/lib/constants";
-import { cn } from "@/lib/utils";
+import { cn, zoomToFitAll } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Position, SystemRestart } from "iconoir-react";
 
@@ -266,6 +266,8 @@ function CenterInfo({ isDark }: { isDark: boolean }) {
 
 /**
  * Scale bar indicator — line + label showing current zoom scale.
+ *
+ * The label is a button that triggers zoom-to-fit when clicked.
  */
 function ScaleBar({
   isDark,
@@ -282,14 +284,17 @@ function ScaleBar({
         className={cn("h-px", isDark ? "bg-white/50" : "bg-black/50")}
         style={{ width: `${Math.max(widthInPixels, 20)}px` }}
       />
-      <span
-        className={cn(
-          "text-[10px] select-none pointer-events-none",
-          isDark ? "text-white/40" : "text-black/40",
-        )}
-      >
-        {label}
-      </span>
+      <Tooltip label="Zoom to Fit" position="top">
+        <button
+          onClick={zoomToFitAll}
+          className={cn(
+            "flex cursor-pointer items-center justify-center rounded p-0.5 text-[10px] select-none transition-colors focus:outline-none",
+            isDark ? "text-white/40 hover:text-white/70" : "text-black/40 hover:text-black/70",
+          )}
+        >
+          {label}
+        </button>
+      </Tooltip>
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { useSelectionStore } from "@/stores/selection";
-import { useViewportStore } from "@/stores/viewport";
+import { useViewportStore, type WorldBounds } from "@/stores/viewport";
 import { useUIStore } from "@/stores/ui";
+import { useWasmContextStore } from "@/stores/wasm-context";
 import type { WasmLibrary } from "@/wasm/rosette_wasm";
 
 /**
@@ -77,6 +78,26 @@ export const keys = {
   alt: isMac ? "⌥" : "Alt",
   backspace: "⌫",
 } as const;
+
+/**
+ * Zoom the viewport to fit all objects in the current cell.
+ *
+ * Reads the library from the WASM context store, computes bounds, accounts for
+ * floating panels via {@link getEffectiveViewport}, and updates the viewport.
+ */
+export function zoomToFitAll(): void {
+  const canvas = document.getElementById("rosette-canvas");
+  const { library } = useWasmContextStore.getState();
+  if (!canvas || !library) return;
+
+  const boundsArray = library.get_all_bounds();
+  const bounds: WorldBounds | null = boundsArray
+    ? { minX: boundsArray[0], minY: boundsArray[1], maxX: boundsArray[2], maxY: boundsArray[3] }
+    : null;
+  const vp = getEffectiveViewport(canvas);
+  if (vp.width <= 0 || vp.height <= 0) return;
+  useViewportStore.getState().zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
+}
 
 /**
  * Center the viewport on the currently selected elements.

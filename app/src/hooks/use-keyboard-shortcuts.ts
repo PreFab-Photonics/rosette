@@ -33,7 +33,7 @@ import { useUIStore } from "@/stores/ui";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useLayerStore } from "@/stores/layer";
 import { useTextStore } from "@/stores/text";
-import { centerViewOnSelection, getEffectiveViewport } from "@/lib/utils";
+import { centerViewOnSelection, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
 
 /** Keys tracked for continuous panning. */
 const PAN_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
@@ -71,7 +71,6 @@ export function useKeyboardShortcuts(
 ) {
   const zoomAt = useViewportStore((s) => s.zoomAt);
   const pan = useViewportStore((s) => s.pan);
-  const zoomToFit = useViewportStore((s) => s.zoomToFit);
   const zoomToSelected = useViewportStore((s) => s.zoomToSelected);
   const setTool = useToolStore((s) => s.setTool);
 
@@ -439,19 +438,7 @@ export function useKeyboardShortcuts(
         case "f":
           // Zoom to fit all objects (or reset if none)
           e.preventDefault();
-          if (library && canvas) {
-            const boundsArray = library.get_all_bounds();
-            const bounds: WorldBounds | null = boundsArray
-              ? {
-                  minX: boundsArray[0],
-                  minY: boundsArray[1],
-                  maxX: boundsArray[2],
-                  maxY: boundsArray[3],
-                }
-              : null;
-            const vp = getEffectiveViewport(canvas);
-            zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
-          }
+          zoomToFitAll();
           break;
         case "F":
           // Shift+F: Zoom to fit selected objects
@@ -548,5 +535,5 @@ export function useKeyboardShortcuts(
         cancelAnimationFrame(panAnimationId.current);
       }
     };
-  }, [canvasRef, zoomAt, pan, setTool, library, renderer, zoomToFit, zoomToSelected]);
+  }, [canvasRef, zoomAt, pan, setTool, library, renderer, zoomToSelected]);
 }

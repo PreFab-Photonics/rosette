@@ -37,7 +37,7 @@ import type { AlignType } from "@/lib/align";
 import type { BooleanOpType } from "@/lib/commands";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { pickAndInsertImage } from "@/lib/image-ops";
-import { keys, getEffectiveViewport } from "@/lib/utils";
+import { keys, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
 
 // =============================================================================
 // Types
@@ -330,21 +330,7 @@ export function getCommands(): CommandItem[] {
       name: "View: Zoom to Fit",
       shortcut: { key: "F" },
       action: () => {
-        const canvas = document.getElementById("rosette-canvas");
-        const { library } = useWasmContextStore.getState();
-        if (canvas && library) {
-          const boundsArray = library.get_all_bounds();
-          const bounds: WorldBounds | null = boundsArray
-            ? {
-                minX: boundsArray[0],
-                minY: boundsArray[1],
-                maxX: boundsArray[2],
-                maxY: boundsArray[3],
-              }
-            : null;
-          const vp = getEffectiveViewport(canvas);
-          useViewportStore.getState().zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
-        }
+        zoomToFitAll();
         close();
       },
       searchableText: "Zoom to fit all objects view",

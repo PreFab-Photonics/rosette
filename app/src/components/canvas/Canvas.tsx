@@ -28,7 +28,7 @@ import { useHistoryStore } from "@/stores/history";
 import { useWasm } from "@/hooks/use-wasm";
 import { useRuler } from "@/hooks/use-ruler";
 import { AddCellRefCommand } from "@/lib/commands";
-import { getEffectiveViewport } from "@/lib/utils";
+import { getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
 import { LaserCursor } from "@/components/canvas/LaserCursor";
 import { ZoomBox } from "@/components/canvas/ZoomBox";
 import { MarqueeBox } from "@/components/canvas/MarqueeBox";
@@ -253,20 +253,7 @@ export function Canvas() {
       renderer.mark_dirty();
 
       // Zoom to fit the new cell
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const boundsArray = library.get_all_bounds();
-        const vp = getEffectiveViewport(canvas);
-        if (boundsArray && vp.width > 0 && vp.height > 0) {
-          const bounds: WorldBounds = {
-            minX: boundsArray[0],
-            minY: boundsArray[1],
-            maxX: boundsArray[2],
-            maxY: boundsArray[3],
-          };
-          useViewportStore.getState().zoomToFit(bounds, vp.width, vp.height, vp.screenCenter);
-        }
-      }
+      zoomToFitAll();
     }
   }, [library, renderer, activeCell]);
 
