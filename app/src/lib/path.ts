@@ -366,31 +366,26 @@ export function createRibbonPreview(
 
   for (let i = 0; i < n; i++) {
     const curr = smoothed[i];
+    let perpX: number;
+    let perpY: number;
 
     if (i === 0) {
-      // First point: perpendicular to first segment
       const next = smoothed[1];
       const dx = next.x - curr.x;
       const dy = next.y - curr.y;
       const len = Math.sqrt(dx * dx + dy * dy);
       if (len < 1e-10) continue;
-      const nx = -dy / len;
-      const ny = dx / len;
-      leftPoints.push({ x: curr.x + nx * hw, y: curr.y + ny * hw });
-      rightPoints.push({ x: curr.x - nx * hw, y: curr.y - ny * hw });
+      perpX = (-dy / len) * hw;
+      perpY = (dx / len) * hw;
     } else if (i === n - 1) {
-      // Last point: perpendicular to last segment
       const prev = smoothed[n - 2];
       const dx = curr.x - prev.x;
       const dy = curr.y - prev.y;
       const len = Math.sqrt(dx * dx + dy * dy);
       if (len < 1e-10) continue;
-      const nx = -dy / len;
-      const ny = dx / len;
-      leftPoints.push({ x: curr.x + nx * hw, y: curr.y + ny * hw });
-      rightPoints.push({ x: curr.x - nx * hw, y: curr.y - ny * hw });
+      perpX = (-dy / len) * hw;
+      perpY = (dx / len) * hw;
     } else {
-      // Interior: clamped miter to maintain constant width
       const prev = smoothed[i - 1];
       const next = smoothed[i + 1];
 
@@ -403,34 +398,31 @@ export function createRibbonPreview(
 
       if (len1 < 1e-10 || len2 < 1e-10) continue;
 
-      const n1x = -dy1 / len1;
-      const n1y = dx1 / len1;
-      const n2x = -dy2 / len2;
-      const n2y = dx2 / len2;
+      const perpX1 = -dy1 / len1;
+      const perpY1 = dx1 / len1;
+      const perpX2 = -dy2 / len2;
+      const perpY2 = dx2 / len2;
 
-      const mx = n1x + n2x;
-      const my = n1y + n2y;
-      const mlen = Math.sqrt(mx * mx + my * my);
+      const dot = perpX1 * perpX2 + perpY1 * perpY2;
+      const angle = Math.acos(Math.min(1, Math.max(-1, dot)));
+      const cosHalf = Math.cos(angle / 2);
+      const widthFactor = cosHalf > 1e-6 ? 1 / cosHalf : 1;
 
-      if (mlen < 1e-10) {
-        // 180° turn — use first segment normal
-        leftPoints.push({ x: curr.x + n1x * hw, y: curr.y + n1y * hw });
-        rightPoints.push({ x: curr.x - n1x * hw, y: curr.y - n1y * hw });
+      const avgPerpX = (perpX1 + perpX2) / 2;
+      const avgPerpY = (perpY1 + perpY2) / 2;
+      const avgLen = Math.sqrt(avgPerpX * avgPerpX + avgPerpY * avgPerpY);
+
+      if (avgLen < 1e-10) {
+        perpX = perpX1 * hw;
+        perpY = perpY1 * hw;
       } else {
-        const mux = mx / mlen;
-        const muy = my / mlen;
-        const dot = mux * n1x + muy * n1y;
-
-        if (Math.abs(dot) < 1e-6) {
-          leftPoints.push({ x: curr.x + n1x * hw, y: curr.y + n1y * hw });
-          rightPoints.push({ x: curr.x - n1x * hw, y: curr.y - n1y * hw });
-        } else {
-          const scale = Math.max(-2 * hw, Math.min(2 * hw, hw / dot));
-          leftPoints.push({ x: curr.x + mux * scale, y: curr.y + muy * scale });
-          rightPoints.push({ x: curr.x - mux * scale, y: curr.y - muy * scale });
-        }
+        perpX = (avgPerpX / avgLen) * hw * widthFactor;
+        perpY = (avgPerpY / avgLen) * hw * widthFactor;
       }
     }
+
+    leftPoints.push({ x: curr.x + perpX, y: curr.y + perpY });
+    rightPoints.push({ x: curr.x - perpX, y: curr.y - perpY });
   }
 
   rightPoints.reverse();

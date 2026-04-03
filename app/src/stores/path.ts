@@ -2,9 +2,9 @@ import { create } from "zustand";
 import { GRID_SIZE } from "@/stores/viewport";
 
 /**
- * Default waveguide width: 500 nm in world units.
+ * Default waveguide width: 100 nm (0.1 µm) in world units.
  */
-export const DEFAULT_PATH_WIDTH = 500 * GRID_SIZE;
+export const DEFAULT_PATH_WIDTH = 100 * GRID_SIZE;
 
 /**
  * Default number of arc points for corner rounding.

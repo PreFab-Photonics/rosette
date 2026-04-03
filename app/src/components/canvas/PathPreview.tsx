@@ -51,8 +51,18 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
 
   if (waypoints.length === 0) return null;
 
-  // Build the full path including cursor point
-  const allPoints = cursorPoint ? [...waypoints, cursorPoint] : waypoints;
+  // Build the full path including cursor point.
+  // Deduplicate: if the cursor sits exactly on the last waypoint (happens
+  // immediately after a click, before the next mouse-move), exclude it so
+  // the ribbon doesn't degenerate from a zero-length trailing segment.
+  const lastWp = waypoints[waypoints.length - 1];
+  const cursorIsDuplicate =
+    cursorPoint &&
+    lastWp &&
+    Math.abs(cursorPoint.x - lastWp.x) < 1e-6 &&
+    Math.abs(cursorPoint.y - lastWp.y) < 1e-6;
+  const allPoints =
+    cursorPoint && !cursorIsDuplicate ? [...waypoints, cursorPoint] : waypoints;
   const screenPoints = allPoints.map(worldToScreen);
 
   // Build SVG path for the centerline

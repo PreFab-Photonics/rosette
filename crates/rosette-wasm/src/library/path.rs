@@ -6,9 +6,9 @@ use rosette_core::{Point, Polygon};
 
 /// Generate a constant-width ribbon polygon from a centerline.
 ///
-/// At each interior vertex, computes the miter point that keeps the path
-/// edges at exactly `half_width` from the centerline. The miter length is
-/// clamped to `2 * half_width` to avoid spikes at very sharp bends.
+/// At each interior vertex the average of the two adjacent segment normals is
+/// computed and scaled by `1 / cos(half_angle)` to maintain constant width
+/// through bends.
 pub(super) fn constant_width_path(centerline: &[Point], width: f64) -> Option<Polygon> {
     if centerline.len() < 2 {
         return None;
@@ -52,40 +52,37 @@ pub(super) fn constant_width_path(centerline: &[Point], width: f64) -> Option<Po
             }
 
             // Per-segment unit normals (pointing left of travel direction)
-            let n1x = -dy1 / len1;
-            let n1y = dx1 / len1;
-            let n2x = -dy2 / len2;
-            let n2y = dx2 / len2;
+            let perp_x1 = -dy1 / len1;
+            let perp_y1 = dx1 / len1;
+            let perp_x2 = -dy2 / len2;
+            let perp_y2 = dx2 / len2;
 
-            // Miter direction = average of the two normals
-            let mx = n1x + n2x;
-            let my = n1y + n2y;
-            let mlen = (mx * mx + my * my).sqrt();
+            // Angle between the two perpendicular directions
+            let dot = (perp_x1 * perp_x2 + perp_y1 * perp_y2).clamp(-1.0, 1.0);
+            let angle = dot.acos();
+            let cos_half = (angle / 2.0).cos();
+            let width_factor = if cos_half > 1e-6 { 1.0 / cos_half } else { 1.0 };
 
-            if mlen < 1e-12 {
-                // Normals are opposite (180° turn) — use first normal
-                (n1x, n1y)
+            // Average perpendicular direction, re-normalized and scaled
+            let avg_px = (perp_x1 + perp_x2) / 2.0;
+            let avg_py = (perp_y1 + perp_y2) / 2.0;
+            let avg_len = (avg_px * avg_px + avg_py * avg_py).sqrt();
+
+            if avg_len < 1e-12 {
+                // 180° turn — use first normal
+                (perp_x1, perp_y1)
             } else {
-                // Miter scale: hw / dot(miter_unit, n1) keeps edges at half_width
-                let mux = mx / mlen;
-                let muy = my / mlen;
-                let dot = mux * n1x + muy * n1y;
-
-                if dot.abs() < 1e-6 {
-                    (n1x, n1y)
-                } else {
-                    let scale = (hw / dot).min(2.0 * hw).max(-2.0 * hw);
-                    // Return the pre-scaled offset (not unit normal * hw)
-                    left.push(Point::new(
-                        centerline[i].x + mux * scale,
-                        centerline[i].y + muy * scale,
-                    ));
-                    right.push(Point::new(
-                        centerline[i].x - mux * scale,
-                        centerline[i].y - muy * scale,
-                    ));
-                    continue;
-                }
+                let px = (avg_px / avg_len) * width_factor;
+                let py = (avg_py / avg_len) * width_factor;
+                left.push(Point::new(
+                    centerline[i].x + px * hw,
+                    centerline[i].y + py * hw,
+                ));
+                right.push(Point::new(
+                    centerline[i].x - px * hw,
+                    centerline[i].y - py * hw,
+                ));
+                continue;
             }
         };
 
