@@ -1,5 +1,5 @@
-import defaultMdxComponents from "fumadocs-ui/mdx";
 import { ImageZoom } from "fumadocs-ui/components/image-zoom";
+import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";

@@ -1,10 +1,10 @@
 //! Python bindings for geometry types.
 
 use pyo3::prelude::*;
+use rosette_core::{BBox, Point, Polygon, Transform, Vector2};
 use rosette_core::{
     arc_points, fresnel_c, fresnel_s, offset_polygon, offset_polygon_varying, path_length,
 };
-use rosette_core::{BBox, Point, Polygon, Transform, Vector2};
 use std::f64::consts::PI;
 
 /// A 2D point representing a position in space.

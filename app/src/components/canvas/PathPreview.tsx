@@ -61,8 +61,7 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
     lastWp &&
     Math.abs(cursorPoint.x - lastWp.x) < 1e-6 &&
     Math.abs(cursorPoint.y - lastWp.y) < 1e-6;
-  const allPoints =
-    cursorPoint && !cursorIsDuplicate ? [...waypoints, cursorPoint] : waypoints;
+  const allPoints = cursorPoint && !cursorIsDuplicate ? [...waypoints, cursorPoint] : waypoints;
   const screenPoints = allPoints.map(worldToScreen);
 
   // Build SVG path for the centerline

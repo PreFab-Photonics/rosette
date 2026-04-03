@@ -712,10 +712,7 @@ impl ShapeManager {
     /// re-triangulated. Unchanged shapes keep their cached triangulation.
     /// Used to sync from WasmLibrary.
     #[allow(clippy::type_complexity)]
-    pub fn sync_from_polygons(
-        &mut self,
-        polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4], u32)>,
-    ) {
+    pub fn sync_from_polygons(&mut self, polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4], u32)>) {
         // Build set of incoming IDs for removal detection
         let new_ids: HashSet<String> = polygons.iter().map(|(id, ..)| id.clone()).collect();
 
