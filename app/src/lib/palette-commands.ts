@@ -914,6 +914,17 @@ export function getCommands(): CommandItem[] {
       },
       searchableText: "Hide all cells invisible",
     },
+    {
+      id: "cell-toggle-flat-list",
+      type: "cell",
+      name: "Cell: Toggle Flat List",
+      action: () => {
+        const { cellListMode, setCellListMode } = useExplorerStore.getState();
+        setCellListMode(cellListMode === "flat" ? "nested" : "flat");
+        close();
+      },
+      searchableText: "Toggle flat list nested tree hierarchy cell explorer view",
+    },
 
     // Dynamic: one entry per cell to switch active cell
     ...useExplorerStore.getState().cells.map(

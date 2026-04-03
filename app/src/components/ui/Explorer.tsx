@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavArrowLeft, NavArrowRight, Menu } from "iconoir-react";
 import { useExplorerStore } from "@/stores/explorer";
-import type { CellNode, FocusedItem } from "@/stores/explorer";
+import type { CellNode, CellListMode, FocusedItem } from "@/stores/explorer";
 import { useContextMenuStore } from "@/stores/context-menu";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
@@ -74,13 +74,16 @@ interface TopLevelMenu {
  *
  * Only descends into children of nodes that are in the `expandedCells` set.
  * Returns cell names in the order they appear visually in the Explorer.
+ *
+ * In flat mode (or when no tree exists), returns the flat `cells` array directly.
  */
 function getVisibleCells(
   cellTree: CellNode[] | null,
   cells: string[],
   expandedCells: Set<string>,
+  cellListMode: CellListMode = "nested",
 ): string[] {
-  if (!cellTree) return cells;
+  if (cellListMode === "flat" || !cellTree) return cells;
   const result: string[] = [];
   function walk(nodes: CellNode[]) {
     for (const node of nodes) {
@@ -136,6 +139,7 @@ function getVisibleItems(
   cellTree: CellNode[] | null,
   cells: string[],
   expandedCells: Set<string>,
+  cellListMode: CellListMode = "nested",
 ): FocusedItem[] {
   const items: FocusedItem[] = [];
   // Include tabs only when 2+ are open (matches TabList render condition)
@@ -144,7 +148,7 @@ function getVisibleItems(
       items.push({ type: "tab", id: tab.id });
     }
   }
-  const visibleCells = getVisibleCells(cellTree, cells, expandedCells);
+  const visibleCells = getVisibleCells(cellTree, cells, expandedCells, cellListMode);
   for (const name of visibleCells) {
     items.push({ type: "cell", name });
   }
@@ -1263,6 +1267,7 @@ export function Explorer() {
   const setHierarchyLevelLimit = useExplorerStore((s) => s.setHierarchyLevelLimit);
   const maxTreeDepth = useExplorerStore((s) => s.maxTreeDepth);
   const hiddenCells = useExplorerStore((s) => s.hiddenCells);
+  const cellListMode = useExplorerStore((s) => s.cellListMode);
   const isFocused = useExplorerStore((s) => s.isFocused);
   const focusedItem = useExplorerStore((s) => s.focusedItem);
   const setFocused = useExplorerStore((s) => s.setFocused);
@@ -1354,6 +1359,16 @@ export function Explorer() {
     [activeCell, cells.length, setActiveCell],
   );
 
+  // Right-click on the cell list background (empty space) opens the cell
+  // context menu without a target cell, so cell-specific items auto-disable.
+  const handleBackgroundContextMenu = useCallback((e: React.MouseEvent) => {
+    // Only fire when clicking the container itself, not a child CellRow
+    if (e.target === e.currentTarget) {
+      e.preventDefault();
+      useContextMenuStore.getState().open("cell", { x: e.clientX, y: e.clientY });
+    }
+  }, []);
+
   // =========================================================================
   // Keyboard navigation for the Explorer (tabs + cell list)
   // =========================================================================
@@ -1388,13 +1403,14 @@ export function Explorer() {
         expandedCells: expanded,
         activeCell: active,
         editingCellName: editing,
+        cellListMode: listMode,
       } = useExplorerStore.getState();
 
       // Skip navigation while inline editing
       if (editing) return;
 
       const allTabs = useTabsStore.getState().tabs;
-      const items = getVisibleItems(allTabs, tree, allCells, expanded);
+      const items = getVisibleItems(allTabs, tree, allCells, expanded, listMode);
       if (items.length === 0) return;
 
       const currentIndex = findItemIndex(items, current);
@@ -1413,9 +1429,9 @@ export function Explorer() {
           break;
         }
         case "ArrowRight": {
-          // Only applies to cell items — expand tree node or move to first child
+          // Only applies to cell items in nested mode — expand tree node or move to first child
           e.preventDefault();
-          if (current?.type === "cell" && tree) {
+          if (current?.type === "cell" && tree && listMode === "nested") {
             const node = findNodeInTree(tree, current.name);
             if (node && node.children.length > 0 && !expanded.has(current.name)) {
               toggleExpanded(current.name);
@@ -1426,9 +1442,9 @@ export function Explorer() {
           break;
         }
         case "ArrowLeft": {
-          // Only applies to cell items — collapse tree node or move to parent
+          // Only applies to cell items in nested mode — collapse tree node or move to parent
           e.preventDefault();
-          if (current?.type === "cell" && tree) {
+          if (current?.type === "cell" && tree && listMode === "nested") {
             const node = findNodeInTree(tree, current.name);
             if (node && node.children.length > 0 && expanded.has(current.name)) {
               toggleExpanded(current.name);
@@ -1489,6 +1505,7 @@ export function Explorer() {
                 freshState.cellTree,
                 freshState.cells,
                 freshState.expandedCells,
+                freshState.cellListMode,
               );
               if (freshItems.length === 0) {
                 setFocusedItem(null);
@@ -1655,8 +1672,9 @@ export function Explorer() {
           className="flex flex-col gap-0.5 overflow-y-auto py-1"
           style={{ maxHeight: "calc(100vh - 176px)" }}
           onWheel={(e) => e.stopPropagation()}
+          onContextMenu={handleBackgroundContextMenu}
         >
-          {cellTree
+          {cellTree && cellListMode === "nested"
             ? /* Hierarchical tree view */
               cellTree.map((root) => (
                 <CellTreeNode
@@ -1676,7 +1694,7 @@ export function Explorer() {
                   onToggleExpand={toggleExpanded}
                 />
               ))
-            : /* Standalone mode: flat list */
+            : /* Flat list mode or no tree */
               cells.map((name) => (
                 <CellRow
                   key={name}

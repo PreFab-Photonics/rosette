@@ -463,6 +463,17 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
         },
         { id: "sep2", separator: true },
         {
+          id: "viewFlat",
+          label: `${explorerStore.cellListMode === "flat" ? "\u2713  " : "     "}Flat List`,
+          action: () => {
+            const { cellListMode, setCellListMode } = useExplorerStore.getState();
+            setCellListMode(cellListMode === "flat" ? "nested" : "flat");
+            close();
+          },
+          disabled: false,
+        },
+        { id: "sep3", separator: true },
+        {
           id: "delete",
           label: "Delete Cell",
           action: deleteCell,

@@ -14,6 +14,9 @@ export interface CellNode {
 /** Item currently highlighted by the keyboard cursor in the Explorer. */
 export type FocusedItem = { type: "tab"; id: string } | { type: "cell"; name: string };
 
+/** How the cell list is displayed in the Explorer panel. */
+export type CellListMode = "nested" | "flat";
+
 /**
  * Explorer state for browsing cells in a design.
  *
@@ -41,6 +44,8 @@ interface ExplorerState {
   maxTreeDepth: number;
   /** Set of cell names whose internal geometry is hidden. */
   hiddenCells: Set<string>;
+  /** Whether the cell list is shown as a flat alphabetical list or a nested tree. */
+  cellListMode: CellListMode;
 
   /** Whether the Explorer panel has keyboard focus for arrow-key navigation. */
   isFocused: boolean;
@@ -73,6 +78,8 @@ interface ExplorerState {
   showAllCells: () => void;
   /** Hide all cells. */
   hideAllCells: () => void;
+  /** Set the cell list display mode (flat or nested). */
+  setCellListMode: (mode: CellListMode) => void;
   /** Set keyboard focus state for the Explorer panel. */
   setFocused: (focused: boolean) => void;
   /** Set the keyboard-cursor item (tab or cell). */
@@ -155,6 +162,7 @@ export const useExplorerStore = create<ExplorerState>()(
       hierarchyLevelLimit: Infinity,
       maxTreeDepth: 0,
       hiddenCells: new Set<string>(),
+      cellListMode: "nested" as CellListMode,
       isFocused: false,
       focusedItem: null,
 
@@ -258,6 +266,7 @@ export const useExplorerStore = create<ExplorerState>()(
         }),
       showAllCells: () => set({ hiddenCells: new Set<string>() }),
       hideAllCells: () => set((state) => ({ hiddenCells: new Set(state.cells) })),
+      setCellListMode: (mode) => set({ cellListMode: mode }),
       setFocused: (focused) =>
         set((state) => {
           if (focused) {
@@ -274,7 +283,10 @@ export const useExplorerStore = create<ExplorerState>()(
     }),
     {
       name: "rosette-explorer",
-      partialize: (state) => ({ projectName: state.projectName }),
+      partialize: (state) => ({
+        projectName: state.projectName,
+        cellListMode: state.cellListMode,
+      }),
     },
   ),
 );
