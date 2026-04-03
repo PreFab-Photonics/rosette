@@ -29,6 +29,7 @@ import {
   BooleanOperationCommand,
   placeRectangleInViewport,
   placePolygonInViewport,
+  placePathInViewport,
   placeTextInViewport,
   snapshotElements,
   TextToPolygonsCommand,
@@ -512,6 +513,21 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Add polygon create shape triangle place",
+    },
+    {
+      id: "add-path",
+      type: "command",
+      name: "Add: Path",
+      shortcut: { key: "H", then: "↵" },
+      action: () => {
+        const { library, renderer } = useWasmContextStore.getState();
+        const canvas = document.getElementById("rosette-canvas");
+        if (library && renderer && canvas) {
+          placePathInViewport(library, renderer, canvas);
+        }
+        close();
+      },
+      searchableText: "Add path create waveguide route place",
     },
     {
       id: "add-text",

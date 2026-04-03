@@ -2125,6 +2125,45 @@ export function placeTextInViewport(
   useWasmContextStore.getState().bumpSyncGeneration();
 }
 
+/**
+ * Place a horizontal path (waveguide) centered in the current viewport.
+ *
+ * Used by both the keyboard shortcut (H → Enter) and the command palette.
+ * Creates a simple two-point horizontal path using the current path defaults
+ * (width, corner radius) from the path store.
+ */
+export function placePathInViewport(
+  library: WasmLibrary,
+  renderer: WasmRenderer,
+  canvas: HTMLElement,
+): void {
+  const { centerX, centerY, halfW } = viewportPlacement(canvas);
+
+  const x0 = snapToGrid(centerX - halfW);
+  const x1 = snapToGrid(centerX + halfW);
+  const y = snapToGrid(centerY);
+
+  const points = new Float64Array([x0, y, x1, y]);
+  const waypoints = [
+    { x: x0, y },
+    { x: x1, y },
+  ];
+
+  const { layerNumber, datatype } = getActiveLayerSpec();
+  const { width, cornerRadius, numArcPoints } = usePathStore.getState();
+
+  const command = new CreatePathCommand(
+    points,
+    width,
+    layerNumber,
+    datatype,
+    waypoints,
+    cornerRadius,
+    numArcPoints,
+  );
+  useHistoryStore.getState().execute(command, { library, renderer });
+}
+
 // ---------------------------------------------------------------------------
 // Text
 // ---------------------------------------------------------------------------

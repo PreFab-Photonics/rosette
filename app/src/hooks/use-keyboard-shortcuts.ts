@@ -23,6 +23,7 @@ import {
   DuplicateElementsCommand,
   placeRectangleInViewport,
   placePolygonInViewport,
+  placePathInViewport,
   placeTextInViewport,
   snapshotElements,
 } from "@/lib/commands";
@@ -343,6 +344,7 @@ export function useKeyboardShortcuts(
         e.key === "Enter" &&
         (useToolStore.getState().activeTool === "rectangle" ||
           useToolStore.getState().activeTool === "polygon" ||
+          useToolStore.getState().activeTool === "path" ||
           useToolStore.getState().activeTool === "text")
       ) {
         const elapsed = Date.now() - useToolStore.getState().toolSetAt;
@@ -354,6 +356,8 @@ export function useKeyboardShortcuts(
             placeRectangleInViewport(library, renderer, canvas);
           } else if (tool === "polygon") {
             placePolygonInViewport(library, renderer, canvas);
+          } else if (tool === "path") {
+            placePathInViewport(library, renderer, canvas);
           } else {
             placeTextInViewport(library, renderer, canvas);
           }

@@ -1665,6 +1665,34 @@ export function InspectorPanel() {
     [library, renderer, unitInfo],
   );
 
+  const handlePathWaypointAdd = useCallback(() => {
+    const meta = pathMetaRef.current;
+    const elementId = firstIdRef.current;
+    if (!meta || !elementId || !library || !renderer) return;
+    if (!useSelectionStore.getState().selectedIds.has(elementId)) return;
+
+    const wps = meta.waypoints;
+    // Add a new waypoint by extending the last segment.
+    // Compute the direction from second-to-last → last and extend by the same length.
+    // Fall back to one grid unit in X if the last two waypoints are coincident.
+    const last = wps[wps.length - 1];
+    const prev = wps[wps.length - 2];
+    let dx = last.x - prev.x;
+    let dy = last.y - prev.y;
+    if (dx === 0 && dy === 0) {
+      dx = GRID_SIZE;
+    }
+    const newWp = { x: last.x + dx, y: last.y + dy };
+
+    const cmd = new EditPathCommand(
+      elementId,
+      meta,
+      { ...meta, waypoints: [...wps, newWp] },
+      "Add path waypoint",
+    );
+    useHistoryStore.getState().execute(cmd, { library, renderer });
+  }, [library, renderer]);
+
   // Image inspector (image overlay selected, no WASM element selection)
   if (!data && selectedImage) {
     // Images are in world coordinates. Convert to display units.
@@ -2203,6 +2231,23 @@ export function InspectorPanel() {
         {/* Waypoints */}
         <SectionHeader label="Waypoints" isDark={isDark} />
         <div className="flex max-h-48 flex-col overflow-y-auto">{waypointRows}</div>
+        <div className="px-3 pt-1">
+          <button
+            type="button"
+            onClick={handlePathWaypointAdd}
+            className={cn(
+              "flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
+              isDark
+                ? "border-white/10 text-white/50 hover:bg-white/5 hover:text-white/70"
+                : "border-black/10 text-black/50 hover:bg-black/5 hover:text-black/70",
+            )}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+              <path d="M8 4v8M4 8h8" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            Add waypoint
+          </button>
+        </div>
       </div>
     );
   }
