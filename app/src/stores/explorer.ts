@@ -115,6 +115,16 @@ function collectParentNames(node: CellNode): string[] {
   return names;
 }
 
+/** Return a copy of the cell tree sorted alphabetically by node name at every level. */
+function sortCellTree(nodes: CellNode[]): CellNode[] {
+  return [...nodes]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((node) => ({
+      ...node,
+      children: node.children.length > 0 ? sortCellTree(node.children) : node.children,
+    }));
+}
+
 /** Compute the maximum nesting depth of a tree (1-indexed: a single root with no children = 1). */
 function computeMaxDepth(roots: CellNode[]): number {
   function depth(node: CellNode): number {
@@ -151,21 +161,23 @@ export const useExplorerStore = create<ExplorerState>()(
       setProjectName: (name) => set({ projectName: name }),
       setCells: (cells) =>
         set((state) => {
-          // Keep activeCell if it still exists in the new list, otherwise select top cell
+          const sorted = [...cells].sort((a, b) => a.localeCompare(b));
+          // Keep activeCell if it still exists in the new list, otherwise select first cell
           const activeCell =
-            state.activeCell && cells.includes(state.activeCell)
+            state.activeCell && sorted.includes(state.activeCell)
               ? state.activeCell
-              : (cells[0] ?? null);
-          return { cells, activeCell, cellsLoaded: true };
+              : (sorted[0] ?? null);
+          return { cells: sorted, activeCell, cellsLoaded: true };
         }),
       setCellTree: (roots) =>
         set((state) => {
-          const cells = flattenRoots(roots);
-          const maxTreeDepth = computeMaxDepth(roots);
+          const sorted = sortCellTree(roots);
+          const cells = flattenRoots(sorted);
+          const maxTreeDepth = computeMaxDepth(sorted);
           // Auto-expand all parent nodes on first load
           const expandedCells =
             state.expandedCells.size === 0
-              ? new Set(roots.flatMap(collectParentNames))
+              ? new Set(sorted.flatMap(collectParentNames))
               : state.expandedCells;
           const activeCell =
             state.activeCell && cells.includes(state.activeCell)
@@ -177,7 +189,7 @@ export const useExplorerStore = create<ExplorerState>()(
               ? null
               : state.focusedItem;
           return {
-            cellTree: roots,
+            cellTree: sorted,
             cells,
             expandedCells,
             activeCell,
@@ -201,7 +213,9 @@ export const useExplorerStore = create<ExplorerState>()(
       setEditingCellName: (name) => set({ editingCellName: name }),
       renameCell: (oldName, newName) =>
         set((state) => {
-          const cells = state.cells.map((c) => (c === oldName ? newName : c));
+          const cells = state.cells
+            .map((c) => (c === oldName ? newName : c))
+            .sort((a, b) => a.localeCompare(b));
           const activeCell = state.activeCell === oldName ? newName : state.activeCell;
           const focusedItem =
             state.focusedItem?.type === "cell" && state.focusedItem.name === oldName
@@ -229,7 +243,8 @@ export const useExplorerStore = create<ExplorerState>()(
       addCell: (name) =>
         set((state) => {
           if (state.cells.includes(name)) return state;
-          return { cells: [...state.cells, name] };
+          const cells = [...state.cells, name].sort((a, b) => a.localeCompare(b));
+          return { cells };
         }),
       toggleCellVisibility: (name) =>
         set((state) => {

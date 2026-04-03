@@ -280,7 +280,9 @@ export const useLayerStore = create<LayerState>((set, get) => ({
     }),
 
   getAllLayers: () =>
-    Array.from(get().layers.values()).sort((a, b) => a.layerNumber - b.layerNumber),
+    Array.from(get().layers.values()).sort(
+      (a, b) => a.layerNumber - b.layerNumber || a.datatype - b.datatype,
+    ),
 
   layerExists: (layerNumber, datatype) => {
     const layers = get().layers;
