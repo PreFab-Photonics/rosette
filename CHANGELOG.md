@@ -7,11 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-04-03
+
 ### Added
 
+- Boolean shape operations (union, subtract, intersect, xor) in the viewer
+- Dedicated cell instance inspector with position, rotation, scale, and array editing
+- Quick path placement (`H`+`Enter`) and "Add waypoint" button in inspector
+- Zoom-to-fit button on scale bar label (extracted `zoomToFitAll()` helper)
+- Flat/nested toggle for Explorer cell list
+- Alphabetical sorting for Explorer cells and stabilized layer ordering
+- `c` keyboard shortcut to create a new cell with inline rename
+- Keyboard navigation for Explorer and Layers panels
+- Blog section on docs site with fumadocs MDX collections
 - Connectivity checking for photonic layouts (port-to-port, floating ports, shorted nets)
 - Unified `rosette-checks` crate combining connectivity and bend-radius analysis
-- DRC: self-intersection, max-width, and minimum-edge-length checks
+- DRC: self-intersection, max-width, minimum-edge-length, and same-layer overlap checks
 - DFM: continuous rasterization, feature detection, decoupled from check CLI
 - 20 new API reference doc pages (BBox, Point, Polygon, Port, Transform, Vector2, DRC/DFM types, etc.)
 - CI check for API docs completeness (`check-api-docs.py`)
@@ -23,12 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Overhauled DFM pipeline: continuous rasters, contour comparison improvements, configurable via `rosette.toml`
 - Overhauled DRC runner: fixed 5 bugs, improved config and violation reporting
 - Rewrote API reference docs from scratch, removing stale auto-generated component pages
+- Updated landing page: rebuilt viewer, swapped feature tiles, taller preview
+- Improved laser pointer trail smoothness and consistency
+
+### Fixed
+
+- Path tool preview: stable rendering, proper miter joins, reduced default width
+- Layer swatch click not closing editor when already open
+- Vertical centering of coordinate text in status bar
+- Same-layer overlap detection in DRC with `no_overlap` config option
+- Instance transform bounding-box shift documentation
 
 ### Removed
 
 - `rosette-connectivity` crate (merged into `rosette-checks`)
 - Auto-generated component doc pages (bend, crossing, coupler, grating, MMI, ring, s-bend, spiral, taper, waveguide, y-branch)
-- Example design scripts (`connectivity_fail.py`, `connectivity_pass.py`, `dfm_test.py`, `gc_loopback.py`)
 
 ## [0.1.6] - 2026-03-27
 
@@ -104,7 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `rosette serve` to use installed Rosette.app on macOS
 
-[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.3...v0.1.4
