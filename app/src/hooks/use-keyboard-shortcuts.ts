@@ -514,6 +514,36 @@ export function useKeyboardShortcuts(
           useExplorerStore.getState().setEditingCellName(cellName);
           break;
         }
+        case "[": {
+          // Decrease hierarchy level limit
+          e.preventDefault();
+          const {
+            hierarchyLevelLimit: currentLimit,
+            maxTreeDepth: maxDepth,
+            setHierarchyLevelLimit: setLimit,
+          } = useExplorerStore.getState();
+          const effective = currentLimit === Infinity ? maxDepth : currentLimit;
+          if (effective > 1) {
+            setLimit(effective - 1);
+          }
+          break;
+        }
+        case "]": {
+          // Increase hierarchy level limit
+          e.preventDefault();
+          const {
+            hierarchyLevelLimit: curLimit,
+            maxTreeDepth: curMaxDepth,
+            setHierarchyLevelLimit: setLevelLimit,
+          } = useExplorerStore.getState();
+          const effectiveLevel = curLimit === Infinity ? curMaxDepth : curLimit;
+          if (effectiveLevel < curMaxDepth) {
+            setLevelLimit(effectiveLevel + 1);
+          } else {
+            setLevelLimit(Infinity);
+          }
+          break;
+        }
       }
     };
 

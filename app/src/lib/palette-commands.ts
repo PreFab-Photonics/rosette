@@ -256,8 +256,7 @@ export function getCommands(): CommandItem[] {
         useUIStore.getState().toggleRightClickMode();
         close();
       },
-      searchableText:
-        "Toggle right click mode context menu zoom out canvas mouse button",
+      searchableText: "Toggle right click mode context menu zoom out canvas mouse button",
     },
     {
       id: "view-show-layers",
@@ -1006,6 +1005,40 @@ export function getCommands(): CommandItem[] {
     // =========================================================================
     // Hierarchy commands
     // =========================================================================
+    {
+      id: "hierarchy-level-down",
+      type: "command",
+      name: "Hierarchy: Decrease Level",
+      shortcut: { key: "[" },
+      action: () => {
+        const { hierarchyLevelLimit, maxTreeDepth, setHierarchyLevelLimit } =
+          useExplorerStore.getState();
+        const effective = hierarchyLevelLimit === Infinity ? maxTreeDepth : hierarchyLevelLimit;
+        if (effective > 1) {
+          setHierarchyLevelLimit(effective - 1);
+        }
+        close();
+      },
+      searchableText: "Hierarchy decrease level down less shallow depth",
+    },
+    {
+      id: "hierarchy-level-up",
+      type: "command",
+      name: "Hierarchy: Increase Level",
+      shortcut: { key: "]" },
+      action: () => {
+        const { hierarchyLevelLimit, maxTreeDepth, setHierarchyLevelLimit } =
+          useExplorerStore.getState();
+        const effective = hierarchyLevelLimit === Infinity ? maxTreeDepth : hierarchyLevelLimit;
+        if (effective < maxTreeDepth) {
+          setHierarchyLevelLimit(effective + 1);
+        } else {
+          setHierarchyLevelLimit(Infinity);
+        }
+        close();
+      },
+      searchableText: "Hierarchy increase level up more deeper depth",
+    },
     {
       id: "hierarchy-set-max-level",
       type: "command",
