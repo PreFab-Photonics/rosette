@@ -549,6 +549,7 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
               useViewportStore.getState().zoomAt(ZOOM_IN_FACTOR, rect.width / 2, rect.height / 2);
             },
             disabled: false,
+            keepOpen: true,
           },
           {
             id: "zoomOut",
@@ -561,6 +562,7 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
               useViewportStore.getState().zoomAt(ZOOM_OUT_FACTOR, rect.width / 2, rect.height / 2);
             },
             disabled: false,
+            keepOpen: true,
           },
           { id: "sep-view-1", separator: true as const },
           {
