@@ -46,6 +46,8 @@ interface SubMenuItem {
   shortcut?: Shortcut;
   action: () => void;
   disabled: boolean;
+  /** When true, clicking this item does not close the menu (useful for toggles). */
+  keepOpen?: boolean;
 }
 
 interface SubMenuSeparator {
@@ -198,16 +200,19 @@ function ChevronIcon({ expanded, isDark }: { expanded: boolean; isDark: boolean 
  * Renders a flyout submenu panel with items, separators, and keyboard shortcuts.
  */
 function FlyoutSubmenu({
-  items,
+  buildItems,
   isDark,
   onAction,
 }: {
-  items: SubMenuEntry[];
+  buildItems: () => SubMenuEntry[];
   isDark: boolean;
   onAction: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [openLeft, setOpenLeft] = useState(false);
+  // Counter to force re-render after keepOpen actions so checkmarks update.
+  const [, setTick] = useState(0);
+  const items = buildItems();
 
   // Detect if flyout would overflow viewport right edge (useLayoutEffect to avoid flash)
   useLayoutEffect(() => {
@@ -257,7 +262,12 @@ function FlyoutSubmenu({
                 Promise.resolve(entry.action()).catch((err) =>
                   console.error("Menu action failed:", err),
                 );
-                onAction();
+                if (entry.keepOpen) {
+                  // Re-render to update checkmarks without closing the menu.
+                  setTick((t) => t + 1);
+                } else {
+                  onAction();
+                }
               }
             }}
           >
@@ -601,18 +611,21 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
             label: `${themeSetting === "light" ? "\u2713  " : "     "}Light`,
             action: () => useUIStore.getState().setThemeSetting("light"),
             disabled: false,
+            keepOpen: true,
           },
           {
             id: "theme-dark",
             label: `${themeSetting === "dark" ? "\u2713  " : "     "}Dark`,
             action: () => useUIStore.getState().setThemeSetting("dark"),
             disabled: false,
+            keepOpen: true,
           },
           {
             id: "theme-system",
             label: `${themeSetting === "system" ? "\u2713  " : "     "}System`,
             action: () => useUIStore.getState().setThemeSetting("system"),
             disabled: false,
+            keepOpen: true,
           },
           { id: "sep-prefs-1", separator: true as const },
           {
@@ -620,12 +633,14 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
             label: `${showGrid ? "\u2713  " : "     "}Show Grid`,
             action: () => useUIStore.getState().toggleGrid(),
             disabled: false,
+            keepOpen: true,
           },
           {
             id: "right-click-zoom",
             label: `${rightClickMode === "zoom" ? "\u2713  " : "     "}Right Click Zoom`,
             action: () => useUIStore.getState().toggleRightClickMode(),
             disabled: false,
+            keepOpen: true,
           },
         ];
       },
@@ -683,7 +698,7 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
 
               {/* Flyout submenu */}
               {activeSubmenu === menu.id && (
-                <FlyoutSubmenu items={menu.buildItems()} isDark={isDark} onAction={close} />
+                <FlyoutSubmenu buildItems={menu.buildItems} isDark={isDark} onAction={close} />
               )}
             </div>
           ))}
