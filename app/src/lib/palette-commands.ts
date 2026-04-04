@@ -249,6 +249,17 @@ export function getCommands(): CommandItem[] {
       searchableText: "Toggle zen mode focus distraction free hide toolbar explorer sidebar panels",
     },
     {
+      id: "view-toggle-right-click-mode",
+      type: "command",
+      name: `View: Toggle Right Click Mode (${useUIStore.getState().rightClickMode === "context-menu" ? "Menu" : "Zoom"})`,
+      action: () => {
+        useUIStore.getState().toggleRightClickMode();
+        close();
+      },
+      searchableText:
+        "Toggle right click mode context menu zoom out canvas mouse button",
+    },
+    {
       id: "view-show-layers",
       type: "command",
       name: "View: Show Layers Panel",

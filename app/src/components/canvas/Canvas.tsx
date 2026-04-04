@@ -5,6 +5,7 @@ import { useUIStore } from "@/stores/ui";
 import { useToolStore } from "@/stores/tool";
 import { useSelectionStore } from "@/stores/selection";
 import { useContextMenuStore } from "@/stores/context-menu";
+import type { ZoomBox as ZoomBoxType } from "@/stores/zoom";
 import { useRulerStore } from "@/stores/ruler";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useExplorerStore } from "@/stores/explorer";
@@ -58,6 +59,12 @@ export function Canvas() {
   const currentMouseWorld = useRef<{ x: number; y: number } | null>(null);
   const [canvasReady, setCanvasReady] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  /** Right-click zoom marquee box (null when not drawing). Reactive for ZoomBox overlay. */
+  const [rightClickZoomBox, setRightClickZoomBox] = useState<ZoomBoxType | null>(null);
+  /** Non-reactive flag to avoid re-creating mousemove callback on every box update. */
+  const isRightClickZooming = useRef(false);
+  /** Mirror of rightClickZoomBox for reading in callbacks without stale closures. */
+  const rightClickZoomBoxRef = useRef<ZoomBoxType | null>(null);
 
   // WASM and library
   const { wasm, isReady: isWasmReady } = useWasm();
@@ -364,6 +371,20 @@ export function Canvas() {
   // Mouse down - start dragging, laser, zoom, rectangle, or move
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // Right-click zoom: start marquee when right-click mode is "zoom"
+      if (e.button === 2 && useUIStore.getState().rightClickMode === "zoom") {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        isRightClickZooming.current = true;
+        const newBox = { x, y, width: 0, height: 0 };
+        rightClickZoomBoxRef.current = newBox;
+        setRightClickZoomBox(newBox);
+        return;
+      }
+
       // Handle laser tool
       if (activeTool === "laser" && e.button === 0) {
         handleLaserMouseDown(e);
@@ -477,6 +498,16 @@ export function Canvas() {
       // If so, we'll render eagerly to minimize input-to-pixel latency.
       let needsEagerRender = false;
 
+      // Update right-click zoom marquee if active
+      if (isRightClickZooming.current) {
+        setRightClickZoomBox((prev) => {
+          if (!prev) return prev;
+          const updated = { ...prev, width: screenX - prev.x, height: screenY - prev.y };
+          rightClickZoomBoxRef.current = updated;
+          return updated;
+        });
+      }
+
       // Handle laser tool movement
       if (activeTool === "laser") {
         handleLaserMouseMove(e);
@@ -583,8 +614,48 @@ export function Canvas() {
     ],
   );
 
+  // Finalize right-click zoom marquee: converts the screen-space zoom box to
+  // world coordinates and zooms to fit. Reads viewport state at call time to
+  // avoid stale closure values if the user scrolled during the drag.
+  const finalizeRightClickZoom = useCallback(() => {
+    if (!isRightClickZooming.current) return;
+    isRightClickZooming.current = false;
+
+    const box = rightClickZoomBoxRef.current;
+    rightClickZoomBoxRef.current = null;
+    setRightClickZoomBox(null);
+
+    if (!box) return;
+
+    const canvas = canvasRef.current;
+    if (Math.abs(box.width) > 5 && Math.abs(box.height) > 5 && canvas) {
+      // Read current viewport state (not stale closure values)
+      const { zoom: curZoom, offset: curOffset } = useViewportStore.getState();
+
+      const screenMinX = Math.min(box.x, box.x + box.width);
+      const screenMaxX = Math.max(box.x, box.x + box.width);
+      const screenMinY = Math.min(box.y, box.y + box.height);
+      const screenMaxY = Math.max(box.y, box.y + box.height);
+
+      const bounds = {
+        minX: (screenMinX - curOffset.x) / curZoom,
+        maxX: (screenMaxX - curOffset.x) / curZoom,
+        minY: (screenMinY - curOffset.y) / curZoom,
+        maxY: (screenMaxY - curOffset.y) / curZoom,
+      };
+
+      const vp = getEffectiveViewport(canvas);
+      if (vp.width > 0 && vp.height > 0) {
+        useViewportStore.getState().zoomToBounds(bounds, vp.width, vp.height, vp.screenCenter);
+      }
+    }
+  }, []);
+
   // Mouse up - stop dragging, laser, zoom, rectangle, selection, or move
   const handleMouseUp = useCallback(() => {
+    // Finalize right-click zoom marquee if active
+    finalizeRightClickZoom();
+
     if (activeTool === "laser") {
       handleLaserMouseUp();
     }
@@ -608,6 +679,7 @@ export function Canvas() {
     setIsDragging(false);
   }, [
     activeTool,
+    finalizeRightClickZoom,
     handleLaserMouseUp,
     handleZoomMouseUp,
     finalizeRectangle,
@@ -619,6 +691,12 @@ export function Canvas() {
   // Mouse leave - stop dragging, cancel rectangle, cancel polygon, cancel ruler, cancel text, clear hover, cancel move, and clear cursor
   const handleMouseLeave = useCallback(() => {
     setIsDragging(false);
+    // Cancel right-click zoom if active
+    if (isRightClickZooming.current) {
+      isRightClickZooming.current = false;
+      rightClickZoomBoxRef.current = null;
+      setRightClickZoomBox(null);
+    }
     cancelRectDrawing();
     cancelPolyDrawing();
     cancelPathDrawing();
@@ -650,6 +728,13 @@ export function Canvas() {
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
+
+      // When right-click mode is "zoom", the zoom marquee is handled by
+      // handleMouseDown/handleMouseMove/handleMouseUp. Just suppress the
+      // native context menu here.
+      if (useUIStore.getState().rightClickMode === "zoom") {
+        return;
+      }
 
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -912,6 +997,7 @@ export function Canvas() {
       />
       {isLaserActive && !isDragging && <LaserCursor />}
       {isDrawingZoom && zoomBox && <ZoomBox box={zoomBox} />}
+      {rightClickZoomBox && <ZoomBox box={rightClickZoomBox} />}
       {isDrawingMarquee && marqueeBox && <MarqueeBox box={marqueeBox} />}
       {activeTool === "polygon" && polyPoints.length > 0 && (
         <PolygonPreview

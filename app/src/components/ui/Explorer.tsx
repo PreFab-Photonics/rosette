@@ -594,7 +594,7 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
       id: "preferences",
       label: "Preferences",
       buildItems: () => {
-        const { themeSetting, showGrid } = useUIStore.getState();
+        const { themeSetting, showGrid, rightClickMode } = useUIStore.getState();
         return [
           {
             id: "theme-light",
@@ -619,6 +619,12 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
             id: "show-grid",
             label: `${showGrid ? "\u2713  " : "     "}Show Grid`,
             action: () => useUIStore.getState().toggleGrid(),
+            disabled: false,
+          },
+          {
+            id: "right-click-zoom",
+            label: `${rightClickMode === "zoom" ? "\u2713  " : "     "}Right Click Zoom`,
+            action: () => useUIStore.getState().toggleRightClickMode(),
             disabled: false,
           },
         ];

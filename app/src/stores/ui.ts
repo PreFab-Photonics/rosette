@@ -38,6 +38,9 @@ function resolveTheme(setting: ThemeSetting): ResolvedTheme {
   return setting === "system" ? getSystemTheme() : setting;
 }
 
+/** Right-click behavior on the canvas. */
+export type RightClickMode = "context-menu" | "zoom";
+
 /** Sidebar tab identifiers. */
 export type SidebarTab = "layers" | "inspector";
 
@@ -68,6 +71,8 @@ interface UIState {
   inspectorFocusField: string | null;
   /** Whether the grid is visible on the canvas. */
   showGrid: boolean;
+  /** Right-click behavior on canvas: context menu or zoom out. */
+  rightClickMode: RightClickMode;
   /** Whether zen mode is active (hides Toolbar, Explorer, Sidebar). */
   zenMode: boolean;
   /** Whether the Explorer panel is collapsed to an icon rail. */
@@ -101,6 +106,10 @@ interface UIState {
   clearInspectorFocus: () => void;
   /** Toggle grid visibility. */
   toggleGrid: () => void;
+  /** Toggle right-click mode between context menu and zoom. */
+  toggleRightClickMode: () => void;
+  /** Set right-click mode directly. */
+  setRightClickMode: (mode: RightClickMode) => void;
   /** Toggle zen mode (hide/show Toolbar, Explorer, Sidebar). */
   toggleZenMode: () => void;
   /** Toggle Explorer panel collapsed state. */
@@ -128,6 +137,7 @@ export const useUIStore = create<UIState>()(
       inspectorFocusRequested: false,
       inspectorFocusField: null,
       showGrid: true,
+      rightClickMode: "context-menu" as RightClickMode,
       zenMode: false,
       explorerCollapsed: false,
       sidebarCollapsed: false,
@@ -157,6 +167,11 @@ export const useUIStore = create<UIState>()(
         set({ sidebarTab: "inspector", inspectorFocusRequested: true, inspectorFocusField: field }),
       clearInspectorFocus: () => set({ inspectorFocusRequested: false, inspectorFocusField: null }),
       toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
+      toggleRightClickMode: () =>
+        set((state) => ({
+          rightClickMode: state.rightClickMode === "context-menu" ? "zoom" : "context-menu",
+        })),
+      setRightClickMode: (mode) => set({ rightClickMode: mode }),
       toggleZenMode: () => set((state) => ({ zenMode: !state.zenMode })),
       toggleExplorerCollapsed: () =>
         set((state) => ({ explorerCollapsed: !state.explorerCollapsed })),
@@ -177,6 +192,7 @@ export const useUIStore = create<UIState>()(
       partialize: (state) => ({
         themeSetting: state.themeSetting,
         showGrid: state.showGrid,
+        rightClickMode: state.rightClickMode,
         zenMode: state.zenMode,
         explorerCollapsed: state.explorerCollapsed,
         sidebarCollapsed: state.sidebarCollapsed,
