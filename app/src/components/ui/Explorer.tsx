@@ -27,6 +27,7 @@ import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 import { isTauri } from "@/lib/tauri";
 import { handleNewFile } from "@/lib/file-ops";
 import { cn, keys, centerViewOnSelection, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
+import { useArrayDialogStore } from "@/stores/array-dialog";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useTabsStore, switchTab } from "@/stores/tabs";
 import type { Tab } from "@/stores/tabs";
@@ -489,6 +490,16 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
               useHistoryStore.getState().execute(command, { library, renderer });
               const canvas = document.querySelector("canvas");
               if (canvas) centerViewOnSelection(library, canvas);
+            },
+            disabled: !hasSelection,
+          },
+          {
+            id: "create-array",
+            label: "Create Array\u2026",
+            action: () => {
+              const ids = useSelectionStore.getState().selectedIds;
+              if (ids.size === 0) return;
+              useArrayDialogStore.getState().open([...ids]);
             },
             disabled: !hasSelection,
           },

@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/ui/Sidebar";
 import { StatusBar } from "@/components/ui/StatusBar";
 import { Toolbar } from "@/components/ui/Toolbar";
 import { UpdateNotification } from "@/components/ui/UpdateNotification";
+import { ArrayDialog } from "@/components/ui/ArrayDialog";
 import { useUIStore } from "@/stores/ui";
 import {
   useTabsStore,
@@ -247,6 +248,7 @@ export default function App() {
           {!zenMode && <Sidebar />}
           {!isSm && <Minimap />}
           <CommandPalette />
+          <ArrayDialog />
         </div>
         <StatusBar compact={isMd || isSm} minimal={isSm} />
       </div>
@@ -266,6 +268,7 @@ export default function App() {
 
         {!isSm && <Minimap />}
         <CommandPalette />
+        <ArrayDialog />
       </div>
 
       {/* Docked status bar */}

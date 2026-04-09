@@ -541,6 +541,123 @@ export class DuplicateElementsCommand implements Command {
 }
 
 /**
+ * Offset a clipboard snapshot by (dx, dy) in world coordinates, returning a new snapshot.
+ */
+function offsetSnapshot(snapshot: ClipboardSnapshot, dx: number, dy: number): ClipboardSnapshot {
+  if (snapshot.type === "polygon") {
+    const verts = new Float64Array(snapshot.vertices.length);
+    for (let i = 0; i < verts.length; i += 2) {
+      verts[i] = snapshot.vertices[i] + dx;
+      verts[i + 1] = snapshot.vertices[i + 1] + dy;
+    }
+    return { type: "polygon", vertices: verts, layer: snapshot.layer, datatype: snapshot.datatype };
+  }
+  if (snapshot.type === "cell-ref") {
+    const t = new Float64Array(snapshot.transform);
+    t[4] += dx; // tx
+    t[5] += dy; // ty
+    return { type: "cell-ref", cellName: snapshot.cellName, transform: t };
+  }
+  // text
+  return {
+    type: "text",
+    text: snapshot.text,
+    x: snapshot.x + dx,
+    y: snapshot.y + dy,
+    height: snapshot.height,
+    layer: snapshot.layer,
+    datatype: snapshot.datatype,
+  };
+}
+
+/**
+ * Command to create an array of duplicated elements.
+ *
+ * Duplicates the given elements in a grid pattern with the specified
+ * number of columns, rows, and spacing. The original elements remain
+ * at position (0,0) in the grid; copies are created for all other
+ * grid positions.
+ *
+ * Column spacing is applied along the X axis; row spacing along Y
+ * (world coordinates, so positive Y goes downward in screen space).
+ */
+export class CreateArrayCommand implements Command {
+  readonly type = "create-array";
+  readonly description: string;
+
+  /** Snapshots of the source elements. */
+  private snapshots: ClipboardSnapshot[] = [];
+
+  /** IDs of all created copies (for undo). */
+  private createdIds: string[] = [];
+
+  constructor(
+    private readonly elementIds: string[],
+    private readonly columns: number,
+    private readonly rows: number,
+    /** Column spacing in world units. */
+    private readonly colSpacing: number,
+    /** Row spacing in world units. */
+    private readonly rowSpacing: number,
+  ) {
+    const copies = columns * rows - 1;
+    this.description = copies === 1 ? "Create array (1 copy)" : `Create array (${copies} copies)`;
+  }
+
+  execute(ctx: CommandContext): void {
+    // Snapshot source elements on first execute
+    if (this.snapshots.length === 0) {
+      this.snapshots = snapshotElements(ctx.library, this.elementIds);
+    }
+
+    this.createdIds = [];
+    const allOffsetSnapshots: ClipboardSnapshot[] = [];
+
+    for (let row = 0; row < this.rows; row++) {
+      for (let col = 0; col < this.columns; col++) {
+        // Skip the origin position (that's where the original elements already are)
+        if (row === 0 && col === 0) continue;
+
+        const dx = col * this.colSpacing;
+        const dy = row * this.rowSpacing;
+
+        const offsetSnaps = this.snapshots.map((s) => offsetSnapshot(s, dx, dy));
+        const ids = restoreSnapshots(ctx.library, offsetSnaps);
+        this.createdIds.push(...ids);
+        allOffsetSnapshots.push(...offsetSnaps);
+      }
+    }
+
+    syncCellTree(ctx.library);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+
+    // Select all newly created copies
+    if (this.createdIds.length > 0) {
+      useSelectionStore.getState().setSelection(new Set([...this.elementIds, ...this.createdIds]));
+    }
+
+    // In design mode, persist cell-ref snapshots (with correct offsets) to Python source
+    persistCellRefSnapshots(ctx, allOffsetSnapshots);
+  }
+
+  undo(ctx: CommandContext): void {
+    ctx.library.remove_elements(this.createdIds);
+
+    syncCellTree(ctx.library);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+
+    // Restore selection to original elements
+    if (this.elementIds.length > 0) {
+      useSelectionStore.getState().setSelection(new Set(this.elementIds));
+    } else {
+      useSelectionStore.getState().clearSelection();
+    }
+  }
+}
+
+/**
  * Command to create a polygon element.
  */
 export class CreatePolygonCommand implements Command {

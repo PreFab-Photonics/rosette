@@ -37,6 +37,7 @@ import {
 import type { AlignType } from "@/lib/align";
 import type { BooleanOpType } from "@/lib/commands";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
+import { useArrayDialogStore } from "@/stores/array-dialog";
 import { pickAndInsertImage } from "@/lib/image-ops";
 import { keys, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
 
@@ -654,6 +655,21 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Duplicate selection clone",
+    },
+    {
+      id: "edit-create-array",
+      type: "command",
+      name: "Edit: Create Array from Selection",
+      action: () => {
+        const { selectedIds } = useSelectionStore.getState();
+        if (selectedIds.size === 0) {
+          close();
+          return;
+        }
+        useArrayDialogStore.getState().open([...selectedIds]);
+        close();
+      },
+      searchableText: "Create array grid duplicate copies repeat tile",
     },
     {
       id: "edit-delete",
