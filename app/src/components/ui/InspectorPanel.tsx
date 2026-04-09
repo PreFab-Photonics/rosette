@@ -2499,8 +2499,9 @@ export function InspectorPanel() {
   const width = bounds ? formatCoordinate((bounds.maxX - bounds.minX) / GRID_SIZE, unitInfo) : "—";
   const height = bounds ? formatCoordinate((bounds.maxY - bounds.minY) / GRID_SIZE, unitInfo) : "—";
 
-  // Position is editable for single direct elements AND for ref instances (moved via CellRef transform).
-  const positionEditable = isFromRef || isSingle;
+  // Position is always editable: single elements move directly, multi-selection
+  // translates all elements by the delta from the current bounding-box origin.
+  const positionEditable = true;
 
   return (
     <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
