@@ -7,6 +7,7 @@ import { useImageStore, hitTestImages, isImageId, imageIdToKey } from "@/stores/
 import { useViewportStore } from "@/stores/viewport";
 import { MoveElementsCommand, MoveRulersCommand, MoveImagesCommand } from "@/lib/commands";
 import { getSourceInfo, sendVertexEdit, sendRefMove } from "@/hooks/use-library";
+import { usePathStore } from "@/stores/path";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
 /**
@@ -323,6 +324,10 @@ export function useMove(
         } else if (library && renderer) {
           // Moving shapes
           library.translate_elements(state.elementIds, incrementalDeltaX, incrementalDeltaY);
+          // Keep path waypoints in sync with the WASM polygon
+          usePathStore
+            .getState()
+            .translateWaypoints(state.elementIds, incrementalDeltaX, incrementalDeltaY);
           renderer.sync_from_library(library);
           renderer.mark_dirty();
           // Notify subscribers (e.g. instance labels) that library data changed
@@ -453,6 +458,10 @@ export function useMove(
       } else if (library && renderer) {
         // Undo shape moves
         library.translate_elements(state.elementIds, -state.currentDelta.x, -state.currentDelta.y);
+        // Revert path waypoints
+        usePathStore
+          .getState()
+          .translateWaypoints(state.elementIds, -state.currentDelta.x, -state.currentDelta.y);
         renderer.sync_from_library(library);
         renderer.mark_dirty();
       }

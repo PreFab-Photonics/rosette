@@ -203,6 +203,22 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
       continue;
     }
 
+    // Check if this element has path metadata (paths are stored as polygons
+    // in WASM but have editable waypoint data in the path store)
+    const pathMeta = usePathStore.getState().pathMetadata.get(id);
+    if (pathMeta) {
+      snapshots.push({
+        type: "path",
+        waypoints: pathMeta.waypoints.map((wp) => ({ ...wp })),
+        width: pathMeta.width,
+        cornerRadius: pathMeta.cornerRadius,
+        numArcPoints: pathMeta.numArcPoints,
+        layer: pathMeta.layer,
+        datatype: pathMeta.datatype,
+      });
+      continue;
+    }
+
     // Polygon element
     const info = library.get_element_info(id);
     if (info) {
@@ -244,6 +260,33 @@ function restoreSnapshots(library: WasmLibrary, snapshots: ClipboardSnapshot[]):
       );
       if (id) {
         newIds.push(id);
+      }
+    } else if (snapshot.type === "path") {
+      // Recreate path using create_path_rounded and restore path metadata
+      const flatPoints = new Float64Array(snapshot.waypoints.length * 2);
+      for (let i = 0; i < snapshot.waypoints.length; i++) {
+        flatPoints[i * 2] = snapshot.waypoints[i].x;
+        flatPoints[i * 2 + 1] = snapshot.waypoints[i].y;
+      }
+      const id = library.create_path_rounded(
+        flatPoints,
+        snapshot.width,
+        snapshot.cornerRadius,
+        snapshot.numArcPoints,
+        snapshot.layer,
+        snapshot.datatype,
+      );
+      if (id) {
+        newIds.push(id);
+        // Store path metadata so the element is recognized as a path
+        usePathStore.getState().setPathMetadata(id, {
+          waypoints: snapshot.waypoints.map((wp) => ({ ...wp })),
+          width: snapshot.width,
+          cornerRadius: snapshot.cornerRadius,
+          numArcPoints: snapshot.numArcPoints,
+          layer: snapshot.layer,
+          datatype: snapshot.datatype,
+        });
       }
     } else {
       const id = library.add_polygon(snapshot.vertices, snapshot.layer, snapshot.datatype);
@@ -378,6 +421,9 @@ export class DeleteElementsCommand implements Command {
         );
     }
 
+    // Clean up path metadata for any deleted paths
+    usePathStore.getState().removePathMetadataMany(idsToDelete);
+
     // Delete elements in a single batch operation (much faster for large selections)
     ctx.library.remove_elements(idsToDelete);
 
@@ -423,6 +469,9 @@ export class PasteElementsCommand implements Command {
   /** IDs of created elements (for undo). */
   private createdIds: string[] = [];
 
+  /** IDs of created elements that are paths (for path metadata cleanup on undo). */
+  private createdPathIds: string[] = [];
+
   /** Snapshots to paste (captured at construction). */
   private readonly snapshots: ClipboardSnapshot[];
 
@@ -440,6 +489,17 @@ export class PasteElementsCommand implements Command {
       if (e.type === "text") {
         return { ...e };
       }
+      if (e.type === "path") {
+        return {
+          type: "path",
+          waypoints: e.waypoints.map((wp) => ({ ...wp })),
+          width: e.width,
+          cornerRadius: e.cornerRadius,
+          numArcPoints: e.numArcPoints,
+          layer: e.layer,
+          datatype: e.datatype,
+        };
+      }
       return {
         type: "polygon",
         vertices: new Float64Array(e.vertices),
@@ -456,6 +516,11 @@ export class PasteElementsCommand implements Command {
 
     this.createdIds = restoreSnapshots(ctx.library, this.snapshots);
 
+    // Track which created elements are paths (for metadata cleanup on undo)
+    this.createdPathIds = this.createdIds.filter((id) =>
+      usePathStore.getState().pathMetadata.has(id),
+    );
+
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
@@ -470,6 +535,9 @@ export class PasteElementsCommand implements Command {
   }
 
   undo(ctx: CommandContext): void {
+    // Clean up path metadata for any pasted paths
+    usePathStore.getState().removePathMetadataMany(this.createdPathIds);
+
     // Delete the pasted elements in a single batch operation
     ctx.library.remove_elements(this.createdIds);
 
@@ -497,6 +565,9 @@ export class DuplicateElementsCommand implements Command {
   /** IDs of created duplicates (for undo). */
   private createdIds: string[] = [];
 
+  /** IDs of created elements that are paths (for path metadata cleanup on undo). */
+  private createdPathIds: string[] = [];
+
   constructor(private readonly elementIds: string[]) {
     const count = elementIds.length;
     this.description = count === 1 ? "Duplicate element" : `Duplicate ${count} elements`;
@@ -509,6 +580,11 @@ export class DuplicateElementsCommand implements Command {
     }
 
     this.createdIds = restoreSnapshots(ctx.library, this.snapshots);
+
+    // Track which created elements are paths (for metadata cleanup on undo)
+    this.createdPathIds = this.createdIds.filter((id) =>
+      usePathStore.getState().pathMetadata.has(id),
+    );
 
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
@@ -524,6 +600,9 @@ export class DuplicateElementsCommand implements Command {
   }
 
   undo(ctx: CommandContext): void {
+    // Clean up path metadata for any duplicated paths
+    usePathStore.getState().removePathMetadataMany(this.createdPathIds);
+
     // Delete the duplicated elements in a single batch operation
     ctx.library.remove_elements(this.createdIds);
 
@@ -551,6 +630,17 @@ function offsetSnapshot(snapshot: ClipboardSnapshot, dx: number, dy: number): Cl
       verts[i + 1] = snapshot.vertices[i + 1] + dy;
     }
     return { type: "polygon", vertices: verts, layer: snapshot.layer, datatype: snapshot.datatype };
+  }
+  if (snapshot.type === "path") {
+    return {
+      type: "path",
+      waypoints: snapshot.waypoints.map((wp) => ({ x: wp.x + dx, y: wp.y + dy })),
+      width: snapshot.width,
+      cornerRadius: snapshot.cornerRadius,
+      numArcPoints: snapshot.numArcPoints,
+      layer: snapshot.layer,
+      datatype: snapshot.datatype,
+    };
   }
   if (snapshot.type === "cell-ref") {
     const t = new Float64Array(snapshot.transform);
@@ -591,6 +681,9 @@ export class CreateArrayCommand implements Command {
   /** IDs of all created copies (for undo). */
   private createdIds: string[] = [];
 
+  /** IDs of created elements that are paths (for path metadata cleanup on undo). */
+  private createdPathIds: string[] = [];
+
   constructor(
     private readonly elementIds: string[],
     private readonly columns: number,
@@ -628,6 +721,11 @@ export class CreateArrayCommand implements Command {
       }
     }
 
+    // Track which created elements are paths (for metadata cleanup on undo)
+    this.createdPathIds = this.createdIds.filter((id) =>
+      usePathStore.getState().pathMetadata.has(id),
+    );
+
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
@@ -642,6 +740,9 @@ export class CreateArrayCommand implements Command {
   }
 
   undo(ctx: CommandContext): void {
+    // Clean up path metadata for any array-created paths
+    usePathStore.getState().removePathMetadataMany(this.createdPathIds);
+
     ctx.library.remove_elements(this.createdIds);
 
     syncCellTree(ctx.library);
@@ -932,6 +1033,9 @@ export class MoveElementsCommand implements Command {
     // Translate all elements by the delta
     ctx.library.translate_elements(this.elementIds, this.deltaX, this.deltaY);
 
+    // Keep path waypoints in sync with the WASM polygon
+    usePathStore.getState().translateWaypoints(this.elementIds, this.deltaX, this.deltaY);
+
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
@@ -939,6 +1043,9 @@ export class MoveElementsCommand implements Command {
   undo(ctx: CommandContext): void {
     // Translate in the opposite direction
     ctx.library.translate_elements(this.elementIds, -this.deltaX, -this.deltaY);
+
+    // Keep path waypoints in sync with the WASM polygon
+    usePathStore.getState().translateWaypoints(this.elementIds, -this.deltaX, -this.deltaY);
 
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
@@ -1692,12 +1799,14 @@ export class MoveElementsToCommand implements Command {
 
   execute(ctx: CommandContext): void {
     ctx.library.translate_elements(this.currentIds, this.deltaX, this.deltaY);
+    usePathStore.getState().translateWaypoints(this.currentIds, this.deltaX, this.deltaY);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
 
   undo(ctx: CommandContext): void {
     ctx.library.translate_elements(this.currentIds, -this.deltaX, -this.deltaY);
+    usePathStore.getState().translateWaypoints(this.currentIds, -this.deltaX, -this.deltaY);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
@@ -2557,6 +2666,7 @@ export class AlignElementsCommand implements Command {
 
     for (const delta of this.deltas) {
       ctx.library.translate_elements(delta.ids, delta.dx, delta.dy);
+      usePathStore.getState().translateWaypoints(delta.ids, delta.dx, delta.dy);
     }
 
     ctx.renderer.sync_from_library(ctx.library);
@@ -2568,6 +2678,7 @@ export class AlignElementsCommand implements Command {
     for (let i = this.deltas.length - 1; i >= 0; i--) {
       const delta = this.deltas[i];
       ctx.library.translate_elements(delta.ids, -delta.dx, -delta.dy);
+      usePathStore.getState().translateWaypoints(delta.ids, -delta.dx, -delta.dy);
     }
 
     ctx.renderer.sync_from_library(ctx.library);

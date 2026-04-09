@@ -14,6 +14,30 @@ export interface PolygonSnapshot {
 }
 
 /**
+ * Snapshot of a path (waveguide) element for clipboard operations.
+ *
+ * Paths are stored as polygons in the WASM library but have additional
+ * metadata (waypoints, width, corner radius) that allows re-editing.
+ * This snapshot preserves that metadata so duplicated/pasted paths
+ * remain editable paths rather than becoming plain polygons.
+ */
+export interface PathSnapshot {
+  type: "path";
+  /** Original waypoint positions in world coordinates. */
+  waypoints: { x: number; y: number }[];
+  /** Waveguide width in world units. */
+  width: number;
+  /** Corner radius in world units (0 = sharp corners). */
+  cornerRadius: number;
+  /** Number of arc points for corner rounding. */
+  numArcPoints: number;
+  /** Layer number. */
+  layer: number;
+  /** Datatype number. */
+  datatype: number;
+}
+
+/**
  * Snapshot of a CellRef (cell instance) for clipboard operations.
  */
 export interface CellRefSnapshot {
@@ -59,7 +83,7 @@ export interface ElementSnapshot {
 }
 
 /** Any element snapshot that can live on the clipboard. */
-export type ClipboardSnapshot = PolygonSnapshot | CellRefSnapshot | TextSnapshot;
+export type ClipboardSnapshot = PolygonSnapshot | PathSnapshot | CellRefSnapshot | TextSnapshot;
 
 /**
  * Clipboard state for copy/paste operations.

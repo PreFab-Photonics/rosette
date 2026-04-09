@@ -58,6 +58,10 @@ interface PathState {
   setPathMetadata: (id: string, metadata: PathMetadata) => void;
   /** Remove path metadata (e.g., on undo). */
   removePathMetadata: (id: string) => void;
+  /** Remove path metadata for multiple IDs in a single batched update. */
+  removePathMetadataMany: (ids: string[]) => void;
+  /** Translate waypoints for the given element IDs by (dx, dy). No-op for non-path IDs. */
+  translateWaypoints: (ids: string[], dx: number, dy: number) => void;
 }
 
 export const usePathStore = create<PathState>((set, get) => ({
@@ -81,5 +85,38 @@ export const usePathStore = create<PathState>((set, get) => ({
     const next = new Map(get().pathMetadata);
     next.delete(id);
     set({ pathMetadata: next });
+  },
+
+  removePathMetadataMany: (ids) => {
+    const current = get().pathMetadata;
+    let changed = false;
+    const next = new Map(current);
+    for (const id of ids) {
+      if (next.delete(id)) {
+        changed = true;
+      }
+    }
+    if (changed) {
+      set({ pathMetadata: next });
+    }
+  },
+
+  translateWaypoints: (ids, dx, dy) => {
+    const current = get().pathMetadata;
+    let changed = false;
+    const next = new Map(current);
+    for (const id of ids) {
+      const meta = next.get(id);
+      if (meta) {
+        next.set(id, {
+          ...meta,
+          waypoints: meta.waypoints.map((wp) => ({ x: wp.x + dx, y: wp.y + dy })),
+        });
+        changed = true;
+      }
+    }
+    if (changed) {
+      set({ pathMetadata: next });
+    }
   },
 }));
