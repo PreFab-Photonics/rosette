@@ -373,38 +373,38 @@ export function useMove(
       const command = new MoveImagesCommand(elementIds, currentDelta.x, currentDelta.y);
       useHistoryStore.getState().pushCommand(command);
     } else if (library && renderer && (currentDelta.x !== 0 || currentDelta.y !== 0)) {
-      // For shapes, create a command for undo/redo
-      // First, undo the real-time moves (we applied them incrementally)
-      library.translate_elements(elementIds, -currentDelta.x, -currentDelta.y);
-      renderer.sync_from_library(library);
-
-      // Now create and execute the command (which will apply the move again)
+      // The move was already applied incrementally during drag.
+      // Just record the command for undo/redo — no need to undo+re-execute.
       const command = new MoveElementsCommand(elementIds, currentDelta.x, currentDelta.y);
-      useHistoryStore.getState().execute(command, { library, renderer });
+      useHistoryStore.getState().pushCommand(command);
+      useWasmContextStore.getState().bumpSyncGeneration();
 
-      // Sync updated vertices back to Python source for each moved element
-      const syncedRefLines = new Set<string>();
-      for (const id of elementIds) {
-        const source = getSourceInfo(id);
-        if (!source) {
-          console.warn("[move] no source for", id.slice(0, 8), "— edit skipped");
-          continue;
-        }
-        if (source.type === "ref") {
-          // All polygons in a ref group share the same source line — send once
-          const key = `${source.file}:${source.line}`;
-          if (!syncedRefLines.has(key)) {
-            syncedRefLines.add(key);
-            sendRefMove(id, currentDelta.x, currentDelta.y);
+      // Defer source patching so it doesn't block the next user interaction.
+      // The WASM state is already correct; this only syncs to the Python source.
+      const dx = currentDelta.x;
+      const dy = currentDelta.y;
+      const ids = [...elementIds];
+      const lib = library;
+      setTimeout(() => {
+        const syncedRefLines = new Set<string>();
+        for (const id of ids) {
+          const source = getSourceInfo(id);
+          if (!source) continue;
+          if (source.type === "ref") {
+            const key = `${source.file}:${source.line}`;
+            if (!syncedRefLines.has(key)) {
+              syncedRefLines.add(key);
+              sendRefMove(id, dx, dy);
+            }
+          } else {
+            const info = lib.get_element_info(id);
+            if (info) {
+              sendVertexEdit(id, new Float64Array(info.vertices));
+              info.free();
+            }
           }
-        } else {
-          const info = library.get_element_info(id);
-          if (info) {
-            sendVertexEdit(id, new Float64Array(info.vertices));
-            info.free();
-          }
         }
-      }
+      }, 0);
     }
 
     // Reset state
