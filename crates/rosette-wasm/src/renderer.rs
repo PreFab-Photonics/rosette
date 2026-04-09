@@ -13,14 +13,12 @@ use crate::viewport::{Viewport, ViewportUniform};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
-/// Maximum number of outline segments for selection/hover buffers.
-const MAX_OUTLINE_SEGMENTS: usize = 25_000;
-
 /// Initial buffer capacities (conservative defaults).
 /// Buffers will grow dynamically if these are exceeded.
 const INITIAL_POLYGON_VERTICES: usize = 100_000;
 const INITIAL_POLYGON_INDICES: usize = 300_000;
 const INITIAL_BORDER_SEGMENTS: usize = 50_000;
+const INITIAL_OUTLINE_SEGMENTS: usize = 25_000;
 
 /// Growth factor when reallocating buffers (2x = double the size).
 const BUFFER_GROWTH_FACTOR: usize = 2;
@@ -30,6 +28,7 @@ const BUFFER_GROWTH_FACTOR: usize = 2;
 const MAX_POLYGON_VERTICES: usize = 10_000_000; // 10M vertices (~240MB)
 const MAX_POLYGON_INDICES: usize = 30_000_000; // 30M indices (~120MB)
 const MAX_BORDER_SEGMENTS: usize = 5_000_000; // 5M segments (~160MB)
+const MAX_OUTLINE_SEGMENTS: usize = 500_000; // 500K segments (~8MB)
 
 /// Error type for renderer operations.
 #[derive(Debug, thiserror::Error)]
@@ -184,6 +183,8 @@ pub struct WasmRenderer {
     polygon_vertex_capacity: usize,
     polygon_index_capacity: usize,
     border_segment_capacity: usize,
+    selection_segment_capacity: usize,
+    hover_segment_capacity: usize,
 
     // Bind group layout kept for potential future use (border segments are vertex instance buffers)
     #[allow(dead_code)]
@@ -767,7 +768,8 @@ impl WasmRenderer {
 
         // Create outline pipeline for selection/hover rendering
         // Create completely separate buffers for selection and hover to avoid any sharing issues
-        let max_outline_segments = MAX_OUTLINE_SEGMENTS as u64;
+        let selection_segment_capacity = INITIAL_OUTLINE_SEGMENTS;
+        let hover_segment_capacity = INITIAL_OUTLINE_SEGMENTS;
 
         // Selection buffers
         let selection_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -779,7 +781,7 @@ impl WasmRenderer {
 
         let selection_segment_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("selection-segments"),
-            size: max_outline_segments * std::mem::size_of::<OutlineSegment>() as u64,
+            size: (selection_segment_capacity * std::mem::size_of::<OutlineSegment>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -794,7 +796,7 @@ impl WasmRenderer {
 
         let hover_segment_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("hover-segments"),
-            size: max_outline_segments * std::mem::size_of::<OutlineSegment>() as u64,
+            size: (hover_segment_capacity * std::mem::size_of::<OutlineSegment>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -1150,6 +1152,8 @@ impl WasmRenderer {
             polygon_vertex_capacity,
             polygon_index_capacity,
             border_segment_capacity,
+            selection_segment_capacity,
+            hover_segment_capacity,
             // Bind group layout for border buffer reallocation
             border_bind_group_layout,
             // Start dirty to ensure first frame renders
@@ -1499,6 +1503,86 @@ impl WasmRenderer {
         true
     }
 
+    /// Reallocate selection outline segment buffer if needed.
+    /// Returns true if reallocation occurred.
+    fn ensure_selection_segment_capacity(&mut self, required: usize) -> bool {
+        if required <= self.selection_segment_capacity {
+            return false;
+        }
+
+        if required > MAX_OUTLINE_SEGMENTS {
+            log::error!(
+                "Selection segment count ({}) exceeds maximum allowed ({}). Too many selected shapes.",
+                required,
+                MAX_OUTLINE_SEGMENTS
+            );
+            return false;
+        }
+
+        let new_capacity = Self::calculate_new_capacity(
+            self.selection_segment_capacity,
+            required,
+            MAX_OUTLINE_SEGMENTS,
+        );
+
+        log::info!(
+            "Reallocating selection segment buffer: {} -> {} segments ({:.1} KB)",
+            self.selection_segment_capacity,
+            new_capacity,
+            (new_capacity * std::mem::size_of::<OutlineSegment>()) as f64 / 1024.0
+        );
+
+        self.selection_segment_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("selection-segments"),
+            size: (new_capacity * std::mem::size_of::<OutlineSegment>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        self.selection_segment_capacity = new_capacity;
+        true
+    }
+
+    /// Reallocate hover outline segment buffer if needed.
+    /// Returns true if reallocation occurred.
+    fn ensure_hover_segment_capacity(&mut self, required: usize) -> bool {
+        if required <= self.hover_segment_capacity {
+            return false;
+        }
+
+        if required > MAX_OUTLINE_SEGMENTS {
+            log::error!(
+                "Hover segment count ({}) exceeds maximum allowed ({}). Too many hovered shapes.",
+                required,
+                MAX_OUTLINE_SEGMENTS
+            );
+            return false;
+        }
+
+        let new_capacity = Self::calculate_new_capacity(
+            self.hover_segment_capacity,
+            required,
+            MAX_OUTLINE_SEGMENTS,
+        );
+
+        log::info!(
+            "Reallocating hover segment buffer: {} -> {} segments ({:.1} KB)",
+            self.hover_segment_capacity,
+            new_capacity,
+            (new_capacity * std::mem::size_of::<OutlineSegment>()) as f64 / 1024.0
+        );
+
+        self.hover_segment_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("hover-segments"),
+            size: (new_capacity * std::mem::size_of::<OutlineSegment>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        self.hover_segment_capacity = new_capacity;
+        true
+    }
+
     // ==================== Buffer Update Methods ====================
 
     /// Update polygon vertex and index buffers from shape manager.
@@ -1714,8 +1798,17 @@ impl WasmRenderer {
             &mut selection_segments,
         );
 
-        if selection_segments.len() > MAX_OUTLINE_SEGMENTS {
-            selection_segments.truncate(MAX_OUTLINE_SEGMENTS);
+        // Ensure selection buffer capacity (reallocates if needed)
+        if selection_segments.len() > self.selection_segment_capacity {
+            if !self.ensure_selection_segment_capacity(selection_segments.len()) {
+                // Failed to allocate - truncate to fit
+                log::warn!(
+                    "Truncating {} selection segments to fit buffer capacity {}",
+                    selection_segments.len(),
+                    self.selection_segment_capacity
+                );
+                selection_segments.truncate(self.selection_segment_capacity);
+            }
         }
         self.selection_segment_count = selection_segments.len() as u32;
         if !selection_segments.is_empty() {
@@ -1741,8 +1834,17 @@ impl WasmRenderer {
             &mut hover_segments,
         );
 
-        if hover_segments.len() > MAX_OUTLINE_SEGMENTS {
-            hover_segments.truncate(MAX_OUTLINE_SEGMENTS);
+        // Ensure hover buffer capacity (reallocates if needed)
+        if hover_segments.len() > self.hover_segment_capacity {
+            if !self.ensure_hover_segment_capacity(hover_segments.len()) {
+                // Failed to allocate - truncate to fit
+                log::warn!(
+                    "Truncating {} hover segments to fit buffer capacity {}",
+                    hover_segments.len(),
+                    self.hover_segment_capacity
+                );
+                hover_segments.truncate(self.hover_segment_capacity);
+            }
         }
         self.hover_segment_count = hover_segments.len() as u32;
         if !hover_segments.is_empty() {
