@@ -42,6 +42,13 @@ function DialogField({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Auto-select content when the field receives autoFocus
+  useEffect(() => {
+    if (autoFocus && inputRef.current) {
+      inputRef.current.select();
+    }
+  }, [autoFocus]);
+
   // Local string state so the user can type freely (e.g. clear the field, type a decimal).
   const [localValue, setLocalValue] = useState(String(value));
 
