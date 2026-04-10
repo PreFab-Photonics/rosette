@@ -747,7 +747,7 @@ export function Canvas() {
       if (!worldPos) return;
 
       // Check for ruler hit first (rulers are rendered on top)
-      const { rulers, selectRuler } = useRulerStore.getState();
+      const { rulers, selectedRulerIds, selectRuler } = useRulerStore.getState();
       for (const ruler of rulers.values()) {
         // Check if click is near the ruler line or inside the measurement box
         const startScreenX = ruler.start.x * zoom + offset.x;
@@ -767,7 +767,11 @@ export function Canvas() {
           screenY >= midY - boxHalfHeight &&
           screenY <= midY + boxHalfHeight
         ) {
-          selectRuler(ruler.id);
+          // Only change selection if the ruler isn't already selected
+          // (preserves multi-selection when right-clicking a selected ruler)
+          if (!selectedRulerIds.has(ruler.id)) {
+            selectRuler(ruler.id);
+          }
           openContextMenu("ruler", { x: e.clientX, y: e.clientY }, ruler.id);
           return;
         }
@@ -786,7 +790,10 @@ export function Canvas() {
           const dx = screenX - closestX;
           const dy = screenY - closestY;
           if (Math.sqrt(dx * dx + dy * dy) <= 8) {
-            selectRuler(ruler.id);
+            // Only change selection if the ruler isn't already selected
+            if (!selectedRulerIds.has(ruler.id)) {
+              selectRuler(ruler.id);
+            }
             openContextMenu("ruler", { x: e.clientX, y: e.clientY }, ruler.id);
             return;
           }

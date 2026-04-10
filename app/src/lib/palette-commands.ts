@@ -33,9 +33,11 @@ import {
   placeTextInViewport,
   snapshotElements,
   TextToPolygonsCommand,
+  DeleteRulersCommand,
 } from "@/lib/commands";
 import type { AlignType } from "@/lib/align";
 import type { BooleanOpType } from "@/lib/commands";
+import { useRulerStore } from "@/stores/ruler";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { pickAndInsertImage } from "@/lib/image-ops";
@@ -490,6 +492,31 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Tool text label annotation",
+    },
+
+    // =========================================================================
+    // Ruler commands
+    // =========================================================================
+    {
+      id: "ruler-clear-all",
+      type: "command",
+      name: "Ruler: Clear All",
+      action: () => {
+        const { rulers } = useRulerStore.getState();
+        if (rulers.size === 0) {
+          close();
+          return;
+        }
+        const { library, renderer } = useWasmContextStore.getState();
+        if (!library || !renderer) {
+          close();
+          return;
+        }
+        const command = new DeleteRulersCommand([...rulers.keys()]);
+        useHistoryStore.getState().execute(command, { library, renderer });
+        close();
+      },
+      searchableText: "Ruler clear all remove delete measurements",
     },
 
     // =========================================================================
