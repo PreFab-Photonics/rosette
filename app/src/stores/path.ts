@@ -23,8 +23,16 @@ export interface PathMetadata {
   waypoints: { x: number; y: number }[];
   /** Waveguide width in world units. */
   width: number;
-  /** Corner radius in world units (0 = sharp corners). */
+  /** Requested corner radius in world units (0 = sharp corners). */
   cornerRadius: number;
+  /** Actual minimum corner radius after auto-reduction (world units).
+   *  When segments are too short to fit the requested radius, adjacent
+   *  corners share the available space fairly. This field holds the
+   *  smallest effective radius across all corners, or equals
+   *  `cornerRadius` when no reduction was needed.
+   *  Optional for backward compatibility with metadata created before
+   *  this field was added (e.g., persisted tab snapshots). */
+  actualCornerRadius?: number;
   /** Number of arc points for corner rounding (higher = smoother). */
   numArcPoints: number;
   /** GDS layer number. */

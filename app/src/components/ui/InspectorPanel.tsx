@@ -2120,7 +2120,10 @@ export function InspectorPanel() {
   if (pathMeta && isSingle) {
     // Convert world → nm → display (same pipeline as polygon)
     const pathWidthDisplay = formatCoordinate(pathMeta.width / GRID_SIZE, unitInfo);
-    const cornerRadiusDisplay = formatCoordinate(pathMeta.cornerRadius / GRID_SIZE, unitInfo);
+    const cornerRadiusDisplay = formatCoordinate(
+      (pathMeta.actualCornerRadius ?? pathMeta.cornerRadius) / GRID_SIZE,
+      unitInfo,
+    );
 
     const posX = bounds ? formatCoordinate(bounds.minX / GRID_SIZE, unitInfo) : "—";
     const posY = bounds ? formatCoordinate(-bounds.maxY / GRID_SIZE, unitInfo) : "—";

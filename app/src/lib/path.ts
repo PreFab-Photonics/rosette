@@ -334,6 +334,26 @@ export function checkBendRadiusReductions(
 }
 
 /**
+ * Compute the actual minimum bend radius for a path after auto-reduction.
+ *
+ * Returns `cornerRadius` unchanged when no reduction is needed, or the
+ * smallest effective radius across all corners when segments are too short.
+ *
+ * @param waypoints - Centerline waypoints in world coordinates.
+ * @param cornerRadius - Requested bend radius in world units.
+ * @returns The effective minimum corner radius (world units).
+ */
+export function computeActualCornerRadius(
+  waypoints: Point[],
+  cornerRadius: number,
+): number {
+  if (cornerRadius <= 0) return 0;
+  const reductions = checkBendRadiusReductions(waypoints, cornerRadius);
+  if (reductions.length === 0) return cornerRadius;
+  return Math.min(...reductions.map((r) => r.actual));
+}
+
+/**
  * Generate a ribbon polygon outline from a path centerline and width.
  *
  * When `cornerRadius > 0`, the centerline is first densified with circular

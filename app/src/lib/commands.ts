@@ -31,7 +31,7 @@ import {
 import { usePathStore, DEFAULT_NUM_ARC_POINTS, type PathMetadata } from "@/stores/path";
 import { useImageStore, imageKeyToId, imageIdToKey, type ImageEntry } from "@/stores/image";
 import { useStatusMessageStore } from "@/stores/status-message";
-import { checkBendRadiusReductions } from "@/lib/path";
+import { checkBendRadiusReductions, computeActualCornerRadius } from "@/lib/path";
 
 /**
  * Context passed to commands for executing operations.
@@ -279,10 +279,12 @@ function restoreSnapshots(library: WasmLibrary, snapshots: ClipboardSnapshot[]):
       if (id) {
         newIds.push(id);
         // Store path metadata so the element is recognized as a path
+        const waypoints = snapshot.waypoints.map((wp) => ({ ...wp }));
         usePathStore.getState().setPathMetadata(id, {
-          waypoints: snapshot.waypoints.map((wp) => ({ ...wp })),
+          waypoints,
           width: snapshot.width,
           cornerRadius: snapshot.cornerRadius,
+          actualCornerRadius: computeActualCornerRadius(waypoints, snapshot.cornerRadius),
           numArcPoints: snapshot.numArcPoints,
           layer: snapshot.layer,
           datatype: snapshot.datatype,
@@ -886,12 +888,18 @@ export class CreatePathCommand implements Command {
       // Restore path metadata on redo (metadata is set after first execute by the caller,
       // or by the command itself on redo if waypoints were provided).
       if (this.metadata) {
+        // Ensure actual radius is populated (may be missing from older metadata)
+        this.metadata.actualCornerRadius = computeActualCornerRadius(
+          this.metadata.waypoints,
+          this.metadata.cornerRadius,
+        );
         usePathStore.getState().setPathMetadata(id, this.metadata);
       } else if (this.waypoints) {
         this.metadata = {
           waypoints: this.waypoints,
           width: this.width,
           cornerRadius: this.cornerRadius,
+          actualCornerRadius: computeActualCornerRadius(this.waypoints, this.cornerRadius),
           numArcPoints: this.numArcPoints,
           layer: this.layer,
           datatype: this.datatype,
@@ -993,7 +1001,10 @@ export class EditPathCommand implements Command {
 
     if (newId) {
       usePathStore.getState().removePathMetadata(oldId);
-      usePathStore.getState().setPathMetadata(newId, { ...meta });
+      usePathStore.getState().setPathMetadata(newId, {
+        ...meta,
+        actualCornerRadius: computeActualCornerRadius(meta.waypoints, meta.cornerRadius),
+      });
       ctx.renderer.sync_from_library(ctx.library);
       ctx.renderer.mark_dirty();
       useSelectionStore.getState().select(newId);
