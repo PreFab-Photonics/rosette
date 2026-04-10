@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-04-10
+
+### Changed
+
+- Removed metal layer from default layer maps, templates, and DRC rules (will return as part of a comprehensive layer set)
+- Renamed default text layer from 100/0 to 10/0
+- Simplified generic template DRC to silicon-only rules
+
+### Fixed
+
+- Stale project name and layers persisting when running bare `rosette serve` after a design session
+- Rebuilt bundled webapp to pick up current version and layer changes
+
 ## [0.1.8] - 2026-04-10
 
 ### Added
@@ -146,7 +159,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `rosette serve` to use installed Rosette.app on macOS
 
-[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.5...v0.1.6
