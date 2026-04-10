@@ -8,9 +8,9 @@ any photonic-specific components. Great for learning the core API.
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2, write_gds
 
 # Define layers
-metal = Layer(1, 0)
+silicon = Layer(1, 0)
 oxide = Layer(2, 0)
-marker = Layer(10, 0)
+marker = Layer(3, 0)
 
 # =============================================================================
 # Basic Polygons
@@ -18,7 +18,7 @@ marker = Layer(10, 0)
 
 # Create a simple cell with a rectangle
 rect_cell = Cell("rectangle")
-rect_cell.add_polygon(Polygon.rect(Point(0, 0), 20, 10), metal)
+rect_cell.add_polygon(Polygon.rect(Point(0, 0), 20, 10), silicon)
 
 # Add a port on the right side
 rect_cell.add_port(Port("east", Point(20, 5), Vector2(1, 0), 10))
@@ -34,8 +34,8 @@ triangle_cell.add_polygon(
 ring_cell = Cell("ring")
 outer = Polygon.regular(Point(0, 0), radius=40, sides=32)
 inner = Polygon.regular(Point(0, 0), radius=12, sides=32)
-ring_cell.add_polygon(outer, metal)
-ring_cell.add_polygon(inner, metal)  # Overlapping polygons - viewer may XOR these
+ring_cell.add_polygon(outer, silicon)
+ring_cell.add_polygon(inner, silicon)  # Overlapping polygons - viewer may XOR these
 
 # =============================================================================
 # Cell Hierarchy

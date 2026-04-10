@@ -9,7 +9,7 @@
 /// - `datatype`: A secondary identifier, often used for purpose (0-65535)
 ///
 /// Common conventions:
-/// - Different materials (silicon, metal, oxide) have different layer numbers
+/// - Different materials (silicon, oxide, cladding) have different layer numbers
 /// - Datatypes distinguish purposes (drawing, pin, label) on the same layer
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

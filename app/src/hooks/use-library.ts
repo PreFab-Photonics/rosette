@@ -943,6 +943,10 @@ export function useLibrary(
       return;
     }
 
+    // Reset stale state from any previous design-mode session
+    useExplorerStore.getState().setProjectName("untitled-project");
+    useLayerStore.getState().resetLayers(DEFAULT_LAYERS);
+
     // Check if we already have tabs (e.g., from a hot reload)
     const { tabs } = useTabsStore.getState();
     if (tabs.length > 0) {

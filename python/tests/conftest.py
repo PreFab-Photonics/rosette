@@ -96,12 +96,6 @@ def layer() -> Layer:
 
 
 @pytest.fixture
-def metal_layer() -> Layer:
-    """Metal layer (10, 0)."""
-    return Layer(10, 0)
-
-
-@pytest.fixture
 def port(origin: Point, unit_x: Vector2) -> Port:
     """Port at origin pointing in +X direction."""
     return Port("test_port", origin, unit_x, width=0.5)

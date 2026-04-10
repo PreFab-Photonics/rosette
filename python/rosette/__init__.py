@@ -1061,11 +1061,11 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         # angles = [0, 90]
         #
         # [[drc.rules]]
-        # type = "enclosure"
-        # inner = "11/0"
-        # outer = "10/0"
-        # min_enclosure = 0.10
-        # name = "VIA_ENC"
+        # type = "spacing"
+        # layer1 = "1/0"
+        # layer2 = "2/0"
+        # min_spacing = 1.0
+        # name = "WG_SLAB_SPC"
 
         rules = load_drc_rules()
         result = run_drc(cell, rules)
@@ -1670,17 +1670,8 @@ DEFAULT_LAYERS: list[dict] = [
         "description": "Silicon waveguides",
     },
     {
-        "name": "metal",
-        "number": 10,
-        "datatype": 0,
-        "color": "#ffeb3b",
-        "fill": "solid",
-        "opacity": 0.7,
-        "description": "Metal routing",
-    },
-    {
         "name": "text",
-        "number": 100,
+        "number": 10,
         "datatype": 0,
         "color": "#607d8b",
         "fill": "dotted",
@@ -1724,7 +1715,7 @@ class LayerInfo:
 
     Attributes:
         layer: The underlying Layer(number, datatype)
-        name: Semantic name (e.g., "silicon", "metal")
+        name: Semantic name (e.g., "silicon", "text")
         color: Hex color string (e.g., "#ff69b4")
         fill: Fill pattern ("solid", "hatched", "crosshatched", "dotted")
         opacity: Fill opacity 0.0-1.0
@@ -1882,16 +1873,12 @@ def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
             color = "#ff69b4"
             description = "Silicon waveguides"
 
-            [layers.metal]
-            number = 10
-            color = "#ffeb3b"
-
         Usage:
 
             layers = load_layer_map()
             layers.silicon.layer   # Layer(1, 0)
             layers.silicon.color   # "#ff69b4"
-            layers.metal.number    # 10
+            layers.text.number     # 10
     """
     # Find config file
     if config_path is not None:

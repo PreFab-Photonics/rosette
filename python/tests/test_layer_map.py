@@ -234,7 +234,6 @@ name = "test"
 
         assert len(lm) == len(DEFAULT_LAYERS)
         assert "silicon" in lm
-        assert "metal" in lm
         assert "text" in lm
 
     def test_missing_number_raises(self):
@@ -388,33 +387,28 @@ class TestDefaultLayers:
     def test_default_layers_constant(self):
         """DEFAULT_LAYERS has the expected entries."""
         names = [d["name"] for d in DEFAULT_LAYERS]
-        assert names == ["silicon", "metal", "text"]
+        assert names == ["silicon", "text"]
 
     def test_default_layers_numbers(self):
         """DEFAULT_LAYERS uses the standard numbering convention."""
         by_name = {d["name"]: d for d in DEFAULT_LAYERS}
         assert by_name["silicon"]["number"] == 1
-        assert by_name["metal"]["number"] == 10
-        assert by_name["text"]["number"] == 100
+        assert by_name["text"]["number"] == 10
 
     def test_default_layer_map(self):
         """_default_layer_map returns a valid LayerMap from defaults."""
         lm = _default_layer_map()
-        assert len(lm) == 3
+        assert len(lm) == 2
         assert lm.silicon.number == 1
         assert lm.silicon.color == "#ff69b4"
-        assert lm.metal.number == 10
-        assert lm.metal.color == "#ffeb3b"
-        assert lm.text.number == 100
+        assert lm.text.number == 10
         assert lm.text.fill == "dotted"
 
     def test_default_layer_map_to_dict_list(self):
         """_default_layer_map().to_dict_list() produces valid dicts."""
         dicts = _default_layer_map().to_dict_list()
-        assert len(dicts) == 3
+        assert len(dicts) == 2
         assert dicts[0]["name"] == "silicon"
         assert dicts[0]["layerNumber"] == 1
-        assert dicts[1]["name"] == "metal"
+        assert dicts[1]["name"] == "text"
         assert dicts[1]["layerNumber"] == 10
-        assert dicts[2]["name"] == "text"
-        assert dicts[2]["layerNumber"] == 100

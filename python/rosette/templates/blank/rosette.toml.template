@@ -25,11 +25,11 @@ output_dir = "output"
 # color = "#ff69b4"
 # description = "Silicon waveguides"
 #
-# [layers.metal]
-# number = 10
+# [layers.cladding]
+# number = 2
 # datatype = 0
-# color = "#ffeb3b"
-# description = "Metal routing"
+# color = "#4caf50"
+# description = "Cladding"
 
 # =============================================================================
 # Design Rule Check (DRC) Constraints
@@ -47,7 +47,7 @@ output_dir = "output"
 # no_overlap = true   # Forbid overlapping polygons on same layer
 # # angles = [0, 90]  # Restrict to Manhattan geometry
 #
-# [drc.layers."10/0"]
+# [drc.layers."2/0"]
 # min_width = 0.5
 # min_spacing = 0.5
 #
@@ -55,9 +55,9 @@ output_dir = "output"
 # [[drc.rules]]
 # type = "spacing"
 # layer1 = "1/0"
-# layer2 = "10/0"
+# layer2 = "2/0"
 # min_spacing = 1.0
-# name = "WG_METAL_SPC"
+# name = "WG_CLAD_SPC"
 
 # =============================================================================
 # DFM (Design for Manufacturability) Prediction
