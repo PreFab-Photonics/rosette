@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-04-10
+
+### Added
+
+- "Create Array" feature for duplicating shapes in a grid pattern
+- `[` and `]` shortcuts for changing hierarchy level
+- Right-click zoom toggle: marquee zoom on right-click as alternative to context menu
+- "Ruler: Clear All" command and preserve multi-selection on right-click
+- Position editing for multi-element selections in inspector
+
+### Changed
+
+- Keep hamburger menu open for toggle items (theme, grid, right-click zoom)
+- Keep menu open for Zoom In/Zoom Out actions
+- Auto-select first field text when array dialog opens
+
+### Fixed
+
+- Inspector showing requested bend radius instead of actual after auto-reduction
+- Path metadata lost on duplicate/copy/paste/array and move operations
+- Missing selection borders on large selections and post-move UI lag
+
 ## [0.1.7] - 2026-04-03
 
 ### Added
@@ -124,7 +146,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `rosette serve` to use installed Rosette.app on macOS
 
-[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.4...v0.1.5

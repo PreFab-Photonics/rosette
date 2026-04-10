@@ -23,7 +23,7 @@ class j {
   }
   get transform() {
     const e = _.cellrefinfo_transform(this.__wbg_ptr);
-    var t = S(e[0], e[1]).slice();
+    var t = v(e[0], e[1]).slice();
     return _.__wbindgen_free(e[0], e[1] * 8, 8), t;
   }
 }
@@ -50,7 +50,7 @@ class z {
   }
   get vertices() {
     const e = _.elementinfo_vertices(this.__wbg_ptr);
-    var t = S(e[0], e[1]).slice();
+    var t = v(e[0], e[1]).slice();
     return _.__wbindgen_free(e[0], e[1] * 8, 8), t;
   }
 }
@@ -76,7 +76,7 @@ class P {
   }
   add_cell(e) {
     const t = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), n = b, r = _.wasmlibrary_add_cell(this.__wbg_ptr, t, n);
-    if (r[1]) throw v(r[0]);
+    if (r[1]) throw S(r[0]);
   }
   add_cell_ref(e, t, n) {
     const r = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), c = b, o = _.wasmlibrary_add_cell_ref(this.__wbg_ptr, r, c, t, n);
@@ -142,24 +142,24 @@ class P {
     return _.wasmlibrary_element_count(this.__wbg_ptr) >>> 0;
   }
   static from_gds_bytes(e) {
-    const t = ve(e, _.__wbindgen_malloc), n = b, r = _.wasmlibrary_from_gds_bytes(t, n);
-    if (r[2]) throw v(r[1]);
+    const t = Se(e, _.__wbindgen_malloc), n = b, r = _.wasmlibrary_from_gds_bytes(t, n);
+    if (r[2]) throw S(r[1]);
     return P.__wrap(r[0]);
   }
   static from_json(e) {
     const t = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), n = b, r = _.wasmlibrary_from_json(t, n);
-    if (r[2]) throw v(r[1]);
+    if (r[2]) throw S(r[1]);
     return P.__wrap(r[0]);
   }
   static from_library_json(e) {
     const t = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), n = b, r = _.wasmlibrary_from_library_json(t, n);
-    if (r[2]) throw v(r[1]);
+    if (r[2]) throw S(r[1]);
     return P.__wrap(r[0]);
   }
   get_all_bounds() {
     const e = _.wasmlibrary_get_all_bounds(this.__wbg_ptr);
     let t;
-    return e[0] !== 0 && (t = S(e[0], e[1]).slice(), _.__wbindgen_free(e[0], e[1] * 8, 8)), t;
+    return e[0] !== 0 && (t = v(e[0], e[1]).slice(), _.__wbindgen_free(e[0], e[1] * 8, 8)), t;
   }
   get_all_ids() {
     const e = _.wasmlibrary_get_all_ids(this.__wbg_ptr);
@@ -168,18 +168,18 @@ class P {
   }
   get_all_vertices() {
     const e = _.wasmlibrary_get_all_vertices(this.__wbg_ptr);
-    var t = S(e[0], e[1]).slice();
+    var t = v(e[0], e[1]).slice();
     return _.__wbindgen_free(e[0], e[1] * 8, 8), t;
   }
   get_bounds_for_ids(e) {
     const t = F(e, _.__wbindgen_malloc), n = b, r = _.wasmlibrary_get_bounds_for_ids(this.__wbg_ptr, t, n);
     let c;
-    return r[0] !== 0 && (c = S(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
+    return r[0] !== 0 && (c = v(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
   }
   get_cell_bounds(e) {
     const t = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), n = b, r = _.wasmlibrary_get_cell_bounds(this.__wbg_ptr, t, n);
     let c;
-    return r[0] !== 0 && (c = S(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
+    return r[0] !== 0 && (c = v(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
   }
   get_cell_names() {
     const e = _.wasmlibrary_get_cell_names(this.__wbg_ptr);
@@ -189,12 +189,12 @@ class P {
   get_cell_origin() {
     const e = _.wasmlibrary_get_cell_origin(this.__wbg_ptr);
     let t;
-    return e[0] !== 0 && (t = S(e[0], e[1]).slice(), _.__wbindgen_free(e[0], e[1] * 8, 8)), t;
+    return e[0] !== 0 && (t = v(e[0], e[1]).slice(), _.__wbindgen_free(e[0], e[1] * 8, 8)), t;
   }
   get_cell_origin_by_name(e) {
     const t = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), n = b, r = _.wasmlibrary_get_cell_origin_by_name(this.__wbg_ptr, t, n);
     let c;
-    return r[0] !== 0 && (c = S(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
+    return r[0] !== 0 && (c = v(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
   }
   get_cell_preview_polygons(e, t, n) {
     const r = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), c = b;
@@ -203,7 +203,7 @@ class P {
   get_cell_ref_array(e) {
     const t = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), n = b, r = _.wasmlibrary_get_cell_ref_array(this.__wbg_ptr, t, n);
     let c;
-    return r[0] !== 0 && (c = S(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
+    return r[0] !== 0 && (c = v(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
   }
   get_cell_ref_info(e) {
     const t = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), n = b, r = _.wasmlibrary_get_cell_ref_info(this.__wbg_ptr, t, n);
@@ -227,7 +227,7 @@ class P {
   get_element_vertices(e) {
     const t = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), n = b, r = _.wasmlibrary_get_element_vertices(this.__wbg_ptr, t, n);
     let c;
-    return r[0] !== 0 && (c = S(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
+    return r[0] !== 0 && (c = v(r[0], r[1]).slice(), _.__wbindgen_free(r[0], r[1] * 8, 8)), c;
   }
   get_elements_on_layer(e, t) {
     const n = _.wasmlibrary_get_elements_on_layer(this.__wbg_ptr, e, t);
@@ -254,8 +254,8 @@ class P {
   }
   get_render_polygons() {
     const e = _.wasmlibrary_get_render_polygons(this.__wbg_ptr);
-    if (e[2]) throw v(e[1]);
-    return v(e[0]);
+    if (e[2]) throw S(e[1]);
+    return S(e[0]);
   }
   get_text_element_info(e) {
     const t = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), n = b;
@@ -321,7 +321,7 @@ class P {
   }
   rename_cell(e, t) {
     const n = g(e, _.__wbindgen_malloc, _.__wbindgen_realloc), r = b, c = g(t, _.__wbindgen_malloc, _.__wbindgen_realloc), o = b, i = _.wasmlibrary_rename_cell(this.__wbg_ptr, n, r, c, o);
-    if (i[2]) throw v(i[1]);
+    if (i[2]) throw S(i[1]);
     return i[0] !== 0;
   }
   set_active_cell(e) {
@@ -367,7 +367,7 @@ class P {
   }
   to_gds() {
     const e = _.wasmlibrary_to_gds(this.__wbg_ptr);
-    if (e[3]) throw v(e[2]);
+    if (e[3]) throw S(e[2]);
     var t = E(e[0], e[1]).slice();
     return _.__wbindgen_free(e[0], e[1] * 1, 1), t;
   }
@@ -376,7 +376,7 @@ class P {
     try {
       const c = _.wasmlibrary_to_json(this.__wbg_ptr);
       var n = c[0], r = c[1];
-      if (c[3]) throw n = 0, r = 0, v(c[2]);
+      if (c[3]) throw n = 0, r = 0, S(c[2]);
       return e = n, t = r, m(n, r);
     } finally {
       _.__wbindgen_free(e, t, 1);
@@ -387,7 +387,7 @@ class P {
     try {
       const c = _.wasmlibrary_to_library_json(this.__wbg_ptr);
       var n = c[0], r = c[1];
-      if (c[3]) throw n = 0, r = 0, v(c[2]);
+      if (c[3]) throw n = 0, r = 0, S(c[2]);
       return e = n, t = r, m(n, r);
     } finally {
       _.__wbindgen_free(e, t, 1);
@@ -463,7 +463,7 @@ class q {
   }
   get_offset() {
     const e = _.wasmrenderer_get_offset(this.__wbg_ptr);
-    var t = S(e[0], e[1]).slice();
+    var t = v(e[0], e[1]).slice();
     return _.__wbindgen_free(e[0], e[1] * 8, 8), t;
   }
   get_selection() {
@@ -489,7 +489,7 @@ class q {
   }
   screen_to_world(e, t) {
     const n = _.wasmrenderer_screen_to_world(this.__wbg_ptr, e, t);
-    var r = S(n[0], n[1]).slice();
+    var r = v(n[0], n[1]).slice();
     return _.__wbindgen_free(n[0], n[1] * 8, 8), r;
   }
   set_crosshair_origin(e, t) {
@@ -1289,7 +1289,7 @@ function ne() {
   }, __wbg_new_from_slice_22da9388ac046e50: function(e, t) {
     return new Uint8Array(E(e, t));
   }, __wbg_new_from_slice_ff94ab4827a1a00b: function(e, t) {
-    return new Float64Array(S(e, t));
+    return new Float64Array(v(e, t));
   }, __wbg_new_typed_aaaeaf29cf802876: function(e, t) {
     try {
       var n = { a: e, b: t }, r = (o, i) => {
@@ -1402,13 +1402,13 @@ function ne() {
   }, __wbg_setBlendConstant_00bed453ac51c91b: function(e, t) {
     e.setBlendConstant(t);
   }, __wbg_setIndexBuffer_42017bb879ab062b: function(e, t, n, r) {
-    e.setIndexBuffer(t, Q[n], r);
+    e.setIndexBuffer(t, N[n], r);
   }, __wbg_setIndexBuffer_4876c05f77106bb6: function(e, t, n, r, c) {
-    e.setIndexBuffer(t, Q[n], r, c);
+    e.setIndexBuffer(t, N[n], r, c);
   }, __wbg_setIndexBuffer_8c79ee0b0b6460fa: function(e, t, n, r) {
-    e.setIndexBuffer(t, Q[n], r);
+    e.setIndexBuffer(t, N[n], r);
   }, __wbg_setIndexBuffer_e10a7cf5d063fdab: function(e, t, n, r, c) {
-    e.setIndexBuffer(t, Q[n], r, c);
+    e.setIndexBuffer(t, N[n], r, c);
   }, __wbg_setPipeline_5c5a949bf12f8a5f: function(e, t) {
     e.setPipeline(t);
   }, __wbg_setPipeline_c4793bebd98b8e56: function(e, t) {
@@ -1696,11 +1696,11 @@ function ne() {
   }, __wbg_writeTexture_4eafae0e29b3eac0: function(e, t, n, r, c) {
     e.writeTexture(t, n, r, c);
   }, __wbindgen_cast_0000000000000001: function(e, t) {
-    return H(e, t, _.wasm_bindgen__closure__destroy__h7dd5bf82945e395a, oe);
-  }, __wbindgen_cast_0000000000000002: function(e, t) {
-    return H(e, t, _.wasm_bindgen__closure__destroy__h7dd5bf82945e395a, ae);
-  }, __wbindgen_cast_0000000000000003: function(e, t) {
     return H(e, t, _.wasm_bindgen__closure__destroy__h0fd3ff6dab0181dc, ie);
+  }, __wbindgen_cast_0000000000000002: function(e, t) {
+    return H(e, t, _.wasm_bindgen__closure__destroy__h90bda01937a35b70, oe);
+  }, __wbindgen_cast_0000000000000003: function(e, t) {
+    return H(e, t, _.wasm_bindgen__closure__destroy__h90bda01937a35b70, ae);
   }, __wbindgen_cast_0000000000000004: function(e) {
     return e;
   }, __wbindgen_cast_0000000000000005: function(e, t) {
@@ -1725,19 +1725,19 @@ function ne() {
   } } };
 }
 function oe(a, e, t) {
-  _.wasm_bindgen__convert__closures_____invoke__h279f6c0dd15b205e(a, e, t);
+  _.wasm_bindgen__convert__closures_____invoke__hc324cb3e889ac470(a, e, t);
 }
 function ae(a, e, t) {
-  _.wasm_bindgen__convert__closures_____invoke__h279f6c0dd15b205e_1(a, e, t);
+  _.wasm_bindgen__convert__closures_____invoke__hc324cb3e889ac470_2(a, e, t);
 }
 function ie(a, e, t) {
   const n = _.wasm_bindgen__convert__closures_____invoke__h5b288fd1558165db(a, e, t);
-  if (n[1]) throw v(n[0]);
+  if (n[1]) throw S(n[0]);
 }
 function fe(a, e, t, n) {
   _.wasm_bindgen__convert__closures_____invoke__h6c09c0fd764b5b1f(a, e, t, n);
 }
-const be = ["error", "warning", "info"], se = ["unknown", "destroyed"], ue = ["validation", "out-of-memory", "internal"], Q = ["uint16", "uint32"], ge = ["r8unorm", "r8snorm", "r8uint", "r8sint", "r16uint", "r16sint", "r16float", "rg8unorm", "rg8snorm", "rg8uint", "rg8sint", "r32uint", "r32sint", "r32float", "rg16uint", "rg16sint", "rg16float", "rgba8unorm", "rgba8unorm-srgb", "rgba8snorm", "rgba8uint", "rgba8sint", "bgra8unorm", "bgra8unorm-srgb", "rgb9e5ufloat", "rgb10a2uint", "rgb10a2unorm", "rg11b10ufloat", "rg32uint", "rg32sint", "rg32float", "rgba16uint", "rgba16sint", "rgba16float", "rgba32uint", "rgba32sint", "rgba32float", "stencil8", "depth16unorm", "depth24plus", "depth24plus-stencil8", "depth32float", "depth32float-stencil8", "bc1-rgba-unorm", "bc1-rgba-unorm-srgb", "bc2-rgba-unorm", "bc2-rgba-unorm-srgb", "bc3-rgba-unorm", "bc3-rgba-unorm-srgb", "bc4-r-unorm", "bc4-r-snorm", "bc5-rg-unorm", "bc5-rg-snorm", "bc6h-rgb-ufloat", "bc6h-rgb-float", "bc7-rgba-unorm", "bc7-rgba-unorm-srgb", "etc2-rgb8unorm", "etc2-rgb8unorm-srgb", "etc2-rgb8a1unorm", "etc2-rgb8a1unorm-srgb", "etc2-rgba8unorm", "etc2-rgba8unorm-srgb", "eac-r11unorm", "eac-r11snorm", "eac-rg11unorm", "eac-rg11snorm", "astc-4x4-unorm", "astc-4x4-unorm-srgb", "astc-5x4-unorm", "astc-5x4-unorm-srgb", "astc-5x5-unorm", "astc-5x5-unorm-srgb", "astc-6x5-unorm", "astc-6x5-unorm-srgb", "astc-6x6-unorm", "astc-6x6-unorm-srgb", "astc-8x5-unorm", "astc-8x5-unorm-srgb", "astc-8x6-unorm", "astc-8x6-unorm-srgb", "astc-8x8-unorm", "astc-8x8-unorm-srgb", "astc-10x5-unorm", "astc-10x5-unorm-srgb", "astc-10x6-unorm", "astc-10x6-unorm-srgb", "astc-10x8-unorm", "astc-10x8-unorm-srgb", "astc-10x10-unorm", "astc-10x10-unorm-srgb", "astc-12x10-unorm", "astc-12x10-unorm-srgb", "astc-12x12-unorm", "astc-12x12-unorm-srgb"], Z = typeof FinalizationRegistry > "u" ? { register: () => {
+const be = ["error", "warning", "info"], se = ["unknown", "destroyed"], ue = ["validation", "out-of-memory", "internal"], N = ["uint16", "uint32"], ge = ["r8unorm", "r8snorm", "r8uint", "r8sint", "r16uint", "r16sint", "r16float", "rg8unorm", "rg8snorm", "rg8uint", "rg8sint", "r32uint", "r32sint", "r32float", "rg16uint", "rg16sint", "rg16float", "rgba8unorm", "rgba8unorm-srgb", "rgba8snorm", "rgba8uint", "rgba8sint", "bgra8unorm", "bgra8unorm-srgb", "rgb9e5ufloat", "rgb10a2uint", "rgb10a2unorm", "rg11b10ufloat", "rg32uint", "rg32sint", "rg32float", "rgba16uint", "rgba16sint", "rgba16float", "rgba32uint", "rgba32sint", "rgba32float", "stencil8", "depth16unorm", "depth24plus", "depth24plus-stencil8", "depth32float", "depth32float-stencil8", "bc1-rgba-unorm", "bc1-rgba-unorm-srgb", "bc2-rgba-unorm", "bc2-rgba-unorm-srgb", "bc3-rgba-unorm", "bc3-rgba-unorm-srgb", "bc4-r-unorm", "bc4-r-snorm", "bc5-rg-unorm", "bc5-rg-snorm", "bc6h-rgb-ufloat", "bc6h-rgb-float", "bc7-rgba-unorm", "bc7-rgba-unorm-srgb", "etc2-rgb8unorm", "etc2-rgb8unorm-srgb", "etc2-rgb8a1unorm", "etc2-rgb8a1unorm-srgb", "etc2-rgba8unorm", "etc2-rgba8unorm-srgb", "eac-r11unorm", "eac-r11snorm", "eac-rg11unorm", "eac-rg11snorm", "astc-4x4-unorm", "astc-4x4-unorm-srgb", "astc-5x4-unorm", "astc-5x4-unorm-srgb", "astc-5x5-unorm", "astc-5x5-unorm-srgb", "astc-6x5-unorm", "astc-6x5-unorm-srgb", "astc-6x6-unorm", "astc-6x6-unorm-srgb", "astc-8x5-unorm", "astc-8x5-unorm-srgb", "astc-8x6-unorm", "astc-8x6-unorm-srgb", "astc-8x8-unorm", "astc-8x8-unorm-srgb", "astc-10x5-unorm", "astc-10x5-unorm-srgb", "astc-10x6-unorm", "astc-10x6-unorm-srgb", "astc-10x8-unorm", "astc-10x8-unorm-srgb", "astc-10x10-unorm", "astc-10x10-unorm-srgb", "astc-12x10-unorm", "astc-12x10-unorm-srgb", "astc-12x12-unorm", "astc-12x12-unorm-srgb"], Z = typeof FinalizationRegistry > "u" ? { register: () => {
 }, unregister: () => {
 } } : new FinalizationRegistry((a) => _.__wbg_cellrefinfo_free(a >>> 0, 1)), K = typeof FinalizationRegistry > "u" ? { register: () => {
 }, unregister: () => {
@@ -1790,7 +1790,7 @@ ${a.stack}` : n;
 function h(a, e) {
   return a = a >>> 0, re().subarray(a / 4, a / 4 + e);
 }
-function S(a, e) {
+function v(a, e) {
   return a = a >>> 0, _e().subarray(a / 8, a / 8 + e);
 }
 function le(a, e) {
@@ -1812,7 +1812,7 @@ function me(a, e) {
   return a = a >>> 0, xe().subarray(a / 2, a / 2 + e);
 }
 function B(a, e) {
-  return a = a >>> 0, Se().subarray(a / 4, a / 4 + e);
+  return a = a >>> 0, ve().subarray(a / 4, a / 4 + e);
 }
 function E(a, e) {
   return a = a >>> 0, M().subarray(a / 1, a / 1 + e);
@@ -1849,7 +1849,7 @@ function xe() {
   return (O === null || O.byteLength === 0) && (O = new Uint16Array(_.memory.buffer)), O;
 }
 let G = null;
-function Se() {
+function ve() {
   return (G === null || G.byteLength === 0) && (G = new Uint32Array(_.memory.buffer)), G;
 }
 let V = null;
@@ -1882,7 +1882,7 @@ function H(a, e, t, n) {
     --r.cnt === 0 && (r.dtor(r.a, r.b), r.a = 0, te.unregister(r));
   }, te.register(c, r, r), c;
 }
-function ve(a, e) {
+function Se(a, e) {
   const t = e(a.length * 1, 1) >>> 0;
   return M().set(a, t / 1), b = a.length, t;
 }
@@ -1922,16 +1922,16 @@ function g(a, e, t) {
   }
   return b = o, r;
 }
-function v(a) {
+function S(a) {
   const e = _.__wbindgen_externrefs.get(a);
   return _.__externref_table_dealloc(a), e;
 }
-let N = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true });
-N.decode();
+let Q = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true });
+Q.decode();
 const Ie = 2146435072;
 let J = 0;
 function Ae(a, e) {
-  return J += e, J >= Ie && (N = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }), N.decode(), J = e), N.decode(M().subarray(a, a + e));
+  return J += e, J >= Ie && (Q = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }), Q.decode(), J = e), Q.decode(M().subarray(a, a + e));
 }
 const U = new TextEncoder();
 "encodeInto" in U || (U.encodeInto = function(a, e) {
@@ -1976,7 +1976,7 @@ function Pe(a) {
 }
 async function Te(a) {
   if (_ !== void 0) return _;
-  a !== void 0 && (Object.getPrototypeOf(a) === Object.prototype ? { module_or_path: a } = a : console.warn("using deprecated parameters for the initialization function; pass a single object instead")), a === void 0 && (a = new URL("" + new URL("rosette_wasm_bg-B4UWgTsZ.wasm", import.meta.url).href, import.meta.url));
+  a !== void 0 && (Object.getPrototypeOf(a) === Object.prototype ? { module_or_path: a } = a : console.warn("using deprecated parameters for the initialization function; pass a single object instead")), a === void 0 && (a = new URL("" + new URL("rosette_wasm_bg-DNx9p8Lv.wasm", import.meta.url).href, import.meta.url));
   const e = ne();
   (typeof a == "string" || typeof Request == "function" && a instanceof Request || typeof URL == "function" && a instanceof URL) && (a = fetch(a));
   const { instance: t, module: n } = await Be(await a, e);
