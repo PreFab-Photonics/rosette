@@ -343,10 +343,7 @@ export function checkBendRadiusReductions(
  * @param cornerRadius - Requested bend radius in world units.
  * @returns The effective minimum corner radius (world units).
  */
-export function computeActualCornerRadius(
-  waypoints: Point[],
-  cornerRadius: number,
-): number {
+export function computeActualCornerRadius(waypoints: Point[], cornerRadius: number): number {
   if (cornerRadius <= 0) return 0;
   const reductions = checkBendRadiusReductions(waypoints, cornerRadius);
   if (reductions.length === 0) return cornerRadius;
