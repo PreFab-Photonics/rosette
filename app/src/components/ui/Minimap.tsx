@@ -5,12 +5,15 @@ import { useWasmContextStore } from "@/stores/wasm-context";
 import { useLayerStore } from "@/stores/layer";
 import { useHistoryStore } from "@/stores/history";
 import { useMinimapStore } from "@/stores/minimap";
+import { useImageStore } from "@/stores/image";
+import { useExplorerStore } from "@/stores/explorer";
 import {
   calculateMinimapBounds,
   drawViewportRect,
   getMinimapColors,
   minimapToWorld,
   renderMinimapPolygons,
+  worldToMinimap,
   type MinimapBounds,
   type RenderPolygon,
 } from "@/lib/minimap";
@@ -46,6 +49,10 @@ export function Minimap() {
   // Every shape mutation (create, delete, move, undo, redo) updates these.
   const undoCount = useHistoryStore((s) => s.undoStack.length);
   const redoCount = useHistoryStore((s) => s.redoStack.length);
+
+  // Image overlays (scoped to active cell)
+  const allImages = useImageStore((s) => s.images);
+  const activeCell = useExplorerStore((s) => s.activeCell);
 
   const isDark = theme === "dark";
   const colors = useMemo(() => getMinimapColors(isDark), [isDark]);
@@ -142,13 +149,90 @@ export function Minimap() {
     if (isMinimized || !library) return;
 
     const worldBounds = library.get_all_bounds();
-    if (!worldBounds) {
+
+    // Collect images for the active cell
+    const cellImages = [...allImages.values()].filter((img) => img.cellName === activeCell);
+
+    // Collect instance image contexts from child cells
+    type InstanceCtx = { cellName: string; transform: Float64Array };
+    let instanceContexts: InstanceCtx[] = [];
+    try {
+      instanceContexts = (library.get_instance_cell_contexts() as InstanceCtx[] | null) ?? [];
+    } catch {
+      // method may not be available
+    }
+
+    // Build cell -> images lookup for instance rendering
+    const cellImageMap = new Map<string, typeof cellImages>();
+    if (instanceContexts.length > 0) {
+      for (const entry of allImages.values()) {
+        const list = cellImageMap.get(entry.cellName);
+        if (list) list.push(entry);
+        else cellImageMap.set(entry.cellName, [entry]);
+      }
+    }
+
+    // Merge WASM bounds with all visible image bounds (direct + instance)
+    let mergedBounds: Float64Array | null = worldBounds ?? null;
+    let imgMinX = Infinity;
+    let imgMinY = Infinity;
+    let imgMaxX = -Infinity;
+    let imgMaxY = -Infinity;
+    let hasImages = false;
+
+    // Direct images
+    for (const img of cellImages) {
+      hasImages = true;
+      imgMinX = Math.min(imgMinX, img.x);
+      imgMinY = Math.min(imgMinY, img.y);
+      imgMaxX = Math.max(imgMaxX, img.x + img.width);
+      imgMaxY = Math.max(imgMaxY, img.y + img.height);
+    }
+
+    // Instance images (transform corners to get world-space bounds)
+    for (const ctx of instanceContexts) {
+      const imgs = cellImageMap.get(ctx.cellName);
+      if (!imgs) continue;
+      const [a, b, c, d, tx, ty] = ctx.transform;
+      for (const img of imgs) {
+        hasImages = true;
+        const corners = [
+          [img.x, img.y],
+          [img.x + img.width, img.y],
+          [img.x + img.width, img.y + img.height],
+          [img.x, img.y + img.height],
+        ];
+        for (const [px, py] of corners) {
+          const wx = a * px + b * py + tx;
+          const wy = c * px + d * py + ty;
+          imgMinX = Math.min(imgMinX, wx);
+          imgMinY = Math.min(imgMinY, wy);
+          imgMaxX = Math.max(imgMaxX, wx);
+          imgMaxY = Math.max(imgMaxY, wy);
+        }
+      }
+    }
+
+    if (hasImages) {
+      if (mergedBounds) {
+        mergedBounds = new Float64Array([
+          Math.min(mergedBounds[0], imgMinX),
+          Math.min(mergedBounds[1], imgMinY),
+          Math.max(mergedBounds[2], imgMaxX),
+          Math.max(mergedBounds[3], imgMaxY),
+        ]);
+      } else {
+        mergedBounds = new Float64Array([imgMinX, imgMinY, imgMaxX, imgMaxY]);
+      }
+    }
+
+    if (!mergedBounds) {
       boundsRef.current = null;
       shapeCacheRef.current = null;
       return;
     }
 
-    const bounds = calculateMinimapBounds(worldBounds, MINIMAP_SIZE);
+    const bounds = calculateMinimapBounds(mergedBounds, MINIMAP_SIZE);
     if (!bounds) {
       boundsRef.current = null;
       shapeCacheRef.current = null;
@@ -166,11 +250,6 @@ export function Minimap() {
       return;
     }
 
-    if (!polygons || polygons.length === 0) {
-      shapeCacheRef.current = null;
-      return;
-    }
-
     // Filter out polygons on hidden layers.
     // get_render_polygons returns colors from library's layer_colors, but we
     // need to check visibility from the JS-side layer store. The polygon color
@@ -184,9 +263,9 @@ export function Minimap() {
       }
     }
 
-    let filteredPolygons = polygons;
-    if (hiddenLayers.size > 0) {
-      filteredPolygons = polygons.filter(([id]) => {
+    let filteredPolygons = polygons ?? [];
+    if (hiddenLayers.size > 0 && filteredPolygons.length > 0) {
+      filteredPolygons = filteredPolygons.filter(([id]) => {
         const info = library.get_element_info(id);
         if (!info) return true; // show if we can't determine
         const key = `${info.layer}:${info.datatype}`;
@@ -206,9 +285,53 @@ export function Minimap() {
     offCtx.clearRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
     renderMinimapPolygons(offCtx, bounds, filteredPolygons);
 
+    // Render image overlays as semi-transparent rectangles
+    if (hasImages) {
+      offCtx.fillStyle = "rgba(200, 200, 200, 0.3)";
+      offCtx.strokeStyle = "rgba(200, 200, 200, 0.5)";
+      offCtx.lineWidth = 0.5;
+
+      // Direct images (axis-aligned)
+      for (const img of cellImages) {
+        const topLeft = worldToMinimap(img.x, img.y, bounds);
+        const bottomRight = worldToMinimap(img.x + img.width, img.y + img.height, bounds);
+        const w = bottomRight.x - topLeft.x;
+        const h = bottomRight.y - topLeft.y;
+        offCtx.fillRect(topLeft.x, topLeft.y, w, h);
+        offCtx.strokeRect(topLeft.x, topLeft.y, w, h);
+      }
+
+      // Instance images (transformed — draw as filled quads)
+      for (const ctx of instanceContexts) {
+        const imgs = cellImageMap.get(ctx.cellName);
+        if (!imgs) continue;
+        const [a, b, c, d, tx, ty] = ctx.transform;
+        for (const img of imgs) {
+          const corners = [
+            [img.x, img.y],
+            [img.x + img.width, img.y],
+            [img.x + img.width, img.y + img.height],
+            [img.x, img.y + img.height],
+          ];
+          offCtx.beginPath();
+          for (let i = 0; i < corners.length; i++) {
+            const [px, py] = corners[i];
+            const wx = a * px + b * py + tx;
+            const wy = c * px + d * py + ty;
+            const mp = worldToMinimap(wx, wy, bounds);
+            if (i === 0) offCtx.moveTo(mp.x, mp.y);
+            else offCtx.lineTo(mp.x, mp.y);
+          }
+          offCtx.closePath();
+          offCtx.fill();
+          offCtx.stroke();
+        }
+      }
+    }
+
     shapeCacheRef.current = offscreen;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [library, layers, isMinimized, undoCount, redoCount]);
+  }, [library, layers, isMinimized, undoCount, redoCount, allImages, activeCell]);
 
   // ============================================================
   // Composite: draw cached shapes + viewport rect.
@@ -243,7 +366,7 @@ export function Minimap() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom, offset, isMinimized, colors, getCanvasRect, undoCount, redoCount]);
+  }, [zoom, offset, isMinimized, colors, getCanvasRect, undoCount, redoCount, allImages, activeCell]);
 
   // ============================================================
   // Don't render when minimized — toggle lives in StatusBar

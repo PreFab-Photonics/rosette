@@ -210,11 +210,13 @@ function NumberField({
             type="button"
             onClick={() => {
               if (!readOnly && onChange) {
+                setEditValue(value);
                 setEditing(true);
               }
             }}
             onFocus={() => {
               if (!readOnly && onChange) {
+                setEditValue(value);
                 setEditing(true);
               }
             }}

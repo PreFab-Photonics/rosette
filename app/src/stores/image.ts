@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useExplorerStore } from "@/stores/explorer";
 
 /**
  * Prefix for image overlay IDs.
@@ -52,10 +53,12 @@ export interface ImageEntry {
   naturalHeight: number;
   /** Whether aspect ratio is locked when resizing. Defaults to true. */
   lockAspectRatio: boolean;
+  /** Cell name this image belongs to. Images only render in their cell. */
+  cellName: string;
 }
 
 /**
- * Hit-test a world-coordinate point against all images.
+ * Hit-test a world-coordinate point against images in the active cell.
  *
  * Returns the prefixed ID (e.g., "img:abc-123") of the topmost hit image,
  * or null if no image contains the point. When multiple images overlap,
@@ -63,10 +66,12 @@ export interface ImageEntry {
  */
 export function hitTestImages(worldX: number, worldY: number): string | null {
   const { images } = useImageStore.getState();
+  const activeCell = useExplorerStore.getState().activeCell;
   let bestId: string | null = null;
   let bestArea = Infinity;
 
   for (const entry of images.values()) {
+    if (entry.cellName !== activeCell) continue;
     if (
       worldX >= entry.x &&
       worldX <= entry.x + entry.width &&
@@ -85,7 +90,7 @@ export function hitTestImages(worldX: number, worldY: number): string | null {
 }
 
 /**
- * Hit-test a world-coordinate rectangle against all images.
+ * Hit-test a world-coordinate rectangle against images in the active cell.
  *
  * Returns prefixed IDs of all images whose bounds overlap the query rect.
  */
@@ -96,9 +101,11 @@ export function hitTestImagesRect(
   maxY: number,
 ): string[] {
   const { images } = useImageStore.getState();
+  const activeCell = useExplorerStore.getState().activeCell;
   const result: string[] = [];
 
   for (const entry of images.values()) {
+    if (entry.cellName !== activeCell) continue;
     const imgMaxX = entry.x + entry.width;
     const imgMaxY = entry.y + entry.height;
 

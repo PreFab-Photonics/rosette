@@ -149,6 +149,27 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
   const snapshotRefIndices = new Set<string>();
 
   for (const id of ids) {
+    // Check if this is an image overlay
+    if (id.startsWith("img:")) {
+      const imgKey = imageIdToKey(id);
+      const entry = useImageStore.getState().images.get(imgKey);
+      if (entry) {
+        snapshots.push({
+          type: "image",
+          url: entry.url,
+          filename: entry.filename,
+          x: entry.x,
+          y: entry.y,
+          width: entry.width,
+          height: entry.height,
+          naturalWidth: entry.naturalWidth,
+          naturalHeight: entry.naturalHeight,
+          lockAspectRatio: entry.lockAspectRatio,
+        });
+      }
+      continue;
+    }
+
     // Check if this is a synthetic ref UUID (CellRef instance)
     if (id.startsWith("ref:")) {
       const elemIdx = id.split(":")[1];
@@ -290,6 +311,24 @@ function restoreSnapshots(library: WasmLibrary, snapshots: ClipboardSnapshot[]):
           datatype: snapshot.datatype,
         });
       }
+    } else if (snapshot.type === "image") {
+      // Create a new image entry with a fresh ID, scoped to the active cell
+      const newId = crypto.randomUUID();
+      const entry: ImageEntry = {
+        id: newId,
+        url: snapshot.url,
+        filename: snapshot.filename,
+        x: snapshot.x,
+        y: snapshot.y,
+        width: snapshot.width,
+        height: snapshot.height,
+        naturalWidth: snapshot.naturalWidth,
+        naturalHeight: snapshot.naturalHeight,
+        lockAspectRatio: snapshot.lockAspectRatio,
+        cellName: useExplorerStore.getState().activeCell ?? "",
+      };
+      useImageStore.getState().addImage(entry);
+      newIds.push(imageKeyToId(newId));
     } else {
       const id = library.add_polygon(snapshot.vertices, snapshot.layer, snapshot.datatype);
       if (id) {
@@ -426,8 +465,26 @@ export class DeleteElementsCommand implements Command {
     // Clean up path metadata for any deleted paths
     usePathStore.getState().removePathMetadataMany(idsToDelete);
 
-    // Delete elements in a single batch operation (much faster for large selections)
-    ctx.library.remove_elements(idsToDelete);
+    // Separate image IDs from WASM element IDs
+    const imageIds: string[] = [];
+    const wasmIds: string[] = [];
+    for (const id of idsToDelete) {
+      if (id.startsWith("img:")) {
+        imageIds.push(id);
+      } else {
+        wasmIds.push(id);
+      }
+    }
+
+    // Remove images from the image store
+    for (const imgId of imageIds) {
+      useImageStore.getState().removeImage(imageIdToKey(imgId));
+    }
+
+    // Delete WASM elements in a single batch operation
+    if (wasmIds.length > 0) {
+      ctx.library.remove_elements(wasmIds);
+    }
 
     // Clear restored IDs for next potential redo
     this.restoredIds = [];
@@ -491,6 +548,9 @@ export class PasteElementsCommand implements Command {
       if (e.type === "text") {
         return { ...e };
       }
+      if (e.type === "image") {
+        return { ...e };
+      }
       if (e.type === "path") {
         return {
           type: "path",
@@ -540,8 +600,26 @@ export class PasteElementsCommand implements Command {
     // Clean up path metadata for any pasted paths
     usePathStore.getState().removePathMetadataMany(this.createdPathIds);
 
-    // Delete the pasted elements in a single batch operation
-    ctx.library.remove_elements(this.createdIds);
+    // Separate image IDs from WASM element IDs
+    const imageIds: string[] = [];
+    const wasmIds: string[] = [];
+    for (const id of this.createdIds) {
+      if (id.startsWith("img:")) {
+        imageIds.push(id);
+      } else {
+        wasmIds.push(id);
+      }
+    }
+
+    // Remove pasted images
+    for (const imgId of imageIds) {
+      useImageStore.getState().removeImage(imageIdToKey(imgId));
+    }
+
+    // Delete the pasted WASM elements in a single batch operation
+    if (wasmIds.length > 0) {
+      ctx.library.remove_elements(wasmIds);
+    }
 
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
@@ -605,8 +683,26 @@ export class DuplicateElementsCommand implements Command {
     // Clean up path metadata for any duplicated paths
     usePathStore.getState().removePathMetadataMany(this.createdPathIds);
 
-    // Delete the duplicated elements in a single batch operation
-    ctx.library.remove_elements(this.createdIds);
+    // Separate image IDs from WASM element IDs
+    const imageIds: string[] = [];
+    const wasmIds: string[] = [];
+    for (const id of this.createdIds) {
+      if (id.startsWith("img:")) {
+        imageIds.push(id);
+      } else {
+        wasmIds.push(id);
+      }
+    }
+
+    // Remove duplicated images
+    for (const imgId of imageIds) {
+      useImageStore.getState().removeImage(imageIdToKey(imgId));
+    }
+
+    // Delete the duplicated WASM elements in a single batch operation
+    if (wasmIds.length > 0) {
+      ctx.library.remove_elements(wasmIds);
+    }
 
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
@@ -649,6 +745,9 @@ function offsetSnapshot(snapshot: ClipboardSnapshot, dx: number, dy: number): Cl
     t[4] += dx; // tx
     t[5] += dy; // ty
     return { type: "cell-ref", cellName: snapshot.cellName, transform: t };
+  }
+  if (snapshot.type === "image") {
+    return { ...snapshot, x: snapshot.x + dx, y: snapshot.y + dy };
   }
   // text
   return {
@@ -745,7 +844,26 @@ export class CreateArrayCommand implements Command {
     // Clean up path metadata for any array-created paths
     usePathStore.getState().removePathMetadataMany(this.createdPathIds);
 
-    ctx.library.remove_elements(this.createdIds);
+    // Separate image IDs from WASM element IDs
+    const imageIds: string[] = [];
+    const wasmIds: string[] = [];
+    for (const id of this.createdIds) {
+      if (id.startsWith("img:")) {
+        imageIds.push(id);
+      } else {
+        wasmIds.push(id);
+      }
+    }
+
+    // Remove array-created images
+    for (const imgId of imageIds) {
+      useImageStore.getState().removeImage(imageIdToKey(imgId));
+    }
+
+    // Delete array-created WASM elements
+    if (wasmIds.length > 0) {
+      ctx.library.remove_elements(wasmIds);
+    }
 
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);

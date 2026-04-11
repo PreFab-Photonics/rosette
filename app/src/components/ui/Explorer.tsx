@@ -26,7 +26,7 @@ import {
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 import { isTauri } from "@/lib/tauri";
 import { handleNewFile } from "@/lib/file-ops";
-import { cn, keys, centerViewOnSelection, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
+import { cn, keys, centerViewOnSelection, getAllImageIds, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useTabsStore, switchTab } from "@/stores/tabs";
@@ -532,7 +532,7 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
             shortcut: { modifiers: [keys.mod], key: "A" },
             action: () => {
               if (!library) return;
-              const allIds = library.get_all_ids();
+              const allIds = [...library.get_all_ids(), ...getAllImageIds()];
               useSelectionStore.getState().selectAll(allIds);
             },
             disabled: !hasElements,

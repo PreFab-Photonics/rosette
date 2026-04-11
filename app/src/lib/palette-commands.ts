@@ -41,7 +41,7 @@ import { useRulerStore } from "@/stores/ruler";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { pickAndInsertImage } from "@/lib/image-ops";
-import { keys, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
+import { keys, getAllImageIds, getEffectiveViewport, getImageBoundsForIds, zoomToFitAll } from "@/lib/utils";
 
 // =============================================================================
 // Types
@@ -361,7 +361,7 @@ export function getCommands(): CommandItem[] {
           const selectedIds = useSelectionStore.getState().selectedIds;
           if (selectedIds.size > 0) {
             const boundsArray = library.get_bounds_for_ids([...selectedIds]);
-            const bounds: WorldBounds | null = boundsArray
+            const wasmBounds: WorldBounds | null = boundsArray
               ? {
                   minX: boundsArray[0],
                   minY: boundsArray[1],
@@ -369,6 +369,18 @@ export function getCommands(): CommandItem[] {
                   maxY: boundsArray[3],
                 }
               : null;
+            const imageBounds = getImageBoundsForIds(selectedIds);
+            let bounds: WorldBounds | null;
+            if (wasmBounds && imageBounds) {
+              bounds = {
+                minX: Math.min(wasmBounds.minX, imageBounds.minX),
+                minY: Math.min(wasmBounds.minY, imageBounds.minY),
+                maxX: Math.max(wasmBounds.maxX, imageBounds.maxX),
+                maxY: Math.max(wasmBounds.maxY, imageBounds.maxY),
+              };
+            } else {
+              bounds = wasmBounds ?? imageBounds;
+            }
             const vp = getEffectiveViewport(canvas);
             useViewportStore
               .getState()
@@ -740,7 +752,7 @@ export function getCommands(): CommandItem[] {
           close();
           return;
         }
-        const allIds = library.get_all_ids();
+        const allIds = [...library.get_all_ids(), ...getAllImageIds()];
         useSelectionStore.getState().selectAll(allIds);
         close();
       },

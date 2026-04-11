@@ -34,7 +34,7 @@ import { useUIStore } from "@/stores/ui";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useLayerStore } from "@/stores/layer";
 import { useTextStore } from "@/stores/text";
-import { centerViewOnSelection, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
+import { centerViewOnSelection, getAllImageIds, getEffectiveViewport, getImageBoundsForIds, zoomToFitAll } from "@/lib/utils";
 
 /** Keys tracked for continuous panning. */
 const PAN_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
@@ -184,11 +184,11 @@ export function useKeyboardShortcuts(
           break;
       }
 
-      // Cmd/Ctrl+A: Select all objects
+      // Cmd/Ctrl+A: Select all objects (WASM elements + images)
       if ((e.metaKey || e.ctrlKey) && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
         if (library) {
-          const allIds = library.get_all_ids();
+          const allIds = [...library.get_all_ids(), ...getAllImageIds()];
           useSelectionStore.getState().selectAll(allIds);
         }
         return;
@@ -305,13 +305,14 @@ export function useKeyboardShortcuts(
         return;
       }
 
-      // Tab / Shift+Tab: Cycle selection between objects (by instance group)
+      // Tab / Shift+Tab: Cycle selection between objects (by instance group), including images
       if (e.key === "Tab") {
         e.preventDefault();
         if (library && canvas) {
           // Use group representatives so each Tab press moves to the next
-          // cell instance (not individual polygons within an instance)
-          const repIds = library.get_group_representative_ids();
+          // cell instance (not individual polygons within an instance).
+          // Append image IDs so Tab also cycles through images.
+          const repIds = [...library.get_group_representative_ids(), ...getAllImageIds()];
           if (repIds.length > 0) {
             // Cycle to next/previous representative
             if (e.shiftKey) {
@@ -322,9 +323,10 @@ export function useKeyboardShortcuts(
             // Expand the selected representative to its full group,
             // keeping lastSelectedId as the representative so the next
             // Tab press can find its position in the repIds list.
+            // Images are single items and don't need group expansion.
             const store = useSelectionStore.getState();
             const repId = store.lastSelectedId;
-            if (repId) {
+            if (repId && !repId.startsWith("img:")) {
               const groupIds = library.get_group_ids(repId);
               if (groupIds.length > 1) {
                 useSelectionStore.setState({
@@ -445,13 +447,13 @@ export function useKeyboardShortcuts(
           zoomToFitAll();
           break;
         case "F":
-          // Shift+F: Zoom to fit selected objects
+          // Shift+F: Zoom to fit selected objects (including images)
           e.preventDefault();
           if (library && canvas) {
             const selectedIds = useSelectionStore.getState().selectedIds;
             if (selectedIds.size > 0) {
               const boundsArray = library.get_bounds_for_ids([...selectedIds]);
-              const bounds: WorldBounds | null = boundsArray
+              const wasmBounds: WorldBounds | null = boundsArray
                 ? {
                     minX: boundsArray[0],
                     minY: boundsArray[1],
@@ -459,6 +461,18 @@ export function useKeyboardShortcuts(
                     maxY: boundsArray[3],
                   }
                 : null;
+              const imageBounds = getImageBoundsForIds(selectedIds);
+              let bounds: WorldBounds | null;
+              if (wasmBounds && imageBounds) {
+                bounds = {
+                  minX: Math.min(wasmBounds.minX, imageBounds.minX),
+                  minY: Math.min(wasmBounds.minY, imageBounds.minY),
+                  maxX: Math.max(wasmBounds.maxX, imageBounds.maxX),
+                  maxY: Math.max(wasmBounds.maxY, imageBounds.maxY),
+                };
+              } else {
+                bounds = wasmBounds ?? imageBounds;
+              }
               const vpF = getEffectiveViewport(canvas);
               zoomToSelected(bounds, vpF.width, vpF.height, vpF.screenCenter);
             }

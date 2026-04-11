@@ -10,6 +10,7 @@ import { isTauri, pickImageFile, readFileBytes } from "@/lib/tauri";
 import { useViewportStore } from "@/stores/viewport";
 import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
+import { useExplorerStore } from "@/stores/explorer";
 import { AddImageCommand } from "@/lib/commands";
 import type { ImageEntry } from "@/stores/image";
 
@@ -165,6 +166,7 @@ function insertImage(imageData: {
     naturalWidth: imageData.naturalWidth,
     naturalHeight: imageData.naturalHeight,
     lockAspectRatio: true,
+    cellName: useExplorerStore.getState().activeCell ?? "",
   };
 
   // Execute via history for undo/redo support (command handles selection)

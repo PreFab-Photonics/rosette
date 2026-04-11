@@ -136,6 +136,12 @@ pub struct WasmLibrary {
     /// Hidden cells still show bounding-box outlines and labels,
     /// but their polygons/paths are not rendered.
     hidden_cells: HashSet<String>,
+    /// Image overlay bounds per cell (set from JS).
+    ///
+    /// Maps cell name to `[minX, minY, maxX, maxY]` in the cell's local
+    /// coordinate space. Used to expand instance bounding boxes so that
+    /// the selection/hover outlines and zoom-to-fit include images.
+    cell_image_bounds: HashMap<String, [f64; 4]>,
 }
 
 /// Pack layer number and datatype into a single u32 key.
@@ -217,6 +223,7 @@ impl WasmLibrary {
             dirty: false,
             hierarchy_depth_limit: 0,
             hidden_cells: HashSet::new(),
+            cell_image_bounds: HashMap::new(),
         }
     }
 
@@ -382,6 +389,28 @@ impl WasmLibrary {
     /// Get the list of currently hidden cell names.
     pub fn get_hidden_cells(&self) -> Vec<String> {
         self.hidden_cells.iter().cloned().collect()
+    }
+
+    /// Set the bounding box of image overlays for a cell.
+    ///
+    /// Called from JS whenever images change. The bounds are in the cell's
+    /// local coordinate space and are included in instance bounding-box
+    /// calculations so that selection outlines and zoom-to-fit encompass images.
+    ///
+    /// Pass `null` or an empty array to clear the image bounds for a cell.
+    pub fn set_cell_image_bounds(&mut self, cell_name: &str, bounds: Option<Vec<f64>>) {
+        match bounds {
+            Some(b) if b.len() >= 4 => {
+                self.cell_image_bounds
+                    .insert(cell_name.to_string(), [b[0], b[1], b[2], b[3]]);
+                self.dirty = true;
+            }
+            _ => {
+                if self.cell_image_bounds.remove(cell_name).is_some() {
+                    self.dirty = true;
+                }
+            }
+        }
     }
 
     /// Get the origin of the active cell as [x, y].
@@ -1566,6 +1595,18 @@ impl WasmLibrary {
             }
         }
 
+        // Include image overlay bounds for the active cell itself
+        if let Some(img_bounds) = self.cell_image_bounds.get(cell_name) {
+            let img_bbox = BBox::new(
+                Point::new(img_bounds[0], img_bounds[1]),
+                Point::new(img_bounds[2], img_bounds[3]),
+            );
+            combined_bbox = Some(match combined_bbox {
+                Some(existing) => existing.merge(&img_bbox),
+                None => img_bbox,
+            });
+        }
+
         combined_bbox.map(|bbox| vec![bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y])
     }
 
@@ -2338,6 +2379,70 @@ impl WasmLibrary {
         result.into()
     }
 
+    /// Collect all `(cell_name, transform)` pairs for cells referenced
+    /// (directly or transitively) by the active cell.
+    ///
+    /// Returns a JS array of `{ cellName: string, transform: Float64Array }`
+    /// objects. Each entry represents a cell instance with its accumulated
+    /// world-space transform. Used by the JS-side image overlay to render
+    /// images belonging to child cells at their instance positions.
+    pub fn get_instance_cell_contexts(&self) -> JsValue {
+        let cell_name = match &self.active_cell {
+            Some(name) => name,
+            None => return js_sys::Array::new().into(),
+        };
+        let cell = match self.library.cell(cell_name) {
+            Some(c) => c,
+            None => return js_sys::Array::new().into(),
+        };
+
+        let max_depth = self.hierarchy_depth_limit;
+        let mut contexts: Vec<(String, [f64; 6])> = Vec::new();
+
+        // Walk top-level CellRefs
+        for element in cell.elements() {
+            if let Element::CellRef(cell_ref) = element {
+                if self.hidden_cells.contains(&cell_ref.cell_name) {
+                    continue;
+                }
+                if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
+                    for copy_transform in array_transforms(cell_ref) {
+                        let t = [
+                            copy_transform.a,
+                            copy_transform.b,
+                            copy_transform.c,
+                            copy_transform.d,
+                            copy_transform.tx,
+                            copy_transform.ty,
+                        ];
+                        contexts.push((cell_ref.cell_name.clone(), t));
+                        self.collect_cell_contexts_recursive(
+                            ref_cell,
+                            &copy_transform,
+                            0,
+                            max_depth,
+                            &mut contexts,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Convert to JS array of { cellName, transform }
+        let result = js_sys::Array::new();
+        for (name, t) in &contexts {
+            let obj = js_sys::Object::new();
+            js_sys::Reflect::set(&obj, &JsValue::from_str("cellName"), &JsValue::from_str(name))
+                .ok();
+            let transform = js_sys::Float64Array::new_with_length(6);
+            transform.copy_from(t);
+            js_sys::Reflect::set(&obj, &JsValue::from_str("transform"), &transform.into()).ok();
+            result.push(&obj);
+        }
+
+        result.into()
+    }
+
     /// Check whether placing `child_cell` inside `parent_cell` would create
     /// a circular reference.
     ///
@@ -2584,6 +2689,7 @@ impl WasmLibrary {
             dirty: false,
             hierarchy_depth_limit: 0,
             hidden_cells: HashSet::new(),
+            cell_image_bounds: HashMap::new(),
         }
     }
 
@@ -2954,6 +3060,52 @@ impl WasmLibrary {
         }
     }
 
+    /// Recursively collect `(cell_name, transform)` pairs for all cells
+    /// referenced (directly or transitively) by the given cell.
+    ///
+    /// Used by the JS-side image overlay to render images belonging to
+    /// child cells at the correct instance transform.
+    fn collect_cell_contexts_recursive(
+        &self,
+        cell: &Cell,
+        transform: &Transform,
+        current_depth: u32,
+        max_depth: u32,
+        result: &mut Vec<(String, [f64; 6])>,
+    ) {
+        for element in cell.elements() {
+            if let Element::CellRef(nested_ref) = element {
+                if max_depth > 0 && current_depth + 1 >= max_depth {
+                    continue;
+                }
+                if self.hidden_cells.contains(&nested_ref.cell_name) {
+                    continue;
+                }
+                if let Some(ref_cell) = self.library.cell(&nested_ref.cell_name) {
+                    for copy_transform in array_transforms(nested_ref) {
+                        let combined = transform.then(&copy_transform);
+                        let t = [
+                            combined.a,
+                            combined.b,
+                            combined.c,
+                            combined.d,
+                            combined.tx,
+                            combined.ty,
+                        ];
+                        result.push((nested_ref.cell_name.clone(), t));
+                        self.collect_cell_contexts_recursive(
+                            ref_cell,
+                            &combined,
+                            current_depth + 1,
+                            max_depth,
+                            result,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// Recursively collect bounding boxes from a referenced cell.
     fn collect_bounds_recursive(
         &self,
@@ -2961,6 +3113,25 @@ impl WasmLibrary {
         transform: &Transform,
         combined: &mut Option<BBox>,
     ) {
+        // Include image overlay bounds (set from JS) for this cell
+        if let Some(img_bounds) = self.cell_image_bounds.get(cell_name) {
+            // Transform the four corners of the image bounds rectangle
+            let corners = [
+                Point::new(img_bounds[0], img_bounds[1]),
+                Point::new(img_bounds[2], img_bounds[1]),
+                Point::new(img_bounds[2], img_bounds[3]),
+                Point::new(img_bounds[0], img_bounds[3]),
+            ];
+            for corner in &corners {
+                let tp = transform.apply(*corner);
+                let point_bbox = BBox::new(tp, tp);
+                *combined = Some(match combined {
+                    Some(existing) => existing.merge(&point_bbox),
+                    None => point_bbox,
+                });
+            }
+        }
+
         if let Some(cell) = self.library.cell(cell_name) {
             for element in cell.elements() {
                 match element {

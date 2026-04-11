@@ -7,7 +7,7 @@ import { useUIStore } from "@/stores/ui";
 import { useRulerStore } from "@/stores/ruler";
 import { useLayerStore } from "@/stores/layer";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
-import { cn, keys, centerViewOnSelection } from "@/lib/utils";
+import { cn, keys, centerViewOnSelection, getAllImageIds } from "@/lib/utils";
 import {
   DeleteElementsCommand,
   DeleteRulersCommand,
@@ -127,7 +127,7 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
 
     const selectAll = (): void => {
       if (!library) return;
-      const allIds = library.get_all_ids();
+      const allIds = [...library.get_all_ids(), ...getAllImageIds()];
       useSelectionStore.getState().selectAll(allIds);
       close();
     };
@@ -228,9 +228,30 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
     }
 
     if (variant === "image") {
-      // Image context menu: Edit, Delete
+      // Image context menu: Edit, ---, Copy, Paste, Duplicate, ---, Delete
       const editImage = (): void => {
         useUIStore.getState().requestInspectorFocus();
+        close();
+      };
+
+      const copyImage = (): void => {
+        if (!library) return;
+        const snapshots = snapshotElements(library, selectedIds);
+        useClipboardStore.getState().copy(snapshots);
+        close();
+      };
+
+      const pasteImage = (): void => {
+        if (!library || !renderer) return;
+        const command = new PasteElementsCommand();
+        useHistoryStore.getState().execute(command, { library, renderer });
+        close();
+      };
+
+      const duplicateImage = (): void => {
+        if (!library || !renderer || selectedIds.size === 0) return;
+        const command = new DuplicateElementsCommand([...selectedIds]);
+        useHistoryStore.getState().execute(command, { library, renderer });
         close();
       };
 
@@ -253,6 +274,28 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
           disabled: false,
         },
         { id: "sep0", separator: true },
+        {
+          id: "copy",
+          label: "Copy",
+          shortcut: { modifiers: [keys.mod], key: "C" },
+          action: copyImage,
+          disabled: !hasSelection,
+        },
+        {
+          id: "paste",
+          label: "Paste",
+          shortcut: { modifiers: [keys.mod], key: "V" },
+          action: pasteImage,
+          disabled: !hasClipboardContent,
+        },
+        {
+          id: "duplicate",
+          label: "Duplicate",
+          shortcut: { modifiers: [keys.mod], key: "B" },
+          action: duplicateImage,
+          disabled: !hasSelection,
+        },
+        { id: "sep1", separator: true },
         {
           id: "delete",
           label: "Delete",

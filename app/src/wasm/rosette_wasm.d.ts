@@ -373,6 +373,16 @@ export class WasmLibrary {
      */
     get_hidden_cells(): string[];
     /**
+     * Collect all `(cell_name, transform)` pairs for cells referenced
+     * (directly or transitively) by the active cell.
+     *
+     * Returns a JS array of `{ cellName: string, transform: Float64Array }`
+     * objects. Each entry represents a cell instance with its accumulated
+     * world-space transform. Used by the JS-side image overlay to render
+     * images belonging to child cells at their instance positions.
+     */
+    get_instance_cell_contexts(): any;
+    /**
      * Get label data for all CellRef instances in the active cell.
      *
      * Returns a JS array of objects with:
@@ -504,6 +514,16 @@ export class WasmLibrary {
      * Returns false if the cell doesn't exist.
      */
     set_active_cell(name: string): boolean;
+    /**
+     * Set the bounding box of image overlays for a cell.
+     *
+     * Called from JS whenever images change. The bounds are in the cell's
+     * local coordinate space and are included in instance bounding-box
+     * calculations so that selection outlines and zoom-to-fit encompass images.
+     *
+     * Pass `null` or an empty array to clear the image bounds for a cell.
+     */
+    set_cell_image_bounds(cell_name: string, bounds?: Float64Array | null): void;
     /**
      * Set the origin of the active cell.
      *
@@ -962,6 +982,7 @@ export interface InitOutput {
     readonly wasmlibrary_get_group_ids: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_group_representative_ids: (a: number) => [number, number];
     readonly wasmlibrary_get_hidden_cells: (a: number) => [number, number];
+    readonly wasmlibrary_get_instance_cell_contexts: (a: number) => any;
     readonly wasmlibrary_get_instance_label_data: (a: number) => any;
     readonly wasmlibrary_get_render_polygons: (a: number) => [number, number, number];
     readonly wasmlibrary_get_text_element_info: (a: number, b: number, c: number) => any;
@@ -982,6 +1003,7 @@ export interface InitOutput {
     readonly wasmlibrary_remove_layer_color: (a: number, b: number, c: number) => void;
     readonly wasmlibrary_rename_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly wasmlibrary_set_active_cell: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_set_cell_image_bounds: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmlibrary_set_cell_origin: (a: number, b: number, c: number) => number;
     readonly wasmlibrary_set_cell_ref_array: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly wasmlibrary_set_cell_ref_transform: (a: number, b: number, c: number, d: number, e: number) => number;

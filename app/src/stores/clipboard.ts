@@ -68,6 +68,35 @@ export interface TextSnapshot {
 }
 
 /**
+ * Snapshot of an image overlay for clipboard operations.
+ *
+ * Images are ephemeral visual annotations — not part of GDS layout.
+ * The snapshot stores the object URL (which remains valid within the
+ * same session) and all positioning/sizing metadata.
+ */
+export interface ImageSnapshot {
+  type: "image";
+  /** Object URL for rendering. */
+  url: string;
+  /** Original filename. */
+  filename: string;
+  /** World-coordinate X position (top-left). */
+  x: number;
+  /** World-coordinate Y position (top-left). */
+  y: number;
+  /** Width in world units. */
+  width: number;
+  /** Height in world units. */
+  height: number;
+  /** Original pixel width. */
+  naturalWidth: number;
+  /** Original pixel height. */
+  naturalHeight: number;
+  /** Whether aspect ratio is locked. */
+  lockAspectRatio: boolean;
+}
+
+/**
  * Polygon-only element snapshot.
  *
  * Used by commands that only operate on polygons (layer changes, resize, etc.).
@@ -83,7 +112,7 @@ export interface ElementSnapshot {
 }
 
 /** Any element snapshot that can live on the clipboard. */
-export type ClipboardSnapshot = PolygonSnapshot | PathSnapshot | CellRefSnapshot | TextSnapshot;
+export type ClipboardSnapshot = PolygonSnapshot | PathSnapshot | CellRefSnapshot | TextSnapshot | ImageSnapshot;
 
 /**
  * Clipboard state for copy/paste operations.
