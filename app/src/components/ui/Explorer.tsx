@@ -28,6 +28,7 @@ import { isTauri } from "@/lib/tauri";
 import { handleNewFile } from "@/lib/file-ops";
 import { cn, keys, centerViewOnSelection, getAllImageIds, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
 import { useArrayDialogStore } from "@/stores/array-dialog";
+import { useGoToDialogStore } from "@/stores/goto-dialog";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useTabsStore, switchTab } from "@/stores/tabs";
 import type { Tab } from "@/stores/tabs";
@@ -609,6 +610,15 @@ function HamburgerMenu({ isDark }: { isDark: boolean }) {
                 .zoomToSelected(bounds, vp.width, vp.height, vp.screenCenter);
             },
             disabled: !hasSelection,
+          },
+          { id: "sep-view-2", separator: true as const },
+          {
+            id: "goToCoordinate",
+            label: "Go to Coordinate\u2026",
+            action: () => {
+              useGoToDialogStore.getState().open();
+            },
+            disabled: false,
           },
         ];
       },

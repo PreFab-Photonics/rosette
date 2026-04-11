@@ -8,6 +8,7 @@ import { StatusBar } from "@/components/ui/StatusBar";
 import { Toolbar } from "@/components/ui/Toolbar";
 import { UpdateNotification } from "@/components/ui/UpdateNotification";
 import { ArrayDialog } from "@/components/ui/ArrayDialog";
+import { GoToDialog } from "@/components/ui/GoToDialog";
 import { useUIStore } from "@/stores/ui";
 import {
   useTabsStore,
@@ -249,6 +250,7 @@ export default function App() {
           {!isSm && <Minimap />}
           <CommandPalette />
           <ArrayDialog />
+          <GoToDialog />
         </div>
         <StatusBar compact={isMd || isSm} minimal={isSm} />
       </div>
@@ -269,6 +271,7 @@ export default function App() {
         {!isSm && <Minimap />}
         <CommandPalette />
         <ArrayDialog />
+        <GoToDialog />
       </div>
 
       {/* Docked status bar */}

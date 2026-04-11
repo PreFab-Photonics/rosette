@@ -40,6 +40,7 @@ import type { BooleanOpType } from "@/lib/commands";
 import { useRulerStore } from "@/stores/ruler";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useArrayDialogStore } from "@/stores/array-dialog";
+import { useGoToDialogStore } from "@/stores/goto-dialog";
 import { pickAndInsertImage } from "@/lib/image-ops";
 import { keys, getAllImageIds, getEffectiveViewport, getImageBoundsForIds, zoomToFitAll } from "@/lib/utils";
 
@@ -390,6 +391,16 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Zoom to fit selection selected elements",
+    },
+    {
+      id: "view-go-to",
+      type: "command",
+      name: "View: Go to Coordinate",
+      action: () => {
+        useGoToDialogStore.getState().open();
+        close();
+      },
+      searchableText: "Go to coordinate position navigate pan center xy jump move",
     },
 
     // =========================================================================
