@@ -58,7 +58,8 @@ function Hero() {
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-fd-muted-foreground">
-            A fast, intelligent, and accessible GDSII layout editor built for modern workflows
+            A fast, intelligent, and accessible GDSII layout editor built for
+            modern workflows
           </p>
 
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
