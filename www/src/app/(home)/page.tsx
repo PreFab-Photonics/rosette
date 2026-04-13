@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { blog } from "@/lib/source";
 import { CopyButton } from "./components/copy-button";
 import { HeroViewer } from "./components/hero-viewer";
 import { RedactedText } from "./components/redacted-text";
@@ -343,6 +345,103 @@ function WhatsInside() {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Recent Blog Posts                                                         */
+/* -------------------------------------------------------------------------- */
+
+function RecentPosts() {
+  const posts = blog
+    .getPages()
+    .sort(
+      (a, b) =>
+        new Date(b.data.date).getTime() - new Date(a.data.date).getTime(),
+    )
+    .slice(0, 3);
+
+  if (posts.length === 0) return null;
+
+  return (
+    <section className="relative mx-auto max-w-6xl px-6 py-16">
+      {/* Subtle divider */}
+      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
+
+      <div className="flex items-center gap-3 mb-3">
+        <div className="h-px w-8 bg-fd-border" />
+        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
+          Blog
+        </span>
+      </div>
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground italic">
+        From the blog
+      </h2>
+
+      <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {posts.map((post, i) => (
+          <Link
+            key={post.url}
+            href={post.url}
+            className="group rounded-xl border border-fd-border p-5 transition-colors hover:border-fd-ring sm:p-6"
+          >
+            <div className="flex items-center gap-3">
+              <time className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
+                {new Date(post.data.date).toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                  timeZone: "UTC",
+                })}
+              </time>
+              {i === 0 && (
+                <span className="rounded-full bg-brand-purple/10 px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium text-brand-purple uppercase dark:bg-brand-purple-light/10 dark:text-brand-purple-light">
+                  Latest
+                </span>
+              )}
+            </div>
+            <h3 className="mt-2 text-base font-semibold text-fd-foreground transition-colors group-hover:text-brand-purple dark:group-hover:text-brand-purple-light">
+              {post.data.title}
+            </h3>
+            {post.data.description && (
+              <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-fd-muted-foreground">
+                {post.data.description}
+              </p>
+            )}
+          </Link>
+        ))}
+        {/* Empty slots to fill the 3-column grid */}
+        {posts.length < 3 && (
+          <div className="hidden rounded-xl border border-dashed border-fd-border p-5 sm:p-6 lg:block" />
+        )}
+        {posts.length < 2 && (
+          <div className="hidden rounded-xl border border-dashed border-fd-border p-5 sm:p-6 lg:block" />
+        )}
+      </div>
+
+      <div className="mt-8">
+        <Link
+          href="/blog"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-purple transition-colors hover:text-brand-purple-dark dark:text-brand-purple-light dark:hover:text-brand-purple"
+        >
+          View all posts
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Closing CTA                                                               */
 /* -------------------------------------------------------------------------- */
 
@@ -448,6 +547,7 @@ export default function HomePage() {
       <Hero />
       <WhyRosette />
       <WhatsInside />
+      <RecentPosts />
       <ClosingCTA />
     </>
   );
