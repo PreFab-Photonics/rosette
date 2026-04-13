@@ -43,14 +43,14 @@ export function ViewerEmbed({
   // Still checking — show placeholder matching the viewer dimensions
   if (supported === null) {
     return (
-      <div className="aspect-[16/9] w-full rounded-xl border border-fd-border bg-fd-card shadow-md shadow-fd-border/20" />
+      <div className="aspect-[16/9] w-full rounded-xl border border-fd-border bg-fd-card shadow-md dark:shadow-elevation" />
     );
   }
 
   // WebGPU not supported — fall back to code block
   if (!supported) {
     return (
-      <div className="overflow-hidden rounded-xl border border-fd-border bg-fd-card shadow-md shadow-fd-border/20">
+      <div className="overflow-hidden rounded-xl border border-fd-border bg-fd-card shadow-md dark:shadow-elevation">
         <div className="overflow-x-auto p-5">
           <pre className="text-[13px] leading-relaxed font-[family-name:var(--font-geist-mono)] text-fd-muted-foreground">
             <code>{fallback}</code>
@@ -62,7 +62,7 @@ export function ViewerEmbed({
 
   // WebGPU supported — render interactive viewer
   return (
-    <div className="select-none overflow-hidden rounded-xl border border-fd-border shadow-md shadow-fd-border/20 ring-1 ring-inset ring-fd-accent">
+    <div className="select-none overflow-hidden rounded-xl border border-fd-border shadow-md dark:shadow-elevation ring-1 ring-inset ring-fd-accent">
       <iframe
         ref={iframeRef}
         src={src}

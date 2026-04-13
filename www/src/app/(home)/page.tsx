@@ -81,7 +81,7 @@ function Hero() {
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground dark:shadow-none">
+              <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
                 <span className="select-none text-emerald-400">~&nbsp;</span>
                 pip install librosette
                 <CopyButton text="pip install librosette" />
@@ -123,7 +123,7 @@ function Hero() {
                 href="https://github.com/prefab-photonics/rosette"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm text-sm font-medium text-fd-foreground transition-colors hover:border-fd-ring dark:shadow-none"
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm text-sm font-medium text-fd-foreground transition-colors hover:border-fd-ring"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -379,7 +379,7 @@ function RecentPosts() {
           <Link
             key={post.url}
             href={post.url}
-            className="group rounded-xl border border-fd-border p-5 transition-colors hover:border-fd-ring sm:p-6"
+            className="group rounded-xl border border-fd-border p-5 shadow-sm transition-colors hover:border-fd-ring dark:shadow-elevation sm:p-6"
           >
             <div className="flex items-center gap-3">
               <time className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
@@ -470,7 +470,7 @@ function ClosingCTA() {
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             {/* pip install — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground dark:shadow-none">
+              <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
                 <span className="select-none text-emerald-400">~&nbsp;</span>
                 pip install librosette
                 <CopyButton text="pip install librosette" />
@@ -512,7 +512,7 @@ function ClosingCTA() {
                 href="https://github.com/prefab-photonics/rosette"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm text-sm font-medium text-fd-foreground transition-colors hover:border-fd-ring dark:shadow-none"
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm text-sm font-medium text-fd-foreground transition-colors hover:border-fd-ring"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
