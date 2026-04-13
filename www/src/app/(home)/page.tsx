@@ -54,28 +54,11 @@ function Hero() {
           </div>
 
           <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl lg:text-6xl">
-            A GDSII layout editor for{" "}
-            <span className="text-brand-purple dark:text-brand-purple-light">
-              modern workflows
-            </span>
+            Enjoy making chips
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-fd-muted-foreground">
-            <span className="font-medium text-fd-foreground">
-              Fast. Intelligent. Accessible.
-            </span>
-          </p>
-
-          <p className="mt-3 text-sm text-fd-muted-foreground">
-            by{" "}
-            <a
-              href="https://prefabphotonics.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="transition-colors hover:text-fd-foreground"
-            >
-              PreFab Photonics
-            </a>
+            A fast, intelligent, and accessible GDSII layout editor built for modern workflows
           </p>
 
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
@@ -456,10 +439,7 @@ function ClosingCTA() {
       <div className="mx-auto max-w-6xl px-6 pt-16 pb-32">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-fd-foreground sm:text-4xl">
-            Your GDSII{" "}
-            <span className="text-brand-purple dark:text-brand-purple-light">
-              layout editor
-            </span>
+            Your next GDSII layout editor
           </h2>
           <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-fd-muted-foreground">
             Thousands of geometry operations, routing decisions, and design
