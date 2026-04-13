@@ -107,9 +107,7 @@ function CoordinateField({
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus={autoFocus}
         />
-        <span
-          className={cn("w-6 text-xs select-none", isDark ? "text-white/40" : "text-black/40")}
-        >
+        <span className={cn("w-6 text-xs select-none", isDark ? "text-white/40" : "text-black/40")}>
           {"\u00B5m"}
         </span>
       </div>

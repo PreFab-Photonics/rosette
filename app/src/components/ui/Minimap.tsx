@@ -366,7 +366,17 @@ export function Minimap() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom, offset, isMinimized, colors, getCanvasRect, undoCount, redoCount, allImages, activeCell]);
+  }, [
+    zoom,
+    offset,
+    isMinimized,
+    colors,
+    getCanvasRect,
+    undoCount,
+    redoCount,
+    allImages,
+    activeCell,
+  ]);
 
   // ============================================================
   // Don't render when minimized — toggle lives in StatusBar

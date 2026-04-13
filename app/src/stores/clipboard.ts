@@ -112,7 +112,12 @@ export interface ElementSnapshot {
 }
 
 /** Any element snapshot that can live on the clipboard. */
-export type ClipboardSnapshot = PolygonSnapshot | PathSnapshot | CellRefSnapshot | TextSnapshot | ImageSnapshot;
+export type ClipboardSnapshot =
+  | PolygonSnapshot
+  | PathSnapshot
+  | CellRefSnapshot
+  | TextSnapshot
+  | ImageSnapshot;
 
 /**
  * Clipboard state for copy/paste operations.

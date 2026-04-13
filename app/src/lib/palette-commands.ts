@@ -42,7 +42,13 @@ import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { useGoToDialogStore } from "@/stores/goto-dialog";
 import { pickAndInsertImage } from "@/lib/image-ops";
-import { keys, getAllImageIds, getEffectiveViewport, getImageBoundsForIds, zoomToFitAll } from "@/lib/utils";
+import {
+  keys,
+  getAllImageIds,
+  getEffectiveViewport,
+  getImageBoundsForIds,
+  zoomToFitAll,
+} from "@/lib/utils";
 
 // =============================================================================
 // Types

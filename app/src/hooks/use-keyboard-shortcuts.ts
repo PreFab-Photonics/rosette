@@ -34,7 +34,13 @@ import { useUIStore } from "@/stores/ui";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useLayerStore } from "@/stores/layer";
 import { useTextStore } from "@/stores/text";
-import { centerViewOnSelection, getAllImageIds, getEffectiveViewport, getImageBoundsForIds, zoomToFitAll } from "@/lib/utils";
+import {
+  centerViewOnSelection,
+  getAllImageIds,
+  getEffectiveViewport,
+  getImageBoundsForIds,
+  zoomToFitAll,
+} from "@/lib/utils";
 
 /** Keys tracked for continuous panning. */
 const PAN_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);

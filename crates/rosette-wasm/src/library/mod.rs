@@ -2432,8 +2432,12 @@ impl WasmLibrary {
         let result = js_sys::Array::new();
         for (name, t) in &contexts {
             let obj = js_sys::Object::new();
-            js_sys::Reflect::set(&obj, &JsValue::from_str("cellName"), &JsValue::from_str(name))
-                .ok();
+            js_sys::Reflect::set(
+                &obj,
+                &JsValue::from_str("cellName"),
+                &JsValue::from_str(name),
+            )
+            .ok();
             let transform = js_sys::Float64Array::new_with_length(6);
             transform.copy_from(t);
             js_sys::Reflect::set(&obj, &JsValue::from_str("transform"), &transform.into()).ok();

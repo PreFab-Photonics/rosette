@@ -26,7 +26,14 @@ import {
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
 import { isTauri } from "@/lib/tauri";
 import { handleNewFile } from "@/lib/file-ops";
-import { cn, keys, centerViewOnSelection, getAllImageIds, getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
+import {
+  cn,
+  keys,
+  centerViewOnSelection,
+  getAllImageIds,
+  getEffectiveViewport,
+  zoomToFitAll,
+} from "@/lib/utils";
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { useGoToDialogStore } from "@/stores/goto-dialog";
 import { Tooltip } from "@/components/ui/Tooltip";
