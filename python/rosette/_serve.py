@@ -6,7 +6,9 @@ Tauri/browser viewer management.
 
 from __future__ import annotations
 
+import os
 import shutil
+import signal
 import subprocess
 import sys
 import webbrowser
@@ -330,10 +332,75 @@ def _find_tauri_source() -> Path | None:
     return None
 
 
-def _launch_tauri(url: str, allow_build: bool = False) -> subprocess.Popen | None:
+def _pgrep(name: str) -> set[int]:
+    """Return the set of PIDs whose process name matches *name*."""
+    try:
+        out = subprocess.check_output(["pgrep", "-x", name], stderr=subprocess.DEVNULL, text=True)
+        return {int(pid) for pid in out.split() if pid.strip()}
+    except (subprocess.CalledProcessError, OSError):
+        return set()
+
+
+class _PidHandle:
+    """Minimal Popen-like wrapper around an OS pid for ``_cleanup_tauri``.
+
+    When we launch via ``open -a`` we don't get a ``subprocess.Popen``
+    object for the actual app — only for the short-lived ``open`` helper.
+    This wrapper exposes ``poll()`` / ``terminate()`` / ``kill()`` backed
+    by ``os.kill`` so ``_cleanup_tauri`` works unchanged.
+    """
+
+    def __init__(self, pid: int | None):
+        self._pid = pid
+
+    def poll(self) -> int | None:
+        """Return None if the process is still running, else an int."""
+        if self._pid is None:
+            return 0
+        try:
+            os.kill(self._pid, 0)  # signal 0 — existence check
+            return None  # still alive
+        except ProcessLookupError:
+            return 0  # already exited
+        except PermissionError:
+            return None  # alive but owned by another user (shouldn't happen)
+
+    def terminate(self):
+        if self._pid is None:
+            return
+        try:
+            os.kill(self._pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def kill(self):
+        if self._pid is None:
+            return
+        try:
+            os.kill(self._pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def wait(self, timeout: float = 0):
+        """Best-effort wait — poll until the process exits or timeout."""
+        if self._pid is None:
+            return
+        import time
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.poll() is not None:
+                return
+            time.sleep(0.1)
+        raise subprocess.TimeoutExpired(cmd="rosette-desktop", timeout=timeout)
+
+
+def _launch_tauri(
+    url: str, allow_build: bool = False, design_mode: bool = True
+) -> subprocess.Popen | _PidHandle | None:
     """Launch the Tauri desktop app pointing at the given URL.
 
-    On macOS, prefers the binary inside an installed Rosette.app bundle
+    On macOS, prefers the installed Rosette.app bundle (via ``open -a``)
     so the Dock shows the correct icon and app identity. Falls back to
     a raw binary from target/, then to ``cargo run`` when *allow_build*
     is True (explicit ``--native`` flag), since building from source
@@ -341,32 +408,61 @@ def _launch_tauri(url: str, allow_build: bool = False) -> subprocess.Popen | Non
 
     Returns the subprocess handle, or None on failure.
     """
-    design_url = f"{url}?design=true" if "?" not in url else url
+    target_url = f"{url}?design=true" if design_mode and "?" not in url else url
 
     # On macOS, prefer the installed .app bundle so the Dock shows the
     # correct icon and app identity instead of a generic "exec" icon.
-    # Launch the inner binary directly (Contents/MacOS/Rosette) so we
-    # get a real process handle for cleanup on Ctrl+C.
+    # Use ``open -a`` so macOS properly associates the process with the
+    # .app bundle (correct Dock icon, app name, and focus behavior).
     installed_app = _find_installed_app()
     if installed_app:
-        inner_binary = installed_app / "Contents" / "MacOS" / "Rosette"
+        # The inner binary name comes from the Cargo package name
+        # (rosette-desktop), not the Tauri productName (Rosette).
+        inner_binary = installed_app / "Contents" / "MacOS" / "rosette-desktop"
         if inner_binary.exists() and inner_binary.is_file():
             try:
-                proc = subprocess.Popen(
-                    [str(inner_binary), "--url", design_url],
+                # Launch via ``open -a`` so macOS shows the correct Dock
+                # icon, then find the actual app PID for cleanup.
+                pids_before = _pgrep("rosette-desktop")
+
+                subprocess.run(
+                    [
+                        "open",
+                        "-a",
+                        str(installed_app),
+                        "--args",
+                        "--url",
+                        target_url,
+                    ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    check=True,
                 )
-                return proc
-            except OSError:
-                pass  # Binary exists but failed to run, try raw binary
+
+                # ``open`` returns once the launch is initiated, but the
+                # rosette-desktop process may not be visible to pgrep yet.
+                # Retry briefly to give it time to start.
+                import time
+
+                for _ in range(10):  # up to ~1s
+                    time.sleep(0.1)
+                    pids_after = _pgrep("rosette-desktop")
+                    new_pids = pids_after - pids_before
+                    if new_pids:
+                        return _PidHandle(new_pids.pop())
+
+                # App launched but couldn't identify new PID (may have reused
+                # an existing instance). Return a no-op handle.
+                return _PidHandle(None)
+            except (OSError, subprocess.CalledProcessError):
+                pass  # Failed to launch via open, try raw binary
 
     # Try pre-built binary (instant startup)
     binary = _find_tauri_binary()
     if binary:
         try:
             proc = subprocess.Popen(
-                [str(binary), "--url", design_url],
+                [str(binary), "--url", target_url],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -397,7 +493,7 @@ def _launch_tauri(url: str, allow_build: bool = False) -> subprocess.Popen | Non
                 "rosette-desktop",
                 "--",
                 "--url",
-                design_url,
+                target_url,
             ],
             cwd=str(tauri_dir.parent.parent),  # workspace root
         )
@@ -414,16 +510,16 @@ def _open_viewer(
     native_explicit: bool,
     design_mode: bool = True,
     label: str = "",
-) -> subprocess.Popen | None:
+) -> subprocess.Popen | _PidHandle | None:
     """Open the viewer in a native Tauri window or browser.
 
-    Returns the Tauri subprocess handle, or None if browser was used.
+    Returns the Tauri process handle, or None if browser was used.
     """
     browser_url = f"{url}?design=true" if design_mode else url
     status = f"{url}  |  {label}  |  " if label else f"{url}  |  "
 
     if use_native:
-        proc = _launch_tauri(url, allow_build=allow_build)
+        proc = _launch_tauri(url, allow_build=allow_build, design_mode=design_mode)
         if proc:
             print(f"{status}native  |  Ctrl+C to stop")
             return proc
@@ -436,7 +532,7 @@ def _open_viewer(
     return None
 
 
-def _cleanup_tauri(proc: subprocess.Popen | None):
+def _cleanup_tauri(proc: subprocess.Popen | _PidHandle | None):
     """Terminate a Tauri process if still running."""
     if proc and proc.poll() is None:
         proc.terminate()
@@ -476,13 +572,9 @@ def serve_design(
     server, url = _start_server(port)
 
     # Resolve native mode: auto-detect if not explicitly set.
-    # Auto-detect only uses a pre-built binary or installed app (instant).
-    # Building from source (cargo run) only happens with explicit --native.
-    use_native = (
-        bool(native)
-        if native is not None
-        else _find_installed_app() is not None or _find_tauri_binary() is not None
-    )
+    # Auto-detect only uses the installed .app bundle (correct Dock identity).
+    # Raw dev binaries and cargo build only happen with explicit --native.
+    use_native = bool(native) if native is not None else _find_installed_app() is not None
     allow_build = native is True  # only build from source if explicitly requested
 
     tauri_proc = None
@@ -615,12 +707,9 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
 
     server, url = _start_server(port)
 
-    # Resolve native mode (auto-detect uses installed app or pre-built binary)
-    use_native = (
-        bool(native)
-        if native is not None
-        else _find_installed_app() is not None or _find_tauri_binary() is not None
-    )
+    # Resolve native mode: auto-detect only uses the installed .app bundle.
+    # Raw dev binaries and cargo build only happen with explicit --native.
+    use_native = bool(native) if native is not None else _find_installed_app() is not None
     allow_build = native is True
 
     tauri_proc = None
