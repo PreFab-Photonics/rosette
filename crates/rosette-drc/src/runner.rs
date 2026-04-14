@@ -1,10 +1,10 @@
 //! DRC execution engine.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use rosette_core::cell::Element;
-use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform, offset_polygon};
+use rosette_core::{BBox, Cell, Layer, Library, Point, Polygon, Transform, offset_polygon};
 
 use crate::checks::{
     check_angles, check_area, check_edge_length, check_enclosure, check_forbid_overlap_bulk,
@@ -50,13 +50,36 @@ pub struct DrcRunner {
     rules: DrcRules,
 }
 
+/// Polygons from a single cell instance with its bounding box.
+///
+/// Used for instance-level spatial culling: only instances whose bounding
+/// boxes are within interaction range need their polygons cross-checked.
+struct InstancePolygons {
+    polygons_by_layer: HashMap<Layer, Vec<(Polygon, usize)>>,
+    bbox: BBox,
+}
+
 impl DrcRunner {
     /// Create a new DRC runner with the given rules.
     pub fn new(rules: DrcRules) -> Self {
         Self { rules }
     }
 
-    /// Run DRC on a cell, flattening all cell references.
+    /// Run DRC on a cell with hierarchy-aware optimization.
+    ///
+    /// Three-phase approach:
+    ///
+    /// 1. **Per-polygon rules** (width, area, angles, edge length, self-intersection):
+    ///    checked on each unique cell definition only once. These properties are
+    ///    invariant under rigid transforms.
+    ///
+    /// 2. **Intra-cell pairwise rules** (same-layer spacing, overlap): checked within
+    ///    each unique cell's local geometry once. If a cell's internal polygons don't
+    ///    overlap or violate spacing, no instance of that cell will either.
+    ///
+    /// 3. **Inter-instance pairwise rules**: flattened polygons grouped by source
+    ///    instance, with instance-level bbox pre-culling so only nearby instances
+    ///    have their polygons cross-checked.
     ///
     /// # Arguments
     ///
@@ -65,15 +88,79 @@ impl DrcRunner {
     pub fn check(&self, cell: &Cell, library: Option<&Library>) -> DrcResult {
         let start = Instant::now();
 
-        // Flatten cell to get all polygons with transforms applied
-        let polygons_by_layer = self.flatten_cell(cell, library, &Transform::identity());
+        // Classify rules into per-polygon and pairwise categories
+        let (per_polygon_rules, pairwise_rules): (Vec<&Rule>, Vec<&Rule>) =
+            self.rules.rules().iter().partition(|rule| match rule {
+                Rule::MinWidth { .. }
+                | Rule::MinArea { .. }
+                | Rule::AllowedAngles { .. }
+                | Rule::MinEdgeLength { .. }
+                | Rule::SelfIntersection { .. }
+                | Rule::MaxWidth { .. } => true,
+                Rule::MinSpacing { .. }
+                | Rule::Enclosure { .. }
+                | Rule::RequireOverlap { .. }
+                | Rule::ForbidOverlap { .. } => false,
+            });
 
-        let polygons_checked: usize = polygons_by_layer.values().map(|v| v.len()).sum();
         let mut violations = Vec::new();
 
-        for rule in self.rules.rules() {
-            let rule_violations = self.check_rule(rule, &polygons_by_layer);
-            violations.extend(rule_violations);
+        // Phase 1: Per-polygon rules — check each unique cell once.
+        // These rules examine individual polygon properties (width, area, angles,
+        // etc.) which are invariant under rigid transforms (rotation + translation).
+        let mut checked_cells: HashSet<String> = HashSet::new();
+        if !per_polygon_rules.is_empty() {
+            self.check_per_polygon_hierarchical(
+                cell,
+                library,
+                &per_polygon_rules,
+                &Transform::identity(),
+                &mut checked_cells,
+                &mut violations,
+            );
+        }
+
+        // Phase 2 & 3: Pairwise rules — intra-cell once + inter-instance with culling
+        let polygons_checked: usize;
+        if !pairwise_rules.is_empty() {
+            // Phase 2: Intra-cell pairwise checks (each unique cell once)
+            let mut intra_checked: HashSet<String> = HashSet::new();
+            self.check_intra_cell_pairwise(
+                cell,
+                library,
+                &pairwise_rules,
+                &mut intra_checked,
+                &mut violations,
+            );
+
+            // Phase 3: Inter-instance pairwise checks
+            // Flatten into per-instance groups for instance-level bbox culling
+            let mut instance_groups: Vec<InstancePolygons> = Vec::new();
+            let mut global_index = 0usize;
+            self.flatten_into_groups(
+                cell,
+                library,
+                &Transform::identity(),
+                &mut instance_groups,
+                &mut global_index,
+            );
+
+            polygons_checked = instance_groups
+                .iter()
+                .map(|g| g.polygons_by_layer.values().map(|v| v.len()).sum::<usize>())
+                .sum();
+
+            // Merge all polygons into a flat map but tag them with instance id.
+            // Then for pairwise rules, use inter-instance checking.
+            let merged = Self::merge_instance_groups(&instance_groups);
+
+            for rule in &pairwise_rules {
+                let rule_violations =
+                    self.check_pairwise_rule_inter_instance(rule, &instance_groups, &merged);
+                violations.extend(rule_violations);
+            }
+        } else {
+            polygons_checked = self.count_polygons(cell, library);
         }
 
         DrcResult {
@@ -86,31 +173,137 @@ impl DrcRunner {
         }
     }
 
-    /// Flatten a cell recursively, applying transforms.
+    /// Check per-polygon rules hierarchically, visiting each unique cell once.
     ///
-    /// Handles all element types:
-    /// - Polygons are transformed directly
-    /// - Paths are converted to polygon ribbons via `offset_polygon`
-    /// - CellRefs are recursively expanded, including array repetitions
-    /// - Text elements are skipped (not geometric)
-    fn flatten_cell(
+    /// For cells referenced only through rigid transforms (rotation, translation,
+    /// reflection), per-polygon properties are invariant so we check local
+    /// (untransformed) geometry once. For non-rigid transforms (non-uniform scale),
+    /// the transformed geometry is checked per instance since width/area/angles
+    /// change under such transforms.
+    fn check_per_polygon_hierarchical(
+        &self,
+        cell: &Cell,
+        library: Option<&Library>,
+        rules: &[&Rule],
+        transform: &Transform,
+        checked_cells: &mut HashSet<String>,
+        violations: &mut Vec<DrcViolation>,
+    ) {
+        if transform.is_rigid() {
+            // Rigid transform: per-polygon properties are invariant, check once
+            if checked_cells.insert(cell.name().to_string()) {
+                let local_polygons = self.collect_local_polygons(cell);
+                for rule in rules {
+                    let rule_violations = self.check_rule(rule, &local_polygons);
+                    violations.extend(rule_violations);
+                }
+            }
+        } else {
+            // Non-rigid transform: must check transformed geometry per instance
+            let transformed_polygons = self.collect_transformed_polygons(cell, transform);
+            for rule in rules {
+                let rule_violations = self.check_rule(rule, &transformed_polygons);
+                violations.extend(rule_violations);
+            }
+        }
+
+        for element in cell.elements() {
+            if let Element::CellRef(cell_ref) = element
+                && let Some(lib) = library
+                && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
+            {
+                let transforms = Self::expand_cellref_transforms(cell_ref);
+                for copy_transform in transforms {
+                    let combined = transform.then(&copy_transform);
+                    self.check_per_polygon_hierarchical(
+                        ref_cell,
+                        Some(lib),
+                        rules,
+                        &combined,
+                        checked_cells,
+                        violations,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Check intra-cell pairwise rules (same-layer spacing and overlap only).
+    ///
+    /// Each unique cell is checked once. This catches overlapping polygons and
+    /// spacing violations within a cell definition without needing to flatten.
+    /// Only same-layer rules benefit from this optimization; cross-layer rules
+    /// (enclosure, require_overlap) are handled in the full merged pass.
+    fn check_intra_cell_pairwise(
+        &self,
+        cell: &Cell,
+        library: Option<&Library>,
+        rules: &[&Rule],
+        checked_cells: &mut HashSet<String>,
+        violations: &mut Vec<DrcViolation>,
+    ) {
+        if checked_cells.insert(cell.name().to_string()) {
+            let local_polygons = self.collect_local_polygons(cell);
+            // Only run same-layer forbid_overlap and same-layer spacing rules
+            for rule in rules {
+                let is_same_layer_pairwise = match rule {
+                    Rule::MinSpacing { layer1, layer2, .. } => layer1 == layer2,
+                    Rule::ForbidOverlap { layer1, layer2, .. } => layer1 == layer2,
+                    _ => false,
+                };
+                if is_same_layer_pairwise {
+                    let rule_violations = self.check_rule(rule, &local_polygons);
+                    violations.extend(rule_violations);
+                }
+            }
+        }
+
+        for element in cell.elements() {
+            if let Element::CellRef(cell_ref) = element
+                && let Some(lib) = library
+                && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
+            {
+                self.check_intra_cell_pairwise(
+                    ref_cell,
+                    Some(lib),
+                    rules,
+                    checked_cells,
+                    violations,
+                );
+            }
+        }
+    }
+
+    /// Flatten cell hierarchy into per-instance polygon groups.
+    ///
+    /// Each leaf-level grouping has its own set of transformed polygons and
+    /// a bounding box for fast inter-instance culling.
+    fn flatten_into_groups(
         &self,
         cell: &Cell,
         library: Option<&Library>,
         transform: &Transform,
-    ) -> HashMap<Layer, Vec<(Polygon, usize)>> {
-        let mut result: HashMap<Layer, Vec<(Polygon, usize)>> = HashMap::new();
-        let mut global_index = 0usize;
+        groups: &mut Vec<InstancePolygons>,
+        global_index: &mut usize,
+    ) {
+        // Collect this cell's own polygons as one instance group
+        let mut local_polys: HashMap<Layer, Vec<(Polygon, usize)>> = HashMap::new();
+        let mut local_bbox: Option<BBox> = None;
 
         for element in cell.elements() {
             match element {
                 Element::Polygon { polygon, layer } => {
                     let transformed = polygon.transform(transform);
-                    result
+                    let poly_bbox = transformed.bbox();
+                    local_bbox = Some(match local_bbox {
+                        Some(b) => b.merge(&poly_bbox),
+                        None => poly_bbox,
+                    });
+                    local_polys
                         .entry(*layer)
                         .or_default()
-                        .push((transformed, global_index));
-                    global_index += 1;
+                        .push((transformed, *global_index));
+                    *global_index += 1;
                 }
                 Element::Path {
                     points,
@@ -118,65 +311,309 @@ impl DrcRunner {
                     layer,
                     ..
                 } => {
-                    // Transform path points and scale width
                     let transformed_points: Vec<Point> =
                         points.iter().map(|p| transform.apply(*p)).collect();
                     let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
                     let scaled_width = *width * scale;
 
-                    // Convert to polygon ribbon (same as flatten.rs)
                     if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
-                        result
+                        let poly_bbox = ribbon.bbox();
+                        local_bbox = Some(match local_bbox {
+                            Some(b) => b.merge(&poly_bbox),
+                            None => poly_bbox,
+                        });
+                        local_polys
                             .entry(*layer)
                             .or_default()
-                            .push((ribbon, global_index));
-                        global_index += 1;
+                            .push((ribbon, *global_index));
+                        *global_index += 1;
                     }
                 }
                 Element::CellRef(cell_ref) => {
                     if let Some(lib) = library
                         && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
                     {
-                        // Build list of transforms, expanding repetitions
-                        let transforms = match &cell_ref.repetition {
-                            None => vec![cell_ref.transform],
-                            Some(rep) if rep.is_single() => vec![cell_ref.transform],
-                            Some(rep) => {
-                                let mut ts = Vec::with_capacity(rep.count());
-                                for row in 0..rep.rows {
-                                    for col in 0..rep.columns {
-                                        let dx = col as f64 * rep.col_spacing;
-                                        let dy = row as f64 * rep.row_spacing;
-                                        ts.push(
-                                            Transform::translate(dx, dy).then(&cell_ref.transform),
-                                        );
-                                    }
-                                }
-                                ts
-                            }
-                        };
-
-                        for copy_transform in transforms {
+                        for copy_transform in Self::expand_cellref_transforms(cell_ref) {
                             let combined = transform.then(&copy_transform);
-                            let child_polygons = self.flatten_cell(ref_cell, Some(lib), &combined);
-
-                            for (layer, polys) in child_polygons {
-                                let entry = result.entry(layer).or_default();
-                                for (poly, _) in polys {
-                                    entry.push((poly, global_index));
-                                    global_index += 1;
-                                }
-                            }
+                            self.flatten_into_groups(
+                                ref_cell,
+                                Some(lib),
+                                &combined,
+                                groups,
+                                global_index,
+                            );
                         }
                     }
                 }
-                Element::Text { .. } => {
-                    // Skip text elements — not geometric
+                Element::Text { .. } => {}
+            }
+        }
+
+        if !local_polys.is_empty()
+            && let Some(bbox) = local_bbox
+        {
+            groups.push(InstancePolygons {
+                polygons_by_layer: local_polys,
+                bbox,
+            });
+        }
+    }
+
+    /// Merge all instance groups into one flat polygon map (for rules that need it).
+    fn merge_instance_groups(groups: &[InstancePolygons]) -> HashMap<Layer, Vec<(Polygon, usize)>> {
+        let mut merged: HashMap<Layer, Vec<(Polygon, usize)>> = HashMap::new();
+        for group in groups {
+            for (layer, polys) in &group.polygons_by_layer {
+                merged
+                    .entry(*layer)
+                    .or_default()
+                    .extend(polys.iter().cloned());
+            }
+        }
+        merged
+    }
+
+    /// Check a pairwise rule with inter-instance optimization.
+    ///
+    /// For same-layer spacing and forbid_overlap, intra-cell checks are already
+    /// done in Phase 2, so here we only check inter-instance polygon pairs using
+    /// instance-level bbox culling. For all other rules (cross-layer spacing,
+    /// enclosure, require_overlap), we fall back to the full merged polygon set.
+    fn check_pairwise_rule_inter_instance(
+        &self,
+        rule: &Rule,
+        instance_groups: &[InstancePolygons],
+        merged: &HashMap<Layer, Vec<(Polygon, usize)>>,
+    ) -> Vec<DrcViolation> {
+        match rule {
+            Rule::MinSpacing {
+                layer1,
+                layer2,
+                spacing,
+                name,
+            } if layer1 == layer2 => self.check_inter_instance_spacing(
+                instance_groups,
+                *layer1,
+                *spacing,
+                name.as_deref(),
+            ),
+            Rule::ForbidOverlap {
+                layer1,
+                layer2,
+                name,
+            } if layer1 == layer2 => {
+                self.check_inter_instance_overlap(instance_groups, *layer1, name.as_deref())
+            }
+            // Cross-layer and non-optimizable rules: full merged polygon check.
+            // These were NOT checked in the intra-cell phase, so no dedup issue.
+            _ => self.check_rule(rule, merged),
+        }
+    }
+
+    /// Check minimum spacing between polygons from different instances only.
+    ///
+    /// Uses instance-level bbox expansion to skip pairs that can't possibly
+    /// violate the spacing rule.
+    fn check_inter_instance_spacing(
+        &self,
+        groups: &[InstancePolygons],
+        layer: Layer,
+        min_spacing: f64,
+        rule_name: Option<&str>,
+    ) -> Vec<DrcViolation> {
+        let mut violations = Vec::new();
+
+        for (i, group_i) in groups.iter().enumerate() {
+            let polys_i = match group_i.polygons_by_layer.get(&layer) {
+                Some(p) if !p.is_empty() => p,
+                _ => continue,
+            };
+
+            let expanded_i = group_i.bbox.expand_by(min_spacing);
+
+            for group_j in &groups[i + 1..] {
+                // Instance-level bbox culling: skip if expanded bboxes don't overlap
+                if !expanded_i.overlaps(&group_j.bbox) {
+                    continue;
                 }
+
+                let polys_j = match group_j.polygons_by_layer.get(&layer) {
+                    Some(p) if !p.is_empty() => p,
+                    _ => continue,
+                };
+
+                // Check spacing between polygons from instance i and instance j
+                let inter_violations = check_spacing(
+                    polys_i,
+                    layer,
+                    polys_j,
+                    layer,
+                    min_spacing,
+                    rule_name,
+                    false, // not same-layer dedup — these are from different instances
+                );
+                violations.extend(inter_violations);
+            }
+        }
+
+        violations
+    }
+
+    /// Check forbidden overlap between polygons from different instances only.
+    ///
+    /// Uses instance-level bbox culling to skip pairs that can't overlap.
+    fn check_inter_instance_overlap(
+        &self,
+        groups: &[InstancePolygons],
+        layer: Layer,
+        rule_name: Option<&str>,
+    ) -> Vec<DrcViolation> {
+        let mut violations = Vec::new();
+
+        for (i, group_i) in groups.iter().enumerate() {
+            let polys_i = match group_i.polygons_by_layer.get(&layer) {
+                Some(p) if !p.is_empty() => p,
+                _ => continue,
+            };
+
+            for group_j in &groups[i + 1..] {
+                // Instance-level bbox culling: skip if bboxes don't overlap
+                if !group_i.bbox.overlaps(&group_j.bbox) {
+                    continue;
+                }
+
+                let polys_j = match group_j.polygons_by_layer.get(&layer) {
+                    Some(p) if !p.is_empty() => p,
+                    _ => continue,
+                };
+
+                // Check overlap between polygons from instance i and instance j
+                let inter_violations = check_forbid_overlap_bulk(
+                    polys_i, layer, polys_j, layer, rule_name,
+                    false, // not same-layer dedup — these are from different instances
+                );
+                violations.extend(inter_violations);
+            }
+        }
+
+        violations
+    }
+
+    /// Expand a CellRef's repetition into individual transforms.
+    fn expand_cellref_transforms(cell_ref: &rosette_core::CellRef) -> Vec<Transform> {
+        match &cell_ref.repetition {
+            None => vec![cell_ref.transform],
+            Some(rep) if rep.is_single() => vec![cell_ref.transform],
+            Some(rep) => {
+                let mut ts = Vec::with_capacity(rep.count());
+                for row in 0..rep.rows {
+                    for col in 0..rep.columns {
+                        let dx = col as f64 * rep.col_spacing;
+                        let dy = row as f64 * rep.row_spacing;
+                        ts.push(Transform::translate(dx, dy).then(&cell_ref.transform));
+                    }
+                }
+                ts
+            }
+        }
+    }
+
+    /// Collect polygons from a cell's own elements with transform applied.
+    ///
+    /// Used for non-rigid transforms where local geometry is not representative.
+    fn collect_transformed_polygons(
+        &self,
+        cell: &Cell,
+        transform: &Transform,
+    ) -> HashMap<Layer, Vec<(Polygon, usize)>> {
+        let mut result: HashMap<Layer, Vec<(Polygon, usize)>> = HashMap::new();
+        let mut index = 0usize;
+
+        for element in cell.elements() {
+            match element {
+                Element::Polygon { polygon, layer } => {
+                    let transformed = polygon.transform(transform);
+                    result.entry(*layer).or_default().push((transformed, index));
+                    index += 1;
+                }
+                Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                } => {
+                    let transformed_points: Vec<Point> =
+                        points.iter().map(|p| transform.apply(*p)).collect();
+                    let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
+                    let scaled_width = *width * scale;
+                    if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
+                        result.entry(*layer).or_default().push((ribbon, index));
+                        index += 1;
+                    }
+                }
+                _ => {}
             }
         }
 
         result
+    }
+
+    /// Collect polygons from a cell's own elements (no hierarchy traversal).
+    fn collect_local_polygons(&self, cell: &Cell) -> HashMap<Layer, Vec<(Polygon, usize)>> {
+        let mut result: HashMap<Layer, Vec<(Polygon, usize)>> = HashMap::new();
+        let mut index = 0usize;
+
+        for element in cell.elements() {
+            match element {
+                Element::Polygon { polygon, layer } => {
+                    result
+                        .entry(*layer)
+                        .or_default()
+                        .push((polygon.clone(), index));
+                    index += 1;
+                }
+                Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                } => {
+                    if let Some(ribbon) = offset_polygon(points, *width) {
+                        result.entry(*layer).or_default().push((ribbon, index));
+                        index += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        result
+    }
+
+    /// Count total flattened polygons without materializing them (for stats).
+    fn count_polygons(&self, cell: &Cell, library: Option<&Library>) -> usize {
+        let mut count = 0usize;
+        for element in cell.elements() {
+            match element {
+                Element::Polygon { .. } => count += 1,
+                Element::Path { points, width, .. } => {
+                    // Match collect_local_polygons: count only if offset_polygon would succeed
+                    if offset_polygon(points, *width).is_some() {
+                        count += 1;
+                    }
+                }
+                Element::CellRef(cell_ref) => {
+                    if let Some(lib) = library
+                        && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
+                    {
+                        let copies = cell_ref.repetition.as_ref().map_or(1, |rep| rep.count());
+                        count += copies * self.count_polygons(ref_cell, Some(lib));
+                    }
+                }
+                Element::Text { .. } => {}
+            }
+        }
+        count
     }
 
     /// Check a single rule against the flattened polygons.
@@ -1085,6 +1522,74 @@ mod tests {
         assert!(
             result.passed(),
             "Touching polygons at port connections should not fail spacing"
+        );
+    }
+
+    #[test]
+    fn test_non_rigid_transform_catches_width_violation() {
+        // A child cell has a polygon with width 0.5 (passes min_width=0.15).
+        // When scaled 0.1x in X direction, the actual width becomes 0.05 (fails).
+        // The hierarchy-aware DRC must detect this despite the cell being reused.
+        let mut child = Cell::new("narrow");
+        // 0.5 wide, 10 long rectangle
+        child.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.5),
+            Layer::new(1, 0),
+        );
+
+        // Create top cell with two refs: one rigid (passes), one scaled (should fail)
+        let mut top = Cell::new("top");
+        // Rigid instance at origin — width is 0.5, passes min_width=0.15
+        top.add_ref(CellRef::new("narrow"));
+        // Non-uniform scale: 0.1x in X — polygon becomes 1.0 x 0.05, width = 0.05
+        top.add_ref(CellRef::with_transform(
+            "narrow",
+            Transform::scale(0.1, 0.1),
+        ));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.15, Some("WIDTH"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(
+            !result.passed(),
+            "Non-rigid scaled instance with insufficient width should fail min_width"
+        );
+    }
+
+    #[test]
+    fn test_rigid_transform_deduplicates() {
+        // Multiple rigid instances of the same cell should only be checked once
+        // (no duplicate violations).
+        let mut child = Cell::new("tiny");
+        // 0.05 wide polygon — fails min_width=0.15
+        child.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.05),
+            Layer::new(1, 0),
+        );
+
+        let mut top = Cell::new("top");
+        // 3 rigid instances at different positions
+        top.add_ref(CellRef::new("tiny").at(0.0, 0.0));
+        top.add_ref(CellRef::new("tiny").at(100.0, 0.0));
+        top.add_ref(CellRef::new("tiny").at(200.0, 0.0));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.15, Some("WIDTH"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(!result.passed());
+        // Should report 1 violation (from the cell definition), not 3
+        assert_eq!(
+            result.violations.len(),
+            1,
+            "Rigid instances should deduplicate per-polygon violations"
         );
     }
 }

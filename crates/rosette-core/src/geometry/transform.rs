@@ -195,6 +195,28 @@ impl Transform {
     pub fn translation(&self) -> (f64, f64) {
         (self.tx, self.ty)
     }
+
+    /// Check if this is a rigid transform (isometry).
+    ///
+    /// A rigid transform preserves distances and angles. It consists of
+    /// rotation, translation, and optionally reflection. The linear part
+    /// `[[a, b], [c, d]]` must be orthogonal with `|det| = 1`.
+    ///
+    /// Per-polygon geometric properties (width, area, edge angles, edge
+    /// lengths) are invariant under rigid transforms but NOT under
+    /// non-uniform scaling.
+    pub fn is_rigid(&self) -> bool {
+        let det = self.determinant();
+        // |det| must be 1 (orthogonal matrix)
+        if (det.abs() - 1.0).abs() > 1e-10 {
+            return false;
+        }
+        // Columns must be orthonormal
+        let col0_len_sq = self.a * self.a + self.c * self.c;
+        let col1_len_sq = self.b * self.b + self.d * self.d;
+        let dot = self.a * self.b + self.c * self.d;
+        (col0_len_sq - 1.0).abs() < 1e-10 && (col1_len_sq - 1.0).abs() < 1e-10 && dot.abs() < 1e-10
+    }
 }
 
 impl Default for Transform {
