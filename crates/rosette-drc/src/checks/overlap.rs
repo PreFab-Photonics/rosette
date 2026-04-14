@@ -5,54 +5,11 @@
 
 use geo::Area;
 use geo::BooleanOps;
-use rosette_core::{polygon_to_geo, BBox, Layer, Polygon};
-use rstar::{PointDistance, RTree, RTreeObject, AABB};
+use rosette_core::{polygon_to_geo, Layer, Polygon};
+use rstar::{RTree, AABB};
 
+use super::spatial::IndexedPolygon;
 use crate::violation::{DrcViolation, RuleType, Severity};
-
-/// Wrapper for R-tree spatial indexing of polygons by bounding box.
-#[derive(Clone)]
-struct IndexedPolygon {
-    index: usize,
-    orig_index: usize,
-    bbox: BBox,
-}
-
-impl RTreeObject for IndexedPolygon {
-    type Envelope = AABB<[f64; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        AABB::from_corners(
-            [self.bbox.min().x, self.bbox.min().y],
-            [self.bbox.max().x, self.bbox.max().y],
-        )
-    }
-}
-
-impl PointDistance for IndexedPolygon {
-    fn distance_2(&self, point: &[f64; 2]) -> f64 {
-        let min = self.bbox.min();
-        let max = self.bbox.max();
-
-        let dx = if point[0] < min.x {
-            min.x - point[0]
-        } else if point[0] > max.x {
-            point[0] - max.x
-        } else {
-            0.0
-        };
-
-        let dy = if point[1] < min.y {
-            min.y - point[1]
-        } else if point[1] > max.y {
-            point[1] - max.y
-        } else {
-            0.0
-        };
-
-        dx * dx + dy * dy
-    }
-}
 
 /// Bulk forbidden-overlap check using R-tree spatial indexing.
 ///

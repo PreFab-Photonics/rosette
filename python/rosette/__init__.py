@@ -1131,6 +1131,25 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         if layer_rules.get("no_overlap", False):
             rules = rules.forbid_overlap(layer, layer, f"{prefix}.no_overlap")
 
+        # Warn about unrecognized keys that might be typos
+        _KNOWN_LAYER_KEYS = {
+            "min_width",
+            "max_width",
+            "min_spacing",
+            "min_area",
+            "min_edge_length",
+            "angles",
+            "no_self_intersection",
+            "no_overlap",
+        }
+        unknown_keys = set(layer_rules.keys()) - _KNOWN_LAYER_KEYS
+        for key in sorted(unknown_keys):
+            warnings.warn(
+                f"Unknown DRC key '{key}' for layer {layer_str} in rosette.toml "
+                f"(known keys: {', '.join(sorted(_KNOWN_LAYER_KEYS))})",
+                stacklevel=2,
+            )
+
     # Process inter-layer rules
     inter_layer_rules = drc_config.get("rules", [])
     for i, rule in enumerate(inter_layer_rules):

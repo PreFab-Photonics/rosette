@@ -794,6 +794,22 @@ layer2 = "2/0"
         with pytest.raises(ValueError, match="Unknown DRC rule type"):
             load_drc_rules(config_file)
 
+    def test_unknown_per_layer_key_warns(self, tmp_path):
+        """Unrecognized per-layer key emits a warning (catches typos)."""
+        toml_content = """
+[drc.layers."1/0"]
+min_widht = 0.12
+min_spacing = 0.13
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        with pytest.warns(UserWarning, match="Unknown DRC key 'min_widht' for layer 1/0"):
+            rules = load_drc_rules(config_file)
+
+        # The valid key (min_spacing) should still be loaded
+        assert "1 rules" in repr(rules)
+
     def test_inter_layer_rules_without_name(self, tmp_path):
         """Inter-layer rules work without optional name field."""
         toml_content = """
