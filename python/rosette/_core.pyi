@@ -586,6 +586,48 @@ class Route:
         route.to(50, 30)
         route.end_at(100, 30, angle=0)
         cell = route.to_cell("my_route")
+
+    Avoiding overlaps (``no_overlap`` DRC rule)
+    --------------------------------------------
+    Each Route generates waveguide polygons on its layer. If two routes
+    share the same horizontal or vertical corridor, their polygons
+    physically overlap and ``rosette check`` reports ``no_overlap``
+    violations. This is the **most common** cause of overlap errors —
+    not port-to-component overlap at connection points.
+
+    The problem arises when multiple routes converge to ports that sit
+    on the same y-coordinate (or x-coordinate). A naive S-bend to each
+    port creates a horizontal segment at that shared y-level, and those
+    segments overlap in the x-range where they coincide.
+
+    Fix: **give each route its own routing channel** — a unique y-level
+    for horizontal segments and a unique x-level for vertical segments,
+    with at least ``min_spacing`` between them.
+
+    Example — 3 ports at the same y, routed without overlap::
+
+        #  port_a, port_b, port_c all at y = 0, spread along x.
+        #  Route from gc_a, gc_b, gc_c (at x = 0, different y).
+        #  pairs = [(gc_a_port, port_a), (gc_b_port, port_b), ...]
+        #
+        #  Bad:  all 3 routes share a horizontal segment at y = 0
+        #  Good: each route uses a unique horizontal channel
+        vert_x = 50.0     # x for vertical segment (between GCs and ports)
+        ch_spacing = 5.0   # um between channels (>= min_spacing)
+        for i, (gc_port, target_port) in enumerate(pairs):
+            ch_y = target_port.position.y - 30.0 - i * ch_spacing
+            ring_x = target_port.position.x - 35.0  # approach column
+            route = Route(layer, width=0.5, bend_radius=10.0)
+            route.start_at_port(gc_port)
+            route.to(vert_x, gc_port.position.y)   # vertical column
+            route.to(vert_x, ch_y)                  # unique horiz channel
+            route.to(ring_x, ch_y)                  # across to target
+            route.to(ring_x, target_port.position.y)  # up to port
+            route.end_at_port(target_port)
+
+    Components that place multiple ports on one line (add-drop rings,
+    MMI arrays, arrayed couplers) always need this channel-routing
+    approach when more than one route must reach those ports.
     """
 
     def __init__(

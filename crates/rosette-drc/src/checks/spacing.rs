@@ -2,7 +2,7 @@
 
 use geo::{Distance, Euclidean};
 use rosette_core::{Layer, Polygon};
-use rstar::{RTree, AABB};
+use rstar::{AABB, RTree};
 
 use super::spatial::IndexedPolygon;
 use crate::violation::{DrcViolation, RuleType, Severity};

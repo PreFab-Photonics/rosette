@@ -7,8 +7,8 @@ mod enclosure;
 mod max_width;
 mod overlap;
 mod self_intersection;
-pub(crate) mod spatial;
 mod spacing;
+pub(crate) mod spatial;
 pub(crate) mod width;
 
 pub use angle::check_angles;

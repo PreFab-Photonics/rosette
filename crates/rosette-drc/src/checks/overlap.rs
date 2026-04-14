@@ -3,10 +3,9 @@
 //! Uses R-tree spatial indexing for the bulk forbidden-overlap check to avoid
 //! O(n²) boolean intersection operations on well-separated polygons.
 
-use geo::Area;
-use geo::BooleanOps;
-use rosette_core::{polygon_to_geo, Layer, Polygon};
-use rstar::{RTree, AABB};
+use geo::{Area, BooleanOps, BoundingRect};
+use rosette_core::{BBox, Layer, Point, Polygon, polygon_to_geo};
+use rstar::{AABB, RTree};
 
 use super::spatial::IndexedPolygon;
 use crate::violation::{DrcViolation, RuleType, Severity};
@@ -80,20 +79,35 @@ pub fn check_forbid_overlap(
     let intersection = geo1.intersection(&geo2);
 
     // Check if intersection has any area
-    let has_overlap = intersection.unsigned_area() > 1e-10;
+    let overlap_area = intersection.unsigned_area();
+    let has_overlap = overlap_area > 1e-10;
 
     if has_overlap {
-        let mut violation = DrcViolation::new(
-            RuleType::ForbiddenOverlap,
-            poly1.bbox().merge(&poly2.bbox()),
-            layer1,
-            format!(
-                "Forbidden overlap between Layer({}, {}) and Layer({}, {})",
-                layer1.number, layer1.datatype, layer2.number, layer2.datatype
-            ),
-        )
-        .with_layer2(layer2)
-        .with_severity(Severity::Error);
+        // Use the intersection's bounding rect as the violation location
+        // (much more precise than the union of both polygons' bboxes).
+        let location = intersection
+            .bounding_rect()
+            .map(|r| {
+                BBox::new(
+                    Point::new(r.min().x, r.min().y),
+                    Point::new(r.max().x, r.max().y),
+                )
+            })
+            .unwrap_or_else(|| poly1.bbox().merge(&poly2.bbox()));
+
+        let message = format!(
+            "Forbidden overlap ({:.3} um²) at ({:.1}, {:.1}) to ({:.1}, {:.1})",
+            overlap_area,
+            location.min().x,
+            location.min().y,
+            location.max().x,
+            location.max().y,
+        );
+
+        let mut violation =
+            DrcViolation::new(RuleType::ForbiddenOverlap, location, layer1, message)
+                .with_layer2(layer2)
+                .with_severity(Severity::Error);
 
         if let Some(name) = rule_name {
             violation = violation.with_name(name);

@@ -1,7 +1,7 @@
 //! Shared R-tree spatial indexing utilities for DRC checks.
 
 use rosette_core::BBox;
-use rstar::{PointDistance, RTreeObject, AABB};
+use rstar::{AABB, PointDistance, RTreeObject};
 
 /// Wrapper for R-tree spatial indexing of polygons by bounding box.
 ///
