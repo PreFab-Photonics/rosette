@@ -2214,6 +2214,105 @@ export class DeleteCellCommand implements Command {
 }
 
 /**
+ * Command to flatten a cell by resolving all CellRef instances.
+ *
+ * Replaces all CellRef elements in the target cell with the resolved
+ * polygon geometry (with transforms applied). Direct polygons, paths,
+ * and text are preserved. Child cell definitions remain in the library.
+ *
+ * Fully undoable: on undo, the original elements (including CellRefs)
+ * are restored from snapshots.
+ */
+export class FlattenCellCommand implements Command {
+  readonly type = "flatten-cell";
+  readonly description: string;
+
+  private cellName: string;
+  private originalSnapshots: ClipboardSnapshot[] = [];
+  private originalOrigin: [number, number] = [0, 0];
+
+  constructor(name: string) {
+    this.cellName = name;
+    this.description = `Flatten cell "${name}"`;
+  }
+
+  execute(ctx: CommandContext): void {
+    // Switch to the target cell
+    const prevActive = ctx.library.active_cell_name();
+    ctx.library.set_active_cell(this.cellName);
+
+    // Snapshot on first execute only (for undo)
+    if (this.originalSnapshots.length === 0) {
+      const origin = ctx.library.get_cell_origin();
+      if (origin) {
+        this.originalOrigin = [origin[0], origin[1]];
+      }
+
+      const allIds = ctx.library.get_all_ids();
+      if (allIds.length > 0) {
+        this.originalSnapshots = snapshotElements(ctx.library, allIds);
+      }
+    }
+
+    // Remove path metadata for current element IDs before flattening.
+    // On first execute these are the original IDs; on redo (after undo)
+    // these are the IDs that restoreSnapshots created, which differ from
+    // the originals. Querying live IDs each time keeps this correct.
+    const currentIds = ctx.library.get_all_ids();
+    const pathStore = usePathStore.getState();
+    const pathIds = currentIds.filter((id) => pathStore.pathMetadata.has(id));
+    if (pathIds.length > 0) {
+      pathStore.removePathMetadataMany(pathIds);
+    }
+
+    // Perform the flatten — this clears the cell and re-populates with resolved polygons
+    ctx.library.flatten_active_cell();
+
+    // Clear selection (old IDs are invalid)
+    useSelectionStore.getState().clearSelection();
+
+    // Restore active cell if it was different
+    if (prevActive && prevActive !== this.cellName) {
+      ctx.library.set_active_cell(prevActive);
+    }
+
+    syncCellTree(ctx.library);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+
+  undo(ctx: CommandContext): void {
+    // Switch to the target cell
+    const prevActive = ctx.library.active_cell_name();
+    ctx.library.set_active_cell(this.cellName);
+
+    // Clear the flattened content
+    ctx.library.clear_active_cell();
+
+    // Restore origin
+    ctx.library.set_cell_origin(this.originalOrigin[0], this.originalOrigin[1]);
+
+    // Restore original elements (polygons, paths, CellRefs, text)
+    // restoreSnapshots handles path metadata restoration automatically
+    if (this.originalSnapshots.length > 0) {
+      restoreSnapshots(ctx.library, this.originalSnapshots);
+    }
+
+    // Clear selection
+    useSelectionStore.getState().clearSelection();
+
+    // Restore active cell if it was different
+    if (prevActive && prevActive !== this.cellName) {
+      ctx.library.set_active_cell(prevActive);
+    }
+
+    syncCellTree(ctx.library);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+}
+
+/**
  * Command to set the origin of the active cell.
  *
  * Updates both the library (persistent data) and the renderer

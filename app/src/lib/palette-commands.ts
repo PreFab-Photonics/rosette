@@ -25,6 +25,7 @@ import {
   AddCellCommand,
   AddCellRefCommand,
   DeleteCellCommand,
+  FlattenCellCommand,
   AlignElementsCommand,
   BooleanOperationCommand,
   placeRectangleInViewport,
@@ -978,6 +979,37 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Cell change origin position offset set move",
+    },
+    {
+      id: "cell-flatten",
+      type: "cell",
+      name: "Cell: Flatten Active",
+      action: () => {
+        const { library, renderer } = useWasmContextStore.getState();
+        const { activeCell, cellTree } = useExplorerStore.getState();
+        if (!library || !renderer || !activeCell) {
+          close();
+          return;
+        }
+        // Check the cell tree to see if the active cell has CellRef children.
+        // Skip if no refs — avoids a no-op undo entry.
+        const findHasRefs = (nodes: typeof cellTree): boolean => {
+          if (!nodes) return false;
+          for (const node of nodes) {
+            if (node.name === activeCell) return node.children.length > 0;
+            if (findHasRefs(node.children)) return true;
+          }
+          return false;
+        };
+        if (!findHasRefs(cellTree)) {
+          close();
+          return;
+        }
+        const command = new FlattenCellCommand(activeCell);
+        useHistoryStore.getState().execute(command, { library, renderer });
+        close();
+      },
+      searchableText: "Flatten cell inline expand resolve references hierarchy instances",
     },
     {
       id: "cell-toggle-visibility",

@@ -179,6 +179,19 @@ export class WasmLibrary {
      */
     element_count(): number;
     /**
+     * Flatten the active cell by recursively resolving all CellRef instances.
+     *
+     * Replaces all CellRef elements in the active cell with the resolved
+     * polygon geometry from the referenced cells (with transforms applied).
+     * Direct polygons and paths in the active cell are preserved as-is.
+     * Text elements are preserved. Child cell definitions remain in the
+     * library (they are not deleted).
+     *
+     * Returns `true` if flattening was performed, `false` if there is no
+     * active cell or if the active cell contains no CellRef elements.
+     */
+    flatten_active_cell(): boolean;
+    /**
      * Create a WasmLibrary directly from raw GDS binary bytes.
      *
      * This is the fast path for the Tauri desktop app: the raw file bytes
@@ -959,6 +972,7 @@ export interface InitOutput {
     readonly wasmlibrary_create_path: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly wasmlibrary_create_path_rounded: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
     readonly wasmlibrary_element_count: (a: number) => number;
+    readonly wasmlibrary_flatten_active_cell: (a: number) => number;
     readonly wasmlibrary_from_gds_bytes: (a: number, b: number) => [number, number, number];
     readonly wasmlibrary_from_json: (a: number, b: number) => [number, number, number];
     readonly wasmlibrary_from_library_json: (a: number, b: number) => [number, number, number];

@@ -18,6 +18,7 @@ import {
   DeleteLayerCommand,
   AddCellCommand,
   DeleteCellCommand,
+  FlattenCellCommand,
   snapshotElements,
 } from "@/lib/commands";
 import { isImageId, imageIdToKey } from "@/stores/image";
@@ -442,6 +443,26 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
         close();
       };
 
+      const flattenCell = (): void => {
+        if (!library || !renderer || !targetCellName) return;
+        const command = new FlattenCellCommand(targetCellName);
+        useHistoryStore.getState().execute(command, { library, renderer });
+        close();
+      };
+
+      // Check if the target cell has CellRef children (from the cell tree)
+      const hasCellRefs = (() => {
+        if (!targetCellName || !explorerStore.cellTree) return false;
+        const findNode = (nodes: typeof explorerStore.cellTree): boolean => {
+          for (const node of nodes) {
+            if (node.name === targetCellName) return node.children.length > 0;
+            if (findNode(node.children)) return true;
+          }
+          return false;
+        };
+        return findNode(explorerStore.cellTree);
+      })();
+
       const deleteCell = (): void => {
         if (!library || !renderer || !targetCellName) return;
         const command = new DeleteCellCommand(targetCellName);
@@ -484,6 +505,12 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
           label: "Rename Cell",
           action: renameCell,
           disabled: !targetCellName,
+        },
+        {
+          id: "flattenCell",
+          label: "Flatten Cell",
+          action: flattenCell,
+          disabled: !targetCellName || !hasCellRefs,
         },
         {
           id: "toggleVisibility",

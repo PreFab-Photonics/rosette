@@ -1228,6 +1228,112 @@ impl WasmLibrary {
         }
     }
 
+    /// Flatten the active cell by recursively resolving all CellRef instances.
+    ///
+    /// Replaces all CellRef elements in the active cell with the resolved
+    /// polygon geometry from the referenced cells (with transforms applied).
+    /// Direct polygons and paths in the active cell are preserved as-is.
+    /// Text elements are preserved. Child cell definitions remain in the
+    /// library (they are not deleted).
+    ///
+    /// Returns `true` if flattening was performed, `false` if there is no
+    /// active cell or if the active cell contains no CellRef elements.
+    pub fn flatten_active_cell(&mut self) -> bool {
+        let cell_name = match &self.active_cell {
+            Some(name) => name.clone(),
+            None => return false,
+        };
+
+        let cell = match self.library.cell(&cell_name) {
+            Some(c) => c,
+            None => return false,
+        };
+
+        // Check if there are any CellRef elements to flatten
+        let has_refs = cell
+            .elements()
+            .iter()
+            .any(|e| matches!(e, Element::CellRef(_)));
+        if !has_refs {
+            return false;
+        }
+
+        // Clone the full library so we can read from it while mutating self.
+        // This is necessary because flatten_cell_recursive calls self.add_polygon
+        // which borrows self mutably, while we also need to look up referenced
+        // cells by name in the library.
+        let library_snapshot = self.library.clone();
+        let cell_snapshot = library_snapshot.cell(&cell_name).unwrap().clone();
+
+        // Preserve the cell origin
+        let origin = cell.origin();
+
+        // Clear the active cell (removes all elements and element_refs)
+        self.clear_active_cell();
+
+        // Restore the origin on the now-empty cell
+        if let Some(cell) = self.library.cell_mut(&cell_name) {
+            cell.set_origin(origin);
+        }
+
+        // Re-add elements: direct polygons/paths/text are copied as-is,
+        // CellRef elements are recursively flattened into polygons.
+        let identity = Transform::identity();
+        for element in cell_snapshot.elements() {
+            match element {
+                Element::Polygon { polygon, layer } => {
+                    let vertices: Vec<f64> =
+                        polygon.vertices().iter().flat_map(|p| [p.x, p.y]).collect();
+                    if vertices.len() >= 6 {
+                        self.add_polygon(&vertices, layer.number, layer.datatype);
+                    }
+                }
+                Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                } => {
+                    // Preserve paths as polygons (ribbon conversion)
+                    if let Some(ribbon) = offset_polygon(points, *width) {
+                        let vertices: Vec<f64> =
+                            ribbon.vertices().iter().flat_map(|p| [p.x, p.y]).collect();
+                        if vertices.len() >= 6 {
+                            self.add_polygon(&vertices, layer.number, layer.datatype);
+                        }
+                    }
+                }
+                Element::CellRef(cell_ref) => {
+                    // Recursively flatten referenced cell geometry
+                    if let Some(ref_cell) = library_snapshot.cell(&cell_ref.cell_name) {
+                        for copy_transform in array_transforms(cell_ref) {
+                            let combined = identity.then(&copy_transform);
+                            self.flatten_cell_recursive(ref_cell, &library_snapshot, &combined);
+                        }
+                    }
+                }
+                Element::Text {
+                    text,
+                    position,
+                    layer,
+                    height,
+                } => {
+                    self.add_text(
+                        text,
+                        position.x,
+                        position.y,
+                        *height,
+                        layer.number,
+                        layer.datatype,
+                    );
+                }
+            }
+        }
+
+        self.dirty = true;
+        true
+    }
+
     /// Check if the library has changed since last sync.
     pub fn is_dirty(&self) -> bool {
         self.dirty
