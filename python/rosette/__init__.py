@@ -1212,10 +1212,15 @@ def run_drc(
 ) -> DrcResult:
     """Run DRC on a cell.
 
+    When called with a Cell that was built using Instance references (via
+    cell.at()), child cells are automatically collected into a Library for
+    hierarchy resolution. You can also pass a Library explicitly.
+
     Args:
         cell: The cell to check
         rules: DRC rules to apply
-        library: Library containing referenced cells (required if cell has refs)
+        library: Library containing referenced cells. If None and cell is a
+                 Python Cell with Instance tracking, a Library is auto-built.
 
     Returns:
         DrcResult with violations and statistics
@@ -1231,9 +1236,22 @@ def run_drc(
     """
     # Extract inner Rust objects
     inner_cell = cell._inner if isinstance(cell, Cell) else cell
+
     inner_library = None
     if library is not None:
         inner_library = library._inner if isinstance(library, Library) else library
+    elif isinstance(cell, Cell):
+        # Auto-collect child cells into a Library for hierarchy resolution.
+        # Without this, CellRefs are silently skipped during flattening and
+        # polygons inside referenced cells are invisible to DRC.
+        collected: set[Cell] = set()
+        _collect_all_cells(cell, collected)
+        if collected:
+            lib = Library("_drc")
+            for child in collected:
+                lib.add_cell(child)
+            lib.add_cell(cell)
+            inner_library = lib._inner
 
     return _run_drc(inner_cell, rules, inner_library)
 

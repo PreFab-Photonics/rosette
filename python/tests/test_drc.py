@@ -359,6 +359,73 @@ class TestRunDrc:
         assert v.rule_type == "self_intersection"
         assert v.rule_name == "NO_SELF_X"
 
+    def test_forbid_overlap_cross_hierarchy(self):
+        """Overlap detected between top cell polygon and instanced child polygon."""
+        child = Cell("child")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+
+        top = Cell("top")
+        top.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+        top.add_ref(child.at(0, 0))
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(top, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 1
+        assert result.violations[0].rule_type == "forbidden_overlap"
+        assert result.polygons_checked == 2
+
+    def test_forbid_overlap_cross_hierarchy_non_overlapping_passes(self):
+        """Non-overlapping polygons across hierarchy pass."""
+        child = Cell("child")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+
+        top = Cell("top")
+        top.add_polygon(Polygon.rect(Point(10, 0), 5.0, 5.0), Layer(1, 0))
+        top.add_ref(child.at(0, 0))
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(top, rules)
+
+        assert result.passed
+        assert result.polygons_checked == 2
+
+    def test_forbid_overlap_two_instances_overlap(self):
+        """Two instances of the same child placed so their polygons overlap."""
+        child = Cell("child")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+
+        top = Cell("top")
+        top.add_ref(child.at(0, 0))
+        top.add_ref(child.at(3, 0))  # Overlaps by 2 units
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(top, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 1
+        assert result.polygons_checked == 2
+
+    def test_forbid_overlap_nested_hierarchy(self):
+        """Overlap detected through two levels of hierarchy."""
+        leaf = Cell("leaf")
+        leaf.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+
+        mid = Cell("mid")
+        mid.add_ref(leaf.at(0, 0))
+
+        top = Cell("top")
+        top.add_ref(mid.at(0, 0))
+        top.add_ref(mid.at(3, 0))  # Overlaps by 2 units
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(top, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 1
+        assert result.polygons_checked == 2
+
 
 class TestDrcResult:
     """Tests for DrcResult class."""

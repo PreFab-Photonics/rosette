@@ -2,7 +2,7 @@
 
 use geo::{Distance, Euclidean};
 use rosette_core::{BBox, Layer, Polygon};
-use rstar::{AABB, PointDistance, RTree, RTreeObject};
+use rstar::{PointDistance, RTree, RTreeObject, AABB};
 
 use crate::violation::{DrcViolation, RuleType, Severity};
 use rosette_core::polygon_to_geo;
@@ -109,6 +109,13 @@ pub fn check_spacing(
             // Compute exact distance
             let distance = Euclidean::distance(&geo_poly1, &geo_poly2);
 
+            // Skip touching/overlapping polygons (distance ≈ 0). These are
+            // intentionally connected (e.g., route abutting a component at a
+            // port). Overlaps are handled by the forbid_overlap rule instead.
+            if distance < 1e-10 {
+                continue;
+            }
+
             if distance < min_spacing {
                 let violation_bbox = poly1.bbox().merge(&poly2.bbox());
                 let mut violation = DrcViolation::new(
@@ -211,5 +218,83 @@ mod tests {
         );
 
         assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn test_touching_polygons_not_flagged() {
+        // Two rectangles sharing an edge (abutting at x=5). Distance = 0.
+        // These represent connected waveguides and should NOT be flagged.
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 2.0);
+        let poly2 = Polygon::rect(Point::new(5.0, 0.0), 5.0, 2.0);
+
+        let polys1 = vec![(poly1, 0)];
+        let polys2 = vec![(poly2, 1)];
+
+        let violations = check_spacing(
+            &polys1,
+            Layer::new(1, 0),
+            &polys2,
+            Layer::new(1, 0),
+            0.15,
+            None,
+            true,
+        );
+
+        assert!(
+            violations.is_empty(),
+            "Touching polygons (distance=0) should not produce spacing violations"
+        );
+    }
+
+    #[test]
+    fn test_overlapping_polygons_not_flagged() {
+        // Two overlapping rectangles. Distance = 0 (negative overlap).
+        // Connected geometry should NOT produce spacing violations.
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 2.0);
+        let poly2 = Polygon::rect(Point::new(4.0, 0.0), 5.0, 2.0);
+
+        let polys1 = vec![(poly1, 0)];
+        let polys2 = vec![(poly2, 1)];
+
+        let violations = check_spacing(
+            &polys1,
+            Layer::new(1, 0),
+            &polys2,
+            Layer::new(1, 0),
+            0.15,
+            None,
+            true,
+        );
+
+        assert!(
+            violations.is_empty(),
+            "Overlapping polygons (distance=0) should not produce spacing violations"
+        );
+    }
+
+    #[test]
+    fn test_near_but_not_touching_still_fails() {
+        // Two rectangles with tiny gap (0.01). Should still fail min_spacing=0.15.
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 2.0);
+        let poly2 = Polygon::rect(Point::new(5.01, 0.0), 5.0, 2.0);
+
+        let polys1 = vec![(poly1, 0)];
+        let polys2 = vec![(poly2, 1)];
+
+        let violations = check_spacing(
+            &polys1,
+            Layer::new(1, 0),
+            &polys2,
+            Layer::new(1, 0),
+            0.15,
+            None,
+            true,
+        );
+
+        assert_eq!(
+            violations.len(),
+            1,
+            "Near but non-touching polygons (gap=0.01 < min_spacing=0.15) should fail"
+        );
     }
 }

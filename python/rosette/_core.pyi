@@ -1009,7 +1009,8 @@ def run_drc(
     Args:
         cell: The cell to check
         rules: DRC rules to apply
-        library: Library containing referenced cells (required if cell has refs)
+        library: Library containing referenced cells. If None, CellRefs
+                 cannot be resolved and are skipped during flattening.
 
     Returns:
         DrcResult with violations and statistics

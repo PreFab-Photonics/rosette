@@ -17,9 +17,13 @@ output_dir = "output"
 #
 # Supported per-layer rules:
 #   min_width    - Minimum feature width
+#   max_width    - Maximum feature width
 #   min_spacing  - Minimum spacing between features on same layer
 #   min_area     - Minimum polygon area
+#   min_edge_length - Minimum polygon edge length
 #   angles       - Allowed edge angles in degrees (e.g., [0, 45, 90, 135])
+#   no_overlap   - Forbid overlapping polygons on same layer
+#   no_self_intersection - Forbid self-intersecting polygons
 #
 # Supported inter-layer rules (in [drc.rules] section):
 #   enclosure    - Inner layer must be enclosed by outer layer
@@ -37,6 +41,7 @@ min_width = 0.12      # Minimum waveguide width
 min_spacing = 0.13    # Minimum spacing between waveguides
 min_area = 0.01       # Minimum polygon area
 angles = [0, 90]      # Manhattan geometry only (0° and 90° edges)
+no_overlap = true     # Forbid overlapping polygons on same layer
 
 # -----------------------------------------------------------------------------
 # Layer 2/0 - Slab / Partial Etch

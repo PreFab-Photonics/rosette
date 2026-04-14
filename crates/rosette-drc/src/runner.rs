@@ -7,7 +7,7 @@ use rosette_core::cell::Element;
 use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform, offset_polygon};
 
 use crate::checks::{
-    check_angles, check_area, check_edge_length, check_enclosure, check_forbid_overlap,
+    check_angles, check_area, check_edge_length, check_enclosure, check_forbid_overlap_bulk,
     check_max_width, check_require_overlap, check_self_intersection, check_spacing, check_width,
 };
 use crate::rules::{DrcRules, Rule};
@@ -436,27 +436,14 @@ impl DrcRunner {
                 let same_layer = layer1 == layer2;
 
                 match (polys1, polys2) {
-                    (Some(p1), Some(p2)) => {
-                        let mut violations = Vec::new();
-                        for (poly1, idx1) in p1 {
-                            for (poly2, idx2) in p2 {
-                                // Same-layer: skip self-comparison and duplicate pairs
-                                if same_layer && idx2 <= idx1 {
-                                    continue;
-                                }
-                                if let Some(v) = check_forbid_overlap(
-                                    poly1,
-                                    *layer1,
-                                    poly2,
-                                    *layer2,
-                                    name.as_deref(),
-                                ) {
-                                    violations.push(v);
-                                }
-                            }
-                        }
-                        violations
-                    }
+                    (Some(p1), Some(p2)) => check_forbid_overlap_bulk(
+                        p1,
+                        *layer1,
+                        p2,
+                        *layer2,
+                        name.as_deref(),
+                        same_layer,
+                    ),
                     _ => Vec::new(),
                 }
             }
@@ -948,6 +935,156 @@ mod tests {
         assert!(
             !result.passed(),
             "Path with width=1.0 should fail min_width=2.0"
+        );
+    }
+
+    #[test]
+    fn test_forbid_overlap_cross_hierarchy() {
+        // Child cell has a polygon at (0,0)-(5,5).
+        // Top cell has a polygon at (3,0)-(8,5) AND a CellRef to child.
+        // The two polygons overlap — DRC should catch it across hierarchy.
+        let mut child = Cell::new("child");
+        child.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let mut top = Cell::new("top");
+        top.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        top.add_ref(CellRef::new("child"));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(
+            !result.passed(),
+            "Cross-hierarchy overlapping polygons should fail forbid_overlap"
+        );
+        assert_eq!(result.violations.len(), 1);
+        assert_eq!(
+            result.stats.polygons_checked, 2,
+            "Should see 2 polygons: one from top, one from child"
+        );
+    }
+
+    #[test]
+    fn test_forbid_overlap_cross_hierarchy_no_overlap_passes() {
+        // Child cell polygon at (0,0)-(5,5), top cell polygon at (10,0)-(15,5).
+        // No overlap — should pass.
+        let mut child = Cell::new("child");
+        child.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let mut top = Cell::new("top");
+        top.add_polygon(
+            Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        top.add_ref(CellRef::new("child"));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(
+            result.passed(),
+            "Non-overlapping cross-hierarchy polygons should pass"
+        );
+    }
+
+    #[test]
+    fn test_forbid_overlap_array_instances_overlap() {
+        // Child cell has a 4-wide polygon. Array with col_spacing=3 means
+        // copies overlap by 1 unit each.
+        let mut child = Cell::new("child");
+        child.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 4.0, 2.0),
+            Layer::new(1, 0),
+        );
+
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("child").array(3, 1, 3.0, 10.0));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(
+            !result.passed(),
+            "Array instances with overlapping polygons should fail forbid_overlap"
+        );
+        // 3 copies: pairs (0,1) and (1,2) overlap, but (0,2) don't
+        assert_eq!(
+            result.violations.len(),
+            2,
+            "Should have 2 violations for 3 overlapping-adjacent copies"
+        );
+    }
+
+    #[test]
+    fn test_forbid_overlap_many_non_overlapping_fast() {
+        // Many non-overlapping polygons spread apart. The bbox pre-filter should
+        // skip expensive boolean intersection for all pairs.
+        let mut cell = Cell::new("test");
+        for i in 0..50 {
+            cell.add_polygon(
+                Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0),
+                Layer::new(1, 0),
+            );
+        }
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            result.passed(),
+            "Well-spaced polygons should not trigger overlap violations"
+        );
+        assert_eq!(result.stats.polygons_checked, 50);
+    }
+
+    #[test]
+    fn test_spacing_skip_touching_at_ports() {
+        // Simulate route polygon abutting component polygon at a port connection.
+        // Touching polygons (distance=0) should NOT produce spacing violations.
+        let mut cell = Cell::new("test");
+        // Component polygon: 0..10 x 0..2
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 10.0, 2.0),
+            Layer::new(1, 0),
+        );
+        // Route polygon: 10..20 x 0..2 (abuts at x=10)
+        cell.add_polygon(
+            Polygon::rect(Point::new(10.0, 0.0), 10.0, 2.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new().min_spacing(Layer::new(1, 0), Layer::new(1, 0), 0.15, Some("SPC"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            result.passed(),
+            "Touching polygons at port connections should not fail spacing"
         );
     }
 }
