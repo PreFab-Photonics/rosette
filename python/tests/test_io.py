@@ -12,7 +12,7 @@ from rosette import (
     Polygon,
     write_gds,
 )
-from rosette.components import waveguide
+from rosette.components import grating_coupler
 
 
 class TestWriteGds:
@@ -88,8 +88,8 @@ class TestWriteGds:
 
     def test_write_component_cell(self, tmp_path: Path):
         """Write component-generated cell to GDS."""
-        cell = waveguide(Layer(1, 0), waveguide_width=0.5, length=10.0)
-        output = tmp_path / "waveguide.gds"
+        cell = grating_coupler(Layer(1, 0), waveguide_width=0.5)
+        output = tmp_path / "grating_coupler.gds"
 
         write_gds(str(output), cell)
 

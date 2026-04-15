@@ -17,7 +17,6 @@ from rosette import (
 
 # Components are now Python functions in rosette.components
 from rosette.components import (
-    bend,
     crossing,
     directional_coupler,
     grating_coupler,
@@ -25,10 +24,6 @@ from rosette.components import (
     mmi_2x2,
     ring,
     sbend,
-    spiral,
-    taper,
-    waveguide,
-    ybranch,
 )
 
 # =============================================================================
@@ -129,30 +124,6 @@ def library(simple_cell: Cell) -> Library:
 
 
 @pytest.fixture
-def waveguide_cell(layer: Layer) -> Cell:
-    """Standard waveguide: 10um long, 0.5um wide."""
-    return waveguide(layer, waveguide_width=0.5, length=10.0)
-
-
-@pytest.fixture
-def bend_90_cell(layer: Layer) -> Cell:
-    """90-degree circular bend: 5um radius, 0.5um wide."""
-    return bend(layer, waveguide_width=0.5, radius=5.0, angle=90.0)
-
-
-@pytest.fixture
-def euler_bend_cell(layer: Layer) -> Cell:
-    """90-degree Euler bend: 5um radius, 0.5um wide."""
-    return bend(layer, waveguide_width=0.5, radius=5.0, angle=90.0, euler=True)
-
-
-@pytest.fixture
-def taper_cell(layer: Layer) -> Cell:
-    """Taper from 0.5um to 1.0um over 10um."""
-    return taper(layer, width_in=0.5, width_out=1.0, length=10.0)
-
-
-@pytest.fixture
 def sbend_cell(layer: Layer) -> Cell:
     """S-bend: 20um long, 5um offset, 0.5um wide."""
     return sbend(layer, waveguide_width=0.5, length=20.0, offset=5.0)
@@ -177,12 +148,6 @@ def directional_coupler_cell(layer: Layer) -> Cell:
 
 
 @pytest.fixture
-def ybranch_cell(layer: Layer) -> Cell:
-    """Standard Y-branch."""
-    return ybranch(layer, waveguide_width=0.5)
-
-
-@pytest.fixture
 def ring_cell(layer: Layer) -> Cell:
     """All-pass ring resonator: 10um radius, 0.5um wide."""
     return ring(layer, waveguide_width=0.5, radius=10.0)
@@ -192,12 +157,6 @@ def ring_cell(layer: Layer) -> Cell:
 def ring_add_drop_cell(layer: Layer) -> Cell:
     """Add-drop ring resonator."""
     return ring(layer, waveguide_width=0.5, radius=10.0, coupling="adddrop")
-
-
-@pytest.fixture
-def spiral_cell(layer: Layer) -> Cell:
-    """Standard spiral delay line."""
-    return spiral(layer, waveguide_width=0.5, turns=3, min_radius=10.0)
 
 
 @pytest.fixture

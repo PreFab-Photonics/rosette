@@ -147,9 +147,8 @@ class TestRosetteInit:
         # Generic template includes components
         components_dir = project_dir / "components"
         assert components_dir.is_dir()
-        assert (components_dir / "waveguide.py").exists()
-        assert (components_dir / "bend.py").exists()
         assert (components_dir / "mmi.py").exists()
+        assert (components_dir / "ring.py").exists()
 
     def test_init_stores_template_in_toml(self, tmp_path: Path, monkeypatch):
         """rosette init records the template name in rosette.toml."""

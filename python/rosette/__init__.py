@@ -16,12 +16,10 @@ Example usage:
     cell = route.to_cell("my_route")
 
 In user projects (after `rosette init`), components are local:
-    from components import waveguide, bend, mmi_1x2
-    wg_cell = waveguide(length=10.0, width=0.5)
-    bend_cell = bend(radius=5.0, angle=90, width=0.5)
+    from components import mmi_1x2, ring, grating_coupler
 
 For library development, import from rosette.components:
-    from rosette.components import waveguide, bend, mmi_1x2
+    from rosette.components import mmi_1x2, ring, grating_coupler
 """
 
 from __future__ import annotations
@@ -1806,7 +1804,7 @@ class LayerMap:
         layers.silicon.color  # -> '#ff69b4'
 
         # Use directly in component calls and cell operations
-        wg = waveguide(layers.silicon.layer, width=0.5, length=10.0)
+        gc = grating_coupler(layers.silicon.layer, waveguide_width=0.5)
         cell.add_polygon(poly, layers.silicon.layer)
 
         # Iterate over all layers

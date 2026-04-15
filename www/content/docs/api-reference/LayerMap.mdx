@@ -14,7 +14,7 @@ layers.silicon.layer  # -> Layer(1, 0)
 layers.silicon.color  # -> '#ff69b4'
 
 # Use directly in component calls and cell operations
-wg = waveguide(layers.silicon.layer, waveguide_width=0.5, length=10.0)
+gc = grating_coupler(layers.silicon.layer, waveguide_width=0.5)
 cell.add_polygon(poly, layers.silicon.layer)
 
 # Iterate over all layers

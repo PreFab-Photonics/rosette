@@ -6,10 +6,10 @@ that returns a ``Cell`` with named ports, ready for placement and routing.
 Imports::
 
     # In the main rosette repo:
-    from rosette.components import waveguide, bend, mmi_1x2
+    from rosette.components import mmi_1x2, ring, grating_coupler
 
     # In user projects (after ``rosette init``):
-    from components import waveguide, bend, mmi_1x2
+    from components import mmi_1x2, ring, grating_coupler
 
 Components are designed to be copied and modified to match your PDK or
 process requirements.
@@ -32,8 +32,7 @@ All components follow these conventions:
   two ports are connected, their directions point toward each other.
 * **Port width** -- Each port carries a ``width`` attribute that equals
   the physical waveguide width at that port. Connecting ports with
-  mismatched widths will produce a discontinuity; use a ``taper`` to
-  transition between widths.
+  mismatched widths will produce a discontinuity.
 * **Gap parameters** -- Where a component has a ``gap`` parameter (ring,
   directional coupler), it means the **edge-to-edge** distance between
   the nearest physical surfaces of the two waveguides.
@@ -53,15 +52,6 @@ Component Catalog
    * - Component
      - Ports
      - Purpose
-   * - ``waveguide``
-     - ``in``, ``out``
-     - Straight waveguide section
-   * - ``taper``
-     - ``in`` (width_in), ``out`` (width_out)
-     - Linear width transition
-   * - ``bend``
-     - ``in``, ``out``
-     - Circular or Euler (clothoid) bend
    * - ``sbend``
      - ``in``, ``out``
      - Lateral offset, same input/output direction
@@ -77,15 +67,9 @@ Component Catalog
    * - ``directional_coupler``
      - ``in1``, ``in2``, ``out1``, ``out2``
      - Evanescent directional coupler
-   * - ``ybranch``
-     - ``in``, ``out1``, ``out2``
-     - Y-branch 1-to-2 splitter
    * - ``ring``
      - allpass: ``in``, ``out``; adddrop: ``in``, ``through``, ``add``, ``drop``
      - Ring / racetrack resonator
-   * - ``spiral``
-     - ``in``, ``out``
-     - Compact delay line
    * - ``crossing``
      - ``in1``, ``out1``, ``in2``, ``out2``
      - Low-loss waveguide intersection
@@ -142,24 +126,18 @@ Follow this skeleton when creating new components::
 
 Internal modules available to component authors:
 
-* ``_curves`` -- S-bend and Euler bend math (point, tangent, path length).
+* ``_curves`` -- S-bend curve math (cosine, circular, Euler variants).
 * ``_utils`` -- ``safe_cell_name()`` for GDS-safe cell naming.
 """
 
-from rosette.components.bend import bend
 from rosette.components.crossing import crossing
 from rosette.components.directional_coupler import directional_coupler
 from rosette.components.grating_coupler import grating_coupler
 from rosette.components.mmi import mmi_1x2, mmi_2x1, mmi_2x2
 from rosette.components.ring import ring
 from rosette.components.sbend import sbend
-from rosette.components.spiral import spiral
-from rosette.components.taper import taper
-from rosette.components.waveguide import waveguide
-from rosette.components.ybranch import ybranch
 
 __all__ = [
-    "bend",
     "crossing",
     "directional_coupler",
     "grating_coupler",
@@ -168,8 +146,4 @@ __all__ = [
     "mmi_2x2",
     "ring",
     "sbend",
-    "spiral",
-    "taper",
-    "waveguide",
-    "ybranch",
 ]

@@ -177,9 +177,9 @@ my-chip/
 ├── designs/              # Your design scripts go here
 ├── output/               # GDS build output
 ├── components/           # Editable photonic components (yours to modify)
-│   ├── waveguide.py
-│   ├── bend.py
-│   ├── taper.py
+│   ├── mmi.py
+│   ├── ring.py
+│   ├── grating_coupler.py
 │   └── ...
 ├── .rosette/
 │   └── api.pyi           # Typed API stub for editor autocomplete
@@ -191,8 +191,8 @@ my-chip/
 - **`designs/`** — Where you write your layout scripts. Each script defines cells and
   geometry that Rosette compiles to GDS-II.
 - **`output/`** — Build artifacts. Running `rosette build` writes GDS files here.
-- **`components/`** — A library of photonic building blocks (waveguides, bends, tapers,
-  MMIs, and more). These are copied into your project so you can read and modify them
+- **`components/`** — A library of photonic building blocks (S-bends, MMIs, rings,
+  couplers, and more). These are copied into your project so you can read and modify them
   freely.
 - **`.rosette/api.pyi`** — A type stub for the core Rosette API. This powers
   autocomplete and type checking in your editor.
