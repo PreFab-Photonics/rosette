@@ -269,7 +269,7 @@ def _ring_polygon(
         points.append(Point(center_x + inner_r, center_y))
 
         # Inner ring (clockwise, from just before angle 0 back to angle 0)
-        for i in range(num_segments - 1, 0, -1):
+        for i in range(num_segments - 1, -1, -1):
             angle = 2 * math.pi * i / num_segments
             points.append(
                 Point(
