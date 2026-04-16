@@ -1,11 +1,13 @@
 //! Python bindings for the polygon rasterizer.
 
+use std::collections::HashMap;
+
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
 
 use rosette_raster::palette::parse_hex_rgba;
-use rosette_raster::{RenderError, RenderOptions, ViewTransform, render_png};
+use rosette_raster::{Palette, RenderError, RenderOptions, ViewTransform, render_png};
 
 use crate::geometry::PyBBox;
 use crate::layout::PyLibrary;
@@ -103,6 +105,8 @@ impl PyRenderResult {
 ///     pad: Fractional padding around the target bbox (0.1 = 10%).
 ///     bg: Background color as `#RRGGBB` or `#RRGGBBAA`. Default `#1a1a1a`.
 ///     fill_alpha: Alpha applied to layer fill colors (0-255). Default 178 (~70%).
+///     palette: Optional `{layer_number: hex_color}` overrides. Layers not
+///         present fall back to the auto-assigned shared palette.
 ///
 /// Returns:
 ///     RenderResult with `png` (bytes), `view` (dict), and `layers_rendered`.
@@ -120,6 +124,7 @@ impl PyRenderResult {
         pad=0.1,
         bg="#1a1a1a",
         fill_alpha=178,
+        palette=None,
     ),
 )]
 #[allow(clippy::too_many_arguments)]
@@ -133,12 +138,29 @@ pub fn py_render_png(
     pad: f32,
     bg: &str,
     fill_alpha: u8,
+    palette: Option<HashMap<u16, String>>,
 ) -> PyResult<PyRenderResult> {
     let background = parse_hex_rgba(bg).ok_or_else(|| {
         PyValueError::new_err(format!(
             "invalid bg color '{bg}', expected '#RRGGBB' or '#RRGGBBAA'"
         ))
     })?;
+
+    let palette_obj = match palette {
+        None => None,
+        Some(map) => {
+            let mut overrides: HashMap<u16, [u8; 4]> = HashMap::with_capacity(map.len());
+            for (layer_num, hex) in map {
+                let rgba = parse_hex_rgba(&hex).ok_or_else(|| {
+                    PyValueError::new_err(format!(
+                        "invalid color '{hex}' for layer {layer_num}, expected '#RRGGBB' or '#RRGGBBAA'"
+                    ))
+                })?;
+                overrides.insert(layer_num, rgba);
+            }
+            Some(Palette::shared().with_overrides(overrides))
+        }
+    };
 
     let opts = RenderOptions {
         bbox: bbox.map(|b| b.0),
@@ -149,7 +171,7 @@ pub fn py_render_png(
         pad,
         background,
         fill_alpha,
-        palette: None,
+        palette: palette_obj,
         draw_axes: false,
     };
 
