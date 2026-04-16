@@ -267,6 +267,18 @@ export class WasmLibrary {
      */
     get_all_vertices(): Float64Array;
     /**
+     * Compute the total polygon area per layer for the active cell.
+     *
+     * Recursively resolves all CellRef instances (including array references),
+     * converting paths to polygon ribbons, and accumulates area per
+     * `(layer_number, datatype)` pair. Respects [`hierarchy_depth_limit`] and
+     * [`hidden_cells`].
+     *
+     * Returns a flat `Float64Array`: `[layer0, datatype0, area0, layer1, datatype1, area1, ...]`
+     * sorted by layer number then datatype.
+     */
+    get_area_by_layer(): Float64Array;
+    /**
      * Get the bounding box of elements with the given UUIDs.
      *
      * Returns [minX, minY, maxX, maxY] or None if none of the IDs are found.
@@ -979,6 +991,7 @@ export interface InitOutput {
     readonly wasmlibrary_get_all_bounds: (a: number) => [number, number];
     readonly wasmlibrary_get_all_ids: (a: number) => [number, number];
     readonly wasmlibrary_get_all_vertices: (a: number) => [number, number];
+    readonly wasmlibrary_get_area_by_layer: (a: number) => [number, number];
     readonly wasmlibrary_get_bounds_for_ids: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_cell_bounds: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_cell_names: (a: number) => [number, number];

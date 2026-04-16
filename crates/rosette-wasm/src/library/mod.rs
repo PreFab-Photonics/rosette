@@ -1213,6 +1213,44 @@ impl WasmLibrary {
         result
     }
 
+    /// Compute the total polygon area per layer for the active cell.
+    ///
+    /// Recursively resolves all CellRef instances (including array references),
+    /// converting paths to polygon ribbons, and accumulates area per
+    /// `(layer_number, datatype)` pair. Respects [`hierarchy_depth_limit`] and
+    /// [`hidden_cells`].
+    ///
+    /// Returns a flat `Float64Array`: `[layer0, datatype0, area0, layer1, datatype1, area1, ...]`
+    /// sorted by layer number then datatype.
+    pub fn get_area_by_layer(&self) -> Vec<f64> {
+        let cell_name = match &self.active_cell {
+            Some(name) => name,
+            None => return Vec::new(),
+        };
+
+        let cell = match self.library.cell(cell_name) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        let mut area_map: HashMap<(u16, u16), f64> = HashMap::new();
+        let identity = Transform::identity();
+        let max_depth = self.hierarchy_depth_limit;
+
+        self.collect_area_recursive(cell, &identity, 0, max_depth, &mut area_map);
+
+        let mut pairs: Vec<_> = area_map.into_iter().collect();
+        pairs.sort_by_key(|&((layer, dt), _)| (layer, dt));
+
+        let mut result = Vec::with_capacity(pairs.len() * 3);
+        for ((layer, dt), area) in pairs {
+            result.push(layer as f64);
+            result.push(dt as f64);
+            result.push(area);
+        }
+        result
+    }
+
     /// Clear all elements from the active cell.
     pub fn clear_active_cell(&mut self) {
         if let Some(cell_name) = &self.active_cell {
@@ -3161,6 +3199,78 @@ impl WasmLibrary {
                                 current_depth + 1,
                                 max_depth,
                                 result,
+                            );
+                        }
+                    }
+                }
+                Element::Text { .. } => {}
+            }
+        }
+    }
+
+    /// Recursively accumulate polygon area per layer for a cell.
+    ///
+    /// Walks all elements (polygons, paths, cell refs) applying the given
+    /// transform. For rigid transforms (rotation, translation, mirror) the
+    /// polygon area is used directly since it is invariant. For non-rigid
+    /// transforms the area is scaled by `|determinant|`.
+    fn collect_area_recursive(
+        &self,
+        cell: &Cell,
+        transform: &Transform,
+        current_depth: u32,
+        max_depth: u32,
+        area_map: &mut HashMap<(u16, u16), f64>,
+    ) {
+        let is_rigid = transform.is_rigid();
+        let det_abs = if is_rigid {
+            1.0
+        } else {
+            transform.determinant().abs()
+        };
+
+        for element in cell.elements() {
+            match element {
+                Element::Polygon { polygon, layer } => {
+                    let area = polygon.area() * det_abs;
+                    *area_map
+                        .entry((layer.number, layer.datatype))
+                        .or_insert(0.0) += area;
+                }
+                Element::Path {
+                    points,
+                    width,
+                    layer,
+                    ..
+                } => {
+                    // Convert path to polygon ribbon, applying transform for width scaling.
+                    let transformed_points: Vec<Point> =
+                        points.iter().map(|p| transform.apply(*p)).collect();
+                    let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
+                    let scaled_width = *width * scale;
+                    if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
+                        let area = ribbon.area();
+                        *area_map
+                            .entry((layer.number, layer.datatype))
+                            .or_insert(0.0) += area;
+                    }
+                }
+                Element::CellRef(cell_ref) => {
+                    if max_depth > 0 && current_depth + 1 >= max_depth {
+                        continue;
+                    }
+                    if self.hidden_cells.contains(&cell_ref.cell_name) {
+                        continue;
+                    }
+                    if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
+                        for copy_transform in array_transforms(cell_ref) {
+                            let combined = transform.then(&copy_transform);
+                            self.collect_area_recursive(
+                                ref_cell,
+                                &combined,
+                                current_depth + 1,
+                                max_depth,
+                                area_map,
                             );
                         }
                     }

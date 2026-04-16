@@ -42,6 +42,7 @@ import { useRulerStore } from "@/stores/ruler";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { useGoToDialogStore } from "@/stores/goto-dialog";
+import { useAreaDialogStore } from "@/stores/area-dialog";
 import { pickAndInsertImage } from "@/lib/image-ops";
 import {
   keys,
@@ -408,6 +409,16 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Go to coordinate position navigate pan center xy jump move",
+    },
+    {
+      id: "view-calculate-area",
+      type: "command",
+      name: "View: Calculate Area",
+      action: () => {
+        useAreaDialogStore.getState().open();
+        close();
+      },
+      searchableText: "Calculate area size surface layer polygon cell measure coverage",
     },
 
     // =========================================================================
