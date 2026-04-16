@@ -76,7 +76,9 @@ from rosette._core import Cell as _Cell
 from rosette._core import CellRef as _CellRef
 from rosette._core import Library as _Library
 from rosette._core import Route as _Route
+from rosette._core import RenderResult
 from rosette._core import read_gds as _read_gds
+from rosette._core import render_png as _render_png
 from rosette._core import run_checks as _run_checks
 from rosette._core import run_dfm as _run_dfm
 from rosette._core import run_drc as _run_drc
@@ -1686,6 +1688,109 @@ def write_gds(
     _write_gds(str(path), inner_design, inner_cells, quiet, verbose)
 
 
+def render_png(
+    design: Cell | _Cell | Library | _Library,
+    *,
+    bbox: BBox | None = None,
+    cell: str | None = None,
+    layers: list[tuple[int, int]] | None = None,
+    width: int = 1024,
+    height: int | None = None,
+    pad: float = 0.1,
+    bg: str = "#1a1a1a",
+    fill_alpha: int = 178,
+) -> RenderResult:
+    """Rasterize a design to a PNG image.
+
+    Use this when the conversation about a design has hit a visual gap:
+    the user is pointing at something they can see and struggling to put
+    it into words, the assistant is confused about what the user means by
+    a spatial reference ("the bend in the middle", "that little stub"),
+    or the user has explicitly asked the assistant to look at the design.
+
+    This is not a routine inspection tool. For data questions (polygon
+    counts, bounding boxes, layer membership, port positions, etc.) read
+    the design directly through the Cell/Library API — that's cheaper and
+    more precise. Reach for `render_png` when *seeing* the geometry is
+    the thing that resolves the ambiguity.
+
+    Targeted snapshots are the primary form: pass a `bbox` (in microns)
+    or a named `cell` to render just the region in question, rather than
+    the whole design. The returned RenderResult includes a `view` dict
+    that maps pixels↔microns; persist it as a sidecar JSON next to the
+    PNG so any pixel position spotted in the image can be turned back
+    into design coordinates.
+
+    Args:
+        design: A Cell or Library to render. When a Cell is passed, child
+            cells reachable via Instance references are auto-collected so
+            the full hierarchy is rendered.
+        bbox: Explicit world-space region (microns). If omitted, derived
+            from `cell` or the design's full extent.
+        cell: Name of a cell to focus on instead of the top cell.
+        layers: Restrict to specific `(layer, datatype)` pairs.
+        width: Output width in pixels (default 1024).
+        height: Output height in pixels. If None, derived from aspect ratio.
+        pad: Fractional padding around the target bbox (default 0.1).
+        bg: Background color, `#RRGGBB` or `#RRGGBBAA` (default `#1a1a1a`).
+        fill_alpha: Alpha applied to layer colors, 0-255 (default 178).
+
+    Returns:
+        RenderResult with `png` (bytes), `view` (dict for sidecar JSON),
+        and `layers_rendered`. Use `result.px_to_world(px, py)` to map a
+        pixel position seen in the image back to design coordinates after
+        looking at it.
+
+    Examples:
+        Snapshot a region the user is asking about and write the sidecar:
+
+        >>> result = render_png(my_cell, bbox=BBox(Point(10, 0), Point(40, 20)))
+        >>> Path("question.png").write_bytes(result.png)
+        >>> Path("question.png.json").write_text(json.dumps(result.view))
+
+        After spotting something at pixel (456, 789), recover its world
+        coordinate to act on it (e.g., feed it to another tool):
+
+        >>> x_um, y_um = result.px_to_world(456, 789)
+    """
+    focus_cell = cell
+    if isinstance(design, Library):
+        inner_library = design._inner
+    elif isinstance(design, _Library):
+        inner_library = design
+    elif isinstance(design, Cell):
+        # Auto-collect child cells so CellRefs resolve during flattening.
+        # Mirrors the run_drc / write_gds pattern.
+        collected: set[Cell] = set()
+        _collect_all_cells(design, collected)
+        lib = Library("_render")
+        for child in collected:
+            lib.add_cell(child)
+        lib.add_cell(design)
+        inner_library = lib._inner
+        if focus_cell is None:
+            focus_cell = design.name
+    else:
+        # _Cell (raw PyO3 cell): wrap minimally
+        lib = _Library("_render")
+        lib.add_cell(design)
+        inner_library = lib
+        if focus_cell is None and hasattr(design, "name"):
+            focus_cell = design.name
+
+    return _render_png(
+        inner_library,
+        bbox=bbox,
+        cell=focus_cell,
+        layers=layers,
+        width=width,
+        height=height,
+        pad=pad,
+        bg=bg,
+        fill_alpha=fill_alpha,
+    )
+
+
 # =============================================================================
 # LayerMap: Named layer definitions with colors from layers.toml
 # =============================================================================
@@ -2027,6 +2132,7 @@ __all__ = [
     "Point",
     "Polygon",
     "Port",
+    "RenderResult",
     "Route",
     "Transform",
     "Vector2",
@@ -2042,6 +2148,7 @@ __all__ = [
     "offset_polygon_varying",
     "path_length",
     "read_gds",
+    "render_png",
     "run_checks",
     "run_dfm",
     "run_drc",

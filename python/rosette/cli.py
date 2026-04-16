@@ -14,6 +14,7 @@ import logging
 import os
 import shutil
 import sys
+import tomllib
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -335,6 +336,75 @@ def main():
         help="Force browser mode even if Tauri app is available",
     )
 
+    # shot command - render design to PNG
+    shot_parser = subparsers.add_parser(
+        "shot", help="Render a design region to a PNG image"
+    )
+    shot_parser.add_argument("design", help="Design file (path or path:target)")
+    shot_parser.add_argument(
+        "-o",
+        "--out",
+        default=None,
+        help="Output PNG path (default: <design-stem>.png)",
+    )
+    shot_parser.add_argument(
+        "--cell",
+        default=None,
+        help="Render only this cell (and its descendants) instead of the top cell",
+    )
+    shot_parser.add_argument(
+        "--bbox",
+        default=None,
+        metavar="XMIN,YMIN,XMAX,YMAX",
+        help="Render only this region, in microns (default: full extent)",
+    )
+    shot_parser.add_argument(
+        "--layer",
+        default=None,
+        metavar="L/D[,L/D...]",
+        help="Restrict to specific layers as 'number/datatype' pairs",
+    )
+    shot_parser.add_argument(
+        "--width", type=int, default=1024, help="Output width in pixels (default: 1024)"
+    )
+    shot_parser.add_argument(
+        "--height",
+        type=int,
+        default=None,
+        help="Output height in pixels (default: derived from aspect)",
+    )
+    shot_parser.add_argument(
+        "--pad",
+        type=float,
+        default=0.1,
+        help="Fractional padding around target bbox (default: 0.1)",
+    )
+    shot_parser.add_argument(
+        "--bg",
+        default="#1a1a1a",
+        help="Background color #RRGGBB or #RRGGBBAA (default: #1a1a1a)",
+    )
+    shot_parser.add_argument(
+        "--fill-alpha",
+        type=int,
+        default=178,
+        help="Layer fill alpha 0-255 (default: 178 ~70%%)",
+    )
+    shot_parser.add_argument(
+        "--no-sidecar",
+        action="store_true",
+        help="Skip writing the <out>.json sidecar with view metadata",
+    )
+    shot_parser.add_argument(
+        "--retain",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Keep only the N newest snapshots in the default snapshots dir "
+        "(default: 20, or [snapshots] retain in rosette.toml). "
+        "0 disables pruning. Ignored when --out is set.",
+    )
+
     # run command
     run_parser = subparsers.add_parser("run", help="View a GDS file in the browser")
     run_parser.add_argument("file", help="GDS file to view (.gds)")
@@ -398,6 +468,21 @@ def main():
         if args.no_native:
             native_run = False
         run_gds(args.file, args.port, args.no_open, native=native_run)
+    elif args.command == "shot":
+        shot_design(
+            design=args.design,
+            out=args.out,
+            cell=args.cell,
+            bbox_str=args.bbox,
+            layer_str=args.layer,
+            width=args.width,
+            height=args.height,
+            pad=args.pad,
+            bg=args.bg,
+            fill_alpha=args.fill_alpha,
+            sidecar=not args.no_sidecar,
+            retain=args.retain,
+        )
 
 
 def _interactive_select(
@@ -1374,6 +1459,222 @@ def build_design(
         sys.exit(1)
     elapsed = (time.perf_counter() - t0) * 1000
     print(f"{_green('ok')} {gds_output} {_dim(f'({elapsed:.0f}ms)')}")
+
+
+def _parse_bbox_arg(s: str) -> "BBox":
+    """Parse '--bbox XMIN,YMIN,XMAX,YMAX' into a BBox."""
+    from rosette import BBox, Point
+
+    parts = s.split(",")
+    if len(parts) != 4:
+        raise ValueError(
+            f"--bbox must be 'XMIN,YMIN,XMAX,YMAX' (got {len(parts)} parts: {s!r})"
+        )
+    try:
+        xmin, ymin, xmax, ymax = (float(p) for p in parts)
+    except ValueError as e:
+        raise ValueError(f"--bbox values must be numbers: {e}") from e
+    if xmax <= xmin or ymax <= ymin:
+        raise ValueError(
+            f"--bbox max must be greater than min: got {xmin},{ymin},{xmax},{ymax}"
+        )
+    return BBox(Point(xmin, ymin), Point(xmax, ymax))
+
+
+def _parse_layers_arg(s: str) -> list[tuple[int, int]]:
+    """Parse '--layer L/D[,L/D...]' into a list of (layer, datatype) tuples."""
+    out: list[tuple[int, int]] = []
+    for part in s.split(","):
+        part = part.strip()
+        if "/" not in part:
+            raise ValueError(f"--layer entry must be 'number/datatype': got {part!r}")
+        l_str, d_str = part.split("/", 1)
+        try:
+            out.append((int(l_str), int(d_str)))
+        except ValueError as e:
+            raise ValueError(f"--layer values must be ints: {e}") from e
+    return out
+
+
+_DEFAULT_RETAIN = 20
+
+
+def _project_snapshot_dir() -> Path | None:
+    """Project-local snapshots directory: `<project_root>/.rosette/snapshots/`.
+
+    Returns None when no `rosette.toml` is found upward from cwd, signalling
+    that the caller should fall back to writing next to the design file.
+    """
+    from rosette import _find_rosette_toml
+
+    toml = _find_rosette_toml()
+    if toml is None:
+        return None
+    return toml.parent / ".rosette" / "snapshots"
+
+
+def _load_retain_config() -> int:
+    """Read `[snapshots] retain = N` from rosette.toml; default 20."""
+    from rosette import _find_rosette_toml
+
+    toml_path = _find_rosette_toml()
+    if toml_path is None:
+        return _DEFAULT_RETAIN
+    try:
+        with open(toml_path, "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return _DEFAULT_RETAIN
+    section = data.get("snapshots", {})
+    val = section.get("retain", _DEFAULT_RETAIN)
+    if not isinstance(val, int):
+        return _DEFAULT_RETAIN
+    return val
+
+
+def _prune_snapshots(snapshot_dir: Path, retain: int) -> int:
+    """Delete oldest snapshots beyond `retain`. Non-positive `retain` keeps all.
+
+    Only touches `*.png` and matching `*.png.json` files in `snapshot_dir`
+    itself (no recursion), so unrelated files dropped in by a user are safe.
+    Returns the number of PNG files deleted.
+    """
+    if retain <= 0 or not snapshot_dir.is_dir():
+        return 0
+    pngs = sorted(
+        snapshot_dir.glob("*.png"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    deleted = 0
+    for old in pngs[retain:]:
+        try:
+            old.unlink()
+            sidecar = old.with_suffix(".png.json")
+            if sidecar.exists():
+                sidecar.unlink()
+            deleted += 1
+        except OSError:
+            # Swallow cleanup failures — pruning is best-effort, the snapshot
+            # we just took is the user-visible action and must succeed.
+            pass
+    return deleted
+
+
+def shot_design(
+    design: str,
+    out: str | None,
+    cell: str | None,
+    bbox_str: str | None,
+    layer_str: str | None,
+    width: int,
+    height: int | None,
+    pad: float,
+    bg: str,
+    fill_alpha: int,
+    sidecar: bool,
+    retain: int | None = None,
+) -> None:
+    """Render a design to a PNG image (and a sidecar JSON by default).
+
+    The CLI form of `rosette.render_png`. Reach for this — either as a
+    subprocess (`rosette shot ...`) or by importing `render_png` directly
+    — only when the conversation has hit a visual gap: the user is
+    describing something they can see but the assistant can't picture, or
+    the user has asked for a visual inspection. For data queries, read
+    the design through the Cell/Library API instead; it's cheaper and
+    more precise.
+
+    Choose the subprocess form when the assistant doesn't already have
+    the design's Python module loaded (no shared interpreter state).
+    When the assistant is running inside the design's process, importing
+    `rosette.render_png` directly is simpler.
+
+    Output location: when `out` is None, snapshots land in
+    `<project_root>/.rosette/snapshots/<stem>-<timestamp>-<tag>.png`,
+    where `project_root` is the directory containing `rosette.toml`.
+    The `.rosette/` directory is gitignored, and snapshots are pruned to
+    the `retain` newest entries (default 20, configurable via
+    `[snapshots] retain` in rosette.toml or `--retain N`; 0 disables
+    pruning). When no `rosette.toml` is found, falls back to writing
+    `<design-stem>.png` next to the design file with no pruning.
+    Explicit `--out` paths are written verbatim and never pruned.
+
+    `--no-sidecar` should rarely be set. The sidecar JSON is what makes
+    the snapshot actionable: it carries the world↔pixel transform so any
+    pixel position the assistant spots in the PNG can be turned back
+    into design coordinates and fed to other tools.
+    """
+    import json
+    import secrets
+    import time
+
+    from rosette import render_png
+
+    try:
+        bbox = _parse_bbox_arg(bbox_str) if bbox_str else None
+        layers = _parse_layers_arg(layer_str) if layer_str else None
+    except ValueError as e:
+        print(f"{_red('Error')}: {e}")
+        sys.exit(2)
+
+    cell_obj, file_path, _ = load_design(design)
+
+    using_default_dir = out is None
+    snapshot_dir: Path | None = None
+    if using_default_dir:
+        snapshot_dir = _project_snapshot_dir()
+        if snapshot_dir is not None:
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            tag = secrets.token_hex(3)
+            out_path = snapshot_dir / f"{file_path.stem}-{ts}-{tag}.png"
+        else:
+            out_path = file_path.with_suffix(".png")
+    else:
+        out_path = Path(out)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    t0 = time.perf_counter()
+    try:
+        result = render_png(
+            cell_obj,
+            bbox=bbox,
+            cell=cell,
+            layers=layers,
+            width=width,
+            height=height,
+            pad=pad,
+            bg=bg,
+            fill_alpha=fill_alpha,
+        )
+    except ValueError as e:
+        print(f"{_red('Error')}: {e}")
+        sys.exit(1)
+    elapsed = (time.perf_counter() - t0) * 1000
+
+    out_path.write_bytes(result.png)
+    if sidecar:
+        sidecar_path = out_path.with_suffix(out_path.suffix + ".json")
+        meta = {
+            "image": out_path.name,
+            "view": result.view,
+            "layers_rendered": [list(t) for t in result.layers_rendered],
+        }
+        sidecar_path.write_text(json.dumps(meta, indent=2))
+
+    pruned = 0
+    if using_default_dir and snapshot_dir is not None:
+        retain_val = retain if retain is not None else _load_retain_config()
+        pruned = _prune_snapshots(snapshot_dir, retain_val)
+
+    canvas = result.view["canvas_px"]
+    layer_summary = ", ".join(_format_layer(l) for l in result.layers_rendered)
+    size_kb = len(result.png) / 1024
+    extras = f"{canvas[0]}x{canvas[1]}, {size_kb:.1f}KB, layers {layer_summary}, {elapsed:.0f}ms"
+    if pruned:
+        extras += f", pruned {pruned}"
+    print(f"{_green('ok')} {out_path} {_dim(f'({extras})')}")
 
 
 if __name__ == "__main__":

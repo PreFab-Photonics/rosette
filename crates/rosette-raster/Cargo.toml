@@ -1,0 +1,13 @@
+[package]
+name = "rosette-raster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CPU polygon rasterizer for rosette photonic layouts (vector → PNG)"
+
+[dependencies]
+rosette-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tiny-skia = "0.11"

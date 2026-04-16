@@ -13,6 +13,7 @@ mod drc;
 mod geometry;
 mod io;
 mod layout;
+mod render;
 mod route;
 
 use checks::{PyCheckViolation, PyChecksConfig, PyChecksResult, py_run_checks};
@@ -26,6 +27,7 @@ use geometry::{
     py_fresnel_c, py_fresnel_s, py_offset_polygon, py_offset_polygon_varying, py_path_length,
 };
 use layout::{PyCell, PyCellRef, PyLayer, PyLibrary, PyPathEndType, PyPort, py_connect_transform};
+use render::{PyRenderResult, py_render_png};
 use rosette_core::Layer;
 use route::PyRoute;
 
@@ -102,6 +104,10 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(io::read_gds, m)?)?;
     m.add_function(wrap_pyfunction!(io::write_gds, m)?)?;
     m.add_function(wrap_pyfunction!(io::to_json, m)?)?;
+
+    // Rasterizer
+    m.add_class::<PyRenderResult>()?;
+    m.add_function(wrap_pyfunction!(py_render_png, m)?)?;
 
     // Connection helpers
     m.add_function(wrap_pyfunction!(py_connect_transform, m)?)?;
