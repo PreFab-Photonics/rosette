@@ -1699,6 +1699,7 @@ def render_png(
     pad: float = 0.1,
     bg: str = "#1a1a1a",
     fill_alpha: int = 178,
+    palette: dict[int, str] | None = None,
 ) -> RenderResult:
     """Rasterize a design to a PNG image.
 
@@ -1734,6 +1735,11 @@ def render_png(
         pad: Fractional padding around the target bbox (default 0.1).
         bg: Background color, `#RRGGBB` or `#RRGGBBAA` (default `#1a1a1a`).
         fill_alpha: Alpha applied to layer colors, 0-255 (default 178).
+        palette: Per-layer color overrides as `{layer_number: "#RRGGBB"}`.
+            When omitted, colors are auto-loaded from the project's
+            `rosette.toml` `[layers]` section so the snapshot matches the
+            live web viewer. Layers without a configured color fall back
+            to the shared default palette.
 
     Returns:
         RenderResult with `png` (bytes), `view` (dict for sidecar JSON),
@@ -1778,6 +1784,17 @@ def render_png(
         if focus_cell is None and hasattr(design, "name"):
             focus_cell = design.name
 
+    if palette is None:
+        # Auto-load layer colors from rosette.toml so snapshots match the
+        # live web viewer. Silently fall back to the shared default palette
+        # when no project config exists or it can't be parsed — rendering
+        # is best-effort and shouldn't fail on config issues.
+        try:
+            layer_map = load_layer_map()
+            palette = {info.number: info.color for info in layer_map}
+        except (FileNotFoundError, ValueError):
+            palette = None
+
     return _render_png(
         inner_library,
         bbox=bbox,
@@ -1788,6 +1805,7 @@ def render_png(
         pad=pad,
         bg=bg,
         fill_alpha=fill_alpha,
+        palette=palette,
     )
 
 

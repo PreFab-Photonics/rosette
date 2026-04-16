@@ -106,3 +106,156 @@ class TestRenderPng:
         r = repr(result)
         assert "RenderResult" in r
         assert "64x32" in r
+
+
+def _has_color(png_bytes: bytes, rgb: tuple[int, int, int]) -> bool:
+    """True if the rendered PNG contains at least one pixel of the given RGB.
+
+    Decodes the full PNG (handles all 5 filter types) so we can reason about
+    *what got drawn* rather than about specific pixel positions, which are
+    sensitive to AA, padding, and aspect-fit math.
+    """
+    import struct
+    import zlib
+
+    assert png_bytes[:8] == PNG_MAGIC
+    pos = 8
+    width = height = bit_depth = color_type = None
+    idat = bytearray()
+    while pos < len(png_bytes):
+        length = struct.unpack(">I", png_bytes[pos : pos + 4])[0]
+        chunk_type = png_bytes[pos + 4 : pos + 8]
+        data = png_bytes[pos + 8 : pos + 8 + length]
+        pos += 12 + length
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, color_type = struct.unpack(">IIBB", data[:10])
+        elif chunk_type == b"IDAT":
+            idat.extend(data)
+        elif chunk_type == b"IEND":
+            break
+    assert color_type == 6 and bit_depth == 8, "expected 8-bit RGBA"
+
+    raw = zlib.decompress(bytes(idat))
+    bpp = 4
+    stride = width * bpp
+    pixels = bytearray(width * height * bpp)
+    prev_row = bytes(stride)
+    for y in range(height):
+        offset = y * (stride + 1)
+        ftype = raw[offset]
+        row = bytearray(raw[offset + 1 : offset + 1 + stride])
+        if ftype == 1:  # Sub
+            for i in range(bpp, stride):
+                row[i] = (row[i] + row[i - bpp]) & 0xFF
+        elif ftype == 2:  # Up
+            for i in range(stride):
+                row[i] = (row[i] + prev_row[i]) & 0xFF
+        elif ftype == 3:  # Average
+            for i in range(stride):
+                a = row[i - bpp] if i >= bpp else 0
+                b = prev_row[i]
+                row[i] = (row[i] + ((a + b) >> 1)) & 0xFF
+        elif ftype == 4:  # Paeth
+            for i in range(stride):
+                a = row[i - bpp] if i >= bpp else 0
+                b = prev_row[i]
+                c = prev_row[i - bpp] if i >= bpp else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pred = a if pa <= pb and pa <= pc else (b if pb <= pc else c)
+                row[i] = (row[i] + pred) & 0xFF
+        elif ftype != 0:
+            raise ValueError(f"unknown PNG filter type {ftype}")
+        pixels[y * stride : (y + 1) * stride] = row
+        prev_row = bytes(row)
+
+    target = bytes(rgb)
+    for i in range(0, len(pixels), bpp):
+        if pixels[i : i + 3] == target:
+            return True
+    return False
+
+
+class TestPaletteOverride:
+    def test_explicit_palette_overrides_default(self, two_layer_library: Library):
+        # Default: layer 1 = palette[1] = orange (#ff9800).
+        # Override layer 1 → pink (#ff69b4) and verify the rendered pixels.
+        result = render_png(
+            two_layer_library,
+            width=128,
+            height=64,
+            pad=0.0,
+            fill_alpha=255,
+            palette={1: "#ff69b4"},
+        )
+        # Layer 1 rect spans world (0,0)→(10,10). With pad=0 and aspect-fit,
+        # it lands roughly in the left third of the canvas. Sample center-ish.
+        assert _has_color(result.png, (0xFF, 0x69, 0xB4))
+        assert not _has_color(result.png, (0xFF, 0x98, 0x00))  # default orange not used
+
+    def test_unconfigured_layer_falls_back_to_indexed(
+        self, two_layer_library: Library
+    ):
+        # Override only layer 1 → layer 2 should still get palette[2] = yellow.
+        result = render_png(
+            two_layer_library,
+            width=128,
+            height=64,
+            pad=0.0,
+            fill_alpha=255,
+            palette={1: "#ff69b4"},
+        )
+        assert _has_color(result.png, (0xFF, 0xEB, 0x3B))  # palette[2] yellow
+
+    def test_invalid_palette_color_raises(self, two_layer_library: Library):
+        with pytest.raises(ValueError, match="invalid color"):
+            render_png(two_layer_library, width=64, palette={1: "not-hex"})
+
+    def test_auto_loads_from_rosette_toml(
+        self, two_layer_library: Library, tmp_path, monkeypatch
+    ):
+        # Create a project rosette.toml with a pink layer 1.
+        (tmp_path / "rosette.toml").write_text(
+            '[layers.silicon]\n'
+            'number = 1\n'
+            'datatype = 0\n'
+            'color = "#ff69b4"\n'
+        )
+        monkeypatch.chdir(tmp_path)
+        result = render_png(
+            two_layer_library, width=128, height=64, pad=0.0, fill_alpha=255
+        )
+        assert _has_color(result.png, (0xFF, 0x69, 0xB4))
+        assert not _has_color(result.png, (0xFF, 0x98, 0x00))  # default orange not used
+
+    def test_explicit_palette_beats_auto_loaded(
+        self, two_layer_library: Library, tmp_path, monkeypatch
+    ):
+        (tmp_path / "rosette.toml").write_text(
+            '[layers.silicon]\n'
+            'number = 1\n'
+            'datatype = 0\n'
+            'color = "#ff69b4"\n'
+        )
+        monkeypatch.chdir(tmp_path)
+        # Explicit palette wins over the auto-loaded one.
+        result = render_png(
+            two_layer_library,
+            width=128,
+            height=64,
+            pad=0.0,
+            fill_alpha=255,
+            palette={1: "#00ff00"},  # green
+        )
+        assert _has_color(result.png, (0x00, 0xFF, 0x00))
+        assert not _has_color(result.png, (0xFF, 0x69, 0xB4))  # auto-loaded pink overridden
+
+    def test_no_rosette_toml_uses_default_palette(
+        self, two_layer_library: Library, tmp_path, monkeypatch
+    ):
+        # Empty tmp_path, no rosette.toml. Should fall back to indexed palette.
+        monkeypatch.chdir(tmp_path)
+        result = render_png(
+            two_layer_library, width=128, height=64, pad=0.0, fill_alpha=255
+        )
+        assert _has_color(result.png, (0xFF, 0x98, 0x00))  # palette[1] orange

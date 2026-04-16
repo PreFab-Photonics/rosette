@@ -5,6 +5,8 @@
 //! Rust crate does not need a runtime path. Edit the JSON to change colors
 //! everywhere.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 const PALETTE_JSON: &str = include_str!("../../../app/src/stores/palette.json");
@@ -15,9 +17,16 @@ struct PaletteFile {
 }
 
 /// Layer-number → RGBA color lookup.
+///
+/// Resolves a color in two stages: per-layer overrides take precedence,
+/// then the indexed fallback list is consulted (wrapping by layer number).
+/// This lets a project's configured layer colors (from `rosette.toml`'s
+/// `[layers]` section) win over the auto-assigned palette while still
+/// providing sane defaults for layers the project hasn't named.
 #[derive(Debug, Clone)]
 pub struct Palette {
     colors: Vec<[u8; 4]>,
+    overrides: HashMap<u16, [u8; 4]>,
 }
 
 impl Palette {
@@ -30,17 +39,34 @@ impl Palette {
             .iter()
             .map(|hex| parse_hex_rgba(hex).expect("embedded palette has invalid hex color"))
             .collect();
-        Self { colors }
+        Self {
+            colors,
+            overrides: HashMap::new(),
+        }
     }
 
     /// Build a custom palette from a slice of RGBA colors.
     pub fn from_colors(colors: Vec<[u8; 4]>) -> Self {
-        Self { colors }
+        Self {
+            colors,
+            overrides: HashMap::new(),
+        }
     }
 
-    /// Get the color for a layer number. Wraps around if the layer index
-    /// exceeds the palette length, matching the web viewer's behavior.
+    /// Add per-layer color overrides. Layers not in the map fall back to
+    /// the indexed palette.
+    pub fn with_overrides(mut self, overrides: HashMap<u16, [u8; 4]>) -> Self {
+        self.overrides.extend(overrides);
+        self
+    }
+
+    /// Get the color for a layer number. Override wins; otherwise wraps
+    /// the indexed palette by layer number, matching the web viewer's
+    /// auto-assignment behavior.
     pub fn color_for(&self, layer_number: u16) -> [u8; 4] {
+        if let Some(c) = self.overrides.get(&layer_number) {
+            return *c;
+        }
         if self.colors.is_empty() {
             return [0xff, 0xff, 0xff, 0xff];
         }
@@ -90,6 +116,16 @@ mod tests {
     fn palette_wraps_on_overflow() {
         let p = Palette::shared();
         assert_eq!(p.color_for(0), p.color_for(16));
+    }
+
+    #[test]
+    fn override_takes_precedence_over_indexed() {
+        let mut overrides = HashMap::new();
+        overrides.insert(1, [0xff, 0x69, 0xb4, 0xff]); // pink
+        let p = Palette::shared().with_overrides(overrides);
+        assert_eq!(p.color_for(1), [0xff, 0x69, 0xb4, 0xff]);
+        // Other layers still use the indexed fallback.
+        assert_eq!(p.color_for(0), [0xf4, 0x43, 0x36, 0xff]); // red
     }
 
     #[test]
