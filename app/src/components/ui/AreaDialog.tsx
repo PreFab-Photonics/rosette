@@ -2,23 +2,25 @@ import { useCallback, useEffect, useRef } from "react";
 import { useAreaDialogStore, type LayerArea } from "@/stores/area-dialog";
 import { useUIStore } from "@/stores/ui";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
+import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
 // Helpers
 // =============================================================================
 
-/** Micron display scale: 1 unit = 1 nm, 1 um = 1000 nm. */
-const UM_SCALE = 1_000;
+/** nm per µm. */
+const NM_PER_UM = 1_000;
 
 /**
- * Format an area value (in nm^2) as um^2 for display.
+ * Convert world-unit^2 area to µm^2 for display.
  *
- * Design coordinates are in nm. Area is nm^2, so divide by 1e6 to get um^2.
- * Uses up to 4 significant digits to keep the column compact.
+ * World coordinates are `nm * GRID_SIZE`, so world-unit area is
+ * `nm^2 * GRID_SIZE^2`. Divide by `GRID_SIZE^2` to get nm^2, then
+ * by `1e6` to get µm^2.
  */
-function formatArea(areaNmSq: number): string {
-  const areaUmSq = areaNmSq / (UM_SCALE * UM_SCALE);
+function formatArea(worldAreaSq: number): string {
+  const areaUmSq = worldAreaSq / (GRID_SIZE * GRID_SIZE * NM_PER_UM * NM_PER_UM);
   if (areaUmSq === 0) return "0";
   if (areaUmSq >= 1) return areaUmSq.toFixed(2);
   // For very small areas, use toPrecision to avoid "0.00"
