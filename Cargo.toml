@@ -7,6 +7,7 @@ members = [
     "crates/rosette-drc",
     "crates/rosette-io",
     "crates/rosette-python",
+    "crates/rosette-raster",
     "crates/rosette-wasm",
     "app/src-tauri",
 ]
@@ -20,6 +21,7 @@ default-members = [
     "crates/rosette-drc",
     "crates/rosette-io",
     "crates/rosette-python",
+    "crates/rosette-raster",
 ]
 
 [workspace.package]
@@ -33,6 +35,7 @@ rosette-core = { path = "crates/rosette-core" }
 rosette-dfm = { path = "crates/rosette-dfm" }
 rosette-drc = { path = "crates/rosette-drc" }
 rosette-io = { path = "crates/rosette-io" }
+rosette-raster = { path = "crates/rosette-raster" }
 geo = { version = "0.29", default-features = false }
 rayon = "1.10"
 thiserror = "1.0"

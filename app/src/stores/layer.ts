@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import paletteData from "./palette.json";
 
 /**
  * Fill pattern for layer rendering.
@@ -27,26 +28,10 @@ export const FILL_PATTERN_IDS: Record<FillPattern, number> = {
 
 /**
  * Color palette for layers. Used when auto-assigning colors to new layers
- * and as preset swatches in the color picker. Single source of truth.
+ * and as preset swatches in the color picker. Shared with the Rust
+ * rasterizer (`crates/rosette-raster`) via `palette.json` — edit there.
  */
-export const LAYER_PALETTE = [
-  "#f44336",
-  "#ff9800",
-  "#ffeb3b",
-  "#4caf50",
-  "#00bcd4",
-  "#2196f3",
-  "#9c27b0",
-  "#ff69b4",
-  "#795548",
-  "#607d8b",
-  "#3f51b5",
-  "#009688",
-  "#e6e6e6",
-  "#8d6e63",
-  "#ff6f00",
-  "#1a237e",
-];
+export const LAYER_PALETTE: string[] = paletteData.colors;
 
 /** Maximum allowed value for GDS layer number and datatype. */
 export const MAX_LAYER_NUMBER = 999;
