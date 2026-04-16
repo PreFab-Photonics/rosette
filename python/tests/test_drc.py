@@ -376,6 +376,12 @@ class TestRunDrc:
         assert result.violations[0].rule_type == "forbidden_overlap"
         assert result.polygons_checked == 2
 
+        # Verify cell names are reported
+        v = result.violations[0]
+        names = {v.cell_name, v.cell_name2}
+        assert "top" in names
+        assert "child" in names
+
     def test_forbid_overlap_cross_hierarchy_non_overlapping_passes(self):
         """Non-overlapping polygons across hierarchy pass."""
         child = Cell("child")
@@ -492,6 +498,9 @@ class TestDrcViolation:
         assert v.layer2 is None
         assert isinstance(v.message, str)
         assert isinstance(v.bbox, tuple)
+        # Per-polygon rules don't have cell names
+        assert v.cell_name is None
+        assert v.cell_name2 is None
 
     def test_violation_layer2_for_spacing(self):
         """Spacing violations have layer2 set."""
@@ -506,6 +515,20 @@ class TestDrcViolation:
         v = result.violations[0]
         assert v.layer == (1, 0)
         assert v.layer2 == (2, 0)
+
+    def test_violation_cell_names_intra_cell(self):
+        """Intra-cell overlap violations have both cell_name fields set to the same cell."""
+        cell = Cell("my_cell")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+        cell.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0))
+        result = run_drc(cell, rules)
+
+        assert len(result.violations) == 1
+        v = result.violations[0]
+        assert v.cell_name == "my_cell"
+        assert v.cell_name2 == "my_cell"
 
     def test_violation_repr(self):
         """Violation has readable repr."""

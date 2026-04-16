@@ -2,7 +2,7 @@
 
 use crate::layout::{PyCell, PyLibrary};
 use pyo3::prelude::*;
-use rosette_core::Cell;
+use rosette_core::{Cell, Library};
 use rosette_io::{gds, json};
 
 /// Build summary information for a cell.
@@ -16,6 +16,8 @@ struct BuildSummary {
     ports: Vec<PortInfo>,
     refs: Vec<String>,
     has_refs_only: bool,
+    /// Instance-resolved ports (child instances with their transformed ports).
+    instance_ports: Vec<InstancePortGroup>,
 }
 
 struct PortInfo {
@@ -25,8 +27,23 @@ struct PortInfo {
     width: Option<f64>,
 }
 
+/// Ports from a single cell instance, resolved to absolute coordinates.
+struct InstancePortGroup {
+    cell_name: String,
+    /// Position of the instance origin after transform.
+    origin_x: f64,
+    origin_y: f64,
+    ports: Vec<PortInfo>,
+    /// Port direction angles in degrees.
+    angles: Vec<f64>,
+}
+
 impl BuildSummary {
     fn from_cell(cell: &Cell) -> Self {
+        Self::from_cell_with_library(cell, None)
+    }
+
+    fn from_cell_with_library(cell: &Cell, library: Option<&Library>) -> Self {
         let bbox = cell.bbox();
         let (bbox_width, bbox_height) = match bbox {
             Some(b) => (Some(b.width()), Some(b.height())),
@@ -44,10 +61,42 @@ impl BuildSummary {
             })
             .collect();
 
-        let refs = cell.cell_refs().map(|r| r.cell_name.clone()).collect();
+        let refs: Vec<String> = cell.cell_refs().map(|r| r.cell_name.clone()).collect();
 
         // Check if cell has only refs (no direct polygons)
         let has_refs_only = bbox_width.is_none() && cell.ref_count() > 0;
+
+        // Resolve instance ports (one level deep) when library is available
+        let instance_ports = if let Some(lib) = library {
+            let mut groups = Vec::new();
+            for cell_ref in cell.cell_refs() {
+                if let Some(ref_cell) = lib.cell(&cell_ref.cell_name) {
+                    let origin = cell_ref.transform.apply(rosette_core::Point::new(0.0, 0.0));
+                    let mut port_infos = Vec::new();
+                    let mut angles = Vec::new();
+                    for port in ref_cell.ports() {
+                        let transformed = port.transform(&cell_ref.transform);
+                        port_infos.push(PortInfo {
+                            name: transformed.name.clone(),
+                            x: transformed.position.x,
+                            y: transformed.position.y,
+                            width: transformed.width,
+                        });
+                        angles.push(transformed.direction.angle().to_degrees());
+                    }
+                    groups.push(InstancePortGroup {
+                        cell_name: cell_ref.cell_name.clone(),
+                        origin_x: origin.x,
+                        origin_y: origin.y,
+                        ports: port_infos,
+                        angles,
+                    });
+                }
+            }
+            groups
+        } else {
+            Vec::new()
+        };
 
         BuildSummary {
             cell_name: cell.name().to_string(),
@@ -59,6 +108,7 @@ impl BuildSummary {
             ports,
             refs,
             has_refs_only,
+            instance_ports,
         }
     }
 
@@ -129,7 +179,50 @@ impl BuildSummary {
             lines.push(format!("  cells: {}", cells_str.join(", ")));
         }
 
+        // Instance-resolved ports
+        if !self.instance_ports.is_empty() {
+            lines.push("  instances:".to_string());
+            for group in &self.instance_ports {
+                lines.push(format!(
+                    "    {} (at {:.1}, {:.1}):",
+                    group.cell_name, group.origin_x, group.origin_y
+                ));
+                for (port, angle) in group.ports.iter().zip(group.angles.iter()) {
+                    let width_str = port.width.map_or(String::new(), |w| format!(" w={:.2}", w));
+                    let dir_str = angle_to_dir_str(*angle);
+                    if dir_str.is_empty() {
+                        lines.push(format!(
+                            "      {} @ ({:.1}, {:.1}){}",
+                            port.name, port.x, port.y, width_str
+                        ));
+                    } else {
+                        lines.push(format!(
+                            "      {} @ ({:.1}, {:.1}){} {}",
+                            port.name, port.x, port.y, width_str, dir_str
+                        ));
+                    }
+                }
+            }
+        }
+
         lines.join("\n")
+    }
+}
+
+/// Convert an angle in degrees to a compact direction string.
+fn angle_to_dir_str(angle_deg: f64) -> &'static str {
+    // Normalize to [0, 360)
+    let a = ((angle_deg % 360.0) + 360.0) % 360.0;
+    if (a - 0.0).abs() < 1.0 {
+        "-> +X"
+    } else if (a - 90.0).abs() < 1.0 {
+        "-> +Y"
+    } else if (a - 180.0).abs() < 1.0 {
+        "-> -X"
+    } else if (a - 270.0).abs() < 1.0 {
+        "-> -Y"
+    } else {
+        ""
     }
 }
 
@@ -188,7 +281,7 @@ pub fn write_gds(
         })?;
 
         if print_summary && let Some(top) = lib.0.top_cell() {
-            let summary = BuildSummary::from_cell(top);
+            let summary = BuildSummary::from_cell_with_library(top, Some(&lib.0));
             if verbose {
                 eprintln!("{}", summary.format_verbose());
             } else {
@@ -210,7 +303,7 @@ pub fn write_gds(
             })?;
 
             if print_summary && let Some(top) = lib.top_cell() {
-                let summary = BuildSummary::from_cell(top);
+                let summary = BuildSummary::from_cell_with_library(top, Some(&lib));
                 if verbose {
                     eprintln!("{}", summary.format_verbose());
                 } else {

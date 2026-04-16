@@ -980,7 +980,15 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
         if v.layer2 is not None:
             layer_str += f", {_format_layer(v.layer2)}"
 
-        print(f"  {label}  {_bold(name)} on {layer_str}: {v.message}")
+        # Append cell names when available
+        cells_hint = ""
+        if v.cell_name and v.cell_name2:
+            if v.cell_name == v.cell_name2:
+                cells_hint = _dim(f" (within '{v.cell_name}')")
+            else:
+                cells_hint = _dim(f" (between '{v.cell_name}' and '{v.cell_name2}')")
+
+        print(f"  {label}  {_bold(name)} on {layer_str}: {v.message}{cells_hint}")
 
         if verbose:
             bbox = v.bbox

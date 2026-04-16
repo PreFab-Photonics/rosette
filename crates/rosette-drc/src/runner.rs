@@ -57,6 +57,8 @@ pub struct DrcRunner {
 struct InstancePolygons {
     polygons_by_layer: HashMap<Layer, Vec<(Polygon, usize)>>,
     bbox: BBox,
+    /// Name of the cell this instance comes from.
+    cell_name: String,
 }
 
 impl DrcRunner {
@@ -253,7 +255,13 @@ impl DrcRunner {
                 };
                 if is_same_layer_pairwise {
                     let rule_violations = self.check_rule(rule, &local_polygons);
-                    violations.extend(rule_violations);
+                    // Annotate intra-cell violations with the cell name
+                    let cell_name = cell.name().to_string();
+                    for mut v in rule_violations {
+                        v.cell_name = Some(cell_name.clone());
+                        v.cell_name2 = Some(cell_name.clone());
+                        violations.push(v);
+                    }
                 }
             }
         }
@@ -355,6 +363,7 @@ impl DrcRunner {
             groups.push(InstancePolygons {
                 polygons_by_layer: local_polys,
                 bbox,
+                cell_name: cell.name().to_string(),
             });
         }
     }
@@ -406,6 +415,9 @@ impl DrcRunner {
             }
             // Cross-layer and non-optimizable rules: full merged polygon check.
             // These were NOT checked in the intra-cell phase, so no dedup issue.
+            // Note: cell_name/cell_name2 are not set for these violations because
+            // the merged polygon map loses per-cell provenance. Only same-layer
+            // pairwise rules (overlap, spacing) get cell name annotations.
             _ => self.check_rule(rule, merged),
         }
     }
@@ -452,7 +464,12 @@ impl DrcRunner {
                     rule_name,
                     false, // not same-layer dedup — these are from different instances
                 );
-                violations.extend(inter_violations);
+                // Annotate violations with source cell names
+                for mut v in inter_violations {
+                    v.cell_name = Some(group_i.cell_name.clone());
+                    v.cell_name2 = Some(group_j.cell_name.clone());
+                    violations.push(v);
+                }
             }
         }
 
@@ -492,7 +509,12 @@ impl DrcRunner {
                     polys_i, layer, polys_j, layer, rule_name,
                     false, // not same-layer dedup — these are from different instances
                 );
-                violations.extend(inter_violations);
+                // Annotate violations with source cell names
+                for mut v in inter_violations {
+                    v.cell_name = Some(group_i.cell_name.clone());
+                    v.cell_name2 = Some(group_j.cell_name.clone());
+                    violations.push(v);
+                }
             }
         }
 
@@ -1256,6 +1278,11 @@ mod tests {
             "Should produce exactly one violation (no duplicate)"
         );
         assert_eq!(result.violations[0].rule_name, Some("NO_OVLP".to_string()));
+
+        // Intra-cell violations should have both cell names set to the same cell
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name, Some("test".to_string()));
+        assert_eq!(v.cell_name2, Some("test".to_string()));
     }
 
     #[test]
@@ -1409,6 +1436,23 @@ mod tests {
         assert_eq!(
             result.stats.polygons_checked, 2,
             "Should see 2 polygons: one from top, one from child"
+        );
+
+        // Verify cell names are attached to the violation
+        let v = &result.violations[0];
+        assert!(v.cell_name.is_some(), "cell_name should be set");
+        assert!(v.cell_name2.is_some(), "cell_name2 should be set");
+        // One should be "top", the other "child" (order depends on group iteration)
+        let names: std::collections::HashSet<&str> = [
+            v.cell_name.as_deref().unwrap(),
+            v.cell_name2.as_deref().unwrap(),
+        ]
+        .into_iter()
+        .collect();
+        assert!(names.contains("top"), "violation should reference 'top'");
+        assert!(
+            names.contains("child"),
+            "violation should reference 'child'"
         );
     }
 

@@ -1028,6 +1028,10 @@ class DrcViolation:
     layer: tuple[int, int]
     layer2: tuple[int, int] | None
     bbox: tuple[tuple[float, float], tuple[float, float]]
+    cell_name: str | None
+    """Name of the cell containing the first polygon (for pairwise violations)."""
+    cell_name2: str | None
+    """Name of the cell containing the second polygon (for pairwise violations)."""
     def __repr__(self) -> str: ...
 
 class DrcResult:

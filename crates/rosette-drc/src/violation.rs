@@ -88,6 +88,10 @@ pub struct DrcViolation {
     pub message: String,
     /// Severity level.
     pub severity: Severity,
+    /// Name of the cell containing the first polygon (for pairwise violations).
+    pub cell_name: Option<String>,
+    /// Name of the cell containing the second polygon (for pairwise violations).
+    pub cell_name2: Option<String>,
 }
 
 impl DrcViolation {
@@ -106,6 +110,8 @@ impl DrcViolation {
             layer2: None,
             message: message.into(),
             severity: Severity::Error,
+            cell_name: None,
+            cell_name2: None,
         }
     }
 

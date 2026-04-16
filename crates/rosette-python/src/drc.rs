@@ -216,11 +216,29 @@ impl PyDrcViolation {
         ((bb.min().x, bb.min().y), (bb.max().x, bb.max().y))
     }
 
+    /// Name of the cell containing the first polygon (for pairwise violations).
+    #[getter]
+    fn cell_name(&self) -> Option<String> {
+        self.0.cell_name.clone()
+    }
+
+    /// Name of the cell containing the second polygon (for pairwise violations).
+    #[getter]
+    fn cell_name2(&self) -> Option<String> {
+        self.0.cell_name2.clone()
+    }
+
     fn __repr__(&self) -> String {
+        let cells_str = match (&self.0.cell_name, &self.0.cell_name2) {
+            (Some(a), Some(b)) if a == b => format!(", within '{}'", a),
+            (Some(a), Some(b)) => format!(", between '{}' and '{}'", a, b),
+            _ => String::new(),
+        };
         format!(
-            "DrcViolation({}: {})",
+            "DrcViolation({}: {}{})",
             self.0.rule_name.as_deref().unwrap_or(&self.rule_type()),
-            self.0.message
+            self.0.message,
+            cells_str
         )
     }
 }

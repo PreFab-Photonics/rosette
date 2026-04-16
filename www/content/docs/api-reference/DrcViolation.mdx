@@ -58,3 +58,19 @@ spacing, enclosure). `None` for single-layer rules.
 Bounding box of the violation as `((min_x, min_y), (max_x, max_y))`.
 
 </PyAttribute>
+
+<PyAttribute name={"cell_name"} type={"str | None"}>
+
+Name of the cell containing the first polygon involved in the violation.
+Set for pairwise rules (overlap, spacing) where the source cell is known.
+`None` for per-polygon rules (min\_width, min\_area, etc.).
+
+</PyAttribute>
+
+<PyAttribute name={"cell_name2"} type={"str | None"}>
+
+Name of the cell containing the second polygon involved in the violation.
+For intra-cell violations, this equals `cell_name`. For inter-instance
+violations, it identifies the other cell. `None` for per-polygon rules.
+
+</PyAttribute>
