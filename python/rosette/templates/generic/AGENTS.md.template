@@ -25,18 +25,6 @@ uv run rosette check designs/foo.py
 
 A passing build only means the GDS was written -- it does NOT mean the design is correct. `rosette check` catches DRC violations (min width, spacing, overlap), unconnected ports, width mismatches, and bend radius violations.
 
-## Snapshot the design when stuck on a visual gap
-
-Render a PNG when the conversation about the design hits a visual gap -- the user is pointing at something they can see but is struggling to put into words, you are confused about a spatial reference they made ("the bend in the middle", "that little stub"), or they explicitly ask you to look at the design.
-
-```
-uv run rosette shot designs/foo.py [--cell NAME | --bbox X1,Y1,X2,Y2 | --layer L/D]
-```
-
-Output lands in `.rosette/snapshots/<stem>-<timestamp>-<tag>.png` along with a `<file>.png.json` sidecar carrying the world<->pixel transform. Read both -- the JSON lets you map any pixel you spot in the image back to design coordinates.
-
-This is not a routine inspection tool. For data questions (polygon counts, bounding boxes, port positions, layer membership), read the design through the API directly -- that's cheaper and exact.
-
 ## Key conventions
 
 - All coordinates are in microns
@@ -49,5 +37,6 @@ This is not a routine inspection tool. For data questions (polygon counts, bound
 - For in-script DRC: `load_drc_rules()` and `run_drc()`
 - Grating couplers must be spaced at least 127 um apart (standard fiber array pitch). Use S-bend routes to fan out from closely-spaced component ports to the GC pitch
 - LSP errors on `from rosette import ...` are expected (native extension); ignore them
+- When stuck on a visual reference the user is making: `uv run rosette shot designs/foo.py` (writes PNG + sidecar JSON to `.rosette/snapshots/`)
 
 <!-- END:rosette-agent-rules -->
