@@ -28,14 +28,14 @@ description = "Text annotations"
 # =============================================================================
 #
 # Generic silicon photonics design rules. Adjust values for your foundry.
-#
-# Layer format: "layer/datatype" (e.g., "1/0" for Layer(1, 0))
+# Layer keys use semantic names from [layers] above.
+# Numeric "layer/datatype" format (e.g., "1/0") also works.
 # All dimensions in micrometers (um)
 
 # -----------------------------------------------------------------------------
 # Silicon Layer (waveguides)
 # -----------------------------------------------------------------------------
-[drc.layers."1/0"]
+[drc.layers.silicon]
 min_width = 0.15      # Minimum waveguide width
 min_spacing = 0.15    # Minimum gap between waveguides
 min_area = 0.02       # Minimum polygon area
@@ -55,12 +55,12 @@ padding = 1.0         # Margin around geometry in um
 model = "gaussian"    # Approximate proximity blur model
 sigma = 0.08          # Gaussian sigma in um
 threshold = 0.5       # Binarization threshold
-layers = ["1/0"]      # Layers to predict
+layers = ["silicon"]  # Layers to predict
 # max_area_deviation = 0.10   # relative area change limit (enables pass/fail)
 # severity = "warning"        # "warning" or "error"
 #
 # Per-layer overrides:
-# [dfm.layer."1/0"]
+# [dfm.layer.silicon]
 # sigma = 0.05              # override model params per layer
 # max_area_deviation = 0.05
 

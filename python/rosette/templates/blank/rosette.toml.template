@@ -16,14 +16,21 @@ output_dir = "output"
 # Required: number (0-999)
 # Optional: datatype (default 0), color (hex), fill, opacity, description
 # Fill options: "solid", "hatched", "crosshatched", "dotted"
-#
-# Example:
-#
-# [layers.silicon]
-# number = 1
-# datatype = 0
-# color = "#ff69b4"
-# description = "Silicon waveguides"
+
+[layers.silicon]
+number = 1
+datatype = 0
+color = "#ff69b4"
+description = "Silicon waveguides"
+
+[layers.text]
+number = 10
+datatype = 0
+color = "#607d8b"
+fill = "dotted"
+description = "Text annotations"
+
+# Add more layers as needed:
 #
 # [layers.cladding]
 # number = 2
@@ -35,27 +42,28 @@ output_dir = "output"
 # Design Rule Check (DRC) Constraints
 # =============================================================================
 #
-# Layer format: "layer/datatype" (e.g., "1/0" for Layer(1, 0))
+# Layer keys use semantic names from [layers] above (e.g., [drc.layers.silicon]).
+# Numeric "layer/datatype" format (e.g., [drc.layers."1/0"]) also works.
 # All dimensions in micrometers (um)
 #
 # Example:
 #
-# [drc.layers."1/0"]
+# [drc.layers.silicon]
 # min_width = 0.12
 # min_spacing = 0.13
 # min_area = 0.01
 # no_overlap = true   # Forbid overlapping polygons on same layer
 # # angles = [0, 90]  # Restrict to Manhattan geometry
 #
-# [drc.layers."2/0"]
+# [drc.layers.cladding]
 # min_width = 0.5
 # min_spacing = 0.5
 #
-# # Inter-layer rules
+# # Inter-layer rules (also accept semantic names)
 # [[drc.rules]]
 # type = "spacing"
-# layer1 = "1/0"
-# layer2 = "2/0"
+# layer1 = "silicon"
+# layer2 = "cladding"
 # min_spacing = 1.0
 # name = "WG_CLAD_SPC"
 
@@ -74,11 +82,11 @@ output_dir = "output"
 # model = "gaussian"    # Approximate proximity blur model
 # sigma = 0.08          # Gaussian sigma in um
 # threshold = 0.5       # Binarization threshold
-# layers = ["1/0"]      # Layers to predict
+# layers = ["silicon"]  # Layers to predict (semantic names or "1/0")
 # max_area_deviation = 0.10   # relative area change limit (enables pass/fail)
 #
 # Per-layer overrides:
-# [dfm.layer."1/0"]
+# [dfm.layer.silicon]
 # sigma = 0.05
 
 # ---------------------------------------------------------------------------

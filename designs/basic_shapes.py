@@ -5,12 +5,13 @@ This example demonstrates the fundamental rosette primitives without
 any photonic-specific components. Great for learning the core API.
 """
 
-from rosette import Cell, Layer, Point, Polygon, Port, Vector2, write_gds
+from rosette import Cell, Point, Polygon, Port, Vector2, load_layer_map, write_gds
 
-# Define layers
-silicon = Layer(1, 0)
-oxide = Layer(2, 0)
-marker = Layer(3, 0)
+# Load layers from rosette.toml
+layers = load_layer_map()
+silicon = layers.silicon.layer
+oxide = layers.oxide.layer
+marker = layers.marker.layer
 
 # =============================================================================
 # Basic Polygons

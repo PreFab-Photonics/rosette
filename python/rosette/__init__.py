@@ -1039,6 +1039,11 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
     Rules are defined per-layer in the [drc.layers] section, and inter-layer
     rules in the [[drc.rules]] array.
 
+    Layer keys can use semantic names from the [layers] section (e.g.
+    ``[drc.layers.silicon]``) or the traditional ``"number/datatype"`` format
+    (e.g. ``[drc.layers."1/0"]``). Semantic names are resolved against the
+    [layers] section of the same rosette.toml file.
+
     Args:
         config_path: Optional explicit path to rosette.toml. If None, searches
                      from current directory upward.
@@ -1051,22 +1056,30 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         ValueError: If the config has invalid DRC settings
 
     Example:
-        # In rosette.toml:
-        # [drc.layers."1/0"]
-        # min_width = 0.12
-        # min_spacing = 0.13
-        # min_area = 0.01
-        # angles = [0, 90]
-        #
-        # [[drc.rules]]
-        # type = "spacing"
-        # layer1 = "1/0"
-        # layer2 = "2/0"
-        # min_spacing = 1.0
-        # name = "WG_SLAB_SPC"
+        In rosette.toml::
 
-        rules = load_drc_rules()
-        result = run_drc(cell, rules)
+            [layers.silicon]
+            number = 1
+            datatype = 0
+
+            [drc.layers.silicon]
+            min_width = 0.12
+            min_spacing = 0.13
+
+            # Numeric format still works:
+            # [drc.layers."2/0"]
+            # min_width = 0.5
+
+            [[drc.rules]]
+            type = "spacing"
+            layer1 = "silicon"
+            layer2 = "2/0"
+            min_spacing = 1.0
+
+        Usage::
+
+            rules = load_drc_rules()
+            result = run_drc(cell, rules)
     """
     # Find config file
     if config_path is not None:
@@ -1085,20 +1098,39 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
     with open(toml_path, "rb") as f:
         config = tomllib.load(f)
 
+    # Build semantic name -> Layer lookup from [layers] section (if present)
+    layer_lookup = _build_layer_lookup(config)
+
     # Build rules from config
     rules = DrcRules()
 
     drc_config = config.get("drc", {})
     layers_config = drc_config.get("layers", {})
 
+    # Collect known (number, datatype) pairs from [layers] for cross-validation
+    known_layer_pairs = {(ly.number, ly.datatype) for ly in layer_lookup.values()}
+
     # Process per-layer rules
     for layer_str, layer_rules in layers_config.items():
-        # Parse layer string "number/datatype"
-        layer = _parse_layer_string(layer_str)
+        # Resolve layer: accepts semantic names ("silicon") or numeric ("1/0")
+        layer, display_name = _resolve_layer(
+            layer_str, layer_lookup, context=f"[drc.layers.{layer_str}]"
+        )
 
-        # Auto-generate rule names from layer string so violations are
-        # identifiable (e.g., "L1/0.min_width") when no explicit name is given.
-        prefix = f"L{layer_str}"
+        # Warn if a numeric layer key doesn't match any [layers] entry
+        if layer_lookup and layer_str not in layer_lookup:
+            pair = (layer.number, layer.datatype)
+            if pair not in known_layer_pairs:
+                warnings.warn(
+                    f"DRC layer '{layer_str}' does not match any layer in [layers]. "
+                    f"Consider using a semantic name or adding this layer to [layers]. "
+                    f"Known layers: {', '.join(sorted(layer_lookup.keys()))}",
+                    stacklevel=2,
+                )
+
+        # Auto-generate rule names from the display name so violations are
+        # identifiable (e.g., "Lsilicon.min_width" or "L1/0.min_width").
+        prefix = f"L{display_name}"
 
         # Apply rules for this layer
         if "min_width" in layer_rules:
@@ -1143,7 +1175,7 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         unknown_keys = set(layer_rules.keys()) - _KNOWN_LAYER_KEYS
         for key in sorted(unknown_keys):
             warnings.warn(
-                f"Unknown DRC key '{key}' for layer {layer_str} in rosette.toml "
+                f"Unknown DRC key '{key}' for layer {display_name} in rosette.toml "
                 f"(known keys: {', '.join(sorted(_KNOWN_LAYER_KEYS))})",
                 stacklevel=2,
             )
@@ -1157,30 +1189,32 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         if rule_type is None:
             raise ValueError(f"DRC rule #{i + 1} missing required 'type' field")
 
+        rule_context = f"DRC rule #{i + 1} (type='{rule_type}')"
+
         if rule_type == "enclosure":
             _validate_rule_fields(rule, ["inner", "outer", "min_enclosure"], i)
-            inner = _parse_layer_string(rule["inner"])
-            outer = _parse_layer_string(rule["outer"])
+            inner, _ = _resolve_layer(rule["inner"], layer_lookup, context=rule_context)
+            outer, _ = _resolve_layer(rule["outer"], layer_lookup, context=rule_context)
             enclosure = rule["min_enclosure"]
             rules = rules.min_enclosure(inner, outer, enclosure, name)
 
         elif rule_type == "spacing":
             _validate_rule_fields(rule, ["layer1", "layer2", "min_spacing"], i)
-            layer1 = _parse_layer_string(rule["layer1"])
-            layer2 = _parse_layer_string(rule["layer2"])
+            layer1, _ = _resolve_layer(rule["layer1"], layer_lookup, context=rule_context)
+            layer2, _ = _resolve_layer(rule["layer2"], layer_lookup, context=rule_context)
             spacing = rule["min_spacing"]
             rules = rules.min_spacing(layer1, layer2, spacing, name)
 
         elif rule_type == "require_overlap":
             _validate_rule_fields(rule, ["layer1", "layer2"], i)
-            layer1 = _parse_layer_string(rule["layer1"])
-            layer2 = _parse_layer_string(rule["layer2"])
+            layer1, _ = _resolve_layer(rule["layer1"], layer_lookup, context=rule_context)
+            layer2, _ = _resolve_layer(rule["layer2"], layer_lookup, context=rule_context)
             rules = rules.require_overlap(layer1, layer2, name)
 
         elif rule_type == "forbid_overlap":
             _validate_rule_fields(rule, ["layer1", "layer2"], i)
-            layer1 = _parse_layer_string(rule["layer1"])
-            layer2 = _parse_layer_string(rule["layer2"])
+            layer1, _ = _resolve_layer(rule["layer1"], layer_lookup, context=rule_context)
+            layer2, _ = _resolve_layer(rule["layer2"], layer_lookup, context=rule_context)
             rules = rules.forbid_overlap(layer1, layer2, name)
 
         else:
@@ -1220,6 +1254,64 @@ def _parse_layer_string(layer_str: str) -> Layer:
         raise ValueError(
             f"Invalid layer format '{layer_str}'. Expected 'number' or 'number/datatype'."
         )
+
+
+def _build_layer_lookup(config: dict) -> dict[str, Layer]:
+    """Build a name -> Layer lookup from the [layers] section of a parsed TOML config.
+
+    Returns an empty dict if no [layers] section exists.
+    """
+    layers_config = config.get("layers", {})
+    lookup: dict[str, Layer] = {}
+    for name, props in layers_config.items():
+        if isinstance(props, dict) and "number" in props:
+            number = props["number"]
+            datatype = props.get("datatype", 0)
+            lookup[name] = Layer(int(number), int(datatype))
+    return lookup
+
+
+def _resolve_layer(
+    layer_str: str,
+    layer_lookup: dict[str, Layer],
+    *,
+    context: str = "",
+) -> tuple[Layer, str]:
+    """Resolve a layer string that may be a semantic name or a 'number/datatype' string.
+
+    First checks the layer_lookup dict for a semantic name match. If not found,
+    falls back to _parse_layer_string() for numeric parsing.
+
+    Args:
+        layer_str: Either a semantic name (e.g. "silicon") or numeric (e.g. "1/0").
+        layer_lookup: Mapping from semantic names to Layer objects (from [layers] section).
+        context: Optional context string for error messages (e.g. "DRC rule #1").
+
+    Returns:
+        Tuple of (Layer, display_name) where display_name is the semantic name if resolved
+        that way, or the original layer_str otherwise.
+
+    Raises:
+        ValueError: If layer_str is not a known semantic name and cannot be parsed as
+                    a numeric layer string.
+    """
+    # Check semantic name first
+    if layer_str in layer_lookup:
+        return layer_lookup[layer_str], layer_str
+
+    # Try numeric parsing
+    try:
+        layer = _parse_layer_string(layer_str)
+        return layer, layer_str
+    except (ValueError, TypeError):
+        # Neither a semantic name nor a valid numeric string
+        available = ", ".join(sorted(layer_lookup.keys())) if layer_lookup else "(none defined)"
+        ctx = f" in {context}" if context else ""
+        raise ValueError(
+            f"Unknown layer '{layer_str}'{ctx}. "
+            f"Not a valid 'number/datatype' format, and not a known layer name. "
+            f"Available layer names: {available}"
+        ) from None
 
 
 def run_drc(
@@ -1396,6 +1488,10 @@ def load_dfm_config(
     Reads the [dfm] section of rosette.toml which configures the virtual
     nanofabrication prediction tool.
 
+    Layer references in the ``layers`` list and ``[dfm.layer.*]`` overrides
+    accept semantic names from the [layers] section (e.g. ``"silicon"``) or
+    the traditional ``"number/datatype"`` format (e.g. ``"1/0"``).
+
     Args:
         config_path: Optional explicit path to rosette.toml. If None, searches
                      from current directory upward.
@@ -1409,14 +1505,20 @@ def load_dfm_config(
         ValueError: If the config has invalid DFM settings
 
     Example:
-        # In rosette.toml:
-        # [dfm]
-        # resolution = 0.01
-        # sigma = 0.08
-        # layers = ["1/0"]
+        In rosette.toml::
 
-        config, model, layers = load_dfm_config()
-        result = run_dfm(cell, layers=layers, model=model, config=config)
+            [layers.silicon]
+            number = 1
+
+            [dfm]
+            resolution = 0.01
+            sigma = 0.08
+            layers = ["silicon"]     # or ["1/0"]
+
+        Usage::
+
+            config, model, layers = load_dfm_config()
+            result = run_dfm(cell, layers=layers, model=model, config=config)
     """
     # Find config file
     if config_path is not None:
@@ -1434,6 +1536,9 @@ def load_dfm_config(
     # Parse TOML
     with open(toml_path, "rb") as f:
         config = tomllib.load(f)
+
+    # Build semantic name -> Layer lookup from [layers] section (if present)
+    layer_lookup = _build_layer_lookup(config)
 
     dfm_config = config.get("dfm", {})
     if not dfm_config:
@@ -1481,9 +1586,9 @@ def load_dfm_config(
     ):
         raise ValueError(f"DFM 'threshold' must be between 0.0 and 1.0, got {contour_threshold!r}")
 
-    # Parse layers
+    # Parse layers — accepts semantic names ("silicon") or numeric ("1/0")
     layer_strs = dfm_config.get("layers", [])
-    layers = [_parse_layer_string(ls) for ls in layer_strs]
+    layers = [_resolve_layer(ls, layer_lookup, context="[dfm] layers")[0] for ls in layer_strs]
 
     # Parse optional tolerances
     max_area_deviation = dfm_config.get("max_area_deviation")
@@ -1509,12 +1614,12 @@ def load_dfm_config(
     )
     model = GaussianModel(sigma=float(sigma))
 
-    # Parse per-layer overrides from [dfm.layer."1/0"] sections
+    # Parse per-layer overrides from [dfm.layer."1/0"] or [dfm.layer.silicon] sections
     per_layer = dfm_config.get("layer", {})
     for layer_str, layer_params in per_layer.items():
         if not isinstance(layer_params, dict):
             continue
-        layer_obj = _parse_layer_string(layer_str)
+        layer_obj, _ = _resolve_layer(layer_str, layer_lookup, context="[dfm.layer]")
         dfm_cfg.set_layer_config(
             layer_obj,
             sigma=layer_params.get("sigma"),

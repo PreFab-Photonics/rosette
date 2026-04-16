@@ -9,7 +9,7 @@ Rosette photonic design project. Python scripts in `designs/` produce GDSII layo
 Before writing or modifying any Rosette code, read these files:
 
 - `.rosette/api.pyi` -- complete typed API (source of truth for all classes and functions)
-- `rosette.toml` -- project config, layer definitions, DRC rules
+- `rosette.toml` -- project config, layer definitions (named layers), DRC rules, DFM config
 
 Your training data may be outdated -- these files match your installed version.
 
@@ -29,6 +29,8 @@ A passing build only means the GDS was written -- it does NOT mean the design is
 - All coordinates are in microns
 - Designs must export a `design` variable (a `Cell` instance)
 - Use `from rosette import *` for core types (Cell, Layer, Point, Route, etc.)
+- Use `load_layer_map()` to access layers by name from rosette.toml (e.g. `layers.silicon.layer`)
+- DRC and DFM sections in rosette.toml accept layer names (e.g. `[drc.layers.silicon]`)
 - Always prefix CLI commands with `uv run` (e.g. `uv run rosette build designs/foo.py`)
 - The package is `librosette` (installed via `uv add librosette`, imported as `rosette`)
 - For in-script DRC: `load_drc_rules()` and `run_drc()`

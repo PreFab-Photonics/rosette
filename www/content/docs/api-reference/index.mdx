@@ -257,6 +257,11 @@ Rules are defined per-layer in the `[drc.layers]` section (supporting
 `max_width`, `no_self_intersection`, and `no_overlap`), and inter-layer rules in the
 `[[drc.rules]]` array.
 
+Layer keys can use semantic names from the `[layers]` section (e.g.
+`[drc.layers.silicon]`) or the traditional `"number/datatype"` format
+(e.g. `[drc.layers."1/0"]`). Inter-layer rules also accept semantic names
+for `layer1`, `layer2`, `inner`, and `outer` fields.
+
 <Callout title={"Example"} type={"example"}>
 
 ```python
@@ -428,7 +433,9 @@ ChecksResult with violations and statistics.
 Load DFM configuration from `rosette.toml`.
 
 Reads the `[dfm]` section which configures the virtual nanofabrication
-prediction tool.
+prediction tool. Layer references in the `layers` list and `[dfm.layer.*]`
+overrides accept semantic names from the `[layers]` section (e.g.
+`"silicon"`) or the traditional `"number/datatype"` format (e.g. `"1/0"`).
 
 <Callout title={"Example"} type={"example"}>
 

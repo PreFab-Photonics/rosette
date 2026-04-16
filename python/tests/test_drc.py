@@ -937,6 +937,321 @@ no_self_intersection = true
         assert "4 rules" in repr(rules)
 
 
+class TestSemanticLayerNames:
+    """Tests for semantic layer name support in DRC and DFM config."""
+
+    def test_drc_semantic_per_layer_rules(self, tmp_path):
+        """DRC rules can use semantic names from [layers] section."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+color = "#ff69b4"
+
+[drc.layers.silicon]
+min_width = 5.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+        # Verify it resolves to the correct layer
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 10.0, 2.0), Layer(1, 0))
+
+        result = run_drc(cell, rules)
+        assert not result.passed
+        assert result.violations[0].rule_type == "min_width"
+        assert result.violations[0].layer == (1, 0)
+
+    def test_drc_semantic_auto_generated_names(self, tmp_path):
+        """Semantic names produce readable auto-generated rule names."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+
+[drc.layers.silicon]
+min_width = 5.0
+min_area = 100.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 2.0, 2.0), Layer(1, 0))
+
+        result = run_drc(cell, rules)
+        assert not result.passed
+        names = {v.rule_name for v in result.violations}
+        assert "Lsilicon.min_width" in names
+        assert "Lsilicon.min_area" in names
+
+    def test_drc_mixed_semantic_and_numeric(self, tmp_path):
+        """Can mix semantic and numeric layer keys in the same config."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+
+[drc.layers.silicon]
+min_width = 0.12
+
+[drc.layers."2/0"]
+min_width = 0.5
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "2 rules" in repr(rules)
+
+    def test_drc_semantic_inter_layer_rules(self, tmp_path):
+        """Inter-layer rules can reference layers by semantic name."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+
+[layers.oxide]
+number = 2
+datatype = 0
+
+[[drc.rules]]
+type = "spacing"
+layer1 = "silicon"
+layer2 = "oxide"
+min_spacing = 1.0
+name = "SI_OX_SPC"
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+    def test_drc_semantic_mixed_inter_layer(self, tmp_path):
+        """Inter-layer rules can mix semantic and numeric layer references."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+
+[[drc.rules]]
+type = "spacing"
+layer1 = "silicon"
+layer2 = "2/0"
+min_spacing = 1.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+    def test_drc_unknown_semantic_name_raises(self, tmp_path):
+        """Unknown semantic name raises clear ValueError."""
+        toml_content = """
+[layers.silicon]
+number = 1
+
+[drc.layers.nonexistent]
+min_width = 0.12
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        with pytest.raises(ValueError, match="Unknown layer 'nonexistent'"):
+            load_drc_rules(config_file)
+
+    def test_drc_warns_unknown_numeric_layer(self, tmp_path):
+        """Numeric layer not in [layers] emits a warning."""
+        toml_content = """
+[layers.silicon]
+number = 1
+
+[drc.layers."99/0"]
+min_width = 0.12
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        with pytest.warns(UserWarning, match="DRC layer '99/0' does not match any layer"):
+            load_drc_rules(config_file)
+
+    def test_drc_no_warning_when_no_layers_section(self, tmp_path):
+        """No warning when [layers] is absent (backward compat)."""
+        toml_content = """
+[drc.layers."1/0"]
+min_width = 0.12
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        import warnings as _w
+
+        with _w.catch_warnings():
+            _w.simplefilter("error")
+            rules = load_drc_rules(config_file)
+
+        assert "1 rules" in repr(rules)
+
+    def test_drc_no_warning_for_matching_numeric_layer(self, tmp_path):
+        """No warning when a numeric key matches a [layers] entry."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+
+[drc.layers."1/0"]
+min_width = 0.12
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        import warnings as _w
+
+        with _w.catch_warnings():
+            _w.simplefilter("error")
+            rules = load_drc_rules(config_file)
+
+        assert "1 rules" in repr(rules)
+
+    def test_drc_semantic_enclosure_rule(self, tmp_path):
+        """Enclosure inter-layer rules accept semantic names."""
+        toml_content = """
+[layers.via]
+number = 11
+
+[layers.metal]
+number = 10
+
+[[drc.rules]]
+type = "enclosure"
+inner = "via"
+outer = "metal"
+min_enclosure = 0.1
+name = "VIA_ENC"
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+    def test_drc_semantic_forbid_overlap(self, tmp_path):
+        """Forbid overlap inter-layer rules accept semantic names."""
+        toml_content = """
+[layers.p_doping]
+number = 20
+
+[layers.n_doping]
+number = 21
+
+[[drc.rules]]
+type = "forbid_overlap"
+layer1 = "p_doping"
+layer2 = "n_doping"
+name = "PN_NOOVLP"
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+    def test_drc_semantic_require_overlap(self, tmp_path):
+        """Require overlap inter-layer rules accept semantic names."""
+        toml_content = """
+[layers.via]
+number = 11
+
+[layers.metal]
+number = 10
+
+[[drc.rules]]
+type = "require_overlap"
+layer1 = "via"
+layer2 = "metal"
+name = "VIA_METAL_OVLP"
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+    def test_dfm_semantic_layers(self, tmp_path):
+        """DFM config layers list accepts semantic names."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+
+[dfm]
+resolution = 0.01
+sigma = 0.08
+layers = ["silicon"]
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        from rosette import load_dfm_config
+
+        _cfg, _model, layers = load_dfm_config(config_file)
+        assert len(layers) == 1
+        assert layers[0] == Layer(1, 0)
+
+    def test_dfm_semantic_per_layer_override(self, tmp_path):
+        """DFM per-layer overrides accept semantic names."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+
+[dfm]
+resolution = 0.01
+sigma = 0.08
+layers = ["silicon"]
+
+[dfm.layer.silicon]
+sigma = 0.05
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        from rosette import load_dfm_config
+
+        _cfg, _model, layers = load_dfm_config(config_file)
+        assert len(layers) == 1
+
+    def test_dfm_mixed_semantic_and_numeric(self, tmp_path):
+        """DFM layers list can mix semantic and numeric references."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+
+[dfm]
+resolution = 0.01
+sigma = 0.08
+layers = ["silicon", "2/0"]
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        from rosette import load_dfm_config
+
+        _cfg, _model, layers = load_dfm_config(config_file)
+        assert len(layers) == 2
+        assert layers[0] == Layer(1, 0)
+        assert layers[1] == Layer(2, 0)
+
+
 def _write_design_and_config(tmp_path, *, passing: bool):
     """Helper: write a design .py file and rosette.toml in tmp_path.
 
