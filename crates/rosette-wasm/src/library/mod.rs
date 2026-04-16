@@ -1251,6 +1251,15 @@ impl WasmLibrary {
         result
     }
 
+    /// Get the path length metadata for a cell by name.
+    ///
+    /// Returns `None` if the cell does not exist or has no path length set.
+    /// The returned value is in nanometers (matching the library's internal unit).
+    pub fn get_cell_path_length(&self, cell_name: &str) -> Option<f64> {
+        let cell = self.library.cell(cell_name)?;
+        cell.path_length()
+    }
+
     /// Clear all elements from the active cell.
     pub fn clear_active_cell(&mut self) {
         if let Some(cell_name) = &self.active_cell {

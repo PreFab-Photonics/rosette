@@ -217,6 +217,128 @@ export function densifyCenterlineWithArcs(
 }
 
 /**
+ * Compute the total path length of a polyline (sum of Euclidean segment distances).
+ *
+ * When `cornerRadius > 0`, the length accounts for corner rounding: straight
+ * segments are shortened by bend setbacks, and arc lengths (`radius * |turn_angle|`)
+ * are added for each corner. This matches the Rust `Route.calculate_path_length()`
+ * algorithm.
+ *
+ * Waypoints are in world coordinates. The returned length is also in world
+ * coordinates — divide by `GRID_SIZE` to get nanometers.
+ *
+ * @param waypoints - Centerline waypoints.
+ * @param cornerRadius - Bend radius in world units (0 = straight-line length).
+ * @returns Total path length in world units.
+ */
+export function computePathLength(
+  waypoints: Point[],
+  cornerRadius: number = 0,
+): number {
+  const n = waypoints.length;
+  if (n < 2) return 0;
+
+  // Simple polyline length when no corner radius
+  if (cornerRadius <= 0 || n < 3) {
+    let length = 0;
+    for (let i = 1; i < n; i++) {
+      const dx = waypoints[i].x - waypoints[i - 1].x;
+      const dy = waypoints[i].y - waypoints[i - 1].y;
+      length += Math.sqrt(dx * dx + dy * dy);
+    }
+    return length;
+  }
+
+  // Pre-compute segment lengths
+  const segLengths: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = waypoints[i + 1].x - waypoints[i].x;
+    const dy = waypoints[i + 1].y - waypoints[i].y;
+    segLengths.push(Math.sqrt(dx * dx + dy * dy));
+  }
+
+  const numCorners = n - 2;
+
+  // Compute turn angles and ideal setbacks
+  const turnAngles: (number | null)[] = [];
+  for (let i = 1; i < n - 1; i++) {
+    const prev = waypoints[i - 1];
+    const curr = waypoints[i];
+    const next = waypoints[i + 1];
+
+    const inLen = segLengths[i - 1];
+    const outLen = segLengths[i];
+    if (inLen < 1e-10 || outLen < 1e-10) {
+      turnAngles.push(null);
+      continue;
+    }
+
+    const inX = (curr.x - prev.x) / inLen;
+    const inY = (curr.y - prev.y) / inLen;
+    const outX = (next.x - curr.x) / outLen;
+    const outY = (next.y - curr.y) / outLen;
+
+    const cross = inX * outY - inY * outX;
+    const dot = inX * outX + inY * outY;
+    const turnAngle = Math.atan2(cross, dot);
+
+    turnAngles.push(Math.abs(turnAngle) < 1e-6 ? null : turnAngle);
+  }
+
+  const setbacks: number[] = turnAngles.map((ta) => {
+    if (ta === null) return 0;
+    return cornerRadius * Math.tan(Math.abs(ta) / 2);
+  });
+
+  // Resolve conflicts on shared segments (iterative)
+  for (let _iter = 0; _iter < 3; _iter++) {
+    for (let k = 0; k < segLengths.length; k++) {
+      const capacity = segLengths[k] * 0.95;
+      const outCorner = k > 0 ? k - 1 : null;
+      const inCorner = k < numCorners ? k : null;
+
+      const outClaim = outCorner !== null ? setbacks[outCorner] : 0;
+      const inClaim = inCorner !== null ? setbacks[inCorner] : 0;
+
+      const total = outClaim + inClaim;
+      if (total > capacity && total > 1e-10) {
+        const scale = capacity / total;
+        if (outCorner !== null) {
+          setbacks[outCorner] = Math.min(setbacks[outCorner], outClaim * scale);
+        }
+        if (inCorner !== null) {
+          setbacks[inCorner] = Math.min(setbacks[inCorner], inClaim * scale);
+        }
+      }
+    }
+  }
+
+  // Sum: straight segments minus setbacks, plus arc lengths
+  let length = 0;
+  for (let i = 0; i < segLengths.length; i++) {
+    length += segLengths[i];
+  }
+
+  for (let c = 0; c < numCorners; c++) {
+    const ta = turnAngles[c];
+    if (ta === null) continue;
+
+    const halfAngle = Math.abs(ta) / 2;
+    const tanHalf = Math.tan(halfAngle);
+    if (Math.abs(tanHalf) < 1e-10) continue;
+
+    const actualRadius = setbacks[c] / tanHalf;
+
+    // Subtract setback from incoming and outgoing segments
+    length -= setbacks[c] * 2;
+    // Add arc length
+    length += actualRadius * Math.abs(ta);
+  }
+
+  return Math.max(0, length);
+}
+
+/**
  * Info about a corner where the bend radius was auto-reduced.
  */
 export interface BendReduction {

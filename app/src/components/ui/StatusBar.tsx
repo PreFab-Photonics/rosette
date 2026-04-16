@@ -8,6 +8,7 @@ import { useLayerStore } from "@/stores/layer";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { usePathStore } from "@/stores/path";
 import { getDisplayUnit, formatCoordinate } from "@/lib/format";
+import { computePathLength } from "@/lib/path";
 import { SCALE_BAR_TARGET_PIXELS, SCALE_BAR_MAX_WIDTH, NICE_NUMBERS } from "@/lib/constants";
 import { cn, zoomToFitAll } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -131,7 +132,17 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
       if (refInfo) {
         const cellName = refInfo.cell_name;
         refInfo.free();
-        return { label: `Instance "${cellName}"`, layerNumber: null, datatype: null };
+        // Check if the referenced cell has a path length (stored in nm)
+        const cellPathLengthNm = library.get_cell_path_length(cellName);
+        const lengthSuffix =
+          cellPathLengthNm != null
+            ? ` \u00b7 length: ${(cellPathLengthNm / 1000).toFixed(3)} \u00b5m`
+            : "";
+        return {
+          label: `Instance "${cellName}"${lengthSuffix}`,
+          layerNumber: null,
+          datatype: null,
+        };
       }
     }
 
@@ -157,8 +168,15 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
     if (count === 1) {
       const pathMeta = pathMetadata.get(firstId);
       if (pathMeta) {
+        // Compute path length from waypoints (world coords → nm → µm)
+        const lengthWorld = computePathLength(
+          pathMeta.waypoints,
+          pathMeta.actualCornerRadius ?? pathMeta.cornerRadius,
+        );
+        const lengthUm = lengthWorld / GRID_SIZE / 1000;
+        const lengthStr = lengthUm.toFixed(3);
         return {
-          label: `Path \u00b7 ${pathMeta.waypoints.length} waypoints`,
+          label: `Path \u00b7 ${pathMeta.waypoints.length} waypoints \u00b7 length: ${lengthStr} \u00b5m`,
           layerNumber: pathMeta.layer,
           datatype: pathMeta.datatype,
         };

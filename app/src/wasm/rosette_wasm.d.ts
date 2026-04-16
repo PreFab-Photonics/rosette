@@ -279,6 +279,13 @@ export class WasmLibrary {
      */
     get_area_by_layer(): Float64Array;
     /**
+     * Get the path length metadata for a cell by name.
+     *
+     * Returns `undefined` if the cell does not exist or has no path length set.
+     * The returned value is in nanometers.
+     */
+    get_cell_path_length(cell_name: string): number | undefined;
+    /**
      * Get the bounding box of elements with the given UUIDs.
      *
      * Returns [minX, minY, maxX, maxY] or None if none of the IDs are found.

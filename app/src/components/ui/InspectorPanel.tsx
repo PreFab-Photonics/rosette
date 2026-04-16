@@ -28,6 +28,7 @@ import { useExplorerStore } from "@/stores/explorer";
 import { usePathStore, type PathMetadata } from "@/stores/path";
 import { useImageStore, isImageId, imageIdToKey } from "@/stores/image";
 import { formatCoordinate, type UnitInfo } from "@/lib/format";
+import { computePathLength } from "@/lib/path";
 import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
 import {
@@ -2127,6 +2128,13 @@ export function InspectorPanel() {
       unitInfo,
     );
 
+    // Path length: world coords → nm → display unit
+    const pathLengthWorld = computePathLength(
+      pathMeta.waypoints,
+      pathMeta.actualCornerRadius ?? pathMeta.cornerRadius,
+    );
+    const pathLengthDisplay = formatCoordinate(pathLengthWorld / GRID_SIZE, unitInfo);
+
     const posX = bounds ? formatCoordinate(bounds.minX / GRID_SIZE, unitInfo) : "—";
     const posY = bounds ? formatCoordinate(-bounds.maxY / GRID_SIZE, unitInfo) : "—";
 
@@ -2174,7 +2182,7 @@ export function InspectorPanel() {
               isDark ? "text-white/70" : "text-black/70",
             )}
           >
-            Path · {pathMeta.waypoints.length} waypoints
+            Path · {pathMeta.waypoints.length} waypoints · length: {pathLengthDisplay} {unitInfo.unit}
           </span>
         </div>
 
@@ -2278,6 +2286,11 @@ export function InspectorPanel() {
     const rotationDisplay = Number.isFinite(inst.rotation) ? inst.rotation.toFixed(3) : "0.000";
     // Scale display
     const scaleDisplay = Number.isFinite(inst.scale) ? inst.scale.toFixed(3) : "1.000";
+
+    // Path length from referenced cell metadata (set by Route.to_cell() / components)
+    const cellPathLength = library?.get_cell_path_length(inst.cellName);
+    const cellPathLengthDisplay =
+      cellPathLength != null ? formatCoordinate(cellPathLength, unitInfo) : null;
 
     // Array params (default to 1x1 with 0 spacing)
     const arrayCols = inst.array?.columns ?? 1;
@@ -2484,6 +2497,21 @@ export function InspectorPanel() {
         <SectionHeader label="Size" isDark={isDark} />
         <NumberField label="W" value={instW} unit={unitInfo.unit} isDark={isDark} readOnly />
         <NumberField label="H" value={instH} unit={unitInfo.unit} isDark={isDark} readOnly />
+
+        {/* Path length (read-only, shown only when the referenced cell has it) */}
+        {cellPathLengthDisplay != null && (
+          <>
+            <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+            <SectionHeader label="Path" isDark={isDark} />
+            <NumberField
+              label="Length"
+              value={cellPathLengthDisplay}
+              unit={unitInfo.unit}
+              isDark={isDark}
+              readOnly
+            />
+          </>
+        )}
 
         {/* Source — two-way editing (rosette serve) */}
         {sourceInfo && (
