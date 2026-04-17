@@ -356,11 +356,9 @@ impl<'a> GdsReader<'a> {
                 }
                 MAG => mag = gds_real_to_f64(&rec.data),
                 ANGLE => angle_deg = gds_real_to_f64(&rec.data),
-                COLROW => {
-                    if rec.data.len() >= 4 {
-                        columns = u16::from_be_bytes([rec.data[0], rec.data[1]]);
-                        rows = u16::from_be_bytes([rec.data[2], rec.data[3]]);
-                    }
+                COLROW if rec.data.len() >= 4 => {
+                    columns = u16::from_be_bytes([rec.data[0], rec.data[1]]);
+                    rows = u16::from_be_bytes([rec.data[2], rec.data[3]]);
                 }
                 XY => xy_data = rec.data,
                 ENDEL => break,
@@ -510,7 +508,11 @@ fn gds_real_to_f64(bytes: &[u8]) -> f64 {
     // result = mantissa / 2^56 * 16^exponent
     let value = (mantissa as f64) / ((1u64 << 56) as f64) * 16.0_f64.powi(exponent);
 
-    if negative { -value } else { value }
+    if negative {
+        -value
+    } else {
+        value
+    }
 }
 
 /// Parse a big-endian INT16 from record data.
