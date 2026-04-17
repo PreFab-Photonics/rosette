@@ -8,7 +8,8 @@ use rosette_core::{BBox, Cell, Layer, Library, Point, Polygon, Transform, offset
 
 use crate::checks::{
     check_angles, check_area, check_edge_length, check_enclosure, check_forbid_overlap_bulk,
-    check_max_width, check_require_overlap, check_self_intersection, check_spacing, check_width,
+    check_max_width, check_require_overlap_bulk, check_self_intersection, check_spacing,
+    check_width,
 };
 use crate::rules::{DrcRules, Rule};
 use crate::violation::{DrcViolation, RuleType, Severity};
@@ -810,79 +811,13 @@ impl DrcRunner {
                 let polys1 = polygons_by_layer.get(layer1);
                 let polys2 = polygons_by_layer.get(layer2);
                 let same_layer = layer1 == layer2;
+                let empty = Vec::new();
 
-                match (polys1, polys2) {
-                    (Some(p1), Some(p2)) => {
-                        let mut violations = Vec::new();
-                        for (poly1, idx1) in p1 {
-                            let mut has_overlap = false;
-                            for (poly2, idx2) in p2 {
-                                // Same-layer: skip self-comparison
-                                if same_layer && idx2 == idx1 {
-                                    continue;
-                                }
-                                if check_require_overlap(
-                                    poly1,
-                                    *layer1,
-                                    poly2,
-                                    *layer2,
-                                    name.as_deref(),
-                                )
-                                .is_none()
-                                {
-                                    has_overlap = true;
-                                    break;
-                                }
-                            }
-                            if !has_overlap {
-                                let mut violation = DrcViolation::new(
-                                    RuleType::MissingOverlap,
-                                    poly1.bbox(),
-                                    *layer1,
-                                    format!(
-                                        "Polygon on Layer({}, {}) has no overlap with Layer({}, {})",
-                                        layer1.number, layer1.datatype, layer2.number, layer2.datatype
-                                    ),
-                                )
-                                .with_layer2(*layer2)
-                                .with_severity(Severity::Error);
+                // Both None and empty layer2 are handled inside the bulk function.
+                let p1 = polys1.unwrap_or(&empty);
+                let p2 = polys2.unwrap_or(&empty);
 
-                                if let Some(name) = name {
-                                    violation = violation.with_name(name);
-                                }
-
-                                violations.push(violation);
-                            }
-                        }
-                        violations
-                    }
-                    (Some(p1), None) => {
-                        // Layer1 polygons exist but layer2 has nothing — every layer1 poly
-                        // is missing the required overlap.
-                        let mut violations = Vec::new();
-                        for (poly1, _) in p1 {
-                            let mut violation = DrcViolation::new(
-                                RuleType::MissingOverlap,
-                                poly1.bbox(),
-                                *layer1,
-                                format!(
-                                    "Polygon on Layer({}, {}) has no overlap with Layer({}, {}) (layer is empty)",
-                                    layer1.number, layer1.datatype, layer2.number, layer2.datatype
-                                ),
-                            )
-                            .with_layer2(*layer2)
-                            .with_severity(Severity::Error);
-
-                            if let Some(name) = name {
-                                violation = violation.with_name(name);
-                            }
-
-                            violations.push(violation);
-                        }
-                        violations
-                    }
-                    _ => Vec::new(),
-                }
+                check_require_overlap_bulk(p1, *layer1, p2, *layer2, name.as_deref(), same_layer)
             }
 
             Rule::ForbidOverlap {
@@ -1541,6 +1476,58 @@ mod tests {
             "Well-spaced polygons should not trigger overlap violations"
         );
         assert_eq!(result.stats.polygons_checked, 50);
+    }
+
+    #[test]
+    fn test_require_overlap_many_separated_fast() {
+        // Mirror of test_forbid_overlap_many_non_overlapping_fast but for
+        // require_overlap. 50 polygons on layer1 each paired with an overlapping
+        // polygon on layer2. The R-tree bulk path should resolve these in
+        // O(n log n) rather than O(n*m) boolean intersections.
+        let mut cell = Cell::new("test");
+        let layer1 = Layer::new(1, 0);
+        let layer2 = Layer::new(2, 0);
+
+        for i in 0..50 {
+            let x = i as f64 * 20.0;
+            cell.add_polygon(Polygon::rect(Point::new(x, 0.0), 5.0, 5.0), layer1);
+            cell.add_polygon(Polygon::rect(Point::new(x + 1.0, 0.0), 5.0, 5.0), layer2);
+        }
+
+        let rules = DrcRules::new().require_overlap(layer1, layer2, Some("REQ_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            result.passed(),
+            "Each layer1 polygon overlaps a layer2 polygon — should pass"
+        );
+        assert_eq!(result.stats.polygons_checked, 100);
+    }
+
+    #[test]
+    fn test_require_overlap_many_no_match_reports_all() {
+        // 50 polygons on layer1, none on layer2. Every polygon should report a
+        // missing-overlap violation.
+        let mut cell = Cell::new("test");
+        let layer1 = Layer::new(1, 0);
+        let layer2 = Layer::new(2, 0);
+
+        for i in 0..50 {
+            cell.add_polygon(
+                Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0),
+                layer1,
+            );
+        }
+
+        let rules = DrcRules::new().require_overlap(layer1, layer2, Some("REQ_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(!result.passed());
+        assert_eq!(
+            result.violations.len(),
+            50,
+            "Each polygon should have a missing-overlap violation"
+        );
     }
 
     #[test]
