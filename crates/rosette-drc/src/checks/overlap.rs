@@ -4,8 +4,8 @@
 //! O(n²) boolean intersection operations on well-separated polygons.
 
 use geo::{Area, BooleanOps, BoundingRect};
-use rosette_core::{polygon_to_geo, BBox, Layer, Point, Polygon};
-use rstar::{RTree, AABB};
+use rosette_core::{BBox, Layer, Point, Polygon, polygon_to_geo};
+use rstar::{AABB, RTree};
 
 use super::spatial::IndexedPolygon;
 use crate::violation::{DrcViolation, RuleType, Severity};
