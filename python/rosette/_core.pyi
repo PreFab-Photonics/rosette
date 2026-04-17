@@ -587,6 +587,41 @@ class Route:
         route.end_at(100, 30, angle=0)
         cell = route.to_cell("my_route")
 
+    Bend radius constraints
+    -----------------------
+    Each 90-degree corner consumes ``bend_radius`` (R) of clearance on
+    both adjacent segments (the "setback").  If the segment between two
+    consecutive corners is shorter than the sum of their setbacks the
+    bend radius is **auto-reduced** to fit, producing a build warning.
+
+    For an S-bend (horizontal -> vertical -> horizontal):
+
+    * **Vertical**: ``dy > 2 * R``.  Two quarter-circle bends stacked
+      vertically each consume R of the vertical segment.  Use a margin
+      of at least 1-2 um beyond the ``2R`` minimum -- the router
+      auto-reduces at exactly ``2R`` due to internal tolerances.
+    * **Horizontal**: each horizontal leg must be ``>= R``.
+
+    When fanning out from closely-spaced ports to a wider pitch, the
+    vertical offset per route is
+    ``dy = (pitch - port_spacing) / 2``.  For ``dy > 2R``:
+    ``pitch >= 4 * R + port_spacing + 2``.
+
+    Fan-out / fan-in nesting order
+    ------------------------------
+    When routing from a cluster of closely-spaced ports to a set of
+    widely-spread targets, each route uses a turning-column x-position
+    for its vertical segment.  Assigning columns in sequential order
+    causes outer routes' vertical segments to cross inner routes'
+    horizontal segments.
+
+    Fix: assign turning columns **outside-in** -- outermost
+    source-destination pairs get the leftmost columns, inner pairs get
+    progressively rightward columns.  For N sources the non-crossing
+    order is ``[0, N-1, 1, N-2, ...]``, alternating from each end
+    toward the center.  Space columns ``>= 2 * R`` apart so bend arcs
+    do not overlap.
+
     Avoiding overlaps (``no_overlap`` DRC rule)
     --------------------------------------------
     Each Route generates waveguide polygons on its layer. If two routes
