@@ -1,4 +1,10 @@
-"""Type stubs for rosette._core (Rust extension module)."""
+"""Type stubs for rosette._core (Rust extension module).
+
+All coordinates, dimensions, and distances are in microns (um).
+"""
+
+from collections.abc import Iterator
+from pathlib import Path
 
 # =============================================================================
 # Geometry Types
@@ -589,10 +595,18 @@ class Route:
 
     Bend radius constraints
     -----------------------
-    Each 90-degree corner consumes ``bend_radius`` (R) of clearance on
-    both adjacent segments (the "setback").  If the segment between two
-    consecutive corners is shorter than the sum of their setbacks the
-    bend radius is **auto-reduced** to fit, producing a build warning.
+    Quick reference for S-bend sizing (R = ``bend_radius``):
+
+    * **Vertical segment**: ``dy >= 2 * R + 2`` (minimum, including margin)
+    * **Each horizontal leg**: ``dx >= R``
+    * **Fan-out pitch**: ``pitch >= 4 * R + port_spacing + 2``
+
+    Example: R=10, port_spacing=2 -> pitch >= 44, each horizontal >= 10.
+
+    Detailed explanation: each 90-degree corner consumes R of clearance
+    on both adjacent segments (the "setback").  If the segment between
+    two consecutive corners is shorter than the sum of their setbacks
+    the bend radius is **auto-reduced** to fit, producing a build warning.
 
     For an S-bend (horizontal -> vertical -> horizontal):
 
@@ -621,6 +635,11 @@ class Route:
     order is ``[0, N-1, 1, N-2, ...]``, alternating from each end
     toward the center.  Space columns ``>= 2 * R`` apart so bend arcs
     do not overlap.
+
+    Symmetric layouts (e.g. an MMI tree with upper and lower port
+    groups) -- apply outside-in ordering **within each group
+    independently**.  Do not interleave columns across groups that
+    route to opposite sides of the layout.
 
     Avoiding overlaps (``no_overlap`` DRC rule)
     --------------------------------------------
@@ -822,6 +841,73 @@ def to_json(
 
     Returns:
         Compact JSON string representation of the library
+    """
+    ...
+
+# =============================================================================
+# Layer Map (project configuration)
+# =============================================================================
+
+class LayerInfo:
+    """A single layer definition with metadata.
+
+    Access the underlying Layer for API calls via the ``layer`` attribute.
+
+    Attributes:
+        layer: The underlying Layer(number, datatype)
+        name: Semantic name (e.g., "silicon", "text")
+        number: GDS layer number (shortcut for layer.number)
+        datatype: GDS datatype (shortcut for layer.datatype)
+        color: Hex color string (e.g., "#ff69b4")
+        fill: Fill pattern ("solid", "hatched", "crosshatched", "dotted")
+        opacity: Fill opacity 0.0-1.0
+        description: Human-readable description
+    """
+
+    layer: Layer
+    name: str
+    number: int
+    datatype: int
+    color: str
+    fill: str
+    opacity: float
+    description: str
+
+class LayerMap:
+    """Named layer definitions from rosette.toml.
+
+    Access layers by attribute::
+
+        layers = load_layer_map()
+        layers.silicon        # LayerInfo
+        layers.silicon.layer  # Layer(1, 0) -- use this in API calls
+        layers.silicon.color  # "#ff69b4"
+    """
+
+    def __getattr__(self, name: str) -> LayerInfo: ...
+    def get(self, name: str) -> LayerInfo | None:
+        """Get a layer by name, or None if not found."""
+        ...
+    def names(self) -> list[str]:
+        """Get all layer names."""
+        ...
+    def __contains__(self, name: str) -> bool: ...
+    def __iter__(self) -> Iterator[LayerInfo]: ...
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
+    """Load layer definitions from rosette.toml.
+
+    Reads the ``[layers]`` section and returns a LayerMap with
+    attribute-style access to each named layer.
+
+    Example::
+
+        layers = load_layer_map()
+        silicon = layers.silicon.layer   # Layer(1, 0)
+        gc = grating_coupler(silicon, waveguide_width=0.5)
+        cell.add_polygon(poly, silicon)
     """
     ...
 
@@ -1108,12 +1194,15 @@ def run_drc(
     ...
 
 # =============================================================================
-# Component Reference (from components/ directory)
+# Component Reference (NOT part of rosette._core)
 # =============================================================================
 #
-# Components are pure-Python functions in the components/ directory.
-# They are imported as: from components import grating_coupler, mmi_1x2, ...
-# Below are type stubs and placement notes for key components.
+# The stubs below document components from the project's components/ directory.
+# They are NOT importable from rosette -- import them as:
+#     from components import grating_coupler, mmi_1x2, ...
+#
+# These stubs are included here as a quick reference for type signatures and
+# placement notes. The editable source lives in components/.
 
 def grating_coupler(
     layer: Layer,

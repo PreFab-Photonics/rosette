@@ -27,17 +27,10 @@ A passing build only means the GDS was written -- it does NOT mean the design is
 
 ## Key conventions
 
-- All coordinates are in microns
 - Designs must export a `design` variable (a `Cell` instance)
-- Use `from rosette import *` for core types (Cell, Layer, Point, Route, etc.)
-- Use `load_layer_map()` to access layers by name from rosette.toml (e.g. `layers.silicon.layer`)
-- DRC and DFM sections in rosette.toml accept layer names (e.g. `[drc.layers.silicon]`)
-- Use `from components import mmi_1x2, ring, grating_coupler` for local components
-- Components follow a consistent API: first param is `layer`, second is `width`
+- Use `load_layer_map()` to get layers from rosette.toml -- never hardcode layer numbers
 - Always prefix CLI commands with `uv run` (e.g. `uv run rosette build designs/foo.py`)
 - The package is `librosette` (installed via `uv add librosette`, imported as `rosette`)
-- For in-script DRC: `load_drc_rules()` and `run_drc()`
-- Grating couplers must be spaced at least 127 um apart (standard fiber array pitch). Use S-bend routes to fan out from closely-spaced component ports to the GC pitch
 - LSP errors on `from rosette import ...` are expected (native extension); ignore them
 
 <!-- END:rosette-agent-rules -->
