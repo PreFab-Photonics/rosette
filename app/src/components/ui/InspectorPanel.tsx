@@ -2182,7 +2182,8 @@ export function InspectorPanel() {
               isDark ? "text-white/70" : "text-black/70",
             )}
           >
-            Path · {pathMeta.waypoints.length} waypoints · length: {pathLengthDisplay} {unitInfo.unit}
+            Path · {pathMeta.waypoints.length} waypoints · length: {pathLengthDisplay}{" "}
+            {unitInfo.unit}
           </span>
         </div>
 

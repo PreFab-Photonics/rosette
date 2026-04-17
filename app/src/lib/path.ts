@@ -231,10 +231,7 @@ export function densifyCenterlineWithArcs(
  * @param cornerRadius - Bend radius in world units (0 = straight-line length).
  * @returns Total path length in world units.
  */
-export function computePathLength(
-  waypoints: Point[],
-  cornerRadius: number = 0,
-): number {
+export function computePathLength(waypoints: Point[], cornerRadius: number = 0): number {
   const n = waypoints.length;
   if (n < 2) return 0;
 

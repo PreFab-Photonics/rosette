@@ -156,7 +156,7 @@ fn keyhole(exterior: Vec<Point>, holes: &[Vec<Point>]) -> Vec<Point> {
             }
             splice.push(bridge_contour_point);
 
-            contour.splice(contour_insert_idx..contour_insert_idx, splice.into_iter());
+            contour.splice(contour_insert_idx..contour_insert_idx, splice);
         }
     }
 
