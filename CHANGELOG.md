@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-17
+
+### Added
+
+- "Go to Coordinate" dialog for navigating to specific X/Y positions (command palette and Explorer > View menu)
+- Cell flattening feature to resolve CellRef instances into transformed polygons
+- Per-layer area calculator accessible via command palette ("View: Calculate Area")
+- Path length display in viewer inspector and status bar
+- Image overlay enhancements: cell scoping, copy/paste/duplicate, zoom-to-fit, instance rendering in child cells
+- Cell names in DRC violations and instance ports in verbose build output
+- Semantic layer names in DRC and DFM config (e.g. `[drc.layers.silicon]` instead of `[drc.layers."1/0"]`)
+- Bend radius and fan-out nesting guidance in Route docstring
+
+### Changed
+
+- Hierarchy-aware DRC checking with ~10x speedup over flat polygon expansion
+- R-tree spatial indexing for `require_overlap` check (13-108x speedup)
+- Improved DRC overlap violation messages with precise bounding box and area
+- Slimmed down agent templates and improved `api.pyi` for agent usability
+- DRC now warns on unknown TOML config keys
+
+### Fixed
+
+- DRC hierarchy resolution skipping polygons inside child cells and array repetitions
+- DRC spacing check false positives
+- Circular ring polygon notch caused by unclosed inner contour at angle 0
+- Area display scaling not accounting for GRID_SIZE factor
+- Native app launch: correct Dock identity via `open -a` and proper design mode in bare `rosette serve`
+- NumberField stale value when tabbing between fields in inspector
+
+### Removed
+
+- Waveguide, Bend, Taper, Spiral, and YBranch components (routing/pathing system handles these natively)
+
 ## [0.1.9] - 2026-04-10
 
 ### Changed
@@ -159,7 +193,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `rosette serve` to use installed Rosette.app on macOS
 
-[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.9...v0.2.0
 [0.1.9]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.6...v0.1.7

@@ -279,13 +279,6 @@ export class WasmLibrary {
      */
     get_area_by_layer(): Float64Array;
     /**
-     * Get the path length metadata for a cell by name.
-     *
-     * Returns `undefined` if the cell does not exist or has no path length set.
-     * The returned value is in nanometers.
-     */
-    get_cell_path_length(cell_name: string): number | undefined;
-    /**
      * Get the bounding box of elements with the given UUIDs.
      *
      * Returns [minX, minY, maxX, maxY] or None if none of the IDs are found.
@@ -315,6 +308,13 @@ export class WasmLibrary {
      * Returns None if the cell does not exist.
      */
     get_cell_origin_by_name(cell_name: string): Float64Array | undefined;
+    /**
+     * Get the path length metadata for a cell by name.
+     *
+     * Returns `None` if the cell does not exist or has no path length set.
+     * The returned value is in nanometers (matching the library's internal unit).
+     */
+    get_cell_path_length(cell_name: string): number | undefined;
     /**
      * Get preview polygons for a cell reference at a given position.
      *
@@ -1004,6 +1004,7 @@ export interface InitOutput {
     readonly wasmlibrary_get_cell_names: (a: number) => [number, number];
     readonly wasmlibrary_get_cell_origin: (a: number) => [number, number];
     readonly wasmlibrary_get_cell_origin_by_name: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_path_length: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_cell_preview_polygons: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly wasmlibrary_get_cell_ref_array: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_cell_ref_info: (a: number, b: number, c: number) => number;
@@ -1093,12 +1094,12 @@ export interface InitOutput {
     readonly wasmrenderer_toggle_selection: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_update_shape: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly init: () => void;
-    readonly wasm_bindgen__closure__destroy__h0fd3ff6dab0181dc: (a: number, b: number) => void;
-    readonly wasm_bindgen__closure__destroy__h90bda01937a35b70: (a: number, b: number) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h5b288fd1558165db: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__h6c09c0fd764b5b1f: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__hc324cb3e889ac470: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__hc324cb3e889ac470_2: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__closure__destroy__h200b07e2cd2d62ec: (a: number, b: number) => void;
+    readonly wasm_bindgen__closure__destroy__h2d6fab434757b308: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hbd2a77e27682db99: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen__convert__closures_____invoke__h5b9b797b0cec42ed: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h6e626c1e6a6f2548: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h6e626c1e6a6f2548_2: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
