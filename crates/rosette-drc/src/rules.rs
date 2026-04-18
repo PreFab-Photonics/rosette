@@ -63,6 +63,13 @@ pub enum Rule {
         width: f64,
         name: Option<String>,
     },
+    /// Verify all vertex coordinates are on the manufacturing grid.
+    SnapToGrid {
+        layer: Layer,
+        /// Grid pitch in user units (e.g. 0.001 for 1nm grid).
+        grid_pitch: f64,
+        name: Option<String>,
+    },
 }
 
 /// Builder for DRC rule sets.
@@ -235,6 +242,27 @@ impl DrcRules {
         self.rules.push(Rule::MaxWidth {
             layer: layer.into(),
             width,
+            name: name.map(String::from),
+        });
+        self
+    }
+
+    /// Add a snap-to-grid check for polygons on a layer.
+    ///
+    /// Verifies that all vertex coordinates are integer multiples of the
+    /// manufacturing grid pitch. Off-grid geometry can cause mask fracturing
+    /// errors and is rejected by most foundries.
+    ///
+    /// Common grid pitches: 0.001 (1 nm) or 0.005 (5 nm).
+    pub fn snap_to_grid(
+        mut self,
+        layer: impl Into<Layer>,
+        grid_pitch: f64,
+        name: Option<&str>,
+    ) -> Self {
+        self.rules.push(Rule::SnapToGrid {
+            layer: layer.into(),
+            grid_pitch,
             name: name.map(String::from),
         });
         self

@@ -433,6 +433,85 @@ class TestRunDrc:
         assert result.polygons_checked == 2
 
 
+class TestSnapToGrid:
+    """Tests for snap-to-grid DRC check."""
+
+    def test_on_grid_passes(self):
+        """Polygon with on-grid vertices passes."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 1.0, 0.5), Layer(1, 0))
+
+        rules = DrcRules().snap_to_grid(Layer(1, 0), 0.001)
+        result = run_drc(cell, rules)
+        assert result.passed
+
+    def test_off_grid_fails(self):
+        """Polygon with off-grid vertex fails."""
+        cell = Cell("test")
+        # 0.003 is not a multiple of 0.005
+        poly = Polygon([Point(0.0, 0.0), Point(0.5, 0.0), Point(0.5, 0.003), Point(0.0, 0.003)])
+        cell.add_polygon(poly, Layer(1, 0))
+
+        rules = DrcRules().snap_to_grid(Layer(1, 0), 0.005, name="GRID_5NM")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert len(result.violations) >= 1
+        v = result.violations[0]
+        assert v.rule_type == "off_grid"
+        assert v.rule_name == "GRID_5NM"
+        assert v.severity == "error"
+        assert "off grid" in v.message
+
+    def test_5nm_grid_passes(self):
+        """Polygon aligned to 5nm grid passes."""
+        cell = Cell("test")
+        poly = Polygon([Point(0.0, 0.0), Point(0.5, 0.0), Point(0.5, 0.25), Point(0.0, 0.25)])
+        cell.add_polygon(poly, Layer(1, 0))
+
+        rules = DrcRules().snap_to_grid(Layer(1, 0), 0.005)
+        result = run_drc(cell, rules)
+        assert result.passed
+
+    def test_toml_config(self, tmp_path):
+        """snap_to_grid loads from TOML config."""
+        toml_content = """
+[drc.layers."1/0"]
+snap_to_grid = 0.005
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+        # On-grid cell passes
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 1.0, 0.5), Layer(1, 0))
+        result = run_drc(cell, rules)
+        assert result.passed
+
+        # Off-grid cell fails
+        cell2 = Cell("test2")
+        cell2.add_polygon(
+            Polygon([Point(0.0, 0.0), Point(0.003, 0.0), Point(0.0, 0.01)]),
+            Layer(1, 0),
+        )
+        result2 = run_drc(cell2, rules)
+        assert not result2.passed
+        assert result2.violations[0].rule_type == "off_grid"
+
+    def test_layer_accepts_int(self):
+        """snap_to_grid accepts int layer."""
+        rules = DrcRules().snap_to_grid(1, 0.001)
+        assert "1 rules" in repr(rules)
+
+    def test_layer_accepts_tuple(self):
+        """snap_to_grid accepts tuple layer."""
+        rules = DrcRules().snap_to_grid((1, 0), 0.001)
+        assert "1 rules" in repr(rules)
+
+
 class TestDrcResult:
     """Tests for DrcResult class."""
 

@@ -8,8 +8,8 @@ use rosette_core::{BBox, Cell, Layer, Library, Point, Polygon, Transform, offset
 
 use crate::checks::{
     check_angles, check_area, check_edge_length, check_enclosure, check_forbid_overlap_bulk,
-    check_max_width, check_require_overlap_bulk, check_self_intersection, check_spacing,
-    check_width,
+    check_max_width, check_require_overlap_bulk, check_self_intersection, check_snap_to_grid,
+    check_spacing, check_width,
 };
 use crate::rules::{DrcRules, Rule};
 use crate::violation::{DrcViolation, RuleType, Severity};
@@ -91,20 +91,29 @@ impl DrcRunner {
     pub fn check(&self, cell: &Cell, library: Option<&Library>) -> DrcResult {
         let start = Instant::now();
 
-        // Classify rules into per-polygon and pairwise categories
-        let (per_polygon_rules, pairwise_rules): (Vec<&Rule>, Vec<&Rule>) =
-            self.rules.rules().iter().partition(|rule| match rule {
+        // Classify rules into three categories:
+        // 1. Per-polygon, transform-invariant (width, area, angles, etc.)
+        // 2. Per-polygon, transform-dependent (snap-to-grid — depends on final coords)
+        // 3. Pairwise (spacing, overlap, enclosure)
+        let mut per_polygon_rules: Vec<&Rule> = Vec::new();
+        let mut transform_dep_rules: Vec<&Rule> = Vec::new();
+        let mut pairwise_rules: Vec<&Rule> = Vec::new();
+
+        for rule in self.rules.rules() {
+            match rule {
                 Rule::MinWidth { .. }
                 | Rule::MinArea { .. }
                 | Rule::AllowedAngles { .. }
                 | Rule::MinEdgeLength { .. }
                 | Rule::SelfIntersection { .. }
-                | Rule::MaxWidth { .. } => true,
+                | Rule::MaxWidth { .. } => per_polygon_rules.push(rule),
+                Rule::SnapToGrid { .. } => transform_dep_rules.push(rule),
                 Rule::MinSpacing { .. }
                 | Rule::Enclosure { .. }
                 | Rule::RequireOverlap { .. }
-                | Rule::ForbidOverlap { .. } => false,
-            });
+                | Rule::ForbidOverlap { .. } => pairwise_rules.push(rule),
+            }
+        }
 
         let mut violations = Vec::new();
 
@@ -123,21 +132,23 @@ impl DrcRunner {
             );
         }
 
-        // Phase 2 & 3: Pairwise rules — intra-cell once + inter-instance with culling
+        // Phases 2–3 and transform-dependent rules all need flattened geometry.
+        let needs_flatten = !pairwise_rules.is_empty() || !transform_dep_rules.is_empty();
         let polygons_checked: usize;
-        if !pairwise_rules.is_empty() {
+        if needs_flatten {
             // Phase 2: Intra-cell pairwise checks (each unique cell once)
-            let mut intra_checked: HashSet<String> = HashSet::new();
-            self.check_intra_cell_pairwise(
-                cell,
-                library,
-                &pairwise_rules,
-                &mut intra_checked,
-                &mut violations,
-            );
+            if !pairwise_rules.is_empty() {
+                let mut intra_checked: HashSet<String> = HashSet::new();
+                self.check_intra_cell_pairwise(
+                    cell,
+                    library,
+                    &pairwise_rules,
+                    &mut intra_checked,
+                    &mut violations,
+                );
+            }
 
-            // Phase 3: Inter-instance pairwise checks
-            // Flatten into per-instance groups for instance-level bbox culling
+            // Flatten into per-instance groups with transformed coordinates.
             let mut instance_groups: Vec<InstancePolygons> = Vec::new();
             let mut global_index = 0usize;
             self.flatten_into_groups(
@@ -153,10 +164,17 @@ impl DrcRunner {
                 .map(|g| g.polygons_by_layer.values().map(|v| v.len()).sum::<usize>())
                 .sum();
 
-            // Merge all polygons into a flat map but tag them with instance id.
-            // Then for pairwise rules, use inter-instance checking.
             let merged = Self::merge_instance_groups(&instance_groups);
 
+            // Transform-dependent per-polygon rules run on flattened geometry
+            // so they see final world coordinates (e.g., snap-to-grid depends
+            // on the actual vertex positions after all transforms).
+            for rule in &transform_dep_rules {
+                let rule_violations = self.check_rule(rule, &merged);
+                violations.extend(rule_violations);
+            }
+
+            // Phase 3: Inter-instance pairwise checks
             for rule in &pairwise_rules {
                 let rule_violations =
                     self.check_pairwise_rule_inter_instance(rule, &instance_groups, &merged);
@@ -876,6 +894,23 @@ impl DrcRunner {
                 polys
                     .iter()
                     .filter_map(|(poly, _)| check_max_width(poly, *layer, *width, name.as_deref()))
+                    .collect()
+            }
+
+            Rule::SnapToGrid {
+                layer,
+                grid_pitch,
+                name,
+            } => {
+                let Some(polys) = polygons_by_layer.get(layer) else {
+                    return Vec::new();
+                };
+
+                polys
+                    .iter()
+                    .flat_map(|(poly, _)| {
+                        check_snap_to_grid(poly, *layer, *grid_pitch, name.as_deref())
+                    })
                     .collect()
             }
         }
@@ -1622,5 +1657,95 @@ mod tests {
             1,
             "Rigid instances should deduplicate per-polygon violations"
         );
+    }
+
+    #[test]
+    fn test_snap_to_grid_simple_pass() {
+        // On-grid polygon passes snap-to-grid check.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.5),
+            Layer::new(1, 0),
+        );
+
+        let rules = DrcRules::new().snap_to_grid(Layer::new(1, 0), 0.001, None);
+        let result = run_drc(&cell, &rules, None);
+        assert!(result.passed());
+    }
+
+    #[test]
+    fn test_snap_to_grid_simple_fail() {
+        // Off-grid polygon fails snap-to-grid check.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::new(vec![
+                Point::new(0.0, 0.0),
+                Point::new(0.5, 0.0),
+                Point::new(0.5, 0.003),
+                Point::new(0.0, 0.003),
+            ]),
+            Layer::new(1, 0),
+        );
+
+        let rules = DrcRules::new().snap_to_grid(Layer::new(1, 0), 0.005, None);
+        let result = run_drc(&cell, &rules, None);
+        assert!(!result.passed());
+    }
+
+    #[test]
+    fn test_snap_to_grid_off_grid_translation() {
+        // A child cell has on-grid local vertices, but is placed at an off-grid
+        // translation. The snap-to-grid check must catch this because the final
+        // world coordinates are off-grid.
+        let mut child = Cell::new("block");
+        // All vertices are multiples of 0.005 (on 5nm grid locally)
+        child.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 0.5, 0.25),
+            Layer::new(1, 0),
+        );
+
+        let mut top = Cell::new("top");
+        // Place at x=0.003 — off the 5nm grid
+        top.add_ref(CellRef::new("block").at(0.003, 0.0));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules = DrcRules::new().snap_to_grid(Layer::new(1, 0), 0.005, Some("GRID"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(
+            !result.passed(),
+            "Off-grid translation should be caught even if local vertices are on-grid"
+        );
+        // All 4 rect vertices are shifted by 0.003 in x, so all are off-grid
+        assert!(
+            result.violations.len() >= 1,
+            "Expected violations for off-grid translated vertices"
+        );
+    }
+
+    #[test]
+    fn test_snap_to_grid_on_grid_translation() {
+        // Child cell placed at on-grid translation should pass.
+        let mut child = Cell::new("block");
+        child.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 0.5, 0.25),
+            Layer::new(1, 0),
+        );
+
+        let mut top = Cell::new("top");
+        // Place at x=0.005 — on the 5nm grid
+        top.add_ref(CellRef::new("block").at(0.005, 0.0));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules = DrcRules::new().snap_to_grid(Layer::new(1, 0), 0.005, None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(result.passed(), "On-grid translation should pass");
     }
 }

@@ -1137,6 +1137,21 @@ class DrcRules:
     ) -> DrcRules:
         """Add maximum width rule for a layer (e.g., single-mode waveguide enforcement)."""
         ...
+    def snap_to_grid(
+        self,
+        layer: Layer | int | tuple[int, int],
+        grid_pitch: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add snap-to-grid check for a layer.
+
+        Verifies all vertex coordinates are multiples of the manufacturing grid
+        pitch. Off-grid geometry causes mask fracturing errors and is rejected
+        by foundries.
+
+        Common values: 0.001 (1 nm grid) or 0.005 (5 nm grid).
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class DrcViolation:

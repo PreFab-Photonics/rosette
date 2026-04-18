@@ -1161,6 +1161,9 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         if layer_rules.get("no_overlap", False):
             rules = rules.forbid_overlap(layer, layer, f"{prefix}.no_overlap")
 
+        if "snap_to_grid" in layer_rules:
+            rules = rules.snap_to_grid(layer, layer_rules["snap_to_grid"], f"{prefix}.snap_to_grid")
+
         # Warn about unrecognized keys that might be typos
         _KNOWN_LAYER_KEYS = {
             "min_width",
@@ -1171,6 +1174,7 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
             "angles",
             "no_self_intersection",
             "no_overlap",
+            "snap_to_grid",
         }
         unknown_keys = set(layer_rules.keys()) - _KNOWN_LAYER_KEYS
         for key in sorted(unknown_keys):
