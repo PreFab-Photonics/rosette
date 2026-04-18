@@ -2,7 +2,9 @@
 
 use rosette_core::{Layer, Point, Polygon};
 
-use crate::checks::width::{cast_ray_to_boundary, estimate_min_width_sampling};
+use crate::checks::width::{
+    cast_ray_to_boundary, estimate_min_width_sampling, vertex_min_distance_to_far_edges,
+};
 use crate::violation::{DrcViolation, RuleType, Severity};
 
 /// Check that polygon does not exceed maximum width at any cross-section.
@@ -55,6 +57,14 @@ pub fn check_max_width(
         return make_violation(polygon, layer, max_width, local_max, rule_name);
     }
 
+    // Check vertex-to-edge distances at concave vertices to catch wide
+    // regions behind short edges (the documented limitation of the
+    // edge-length filter in estimate_max_local_width).
+    let concave_max = max_width_at_concave_vertices(polygon);
+    if concave_max > max_width {
+        return make_violation(polygon, layer, max_width, concave_max, rule_name);
+    }
+
     None
 }
 
@@ -67,12 +77,11 @@ pub fn check_max_width(
 /// Filters out measurements where perpendicular distance > edge length, since
 /// those represent the polygon's length (e.g., end-cap edges of a waveguide).
 ///
-/// **Limitation:** A short edge adjacent to a wide flared region may have its
+/// **Note:** A short edge adjacent to a wide flared region may have its
 /// width measurement filtered out if the perpendicular distance exceeds the
-/// edge length (e.g., a 2-unit edge with a 5-unit perpendicular width). The
-/// `estimate_min_width_sampling` fallback in `check_max_width` catches cases
-/// where the entire polygon is uniformly wide, but a locally wide region
-/// behind a short edge could be missed.
+/// edge length (e.g., a 2-unit edge with a 5-unit perpendicular width).
+/// The `max_width_at_concave_vertices` step in `check_max_width` catches
+/// these cases by measuring vertex-to-edge distances at reflex vertices.
 fn estimate_max_local_width(polygon: &Polygon, samples_per_edge: usize) -> f64 {
     let vertices = polygon.vertices();
     let n = vertices.len();
@@ -124,6 +133,65 @@ fn estimate_max_local_width(polygon: &Polygon, samples_per_edge: usize) -> f64 {
     }
 
     max_width
+}
+
+/// Compute the maximum "local width" at concave (reflex) vertices.
+///
+/// At a concave vertex the interior angle exceeds 180°. The *minimum*
+/// distance from that vertex to a non-adjacent edge gives the local
+/// cross-sectional width at that point (e.g., the width of a T-shape's
+/// base as seen from the inner corner). We return the maximum of these
+/// per-vertex minimum distances.
+///
+/// Convex vertices are skipped because their minimum distance to
+/// non-adjacent edges would measure the polygon's length or a diagonal.
+fn max_width_at_concave_vertices(polygon: &Polygon) -> f64 {
+    let vertices = polygon.vertices();
+    let n = vertices.len();
+    if n < 4 {
+        // Triangles have no concave vertices.
+        return 0.0;
+    }
+
+    let signed_area = polygon.signed_area();
+    let winding_sign = if signed_area >= 0.0 { 1.0 } else { -1.0 };
+
+    let edges: Vec<(Point, Point)> = (0..n)
+        .map(|i| (vertices[i], vertices[(i + 1) % n]))
+        .collect();
+
+    let skip_radius = (n / 4).max(1);
+    let mut max_local_width = 0.0f64;
+
+    for vi in 0..n {
+        let prev = vertices[(vi + n - 1) % n];
+        let curr = vertices[vi];
+        let next = vertices[(vi + 1) % n];
+
+        // Cross product of (curr - prev) × (next - curr) tells us the turn
+        // direction. For CCW winding (positive area), a negative cross product
+        // means a reflex (concave) vertex.
+        let dx1 = curr.x - prev.x;
+        let dy1 = curr.y - prev.y;
+        let dx2 = next.x - curr.x;
+        let dy2 = next.y - curr.y;
+        let cross = dx1 * dy2 - dy1 * dx2;
+
+        // Concave when cross and winding_sign have opposite signs.
+        if cross * winding_sign >= 0.0 {
+            continue; // Convex vertex — skip.
+        }
+
+        // The minimum distance from this concave vertex to any far-away
+        // edge is the local width at this vertex.
+        let vertex_min = vertex_min_distance_to_far_edges(vi, curr, &edges, n, skip_radius);
+
+        if vertex_min.is_finite() {
+            max_local_width = max_local_width.max(vertex_min);
+        }
+    }
+
+    max_local_width
 }
 
 fn make_violation(
