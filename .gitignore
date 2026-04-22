@@ -29,6 +29,9 @@ output/*.svg
 # OS
 .DS_Store
 
+# Editor / tools
+.opencode/
+
 # Project (user .rosette/ dirs, but not template ones)
 .rosette/
 !python/rosette/templates/**/.rosette
