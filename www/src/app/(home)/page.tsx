@@ -7,7 +7,7 @@ import { RedactedText } from "./components/redacted-text";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Rosette - The modern GDSII layout editor",
+    absolute: "Rosette - The modern chip layout editor",
   },
   description:
     "A fast, intelligent, and accessible GDSII layout editor. Rust core, Python SDK, and a WebGPU desktop app for integrated photonic circuit design.",
@@ -47,14 +47,8 @@ function Hero() {
       <div className="mx-auto max-w-6xl px-6 pt-20 sm:pt-24">
         {/* Hero text */}
         <div className="mx-auto max-w-4xl text-center">
-          {/* Tag line */}
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-fd-border bg-fd-muted px-4 py-1.5 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-wide text-fd-muted-foreground uppercase">
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-yellow" />
-            In beta
-          </div>
-
           <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl lg:text-6xl">
-            Enjoy making chips
+            Chip layouts at the speed of thought
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-fd-muted-foreground">
@@ -439,29 +433,37 @@ function ClosingCTA() {
 
       <div className="mx-auto max-w-6xl px-6 pt-16 pb-32">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-fd-foreground sm:text-4xl">
+          <h2 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl">
             Your next GDSII layout editor
           </h2>
-          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-fd-muted-foreground">
-            Thousands of geometry operations, routing decisions, and design
-            checks &mdash; compiled to native code and wrapped in an accessible
-            interface.{" "}
-          </p>
-
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
-            {/* pip install — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
-                <span className="select-none text-emerald-400">~&nbsp;</span>
-                pip install librosette
-                <CopyButton text="pip install librosette" />
-              </div>
+              <Link
+                href="/docs/getting-started/installation"
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 text-sm font-medium text-fd-foreground shadow-sm transition-colors hover:border-fd-ring"
+              >
+                Get started
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </svg>
+              </Link>
               <span className="text-[11px] text-fd-muted-foreground">
-                Python SDK
+                Quick start
               </span>
             </div>
 
-            {/* Download — Desktop app */}
             <div className="flex flex-col items-center gap-1.5">
               <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white opacity-50 shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15">
                 <svg
@@ -484,31 +486,6 @@ function ClosingCTA() {
               </div>
               <span className="text-[11px] text-fd-muted-foreground">
                 Desktop app &middot; coming soon
-              </span>
-            </div>
-
-            {/* GitHub — Source code */}
-            <div className="flex flex-col items-center gap-1.5">
-              <a
-                href="https://github.com/prefab-photonics/rosette"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm text-sm font-medium text-fd-foreground transition-colors hover:border-fd-ring"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-                </svg>
-                Clone
-              </a>
-              <span className="text-[11px] text-fd-muted-foreground">
-                Source code
               </span>
             </div>
           </div>

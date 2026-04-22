@@ -25,7 +25,7 @@ export function CopyButton({
       className={`ml-3 flex-shrink-0 transition-colors ${
         disabled
           ? "cursor-not-allowed text-fd-border"
-          : "text-fd-border hover:text-fd-muted-foreground"
+          : "text-fd-muted-foreground hover:text-fd-foreground"
       }`}
       aria-label="Copy to clipboard"
     >
