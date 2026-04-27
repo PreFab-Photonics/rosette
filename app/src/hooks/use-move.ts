@@ -6,7 +6,6 @@ import { useRulerStore, type Ruler } from "@/stores/ruler";
 import { useImageStore, hitTestImages, isImageId, imageIdToKey } from "@/stores/image";
 import { useViewportStore } from "@/stores/viewport";
 import { MoveElementsCommand, MoveRulersCommand, MoveImagesCommand } from "@/lib/commands";
-import { getSourceInfo, sendVertexEdit, sendRefMove } from "@/hooks/use-library";
 import { usePathStore } from "@/stores/path";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
@@ -383,33 +382,6 @@ export function useMove(
       const command = new MoveElementsCommand(elementIds, currentDelta.x, currentDelta.y);
       useHistoryStore.getState().pushCommand(command);
       useWasmContextStore.getState().bumpSyncGeneration();
-
-      // Defer source patching so it doesn't block the next user interaction.
-      // The WASM state is already correct; this only syncs to the Python source.
-      const dx = currentDelta.x;
-      const dy = currentDelta.y;
-      const ids = [...elementIds];
-      const lib = library;
-      setTimeout(() => {
-        const syncedRefLines = new Set<string>();
-        for (const id of ids) {
-          const source = getSourceInfo(id);
-          if (!source) continue;
-          if (source.type === "ref") {
-            const key = `${source.file}:${source.line}`;
-            if (!syncedRefLines.has(key)) {
-              syncedRefLines.add(key);
-              sendRefMove(id, dx, dy);
-            }
-          } else {
-            const info = lib.get_element_info(id);
-            if (info) {
-              sendVertexEdit(id, new Float64Array(info.vertices));
-              info.free();
-            }
-          }
-        }
-      }, 0);
     }
 
     // Reset state

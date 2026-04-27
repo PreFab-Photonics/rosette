@@ -20,14 +20,6 @@ import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 import { computeAlignmentDeltas, type AlignType, type AlignmentDelta } from "@/lib/align";
-import {
-  getSourceInfo,
-  sendDeleteEdit,
-  sendDeleteCellEdit,
-  sendAddEdit,
-  sendAddCellEdit,
-  sendAddRefEdit,
-} from "@/hooks/use-library";
 import { usePathStore, DEFAULT_NUM_ARC_POINTS, type PathMetadata } from "@/stores/path";
 import { useImageStore, imageKeyToId, imageIdToKey, type ImageEntry } from "@/stores/image";
 import { useStatusMessageStore } from "@/stores/status-message";
@@ -100,19 +92,6 @@ export class CreateRectangleCommand implements Command {
       ctx.renderer.sync_from_library(ctx.library);
       ctx.renderer.mark_dirty();
       useSelectionStore.getState().select(id);
-
-      // Sync to Python source (no-op in standalone mode)
-      const vertices = new Float64Array([
-        this.x,
-        this.y,
-        this.x + this.width,
-        this.y,
-        this.x + this.width,
-        this.y + this.height,
-        this.x,
-        this.y + this.height,
-      ]);
-      sendAddEdit(vertices, this.layer, this.datatype);
     }
   }
 
@@ -355,24 +334,6 @@ function restoreSnapshots(library: WasmLibrary, snapshots: ClipboardSnapshot[]):
 }
 
 /**
- * Persist cell-ref snapshots to Python source in design mode.
- * Called after paste/duplicate to ensure new CellRefs are written to code.
- */
-function persistCellRefSnapshots(ctx: CommandContext, snapshots: ClipboardSnapshot[]): void {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("design") !== "true") return;
-
-  const activeCellName = ctx.library.active_cell_name();
-  if (!activeCellName) return;
-
-  for (const snapshot of snapshots) {
-    if (snapshot.type === "cell-ref") {
-      sendAddRefEdit(snapshot.cellName, activeCellName, Array.from(snapshot.transform));
-    }
-  }
-}
-
-/**
  * Command to delete one or more elements.
  *
  * Handles both regular polygon UUIDs and synthetic ref UUIDs (from CellRef instances).
@@ -399,32 +360,6 @@ export class DeleteElementsCommand implements Command {
     // Snapshot elements before deleting (only on first execute)
     if (this.snapshots.length === 0) {
       this.snapshots = snapshotElements(ctx.library, idsToDelete);
-    }
-
-    // Collect source info BEFORE deletion (source map is separate from WASM)
-    // Deduplicate by file:line to avoid deleting the same ref line twice
-    const isDesign = new URLSearchParams(window.location.search).get("design") === "true";
-    const sourceEdits = new Map<string, string>(); // "file:line" → elementId
-    let missingSourceCount = 0;
-    for (const id of idsToDelete) {
-      const source = getSourceInfo(id);
-      if (source) {
-        const key = `${source.file}:${source.line}`;
-        if (!sourceEdits.has(key)) {
-          sourceEdits.set(key, id);
-        }
-      } else if (isDesign) {
-        missingSourceCount++;
-      }
-    }
-    if (missingSourceCount > 0 && isDesign) {
-      useStatusMessageStore
-        .getState()
-        .show(
-          `${missingSourceCount} element(s) deleted from viewer only — no source tracking available. Changes may revert on reload.`,
-          "warn",
-          5000,
-        );
     }
 
     // Clean up path metadata for any deleted paths
@@ -460,11 +395,6 @@ export class DeleteElementsCommand implements Command {
 
     // Clear selection
     useSelectionStore.getState().clearSelection();
-
-    // Sync deletions to Python source (no-op if no source map / standalone mode)
-    for (const elementId of sourceEdits.values()) {
-      sendDeleteEdit(elementId);
-    }
   }
 
   undo(ctx: CommandContext): void {
@@ -557,9 +487,6 @@ export class PasteElementsCommand implements Command {
     if (this.createdIds.length > 0) {
       useSelectionStore.getState().setSelection(new Set(this.createdIds));
     }
-
-    // In design mode, persist cell-ref snapshots to Python source
-    persistCellRefSnapshots(ctx, this.snapshots);
   }
 
   undo(ctx: CommandContext): void {
@@ -640,9 +567,6 @@ export class DuplicateElementsCommand implements Command {
     if (this.createdIds.length > 0) {
       useSelectionStore.getState().setSelection(new Set(this.createdIds));
     }
-
-    // In design mode, persist cell-ref snapshots to Python source
-    persistCellRefSnapshots(ctx, this.snapshots);
   }
 
   undo(ctx: CommandContext): void {
@@ -806,9 +730,6 @@ export class CreateArrayCommand implements Command {
     if (this.createdIds.length > 0) {
       useSelectionStore.getState().setSelection(new Set([...this.elementIds, ...this.createdIds]));
     }
-
-    // In design mode, persist cell-ref snapshots (with correct offsets) to Python source
-    persistCellRefSnapshots(ctx, allOffsetSnapshots);
   }
 
   undo(ctx: CommandContext): void {
@@ -875,9 +796,6 @@ export class CreatePolygonCommand implements Command {
       ctx.renderer.sync_from_library(ctx.library);
       ctx.renderer.mark_dirty();
       useSelectionStore.getState().select(id);
-
-      // Sync to Python source (no-op in standalone mode)
-      sendAddEdit(this.points, this.layer, this.datatype);
     }
   }
 
@@ -2070,17 +1988,8 @@ export class AddChildCellCommand implements Command {
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
-
-    // In design mode, persist to Python source (SSE reload will confirm)
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("design") === "true") {
-      sendAddCellEdit(this.cellName, this.parentCellName);
-    }
   }
 
-  // Undo is WASM-local only; the Python source edit (sendAddCellEdit) is not
-  // reversed here. SSE reload handles eventual consistency, matching the
-  // pattern used by all other semantic edit commands.
   undo(ctx: CommandContext): void {
     // remove_cell_cascade removes the cell and all CellRefs pointing to it
     ctx.library.remove_cell_cascade(this.cellName);
@@ -2146,12 +2055,6 @@ export class DeleteCellCommand implements Command {
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
-
-    // In design mode, cascade deletion to Python source
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("design") === "true") {
-      sendDeleteCellEdit(this.cellName);
-    }
   }
 
   undo(ctx: CommandContext): void {
@@ -2393,15 +2296,6 @@ export class AddCellRefCommand implements Command {
       const elemIdx = ctx.library.get_element_index(id);
       if (elemIdx >= 0) {
         useSelectionStore.getState().select(`ref:${elemIdx}:0`);
-      }
-
-      // In design mode, persist to Python source
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("design") === "true") {
-        const activeCellName = ctx.library.active_cell_name();
-        if (activeCellName) {
-          sendAddRefEdit(this.cellName, activeCellName, [1, 0, 0, 1, this.x, this.y]);
-        }
       }
     }
   }

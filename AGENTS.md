@@ -11,7 +11,7 @@ crates/rosette-io       GDS-II reader/writer
 crates/rosette-python   PyO3 bindings -> rosette._core
 crates/rosette-wasm     WASM + WebGPU renderer
 
-python/rosette/         Python API, CLI, dev server, code patcher
+python/rosette/         Python API, CLI, dev server
 app/                    Viewer app (React/TS, WebGPU canvas)
 app/src-tauri/          Tauri desktop wrapper
 www/                    Docs site (Next.js + fumadocs)

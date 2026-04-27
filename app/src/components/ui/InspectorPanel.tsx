@@ -31,13 +31,6 @@ import { formatCoordinate, type UnitInfo } from "@/lib/format";
 import { computePathLength } from "@/lib/path";
 import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
-import {
-  getSourceInfo,
-  sendEdit,
-  sendVertexEdit,
-  sendLayerEdit,
-  type SourceInfo,
-} from "@/hooks/use-library";
 
 // =============================================================================
 // Types
@@ -762,133 +755,6 @@ function LayerSelector({
 }
 
 /**
- * Source code section for two-way editing (rosette serve).
- * Shows the source file:line and code that created the selected element.
- * Allows inline editing of the source line.
- */
-function SourceSection({ sourceInfo, isDark }: { sourceInfo: SourceInfo; isDark: boolean }) {
-  const [editing, setEditing] = useState(false);
-  const [editValue, setEditValue] = useState(sourceInfo.code);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Reset edit value when source changes
-  useEffect(() => {
-    setEditValue(sourceInfo.code);
-    setEditing(false);
-  }, [sourceInfo.code, sourceInfo.line]);
-
-  const handleSave = useCallback(async () => {
-    if (editValue.trim() === sourceInfo.code.trim()) {
-      setEditing(false);
-      return;
-    }
-    const ok = await sendEdit({
-      file: sourceInfo.file,
-      line: sourceInfo.line,
-      old_code: sourceInfo.code,
-      new_code: editValue,
-    });
-    if (ok) {
-      setEditing(false);
-    }
-  }, [editValue, sourceInfo]);
-
-  // Extract just the filename from the full path
-  const filename = sourceInfo.file.split("/").pop() ?? sourceInfo.file;
-
-  return (
-    <>
-      <div
-        className={cn(
-          "px-3 pt-2.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider select-none",
-          isDark ? "text-white/30" : "text-black/30",
-        )}
-      >
-        Source
-      </div>
-
-      {/* File:line */}
-      <div className="flex items-center justify-between gap-2 px-3 py-0.5">
-        <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-          Location
-        </span>
-        <span
-          className={cn(
-            "text-xs font-mono tabular-nums select-all",
-            isDark ? "text-white/80" : "text-black/80",
-          )}
-          title={`${sourceInfo.file}:${sourceInfo.line}`}
-        >
-          {filename}:{sourceInfo.line}
-        </span>
-      </div>
-
-      {/* Function */}
-      {sourceInfo.fn && sourceInfo.fn !== "<module>" && (
-        <div className="flex items-center justify-between gap-2 px-3 py-0.5">
-          <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-            Function
-          </span>
-          <span
-            className={cn(
-              "text-xs font-mono select-all",
-              isDark ? "text-white/80" : "text-black/80",
-            )}
-          >
-            {sourceInfo.fn}()
-          </span>
-        </div>
-      )}
-
-      {/* Code — click to edit */}
-      <div className="px-3 py-1">
-        {editing ? (
-          <textarea
-            ref={inputRef}
-            className={cn(
-              "w-full rounded px-1.5 py-1 text-[11px] font-mono leading-tight resize-none border",
-              isDark
-                ? "bg-white/5 text-white/90 border-white/10 focus:border-blue-400/50"
-                : "bg-black/5 text-black/90 border-black/10 focus:border-blue-500/50",
-            )}
-            value={editValue}
-            rows={Math.min(editValue.split("\n").length + 1, 5)}
-            onChange={(e) => setEditValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                handleSave();
-              }
-              if (e.key === "Escape") {
-                setEditValue(sourceInfo.code);
-                setEditing(false);
-              }
-            }}
-            onBlur={handleSave}
-            autoFocus
-          />
-        ) : (
-          <button
-            type="button"
-            className={cn(
-              "w-full rounded px-1.5 py-1 text-left text-[11px] font-mono leading-tight",
-              "cursor-pointer transition-colors",
-              isDark
-                ? "bg-white/5 text-white/70 hover:bg-white/10"
-                : "bg-black/5 text-black/70 hover:bg-black/10",
-            )}
-            onClick={() => setEditing(true)}
-            title="Click to edit source (Cmd+Enter to save, Escape to cancel)"
-          >
-            {sourceInfo.code}
-          </button>
-        )}
-      </div>
-    </>
-  );
-}
-
-/**
  * Section header for grouping inspector fields.
  */
 function SectionHeader({ label, isDark }: { label: string; isDark: boolean }) {
@@ -1355,39 +1221,8 @@ export function InspectorPanel() {
       const cmd = new ChangeElementLayerCommand(ids, newLayer, newDatatype);
       useHistoryStore.getState().execute(cmd, { library, renderer });
 
-      // Sync layer change back to Python source
-      if (data.elements.length === 1) {
-        sendLayerEdit(data.elements[0].id, newLayer, newDatatype);
-      }
     },
     [data, library, renderer],
-  );
-
-  // Helper: after a geometry command on a single element, read new vertices
-  // from the WASM library and sync the edit back to the Python source file.
-  const syncSourceFromLibrary = useCallback(
-    (originalElementId: string) => {
-      if (!library) return;
-      // The element may have been replaced by a command (resize, edit vertices)
-      // which deletes the old element and creates a new one with a new UUID.
-      // Try the original ID first; if gone, fall back to the current selection.
-      let info = library.get_element_info(originalElementId);
-      if (!info) {
-        const sel = useSelectionStore.getState().selectedIds;
-        if (sel.size === 1) {
-          const newId = sel.values().next().value;
-          if (newId) {
-            info = library.get_element_info(newId);
-          }
-        }
-      }
-      if (info) {
-        // Use original ID for source lookup (source map still has it)
-        sendVertexEdit(originalElementId, new Float64Array(info.vertices));
-        info.free();
-      }
-    },
-    [library],
   );
 
   const handlePositionChange = useCallback(
@@ -1410,13 +1245,8 @@ export function InspectorPanel() {
         axis === "y" ? worldValue - (data.bounds.maxY - data.bounds.minY) : data.bounds.minY,
       );
       useHistoryStore.getState().execute(cmd, { library, renderer });
-
-      // Sync each element's new geometry back to Python source
-      if (data.elements.length === 1) {
-        syncSourceFromLibrary(data.elements[0].id);
-      }
     },
-    [data, library, renderer, unitInfo, syncSourceFromLibrary],
+    [data, library, renderer, unitInfo],
   );
 
   const handleDimensionChange = useCallback(
@@ -1439,13 +1269,8 @@ export function InspectorPanel() {
         dimension === "height" ? worldValue : currentHeight,
       );
       useHistoryStore.getState().execute(cmd, { library, renderer });
-
-      // Sync each element's new geometry back to Python source
-      if (data.elements.length === 1) {
-        syncSourceFromLibrary(data.elements[0].id);
-      }
     },
-    [data, library, renderer, unitInfo, syncSourceFromLibrary],
+    [data, library, renderer, unitInfo],
   );
 
   const handleVertexChange = useCallback(
@@ -1463,9 +1288,6 @@ export function InspectorPanel() {
 
       const cmd = new EditVerticesCommand(el.id, newVerts, "Edit vertex");
       useHistoryStore.getState().execute(cmd, { library, renderer });
-
-      // Sync new vertices back to Python source
-      sendVertexEdit(el.id, newVerts);
     },
     [data, library, renderer, unitInfo],
   );
@@ -1488,9 +1310,6 @@ export function InspectorPanel() {
 
       const cmd = new EditVerticesCommand(el.id, newVerts, "Remove vertex");
       useHistoryStore.getState().execute(cmd, { library, renderer });
-
-      // Sync new vertices back to Python source
-      sendVertexEdit(el.id, newVerts);
     },
     [data, library, renderer],
   );
@@ -1516,9 +1335,6 @@ export function InspectorPanel() {
 
     const cmd = new EditVerticesCommand(el.id, newVerts, "Add vertex");
     useHistoryStore.getState().execute(cmd, { library, renderer });
-
-    // Sync new vertices back to Python source
-    sendVertexEdit(el.id, newVerts);
   }, [data, library, renderer]);
 
   // Native keydown listener on the panel container.
@@ -1588,13 +1404,6 @@ export function InspectorPanel() {
       if (target) target.focus();
     });
   }, [focusRequested, focusField]);
-
-  // Source info for two-way editing (rosette serve).
-  // Must be before early returns to satisfy React's hook ordering rules.
-  const sourceInfo = useMemo(() => {
-    if (!data || data.elements.length !== 1) return null;
-    return getSourceInfo(data.elements[0].id);
-  }, [data]);
 
   // Path inspector callbacks — declared here (before early returns) so hook
   // count is stable across renders.  The refs ensure they always read the
@@ -1952,14 +1761,12 @@ export function InspectorPanel() {
   const first = elements[0];
 
   // Detect whether the selection represents a cell reference instance.
-  // Three detection methods (any match → treat as ref):
+  // Two detection methods (any match → treat as ref):
   // 1. Hierarchical mode: UUIDs start with "ref:"
-  // 2. Design mode (multi-polygon refs): group has multiple members
-  // 3. Design mode (single-polygon refs): source map type is "ref"
+  // 2. Multi-polygon refs: group has multiple members
   const isFromRef =
     elements.every((e) => e.id.startsWith("ref:")) ||
-    (library != null && library.get_group_ids(first.id).length > 1) ||
-    getSourceInfo(first.id)?.type === "ref";
+    (library != null && library.get_group_ids(first.id).length > 1);
 
   // Text inspector (single text element selected)
   if (isSingle && library && library.is_text_element(first.id)) {
@@ -2514,13 +2321,6 @@ export function InspectorPanel() {
           </>
         )}
 
-        {/* Source — two-way editing (rosette serve) */}
-        {sourceInfo && (
-          <>
-            <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
-            <SourceSection sourceInfo={sourceInfo} isDark={isDark} />
-          </>
-        )}
       </div>
     );
   }
@@ -2667,13 +2467,6 @@ export function InspectorPanel() {
         </>
       )}
 
-      {/* Source — two-way editing (rosette serve) */}
-      {sourceInfo && (
-        <>
-          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
-          <SourceSection sourceInfo={sourceInfo} isDark={isDark} />
-        </>
-      )}
     </div>
   );
 }

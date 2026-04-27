@@ -24,14 +24,12 @@ For library development, import from rosette.components:
 
 from __future__ import annotations
 
-import linecache
 import math
 import os
 import re
 import sys
 import tomllib
 import warnings
-from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
@@ -87,59 +85,6 @@ except PackageNotFoundError:
 
 # DFM default model parameters — keep in sync with Rust DEFAULT_SIGMA / DEFAULT_THRESHOLD
 _DFM_DEFAULT_SIGMA = 0.08
-
-# =============================================================================
-# Source tracking for two-way editing (rosette serve)
-# =============================================================================
-
-# Module-level flag: only enabled during `rosette serve` to avoid overhead
-_SOURCE_TRACKING = False
-
-
-def enable_source_tracking():
-    """Enable source location capture on Cell.add_* methods."""
-    global _SOURCE_TRACKING
-    _SOURCE_TRACKING = True
-
-
-def disable_source_tracking():
-    """Disable source location capture."""
-    global _SOURCE_TRACKING
-    _SOURCE_TRACKING = False
-
-
-@dataclass(frozen=True)
-class SourceLocation:
-    """Source code location for an element added to a Cell."""
-
-    file: str
-    line: int
-    function: str
-    code: str
-    element_type: str  # "polygon", "path", "text", "ref"
-
-
-def _capture_source(element_type: str) -> SourceLocation | None:
-    """Capture the caller's source location (2 frames up)."""
-    try:
-        # Frame 0: _capture_source
-        # Frame 1: Cell.add_polygon / add_path / add_text / add_ref
-        # Frame 2: User's code (the call site we want)
-        frame = sys._getframe(2)
-        filename = frame.f_code.co_filename
-        lineno = frame.f_lineno
-        funcname = frame.f_code.co_name
-        code = linecache.getline(filename, lineno).strip()
-        return SourceLocation(
-            file=filename,
-            line=lineno,
-            function=funcname,
-            code=code,
-            element_type=element_type,
-        )
-    except (ValueError, AttributeError):
-        return None
-
 
 # =============================================================================
 # Instance: A positioned cell that knows both its definition and transform
@@ -566,7 +511,7 @@ class Cell:
     All other methods delegate to the underlying Rust Cell.
     """
 
-    __slots__ = ("_child_cells", "_def_source", "_element_sources", "_inner")
+    __slots__ = ("_child_cells", "_inner")
 
     def __init__(self, name: str) -> None:
         """Create a new empty cell.
@@ -576,11 +521,6 @@ class Cell:
         """
         self._inner = _Cell(name)
         self._child_cells: set[Cell] = set()
-        self._element_sources: list[SourceLocation | None] = []
-        if _SOURCE_TRACKING:
-            self._def_source: SourceLocation | None = _capture_source("cell_def")
-        else:
-            self._def_source = None
 
     @classmethod
     def _from_inner(cls, inner: _Cell) -> Cell:
@@ -588,8 +528,6 @@ class Cell:
         cell = object.__new__(cls)
         cell._inner = inner
         cell._child_cells = set()
-        cell._element_sources = []
-        cell._def_source = None
         return cell
 
     # --- Delegated properties ---
@@ -653,8 +591,6 @@ class Cell:
             unit.add_polygon(Polygon.rect(Point.origin(), w, h), layer)
             top.add_ref(unit.at(0, 0).array(cols, rows, pitch_x, pitch_y))
         """
-        if _SOURCE_TRACKING:
-            self._element_sources.append(_capture_source("polygon"))
         self._inner.add_polygon(polygon, layer)
 
     def add_path(
@@ -684,8 +620,6 @@ class Cell:
                 end_type=PathEndType.ROUND
             )
         """
-        if _SOURCE_TRACKING:
-            self._element_sources.append(_capture_source("path"))
         self._inner.add_path(points, width, layer, end_type)
 
     def add_text(
@@ -710,8 +644,6 @@ class Cell:
             cell.add_text("Input", Point(0, 5), layer=10)
             cell.add_text("Big Label", Point(0, 10), layer=10, height=5.0)
         """
-        if _SOURCE_TRACKING:
-            self._element_sources.append(_capture_source("text"))
         self._inner.add_text(text, position, layer, height)
 
     def add_port(self, port: Port) -> None:
@@ -795,9 +727,6 @@ class Cell:
             top.add_ref(gc_cell.at(0, 0))        # Instance at position
             top.add_ref(route.to_cell("wg"))     # Cell at origin
         """
-        if _SOURCE_TRACKING:
-            self._element_sources.append(_capture_source("ref"))
-
         # Convert Cell to Instance at origin
         if isinstance(ref, Cell):
             ref = ref.at(0, 0)

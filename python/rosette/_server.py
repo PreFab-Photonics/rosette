@@ -47,9 +47,6 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     design_layers: list[dict] | None = None  # Layer definitions from rosette.toml
     design_filename: str | None = None  # Source filename (e.g., "layout.py" or "mmi.gds")
     design_version: int = 0
-    design_source_map: list[dict | None] | None = None  # Source map for two-way editing
-    design_child_source_maps: dict | None = None  # {cell_name: [source, ...]} for child cells
-    design_cell_vars: dict | None = None  # {cell_name: {var_name, file, line}} for cell definitions
     on_error: Callable[[str], None] | None = None
 
     # Condition variable for SSE notifications
@@ -89,175 +86,6 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
         # Static file serving for web app
         self.handle_static_file(path)
 
-    def do_POST(self) -> None:
-        """Handle POST requests."""
-        parsed = urlparse(self.path)
-        path = parsed.path
-
-        if path == "/api/design/edit":
-            self.handle_edit()
-            return
-
-        self.send_error(404, "Not Found")
-
-    def handle_edit(self) -> None:
-        """Handle POST /api/design/edit — patch source code from the viewer.
-
-        Two paths:
-        - Semantic ops (has "op" field): dispatched to SemanticPatcher with libcst.
-        - Raw line replacement (no "op" field, has "new_code"): uses CodePatcher
-          for the SourceSection inline code editor.
-
-        Response: {"ok": true} on success, {"ok": false, "error": "..."} on failure.
-        """
-        try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
-            data = json.loads(body)
-            op_type = data.get("op")
-
-            if op_type:
-                # Semantic operation — dispatch to SemanticPatcher
-                self._handle_semantic_edit(op_type, data)
-            else:
-                # Raw line replacement (SourceSection editor)
-                self._handle_raw_edit(data)
-
-        except (json.JSONDecodeError, ValueError) as e:
-            log.error("handle_edit JSON/value error: %s", e)
-            self.send_error(400, f"Invalid request: {e}")
-        except Exception as e:
-            log.exception("handle_edit unexpected error")
-            self.send_error(500, f"Internal error: {e}")
-
-    def _handle_semantic_edit(self, op_type: str, data: dict) -> None:
-        """Dispatch a semantic edit operation to SemanticPatcher."""
-        from rosette._patcher import (
-            AddCell,
-            AddElement,
-            AddRef,
-            DeleteCell,
-            DeleteElement,
-            ModifyLayer,
-            ModifyPathWidth,
-            ModifyVertices,
-            MoveRef,
-            SemanticPatcher,
-        )
-
-        op_map = {
-            "modify_vertices": lambda d: ModifyVertices(
-                file=d["file"],
-                line=d["line"],
-                old_code=d.get("old_code"),
-                vertices=d["vertices"],
-            ),
-            "modify_layer": lambda d: ModifyLayer(
-                file=d["file"],
-                line=d["line"],
-                old_code=d.get("old_code"),
-                layer=d["layer"],
-                datatype=d.get("datatype", 0),
-            ),
-            "delete_element": lambda d: DeleteElement(
-                file=d["file"],
-                line=d["line"],
-                old_code=d.get("old_code"),
-            ),
-            "add_element": lambda d: AddElement(
-                file=d["file"],
-                after_line=d["after_line"],
-                element_type=d.get("element_type", "polygon"),
-                vertices=d["vertices"],
-                layer=d["layer"],
-                datatype=d.get("datatype", 0),
-                width=d.get("width"),
-                cell_var=d.get("cell_var", "cell"),
-            ),
-            "modify_path_width": lambda d: ModifyPathWidth(
-                file=d["file"],
-                line=d["line"],
-                old_code=d.get("old_code"),
-                width=d["width"],
-            ),
-            "move_ref": lambda d: MoveRef(
-                file=d["file"],
-                line=d["line"],
-                old_code=d.get("old_code"),
-                dx=d["dx"],
-                dy=d["dy"],
-            ),
-            "add_cell": lambda d: AddCell(
-                file=d["file"],
-                def_after_line=d["def_after_line"],
-                ref_after_line=d["ref_after_line"],
-                cell_name=d["cell_name"],
-                parent_var=d["parent_var"],
-            ),
-            "add_ref": lambda d: AddRef(
-                file=d["file"],
-                after_line=d["after_line"],
-                cell_name=d["cell_name"],
-                parent_var=d["parent_var"],
-                transform=d["transform"],
-            ),
-            "delete_cell": lambda d: DeleteCell(
-                file=d["file"],
-                cell_name=d["cell_name"],
-                var_name=d["var_name"],
-            ),
-        }
-
-        builder = op_map.get(op_type)
-        if not builder:
-            self.send_error(400, f"Unknown operation: {op_type}")
-            return
-
-        try:
-            op = builder(data)
-        except KeyError as e:
-            self.send_error(400, f"Missing required field: {e}")
-            return
-
-        patcher = SemanticPatcher()
-        result = patcher.apply(op)
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_cors_headers()
-        self.end_headers()
-
-        if result.success:
-            self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
-        else:
-            self.wfile.write(json.dumps({"ok": False, "error": result.error}).encode("utf-8"))
-
-    def _handle_raw_edit(self, data: dict) -> None:
-        """Handle a raw line-replacement edit from the SourceSection editor."""
-        file_path = data.get("file")
-        line = data.get("line")
-        new_code = data.get("new_code")
-
-        if not file_path or not line or not new_code:
-            self.send_error(400, "Missing required fields: file, line, new_code")
-            return
-
-        from rosette._patcher import CodePatcher
-
-        patcher = CodePatcher()
-        success = patcher.patch_line(
-            file_path, line, old_code=data.get("old_code"), new_code=new_code
-        )
-
-        if success:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
-        else:
-            self.send_error(409, "Patch failed — source may have changed since last reload")
-
     def handle_design_events(self) -> None:
         """Handle SSE endpoint for live design updates.
 
@@ -282,9 +110,6 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                 "version": last_version,
                 "json": self.__class__.design_json,
                 "cells": self.__class__.design_cells,
-                "source_map": self.__class__.design_source_map,
-                "child_source_maps": self.__class__.design_child_source_maps,
-                "cell_vars": self.__class__.design_cell_vars,
                 "layers": self.__class__.design_layers,
                 "filename": self.__class__.design_filename,
             },
@@ -306,9 +131,6 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                             "version": current_version,
                             "json": self.__class__.design_json,
                             "cells": self.__class__.design_cells,
-                            "source_map": self.__class__.design_source_map,
-                            "child_source_maps": self.__class__.design_child_source_maps,
-                            "cell_vars": self.__class__.design_cell_vars,
                             "layers": self.__class__.design_layers,
                             "filename": self.__class__.design_filename,
                         },
@@ -335,8 +157,6 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             "version": self.__class__.design_version,
             "json": self.__class__.design_json,
             "cells": self.__class__.design_cells,
-            "source_map": self.__class__.design_source_map,
-            "child_source_maps": self.__class__.design_child_source_maps,
             "layers": self.__class__.design_layers,
             "filename": self.__class__.design_filename,
         }
@@ -428,9 +248,6 @@ class RosetteServer:
         cells: dict | None = None,
         layers: list[dict] | None = None,
         filename: str | None = None,
-        source_map: list[dict | None] | None = None,
-        child_source_maps: dict | None = None,
-        cell_vars: dict | None = None,
     ) -> None:
         """Update the design JSON and increment version.
 
@@ -439,17 +256,11 @@ class RosetteServer:
             cells: Optional cell hierarchy tree: {name, children}
             layers: Optional layer definitions from rosette.toml (LayerMap.to_dict_list())
             filename: Optional source filename (e.g., "layout.py" or "mmi.gds")
-            source_map: Optional source map for two-way editing (indexed by element position)
-            child_source_maps: Optional {cell_name: [source, ...]} for child cell elements
-            cell_vars: Optional {cell_name: {var_name, file, line}} for cell definitions
         """
         RosetteHandler.design_json = json_str
         RosetteHandler.design_cells = cells
         RosetteHandler.design_layers = layers
         RosetteHandler.design_filename = filename
-        RosetteHandler.design_source_map = source_map
-        RosetteHandler.design_child_source_maps = child_source_maps
-        RosetteHandler.design_cell_vars = cell_vars
         RosetteHandler.design_version += 1
 
         # Notify all SSE connections of the change

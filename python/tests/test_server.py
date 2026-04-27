@@ -18,9 +18,6 @@ def reset_handler_state():
     RosetteHandler.design_layers = None
     RosetteHandler.design_filename = None
     RosetteHandler.design_version = 0
-    RosetteHandler.design_source_map = None
-    RosetteHandler.design_child_source_maps = None
-    RosetteHandler.design_cell_vars = None
     RosetteHandler.webapp_dir = None
     yield
 
@@ -62,14 +59,6 @@ def _get(url: str, timeout: float = 5) -> tuple[int, bytes, dict]:
     req = Request(url)
     resp = urlopen(req, timeout=timeout)
     return resp.status, resp.read(), dict(resp.headers)
-
-
-def _post(url: str, data: dict, timeout: float = 5) -> tuple[int, bytes]:
-    """Helper: POST JSON to a URL, return (status, body)."""
-    body = json.dumps(data).encode("utf-8")
-    req = Request(url, data=body, headers={"Content-Type": "application/json"})
-    resp = urlopen(req, timeout=timeout)
-    return resp.status, resp.read()
 
 
 class TestStaticFileServing:
@@ -149,15 +138,6 @@ class TestDesignAPI:
         data = json.loads(body)
         assert data["version"] == 3
         assert data["json"] == '{"v": 3}'
-
-    def test_source_map_included(self, server):
-        srv, base_url = server
-        source_map = [{"file": "test.py", "line": 1, "type": "polygon"}]
-        srv.set_design_json("{}", source_map=source_map)
-
-        _status, body, _ = _get(base_url + "/api/design")
-        data = json.loads(body)
-        assert data["source_map"] == source_map
 
     def test_no_cache_headers(self, server):
         _, base_url = server
@@ -269,23 +249,17 @@ class TestRosetteServer:
 
     def test_set_design_with_all_fields(self, webapp_dir):
         srv = RosetteServer(webapp_dir)
-        source_map = [{"file": "a.py", "line": 1}]
-        child_maps = {"child": [{"file": "b.py", "line": 2}]}
-        cell_vars = {"top": {"var_name": "design", "file": "a.py", "line": 1}}
 
         srv.set_design_json(
             "{}",
             cells={"name": "top", "children": []},
             layers=[{"id": 1}],
             filename="full.py",
-            source_map=source_map,
-            child_source_maps=child_maps,
-            cell_vars=cell_vars,
         )
 
-        assert RosetteHandler.design_source_map == source_map
-        assert RosetteHandler.design_child_source_maps == child_maps
-        assert RosetteHandler.design_cell_vars == cell_vars
+        assert RosetteHandler.design_cells == {"name": "top", "children": []}
+        assert RosetteHandler.design_layers == [{"id": 1}]
+        assert RosetteHandler.design_filename == "full.py"
 
     def test_get_design_version(self, webapp_dir):
         srv = RosetteServer(webapp_dir)
