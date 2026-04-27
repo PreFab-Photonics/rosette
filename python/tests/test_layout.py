@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from rosette import (
+    BBox,
     Cell,
     CellRef,
     Instance,
@@ -762,3 +763,127 @@ class TestCellRefArray:
             top_read = lib.cell("top")
             assert top_read is not None
             assert top_read.ref_count() == 1
+
+
+class TestLibraryCellBbox:
+    """Tests for Library.cell_bbox() — the fully-resolved bounding box.
+
+    Regression tests for ROS-509: Cell.bbox() skipped cell references
+    entirely, so arrayed designs reported only the prototype's bbox (or
+    None when the top cell had no direct polygons of its own).
+    """
+
+    def test_single_sref(self):
+        """Parent with an SREF reports the transformed child bbox."""
+        child = Cell("child")
+        child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
+
+        top = Cell("top")
+        top.add_ref(child.at(20, 0))
+
+        lib = Library("lib")
+        lib.add_cell(child)
+        lib.add_cell(top)
+
+        bb = lib.cell_bbox("top")
+        assert bb is not None
+        assert bb.min.x == pytest.approx(20.0)
+        assert bb.min.y == pytest.approx(0.0)
+        assert bb.max.x == pytest.approx(30.0)
+        assert bb.max.y == pytest.approx(5.0)
+
+    def test_aref_matches_ros509_snippet(self):
+        """ROS-509 exact scenario: 5x3 AREF of a 10x10 child at pitch (20, 20)."""
+        child = Cell("unit")
+        child.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
+
+        top = Cell("top")
+        top.add_ref(child.at(0, 0).array(5, 3, 20.0, 20.0))
+
+        lib = Library("lib")
+        lib.add_cell(child)
+        lib.add_cell(top)
+
+        bb = lib.cell_bbox("top")
+        assert bb is not None
+        # 5 columns at pitch 20, last origin at x=80, width 10 → max x = 90.
+        # 3 rows at pitch 20, last origin at y=40, height 10 → max y = 50.
+        assert bb.min.x == pytest.approx(0.0)
+        assert bb.min.y == pytest.approx(0.0)
+        assert bb.max.x == pytest.approx(90.0)
+        assert bb.max.y == pytest.approx(50.0)
+
+    def test_top_with_only_refs_no_longer_reports_none(self):
+        """Regression: Cell.bbox() returns None for a cell with only refs.
+
+        Before the fix, write_gds build summary would report 'empty' for a
+        top cell that only contained CellRefs. Library.cell_bbox resolves
+        the hierarchy and returns the true extent.
+        """
+        child = Cell("unit")
+        child.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
+
+        top = Cell("top")
+        top.add_ref(child.at(100, 200))
+
+        # Local bbox is still None (top has no direct polygons)
+        assert top.bbox() is None
+
+        lib = Library("lib")
+        lib.add_cell(child)
+        lib.add_cell(top)
+
+        # Library-resolved bbox is correct
+        bb = lib.cell_bbox("top")
+        assert bb is not None
+        assert bb.min.x == pytest.approx(100.0)
+        assert bb.max.x == pytest.approx(110.0)
+
+    def test_cell_bbox_includes_paths_in_local_cell(self):
+        """Cell.bbox() now includes paths, not just polygons."""
+        cell = Cell("with_path")
+        cell.add_path([Point(0, 0), Point(10, 0)], 2.0, Layer(1, 0))
+
+        bb = cell.bbox()
+        assert bb is not None
+        # Ribbon of width 2 centered on y=0 → extends y=-1 to y=+1.
+        assert bb.min.x == pytest.approx(0.0)
+        assert bb.min.y == pytest.approx(-1.0)
+        assert bb.max.x == pytest.approx(10.0)
+        assert bb.max.y == pytest.approx(1.0)
+
+    def test_missing_cell_returns_none(self):
+        lib = Library("lib")
+        assert lib.cell_bbox("does_not_exist") is None
+
+    def test_nested_hierarchy(self):
+        """Nested hierarchy: unit < group (2x1 AREF) < top (SREF of group)."""
+        unit = Cell("unit")
+        unit.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+
+        group = Cell("group")
+        group.add_ref(unit.at(0, 0).array(2, 1, 10.0, 0.0))
+
+        top = Cell("top")
+        top.add_ref(group.at(100, 50))
+
+        lib = Library("lib")
+        lib.add_cell(unit)
+        lib.add_cell(group)
+        lib.add_cell(top)
+
+        bb = lib.cell_bbox("top")
+        assert bb is not None
+        # group bbox = (0,0)-(15,5); shifted by (100,50) → (100,50)-(115,55).
+        assert bb.min.x == pytest.approx(100.0)
+        assert bb.min.y == pytest.approx(50.0)
+        assert bb.max.x == pytest.approx(115.0)
+        assert bb.max.y == pytest.approx(55.0)
+
+    def test_returns_bbox_instance(self):
+        """Return type is the Python BBox wrapper."""
+        cell = Cell("c")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 10, 10), Layer(1, 0))
+        lib = Library("lib")
+        lib.add_cell(cell)
+        assert isinstance(lib.cell_bbox("c"), BBox)

@@ -268,9 +268,14 @@ Number of cell references.
 
 <PyFunction name={"bbox"} type={"() -> BBox | None"}>
 
-Calculate the bounding box of all polygons in the cell.
+Calculate the bounding box of the geometry directly in this cell.
 
-Returns `None` if the cell contains no polygons.
+Includes polygons and paths.  Does **not** resolve cell references —
+if this cell contains CellRefs or AREFs, their contribution is ignored.
+Use [`Library.cell_bbox(name)`](./Library#cell_bbox) for the fully
+resolved bounding box of a cell inside a library.
+
+Returns `None` if the cell has no direct geometry.
 
 <PyFunctionReturn type={"BBox | None"} />
 

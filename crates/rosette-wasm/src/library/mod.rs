@@ -4033,9 +4033,7 @@ impl WasmLibrary {
     /// Returns `(element_index, cell_name, [minX, minY, maxX, maxY], repetition)`
     /// where repetition is `Some((columns, rows))` for AREFs, `None` for SREFs.
     #[allow(clippy::type_complexity)]
-    pub(crate) fn get_instance_labels(
-        &self,
-    ) -> Vec<(usize, String, [f64; 4], Option<(u16, u16)>)> {
+    pub(crate) fn get_instance_labels(&self) -> Vec<(usize, String, [f64; 4], Option<(u16, u16)>)> {
         let mut labels = Vec::new();
 
         let cell_name = match &self.active_cell {

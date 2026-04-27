@@ -675,7 +675,13 @@ class Cell:
         return self._inner.ref_count()
 
     def bbox(self) -> BBox | None:
-        """Calculate the bounding box of all polygons."""
+        """Calculate the bounding box of the geometry directly in this cell.
+
+        Includes polygons and paths. Does **not** resolve cell references —
+        if this cell contains CellRefs or AREFs, their contribution is
+        ignored.  Use ``Library.cell_bbox(name)`` for the fully resolved
+        bounding box of a cell inside a library.
+        """
         return self._inner.bbox()
 
     def place_at_port(self, cell_ref: CellRef, cell_port: Port, target_port: Port) -> CellRef:
@@ -1039,6 +1045,29 @@ class Library:
         """Get the top cell (last added)."""
         inner = self._inner.top_cell()
         return Cell._from_inner(inner) if inner is not None else None
+
+    def cell_bbox(self, name: str) -> BBox | None:
+        """Calculate the fully-resolved bounding box of a cell in this library.
+
+        Unlike ``Cell.bbox()``, this recursively resolves every cell reference
+        (SREF and AREF) and expands array repetitions, so the returned box
+        covers everything that would appear when the cell is rendered or
+        written to GDS.
+
+        Args:
+            name: Name of the cell to measure.
+
+        Returns:
+            The fully-resolved BBox, or None if the cell does not exist or
+            contains no geometry.
+
+        Example:
+            lib = Library("design")
+            lib.add_cell(unit)
+            lib.add_cell(top)  # contains a 5x3 AREF of `unit`
+            bb = lib.cell_bbox("top")  # covers all 15 copies
+        """
+        return self._inner.cell_bbox(name)
 
     def __repr__(self) -> str:
         return repr(self._inner)

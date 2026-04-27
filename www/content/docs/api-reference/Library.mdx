@@ -131,3 +131,34 @@ Get the top cell (last added), or `None` if the library is empty.
 <PyFunctionReturn type={"Cell | None"} />
 
 </PyFunction>
+
+<PyFunction name={"cell_bbox"} type={"(name) -> BBox | None"}>
+
+Calculate the fully-resolved bounding box of a cell in this library.
+
+Unlike `Cell.bbox()`, this recursively resolves every cell reference
+(SREF and AREF) and expands array repetitions, so the returned box covers
+everything that would appear when the cell is rendered or written to GDS.
+
+```python
+lib = Library("design")
+lib.add_cell(unit)
+lib.add_cell(top)  # contains a 5x3 AREF of `unit`
+bb = lib.cell_bbox("top")  # covers all 15 copies
+```
+
+<div>
+
+<PyParameter name={"name"} type={"str"}>
+
+Name of the cell to measure.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"BBox | None"} />
+
+Returns `None` if the cell does not exist or contains no geometry.
+
+</PyFunction>

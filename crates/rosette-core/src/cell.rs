@@ -4,7 +4,7 @@
 //! enabling hierarchical layout design.
 
 use crate::error::{CellNameError, validate_cell_name};
-use crate::geometry::{BBox, Point, Polygon, Transform};
+use crate::geometry::{BBox, Point, Polygon, Transform, offset_polygon};
 use crate::layer::Layer;
 use crate::port::Port;
 
@@ -459,9 +459,12 @@ impl Cell {
         })
     }
 
-    /// Calculate the bounding box of all polygons in this cell.
+    /// Calculate the bounding box of the geometry directly stored in this cell.
     ///
-    /// Note: This does not include cell references (would require resolving them).
+    /// Includes polygons and paths. Does **not** resolve cell references
+    /// (SREFs or AREFs) — use [`Library::cell_bbox`] for the fully resolved
+    /// bbox of a cell inside a library. Text labels are not included because
+    /// their rendered extent depends on the renderer.
     pub fn bbox(&self) -> Option<BBox> {
         let mut result: Option<BBox> = None;
         for (polygon, _) in self.polygons() {
@@ -470,6 +473,15 @@ impl Cell {
                 Some(existing) => existing.merge(&poly_bbox),
                 None => poly_bbox,
             });
+        }
+        for (points, width, _, _) in self.paths() {
+            if let Some(ribbon) = offset_polygon(points, width) {
+                let path_bbox = ribbon.bbox();
+                result = Some(match result {
+                    Some(existing) => existing.merge(&path_bbox),
+                    None => path_bbox,
+                });
+            }
         }
         result
     }
@@ -621,6 +633,26 @@ impl Library {
         self.cells.last()
     }
 
+    /// Calculate the fully-resolved bounding box of a cell in this library.
+    ///
+    /// Unlike [`Cell::bbox`], this recursively resolves every [`CellRef`]
+    /// (SREF and AREF) and expands array repetitions, returning the
+    /// axis-aligned bounding box of everything that would appear when the
+    /// cell is rendered or written to GDS.
+    ///
+    /// Returns `None` if the cell does not exist, is empty, or only
+    /// references cells that themselves have no geometry.
+    ///
+    /// Cell-reference cycles (which are invalid but can arise from hand-built
+    /// libraries) are broken by refusing to recurse into a cell that is
+    /// already on the current resolution stack; this yields a well-defined
+    /// answer instead of recursing forever.
+    pub fn cell_bbox(&self, name: &str) -> Option<BBox> {
+        let cell = self.cell(name)?;
+        let mut visited = Vec::new();
+        cell_bbox_recursive(self, cell, &Transform::identity(), &mut visited)
+    }
+
     /// Rename a cell in the library.
     ///
     /// Returns `true` if the cell was found and renamed, `false` if
@@ -734,6 +766,83 @@ impl Library {
     }
 }
 
+/// Recursively compute the bbox of `cell` with `transform` applied, resolving
+/// every nested CellRef (including AREF repetitions).
+///
+/// `visited` is a stack of cell names currently being resolved; it short-
+/// circuits reference cycles so we return a well-defined `None` instead of
+/// recursing forever on malformed libraries.
+fn cell_bbox_recursive(
+    library: &Library,
+    cell: &Cell,
+    transform: &Transform,
+    visited: &mut Vec<String>,
+) -> Option<BBox> {
+    let name = cell.name().to_string();
+    if visited.iter().any(|n| n == &name) {
+        return None;
+    }
+    visited.push(name);
+
+    let mut result: Option<BBox> = None;
+    let merge = |acc: &mut Option<BBox>, bb: BBox| {
+        *acc = Some(match acc.take() {
+            Some(existing) => existing.merge(&bb),
+            None => bb,
+        });
+    };
+
+    // Local polygons
+    for (polygon, _) in cell.polygons() {
+        let transformed = polygon.transform(transform);
+        merge(&mut result, transformed.bbox());
+    }
+
+    // Local paths (offset to a ribbon polygon, then transform)
+    for (points, width, _, _) in cell.paths() {
+        if let Some(ribbon) = offset_polygon(points, width) {
+            let transformed = ribbon.transform(transform);
+            merge(&mut result, transformed.bbox());
+        }
+    }
+
+    // Resolve cell refs, expanding AREF repetitions
+    for cell_ref in cell.cell_refs() {
+        let Some(child) = library.cell(&cell_ref.cell_name) else {
+            continue;
+        };
+
+        // Collect all per-copy transforms in the cell_ref's local space.
+        // For a non-arrayed ref this is just `cell_ref.transform`; for an
+        // AREF we prepend a per-copy translation for each grid position.
+        let copy_transforms: Vec<Transform> = match &cell_ref.repetition {
+            None => vec![cell_ref.transform],
+            Some(rep) if rep.is_single() => vec![cell_ref.transform],
+            Some(rep) => {
+                let mut ts = Vec::with_capacity(rep.count());
+                for row in 0..rep.rows {
+                    for col in 0..rep.columns {
+                        let dx = col as f64 * rep.col_spacing;
+                        let dy = row as f64 * rep.row_spacing;
+                        ts.push(Transform::translate(dx, dy).then(&cell_ref.transform));
+                    }
+                }
+                ts
+            }
+        };
+
+        for copy_transform in copy_transforms {
+            let combined = transform.then(&copy_transform);
+            if let Some(bb) = cell_bbox_recursive(library, child, &combined, visited) {
+                merge(&mut result, bb);
+            }
+        }
+    }
+
+    visited.pop();
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -798,6 +907,178 @@ mod tests {
         assert!((bbox.min().y - 0.0).abs() < 1e-10);
         assert!((bbox.max().x - 25.0).abs() < 1e-10);
         assert!((bbox.max().y - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_bbox_includes_paths() {
+        // A cell with only a path should have a non-None bbox and cover the
+        // full ribbon extent (centerline width / 2 on each side).
+        let mut cell = Cell::new("test");
+        cell.add_path(
+            vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0)],
+            2.0,
+            1,
+            PathEndType::Flush,
+        );
+
+        let bbox = cell.bbox().unwrap();
+        assert!((bbox.min().x - 0.0).abs() < 1e-10);
+        assert!((bbox.min().y - (-1.0)).abs() < 1e-10);
+        assert!((bbox.max().x - 10.0).abs() < 1e-10);
+        assert!((bbox.max().y - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_library_cell_bbox_sref() {
+        // Parent with a single SREF to a child should report the child's
+        // transformed bbox — NOT None, which was the pre-fix behavior.
+        let mut child = Cell::new("child");
+        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), 1);
+
+        let mut parent = Cell::new("parent");
+        parent.add_ref(CellRef::new("child").at(20.0, 0.0));
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(parent).unwrap();
+
+        let bbox = lib.cell_bbox("parent").unwrap();
+        assert!((bbox.min().x - 20.0).abs() < 1e-10);
+        assert!((bbox.min().y - 0.0).abs() < 1e-10);
+        assert!((bbox.max().x - 30.0).abs() < 1e-10);
+        assert!((bbox.max().y - 5.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_library_cell_bbox_aref() {
+        // A 5x3 AREF of a 10x10 child at pitch (20, 20) should cover the
+        // union of every copy, not just the prototype.
+        let mut child = Cell::new("unit");
+        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
+
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("unit").array(5, 3, 20.0, 20.0));
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let bbox = lib.cell_bbox("top").unwrap();
+        // Columns 0..=4 at x-pitch 20: last column origin at 80, width 10 → max x = 90.
+        // Rows    0..=2 at y-pitch 20: last row origin at 40, height 10 → max y = 50.
+        assert!((bbox.min().x - 0.0).abs() < 1e-10);
+        assert!((bbox.min().y - 0.0).abs() < 1e-10);
+        assert!((bbox.max().x - 90.0).abs() < 1e-10);
+        assert!((bbox.max().y - 50.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_library_cell_bbox_rotated_sref() {
+        // Rotating an asymmetric child 90° should rotate the bbox too.
+        // Child: 20x5 rect at origin → bbox (0,0)-(20,5).
+        // Rotate 90° about origin → bbox (-5,0)-(0,20).
+        let mut child = Cell::new("asym");
+        child.add_polygon(Polygon::rect(Point::origin(), 20.0, 5.0), 1);
+
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("asym").rotate(std::f64::consts::FRAC_PI_2));
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let bbox = lib.cell_bbox("top").unwrap();
+        assert!((bbox.min().x - (-5.0)).abs() < 1e-9);
+        assert!((bbox.min().y - 0.0).abs() < 1e-9);
+        assert!((bbox.max().x - 0.0).abs() < 1e-9);
+        assert!((bbox.max().y - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_library_cell_bbox_nested() {
+        // Nested hierarchy: unit < group (2x1 array of unit) < top (SREF of group at offset)
+        let mut unit = Cell::new("unit");
+        unit.add_polygon(Polygon::rect(Point::origin(), 5.0, 5.0), 1);
+
+        let mut group = Cell::new("group");
+        group.add_ref(CellRef::new("unit").array(2, 1, 10.0, 0.0));
+
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("group").at(100.0, 50.0));
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(unit).unwrap();
+        lib.add_cell(group).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let bbox = lib.cell_bbox("top").unwrap();
+        // group bbox: (0,0)-(15,5). Shifted by (100,50) → (100,50)-(115,55).
+        assert!((bbox.min().x - 100.0).abs() < 1e-10);
+        assert!((bbox.min().y - 50.0).abs() < 1e-10);
+        assert!((bbox.max().x - 115.0).abs() < 1e-10);
+        assert!((bbox.max().y - 55.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_library_cell_bbox_mixed_local_and_ref() {
+        // A cell that has both its own polygon and a ref should union them.
+        let mut child = Cell::new("child");
+        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
+
+        let mut top = Cell::new("top");
+        top.add_polygon(Polygon::rect(Point::new(-5.0, -5.0), 5.0, 5.0), 1);
+        top.add_ref(CellRef::new("child").at(20.0, 0.0));
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let bbox = lib.cell_bbox("top").unwrap();
+        assert!((bbox.min().x - (-5.0)).abs() < 1e-10);
+        assert!((bbox.min().y - (-5.0)).abs() < 1e-10);
+        assert!((bbox.max().x - 30.0).abs() < 1e-10);
+        assert!((bbox.max().y - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_library_cell_bbox_missing_cell() {
+        let lib = Library::new("lib");
+        assert!(lib.cell_bbox("does_not_exist").is_none());
+    }
+
+    #[test]
+    fn test_library_cell_bbox_ref_to_missing_child() {
+        // A CellRef to a cell not in the library is silently skipped (matches
+        // the existing flatten.rs behavior).
+        let mut top = Cell::new("top");
+        top.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
+        top.add_ref(CellRef::new("nonexistent"));
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(top).unwrap();
+
+        let bbox = lib.cell_bbox("top").unwrap();
+        assert!((bbox.max().x - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_library_cell_bbox_cycle_guard() {
+        // A cell that references itself should not cause infinite recursion;
+        // cycle-breaking returns the bbox of the non-cyclic geometry.
+        let mut cell = Cell::new("self_ref");
+        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
+        cell.add_ref(CellRef::new("self_ref").at(50.0, 0.0));
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(cell).unwrap();
+
+        let bbox = lib.cell_bbox("self_ref").unwrap();
+        // Top-level call pushes "self_ref" onto the visited stack before
+        // iterating refs. The nested CellRef("self_ref") hits the cycle
+        // guard immediately and returns None, so we only see the direct
+        // polygon of the top level — no infinite recursion.
+        assert!((bbox.min().x - 0.0).abs() < 1e-10);
+        assert!((bbox.max().x - 10.0).abs() < 1e-10);
     }
 
     #[test]

@@ -44,7 +44,15 @@ impl BuildSummary {
     }
 
     fn from_cell_with_library(cell: &Cell, library: Option<&Library>) -> Self {
-        let bbox = cell.bbox();
+        // Prefer the library-resolved bbox so hierarchical designs (SREFs and
+        // AREFs) report the true extent of the chip, not just the polygons
+        // sitting directly in the top cell. Falls back to the local bbox when
+        // no library is available (rare — only the CLI path without a library
+        // context hits this branch).
+        let bbox = match library {
+            Some(lib) => lib.cell_bbox(cell.name()).or_else(|| cell.bbox()),
+            None => cell.bbox(),
+        };
         let (bbox_width, bbox_height) = match bbox {
             Some(b) => (Some(b.width()), Some(b.height())),
             None => (None, None),
@@ -63,8 +71,11 @@ impl BuildSummary {
 
         let refs: Vec<String> = cell.cell_refs().map(|r| r.cell_name.clone()).collect();
 
-        // Check if cell has only refs (no direct polygons)
-        let has_refs_only = bbox_width.is_none() && cell.ref_count() > 0;
+        // A cell is "hierarchical-only" when it has refs but no direct
+        // polygons of its own.  Now that `bbox` resolves refs, we can't just
+        // look at bbox_width — check the local geometry instead.
+        let has_refs_only =
+            cell.polygon_count() == 0 && cell.path_count() == 0 && cell.ref_count() > 0;
 
         // Resolve instance ports (one level deep) when library is available
         let instance_ports = if let Some(lib) = library {

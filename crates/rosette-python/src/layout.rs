@@ -632,6 +632,31 @@ impl PyLibrary {
         self.0.top_cell().map(|c| PyCell(c.clone()))
     }
 
+    /// Calculate the fully-resolved bounding box of a cell in this library.
+    ///
+    /// Unlike ``Cell.bbox()``, this recursively resolves every cell reference
+    /// (SREF and AREF) and expands array repetitions, so the returned box
+    /// covers everything that would appear when the cell is rendered or
+    /// written to GDS.
+    ///
+    /// Args:
+    ///     name: Name of the cell to measure.
+    ///
+    /// Returns:
+    ///     The fully-resolved BBox, or None if the cell does not exist or
+    ///     contains no geometry.
+    ///
+    /// Example:
+    ///     ```python
+    ///     lib = Library("design")
+    ///     lib.add_cell(unit)
+    ///     lib.add_cell(top)  # contains a 5x3 AREF of `unit`
+    ///     bb = lib.cell_bbox("top")  # covers all 15 copies
+    ///     ```
+    fn cell_bbox(&self, name: &str) -> Option<PyBBox> {
+        self.0.cell_bbox(name).map(PyBBox)
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Library('{}', {} cells)",
