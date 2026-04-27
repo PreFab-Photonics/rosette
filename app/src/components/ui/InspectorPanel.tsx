@@ -1220,7 +1220,6 @@ export function InspectorPanel() {
       const ids = data.elements.map((e) => e.id);
       const cmd = new ChangeElementLayerCommand(ids, newLayer, newDatatype);
       useHistoryStore.getState().execute(cmd, { library, renderer });
-
     },
     [data, library, renderer],
   );
@@ -2282,14 +2281,14 @@ export function InspectorPanel() {
         {isArrayed && (
           <>
             <NumberField
-              label="Col gap"
+              label="Col pitch"
               value={colSpacingDisplay}
               unit={unitInfo.unit}
               isDark={isDark}
               onChange={(v) => handleInstanceArrayChange("colSpacing", v)}
             />
             <NumberField
-              label="Row gap"
+              label="Row pitch"
               value={rowSpacingDisplay}
               unit={unitInfo.unit}
               isDark={isDark}
@@ -2320,7 +2319,6 @@ export function InspectorPanel() {
             />
           </>
         )}
-
       </div>
     );
   }
@@ -2466,7 +2464,6 @@ export function InspectorPanel() {
           )}
         </>
       )}
-
     </div>
   );
 }

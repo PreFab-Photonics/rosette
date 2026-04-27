@@ -257,7 +257,7 @@ class Instance:
         """
         ...
     def array(self, columns: int, rows: int, col_spacing: float, row_spacing: float) -> Instance:
-        """Set array repetition (columns x rows grid with given spacing).
+        """Set array repetition (columns x rows grid with given pitch).
 
         Creates a GDS AREF — a single compact array reference instead of
         many individual references. In the viewer, the entire array is
@@ -266,8 +266,10 @@ class Instance:
         Args:
             columns: Number of columns (1 to 32767).
             rows: Number of rows (1 to 32767).
-            col_spacing: Spacing between columns (X direction, in µm).
-            row_spacing: Spacing between rows (Y direction, in µm).
+            col_spacing: Column pitch — center-to-center distance between
+                adjacent copies along local +X, in µm.
+            row_spacing: Row pitch — center-to-center distance between
+                adjacent copies along local +Y, in µm.
 
         Raises:
             ValueError: If columns or rows is outside the range [1, 32767].
@@ -372,7 +374,7 @@ class CellRef:
     def mirror_y(self) -> CellRef: ...
     def scale(self, s: float) -> CellRef: ...
     def array(self, columns: int, rows: int, col_spacing: float, row_spacing: float) -> CellRef:
-        """Set array repetition (columns x rows grid with given spacing).
+        """Set array repetition (columns x rows grid with given pitch).
 
         Creates a GDS AREF — a single compact array reference instead of
         many individual references. In the viewer, the entire array is
@@ -381,8 +383,10 @@ class CellRef:
         Args:
             columns: Number of columns (1 to 32767).
             rows: Number of rows (1 to 32767).
-            col_spacing: Spacing between columns (X direction, in µm).
-            row_spacing: Spacing between rows (Y direction, in µm).
+            col_spacing: Column pitch — center-to-center distance between
+                adjacent copies along local +X, in µm.
+            row_spacing: Row pitch — center-to-center distance between
+                adjacent copies along local +Y, in µm.
 
         Raises:
             ValueError: If columns or rows is outside the range [1, 32767].

@@ -69,9 +69,16 @@ impl Element {
 
 /// Grid repetition parameters for array references (AREF).
 ///
-/// Defines an NxM rectangular grid of copies with configurable spacing
-/// along column and row directions. Spacing is in the *parent cell's*
-/// coordinate system (already accounts for the CellRef transform).
+/// Defines an N×M rectangular grid of copies. Spacings are *pitches*
+/// (center-to-center distance between adjacent copies) expressed in
+/// the CellRef's local coordinate space — i.e. before the CellRef's
+/// own transform is applied. The CellRef's linear transform (rotation,
+/// mirror, scale) then rotates/scales those pitch vectors into the
+/// parent cell's frame.
+///
+/// Pitch, not gap: to tile copies edge-to-edge, pass
+/// `col_spacing = child_bbox.width` (not `0`), and analogously for
+/// rows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Repetition {
@@ -79,9 +86,11 @@ pub struct Repetition {
     pub columns: u16,
     /// Number of rows (copies along the row direction). Must be >= 1.
     pub rows: u16,
-    /// Spacing between columns (X-direction in local CellRef space).
+    /// Column pitch: center-to-center distance between adjacent copies
+    /// along the local +X direction.
     pub col_spacing: f64,
-    /// Spacing between rows (Y-direction in local CellRef space).
+    /// Row pitch: center-to-center distance between adjacent copies
+    /// along the local +Y direction.
     pub row_spacing: f64,
 }
 
@@ -171,7 +180,11 @@ impl CellRef {
         self
     }
 
-    /// Set array repetition parameters.
+    /// Set array repetition parameters (GDS AREF).
+    ///
+    /// `col_spacing` and `row_spacing` are **pitches** — the
+    /// center-to-center distance between adjacent copies, in the
+    /// CellRef's local coordinate space. See [`Repetition`].
     pub fn array(mut self, columns: u16, rows: u16, col_spacing: f64, row_spacing: f64) -> Self {
         self.repetition = Some(Repetition::new(columns, rows, col_spacing, row_spacing));
         self

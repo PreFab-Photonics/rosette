@@ -131,7 +131,7 @@ function DialogField({
 /**
  * Modal dialog for creating an array of duplicated elements.
  *
- * Collects columns, rows, column spacing, and row spacing, then
+ * Collects columns, rows, column pitch, and row pitch, then
  * dispatches a CreateArrayCommand through the undo/redo history.
  *
  * Styled consistently with the CommandPalette (centered overlay, backdrop-blur,
@@ -186,7 +186,7 @@ export function ArrayDialog() {
       const width = boundsArray[2] - boundsArray[0]; // maxX - minX in world units
       const height = boundsArray[3] - boundsArray[1]; // maxY - minY in world units
 
-      // Convert world → µm (edge-to-edge tiling by default)
+      // Default pitch = selection bbox size (edge-to-edge tiling).
       const widthUm = width / GRID_SIZE / UM_SCALE;
       const heightUm = height / GRID_SIZE / UM_SCALE;
 
@@ -300,7 +300,7 @@ export function ArrayDialog() {
               onSubmit={handleConfirm}
             />
             <DialogField
-              label="Col spacing"
+              label="Col pitch"
               value={colSpacing}
               onChange={setColSpacing}
               isDark={isDark}
@@ -309,7 +309,7 @@ export function ArrayDialog() {
               onSubmit={handleConfirm}
             />
             <DialogField
-              label="Row spacing"
+              label="Row pitch"
               value={rowSpacing}
               onChange={setRowSpacing}
               isDark={isDark}

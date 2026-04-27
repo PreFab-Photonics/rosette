@@ -660,12 +660,10 @@ function offsetSnapshot(snapshot: ClipboardSnapshot, dx: number, dy: number): Cl
  * Command to create an array of duplicated elements.
  *
  * Duplicates the given elements in a grid pattern with the specified
- * number of columns, rows, and spacing. The original elements remain
- * at position (0,0) in the grid; copies are created for all other
- * grid positions.
- *
- * Column spacing is applied along the X axis; row spacing along Y
- * (world coordinates, so positive Y goes downward in screen space).
+ * number of columns, rows, and pitch (center-to-center distance
+ * between adjacent copies). The original elements remain at position
+ * (0,0) in the grid; copies are created for all other grid positions.
+ * Pitch values are in world coordinates.
  */
 export class CreateArrayCommand implements Command {
   readonly type = "create-array";
@@ -684,9 +682,9 @@ export class CreateArrayCommand implements Command {
     private readonly elementIds: string[],
     private readonly columns: number,
     private readonly rows: number,
-    /** Column spacing in world units. */
+    /** Column pitch in world units (center-to-center). */
     private readonly colSpacing: number,
-    /** Row spacing in world units. */
+    /** Row pitch in world units (center-to-center). */
     private readonly rowSpacing: number,
   ) {
     const copies = columns * rows - 1;

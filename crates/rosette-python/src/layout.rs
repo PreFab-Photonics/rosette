@@ -211,7 +211,7 @@ impl PyCellRef {
         PyCellRef(self.0.clone().scale(s))
     }
 
-    /// Set array repetition (columns x rows grid with given spacing).
+    /// Set array repetition (columns × rows grid with given pitch).
     ///
     /// Creates a GDS AREF — a single compact array reference instead of
     /// many individual references. In the viewer, the entire array is
@@ -220,8 +220,10 @@ impl PyCellRef {
     /// Args:
     ///     columns: Number of columns (1 to 32767; GDS COLROW INT16 limit).
     ///     rows: Number of rows (1 to 32767; GDS COLROW INT16 limit).
-    ///     col_spacing: Spacing between columns (X direction, in µm).
-    ///     row_spacing: Spacing between rows (Y direction, in µm).
+    ///     col_spacing: Column pitch — center-to-center distance between
+    ///         adjacent copies along local +X, in µm.
+    ///     row_spacing: Row pitch — center-to-center distance between
+    ///         adjacent copies along local +Y, in µm.
     ///
     /// Note:
     ///     The Python wrappers (`CellRef.array` / `Instance.array`) validate

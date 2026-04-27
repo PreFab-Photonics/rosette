@@ -186,7 +186,7 @@ A new Instance with updated transform.
 
 <PyFunction name={"array"} type={"(columns, rows, col_spacing, row_spacing) -> Instance"}>
 
-Set array repetition (columns x rows grid with given spacing).
+Set array repetition (columns × rows grid with given pitch).
 
 Creates a GDS AREF — a single compact array reference instead of
 many individual references. In the viewer, the entire array is
@@ -195,7 +195,7 @@ selected and moved as one object.
 <Callout title={"Example"} type={"example"}>
 
 ```python
-# 10x5 array with 20 µm column spacing and 15 µm row spacing
+# 10×5 array with 20 µm column pitch and 15 µm row pitch
 arr = unit_cell.at(0, 0).array(10, 5, 20.0, 15.0)
 top.add_ref(arr)
 ```
@@ -216,12 +216,14 @@ Number of rows (>= 1).
 </PyParameter>
 <PyParameter name={"col_spacing"} type={"float"}>
 
-Spacing between columns (X direction, in µm).
+Column pitch — center-to-center distance between adjacent copies
+along local +X, in µm.
 
 </PyParameter>
 <PyParameter name={"row_spacing"} type={"float"}>
 
-Spacing between rows (Y direction, in µm).
+Row pitch — center-to-center distance between adjacent copies
+along local +Y, in µm.
 
 </PyParameter>
 

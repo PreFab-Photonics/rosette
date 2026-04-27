@@ -248,7 +248,7 @@ class Instance:
         col_spacing: float,
         row_spacing: float,
     ) -> Instance:
-        """Set array repetition (columns x rows grid with given spacing).
+        """Set array repetition (columns x rows grid with given pitch).
 
         Creates a GDS AREF - a single compact array reference instead of
         many individual references. In the viewer, the entire array is
@@ -257,8 +257,10 @@ class Instance:
         Args:
             columns: Number of columns (1 to 32767).
             rows: Number of rows (1 to 32767).
-            col_spacing: Spacing between columns (X direction, in um).
-            row_spacing: Spacing between rows (Y direction, in um).
+            col_spacing: Column pitch - center-to-center distance between
+                adjacent copies along local +X, in um.
+            row_spacing: Row pitch - center-to-center distance between
+                adjacent copies along local +Y, in um.
 
         Returns:
             A new Instance with array repetition set.
@@ -469,7 +471,7 @@ class CellRef:
         col_spacing: float,
         row_spacing: float,
     ) -> CellRef:
-        """Set array repetition (columns x rows grid with given spacing).
+        """Set array repetition (columns x rows grid with given pitch).
 
         Creates a GDS AREF - a single compact array reference instead of
         many individual references. In the viewer, the entire array is
@@ -478,8 +480,10 @@ class CellRef:
         Args:
             columns: Number of columns (1 to 32767).
             rows: Number of rows (1 to 32767).
-            col_spacing: Spacing between columns (X direction, in um).
-            row_spacing: Spacing between rows (Y direction, in um).
+            col_spacing: Column pitch - center-to-center distance between
+                adjacent copies along local +X, in um.
+            row_spacing: Row pitch - center-to-center distance between
+                adjacent copies along local +Y, in um.
 
         Returns:
             A new CellRef with array repetition set.
