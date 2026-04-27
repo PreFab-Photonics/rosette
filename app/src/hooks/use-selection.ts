@@ -31,11 +31,30 @@ function expandToGroup(library: WasmLibrary, hitId: string): string[] {
 /**
  * Expand a list of hit IDs to include all group members.
  * Deduplicates the result.
+ *
+ * For CellRef synthetic UUIDs ("ref:N:M"), all IDs sharing the same element
+ * index N belong to the same group.  We track which element indices have
+ * already been expanded so we call get_group_ids at most once per instance,
+ * avoiding O(N^2) WASM calls for large AREF arrays.
  */
 function expandAllToGroups(library: WasmLibrary, hitIds: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
+  const expandedRefIndices = new Set<string>();
   for (const id of hitIds) {
+    // For ref UUIDs, extract the element index and skip if already expanded
+    if (id.startsWith("ref:")) {
+      const elemIdx = id.substring(4, id.indexOf(":", 4));
+      if (expandedRefIndices.has(elemIdx)) {
+        // Already expanded this instance group — just add this ID if new
+        if (!seen.has(id)) {
+          seen.add(id);
+          result.push(id);
+        }
+        continue;
+      }
+      expandedRefIndices.add(elemIdx);
+    }
     const groupIds = library.get_group_ids(id);
     for (const gid of groupIds) {
       if (!seen.has(gid)) {

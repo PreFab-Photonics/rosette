@@ -1504,7 +1504,10 @@ impl WasmLibrary {
     ///
     /// Returns UUIDs of all elements whose bounding boxes intersect
     /// the given rectangle (specified in world coordinates).
-    /// Also tests CellRef-resolved geometry using synthetic UUIDs.
+    ///
+    /// For CellRef instances, returns a single representative UUID
+    /// (`ref:N:0`) per instance rather than all synthetic UUIDs.
+    /// The caller should expand to the full group via `get_group_ids`.
     pub fn hit_test_rect(&self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> Vec<String> {
         let query_bbox = BBox::new(Point::new(min_x, min_y), Point::new(max_x, max_y));
 
@@ -1582,13 +1585,14 @@ impl WasmLibrary {
             }
         }
 
-        // Test CellRef instances via bounding box
+        // Test CellRef instances via bounding box.
+        // Return a single representative UUID per instance (`ref:N:0`);
+        // the caller expands to the full group via get_group_ids when needed.
         for (elem_idx, element) in cell.elements().iter().enumerate() {
             if let Element::CellRef(cell_ref) = element {
                 let bbox = self.instance_bbox(cell_ref);
                 if bbox.overlaps(&query_bbox) {
-                    // Add all synthetic UUIDs for this instance
-                    hits.extend(self.get_all_ref_uuids_for_element(elem_idx));
+                    hits.push(format!("{REF_UUID_PREFIX}{elem_idx}:0"));
                 }
             }
         }
