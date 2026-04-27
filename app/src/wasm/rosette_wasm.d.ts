@@ -325,7 +325,7 @@ export class WasmLibrary {
     /**
      * Get the array repetition parameters for a CellRef instance.
      *
-     * `id` must be a synthetic ref UUID (e.g. "ref:3:0").
+     * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
      * Returns `[columns, rows, col_spacing, row_spacing]` or None if not arrayed.
      */
     get_cell_ref_array(id: string): Float64Array | undefined;
@@ -469,7 +469,10 @@ export class WasmLibrary {
      *
      * Returns UUIDs of all elements whose bounding boxes intersect
      * the given rectangle (specified in world coordinates).
-     * Also tests CellRef-resolved geometry using synthetic UUIDs.
+     *
+     * For CellRef instances, returns a single representative UUID
+     * (`ref:N:0`) per instance rather than all synthetic UUIDs.
+     * The caller should expand to the full group via `get_group_ids`.
      */
     hit_test_rect(min_x: number, min_y: number, max_x: number, max_y: number): string[];
     /**
@@ -565,8 +568,7 @@ export class WasmLibrary {
     /**
      * Set the array repetition parameters on a CellRef instance.
      *
-     * `id` must be a synthetic ref UUID (e.g. "ref:3:0").
-     * `params` must be `[columns, rows, col_spacing, row_spacing]` (4 elements).
+     * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
      * If columns and rows are both 1, removes the array (reverts to single instance).
      *
      * Returns true if the array was set, false otherwise.
