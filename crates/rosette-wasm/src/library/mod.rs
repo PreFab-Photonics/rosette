@@ -8,6 +8,7 @@ mod path;
 use rosette_core::cell::Element;
 use rosette_core::geometry::{BBox, Vector2, offset_polygon};
 use rosette_core::{Cell, CellRef, Layer, Library, Point, Polygon, Repetition, Transform};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
@@ -52,7 +53,7 @@ struct ElementRef {
 
 /// Prefix for synthetic UUIDs generated for CellRef-resolved polygons.
 /// Format: "ref:{cellref_element_index}:{polygon_index_within_ref}"
-const REF_UUID_PREFIX: &str = "ref:";
+pub(crate) const REF_UUID_PREFIX: &str = "ref:";
 
 /// Element information returned by get_element_info.
 ///
@@ -142,6 +143,21 @@ pub struct WasmLibrary {
     /// coordinate space. Used to expand instance bounding boxes so that
     /// the selection/hover outlines and zoom-to-fit include images.
     cell_image_bounds: HashMap<String, [f64; 4]>,
+    /// Cache of CellRef instance bounding boxes for the active cell,
+    /// keyed by element index.
+    ///
+    /// Populated lazily by `instance_bbox_cached` and invalidated on any
+    /// structural change (add/remove/move elements, change transforms, toggle
+    /// hidden layers/cells, etc.) and whenever the active cell changes.
+    /// Avoids repeatedly expanding large AREFs via `array_transforms` on
+    /// hover/hit-test/sync hot paths.
+    ///
+    /// Only caches entries for the cell named in `instance_bbox_cache_cell`.
+    instance_bbox_cache: RefCell<HashMap<usize, BBox>>,
+    /// Name of the cell whose bboxes are currently cached in
+    /// `instance_bbox_cache`. When the active cell changes, the cache is
+    /// invalidated so we never return a bbox from a different cell.
+    instance_bbox_cache_cell: RefCell<Option<String>>,
 }
 
 /// Pack layer number and datatype into a single u32 key.
@@ -224,6 +240,8 @@ impl WasmLibrary {
             hierarchy_depth_limit: 0,
             hidden_cells: HashSet::new(),
             cell_image_bounds: HashMap::new(),
+            instance_bbox_cache: RefCell::new(HashMap::new()),
+            instance_bbox_cache_cell: RefCell::new(None),
         }
     }
 
@@ -262,7 +280,7 @@ impl WasmLibrary {
                     elem_ref.cell_name = new_name.to_string();
                 }
             }
-            self.dirty = true;
+            self.mark_dirty();
         }
         Ok(found)
     }
@@ -279,7 +297,7 @@ impl WasmLibrary {
             }
             // Remove element refs that point to the removed cell
             self.element_refs.retain(|_, r| r.cell_name != name);
-            self.dirty = true;
+            self.mark_dirty();
             true
         } else {
             false
@@ -335,7 +353,7 @@ impl WasmLibrary {
             self.active_cell = self.library.cells().first().map(|c| c.name().to_string());
         }
 
-        self.dirty = true;
+        self.mark_dirty();
         removed_count
     }
 
@@ -364,7 +382,7 @@ impl WasmLibrary {
     /// - `N` means resolve up to N levels of nested CellRef elements.
     pub fn set_hierarchy_depth_limit(&mut self, limit: u32) {
         self.hierarchy_depth_limit = limit;
-        self.dirty = true;
+        self.mark_dirty();
     }
 
     /// Set visibility of a cell's internal geometry.
@@ -378,7 +396,7 @@ impl WasmLibrary {
         } else {
             self.hidden_cells.insert(cell_name.to_string());
         }
-        self.dirty = true;
+        self.mark_dirty();
     }
 
     /// Check whether a cell's internal geometry is visible.
@@ -403,11 +421,11 @@ impl WasmLibrary {
             Some(b) if b.len() >= 4 => {
                 self.cell_image_bounds
                     .insert(cell_name.to_string(), [b[0], b[1], b[2], b[3]]);
-                self.dirty = true;
+                self.mark_dirty();
             }
             _ => {
                 if self.cell_image_bounds.remove(cell_name).is_some() {
-                    self.dirty = true;
+                    self.mark_dirty();
                 }
             }
         }
@@ -442,7 +460,7 @@ impl WasmLibrary {
         };
         if let Some(cell) = self.library.cell_mut(&cell_name) {
             cell.set_origin(Point::new(x, y));
-            self.dirty = true;
+            self.mark_dirty();
             true
         } else {
             false
@@ -469,7 +487,7 @@ impl WasmLibrary {
     pub fn set_layer_color(&mut self, layer: u16, datatype: u16, r: f32, g: f32, b: f32, a: f32) {
         let key = layer_key(layer, datatype);
         self.layer_colors.insert(key, [r, g, b, a]);
-        self.dirty = true;
+        self.mark_dirty();
     }
 
     /// Set the fill pattern for a layer.
@@ -478,7 +496,7 @@ impl WasmLibrary {
     pub fn set_layer_fill_pattern(&mut self, layer: u16, datatype: u16, pattern: u32) {
         let key = layer_key(layer, datatype);
         self.layer_fill_patterns.insert(key, pattern);
-        self.dirty = true;
+        self.mark_dirty();
     }
 
     /// Add a rectangle to the active cell.
@@ -519,7 +537,7 @@ impl WasmLibrary {
             },
         );
 
-        self.dirty = true;
+        self.mark_dirty();
         Some(uuid)
     }
 
@@ -558,7 +576,7 @@ impl WasmLibrary {
             },
         );
 
-        self.dirty = true;
+        self.mark_dirty();
         Some(uuid)
     }
 
@@ -612,7 +630,7 @@ impl WasmLibrary {
             },
         );
 
-        self.dirty = true;
+        self.mark_dirty();
         Some(uuid)
     }
 
@@ -662,7 +680,7 @@ impl WasmLibrary {
             },
         );
 
-        self.dirty = true;
+        self.mark_dirty();
         Some(uuid)
     }
 
@@ -697,7 +715,7 @@ impl WasmLibrary {
             },
         );
 
-        self.dirty = true;
+        self.mark_dirty();
         Some(uuid)
     }
 
@@ -782,7 +800,7 @@ impl WasmLibrary {
 
         if let Element::Text { text, .. } = &mut elements[elem_ref.element_index] {
             *text = new_text.to_string();
-            self.dirty = true;
+            self.mark_dirty();
             true
         } else {
             false
@@ -855,7 +873,7 @@ impl WasmLibrary {
 
         if let Element::Text { position, .. } = &mut elements[elem_ref.element_index] {
             *position = Point::new(x, y);
-            self.dirty = true;
+            self.mark_dirty();
             true
         } else {
             false
@@ -883,7 +901,7 @@ impl WasmLibrary {
 
         if let Element::Text { height, .. } = &mut elements[elem_ref.element_index] {
             *height = new_height;
-            self.dirty = true;
+            self.mark_dirty();
             true
         } else {
             false
@@ -959,7 +977,7 @@ impl WasmLibrary {
             }
         }
 
-        self.dirty = true;
+        self.mark_dirty();
         new_ids
     }
 
@@ -1012,7 +1030,7 @@ impl WasmLibrary {
             }
         }
 
-        self.dirty = true;
+        self.mark_dirty();
         true
     }
 
@@ -1116,7 +1134,7 @@ impl WasmLibrary {
         }
 
         if removed_count > 0 {
-            self.dirty = true;
+            self.mark_dirty();
         }
 
         removed_count
@@ -1186,7 +1204,7 @@ impl WasmLibrary {
         let key = layer_key(layer, datatype);
         self.layer_fill_patterns.remove(&key);
         if self.layer_colors.remove(&key).is_some() {
-            self.dirty = true;
+            self.mark_dirty();
         }
     }
 
@@ -1271,7 +1289,7 @@ impl WasmLibrary {
                 *cell = Cell::new(cell_name.clone());
             }
 
-            self.dirty = true;
+            self.mark_dirty();
         }
     }
 
@@ -1377,7 +1395,7 @@ impl WasmLibrary {
             }
         }
 
-        self.dirty = true;
+        self.mark_dirty();
         true
     }
 
@@ -1485,7 +1503,7 @@ impl WasmLibrary {
         // the instance bbox selects the whole instance.
         for (elem_idx, element) in cell.elements().iter().enumerate() {
             if let Element::CellRef(cell_ref) = element {
-                let bbox = self.instance_bbox(cell_ref);
+                let bbox = self.instance_bbox_cached(cell_name, elem_idx, cell_ref);
                 if bbox.contains(point) {
                     // Use first synthetic UUID as the representative hit
                     let uuid = format!("{REF_UUID_PREFIX}{elem_idx}:0");
@@ -1587,10 +1605,10 @@ impl WasmLibrary {
 
         // Test CellRef instances via bounding box.
         // Return a single representative UUID per instance (`ref:N:0`);
-        // the caller expands to the full group via get_group_ids when needed.
+        // the instance is selected as a single entity.
         for (elem_idx, element) in cell.elements().iter().enumerate() {
             if let Element::CellRef(cell_ref) = element {
-                let bbox = self.instance_bbox(cell_ref);
+                let bbox = self.instance_bbox_cached(cell_name, elem_idx, cell_ref);
                 if bbox.overlaps(&query_bbox) {
                     hits.push(format!("{REF_UUID_PREFIX}{elem_idx}:0"));
                 }
@@ -1602,15 +1620,18 @@ impl WasmLibrary {
 
     /// Get all element UUIDs that belong to the same instance group as the given UUID.
     ///
-    /// If the UUID is a synthetic ref UUID (from a CellRef instance), returns all
-    /// synthetic UUIDs for that same CellRef element.
-    /// If the UUID is part of a pre-flattened group (design mode), returns group members.
-    /// Otherwise returns just the UUID itself.
+    /// CellRef instances (including arrayed refs) are selected as a single entity,
+    /// so ref UUIDs always return a one-element vec containing the canonical
+    /// representative `ref:{elem_idx}:0`. This keeps selection sets small (O(1))
+    /// regardless of array size, which is critical for pan/move/marquee performance
+    /// on large AREFs (e.g. a 100×100 array would otherwise balloon to 10,000 IDs).
+    ///
+    /// For non-ref UUIDs, returns just the UUID itself.
     pub fn get_group_ids(&self, uuid: &str) -> Vec<String> {
-        // Check if this is a synthetic CellRef UUID (format: "ref:{elem_idx}:{poly_idx}")
         if let Some(elem_idx) = parse_ref_uuid_element_index(uuid) {
-            // Return all synthetic UUIDs for this CellRef instance
-            return self.get_all_ref_uuids_for_element(elem_idx);
+            // Canonicalise any `ref:N:K` to the representative `ref:N:0` so the
+            // selection/hover code always uses a single stable ID per instance.
+            return vec![format!("{REF_UUID_PREFIX}{elem_idx}:0")];
         }
 
         // Regular element — return just this element
@@ -1619,8 +1640,10 @@ impl WasmLibrary {
 
     /// Get all element IDs in the active cell.
     ///
-    /// Returns a vector of UUIDs for all elements in the active cell,
-    /// including synthetic UUIDs for CellRef-resolved geometry.
+    /// Returns a vector of UUIDs for all elements in the active cell. CellRef
+    /// instances (including AREFs) contribute a single canonical ID
+    /// `ref:{elem_idx}:0` each — array copies are NOT enumerated individually.
+    /// This keeps "Select All" (Cmd+A) cheap on designs with large arrays.
     pub fn get_all_ids(&self) -> Vec<String> {
         let cell_name = match &self.active_cell {
             Some(name) => name,
@@ -1646,12 +1669,10 @@ impl WasmLibrary {
             .map(|(uuid, _)| uuid.clone())
             .collect();
 
-        // Include synthetic UUIDs for CellRef instances (these are the IDs
-        // used by hit-testing and selection, so they must be the canonical
-        // representation for CellRef elements)
+        // One representative synthetic UUID per CellRef instance.
         for (elem_idx, element) in cell.elements().iter().enumerate() {
             if let Element::CellRef(_) = element {
-                ids.extend(self.get_all_ref_uuids_for_element(elem_idx));
+                ids.push(format!("{REF_UUID_PREFIX}{elem_idx}:0"));
             }
         }
 
@@ -1787,7 +1808,7 @@ impl WasmLibrary {
                 if handled_ref_elements.insert(elem_idx) {
                     // First time seeing this CellRef — include its full bounds
                     if let Some(Element::CellRef(cell_ref)) = cell.elements().get(elem_idx) {
-                        let bbox = self.instance_bbox(cell_ref);
+                        let bbox = self.instance_bbox_cached(cell_name, elem_idx, cell_ref);
                         combined_bbox = Some(match combined_bbox {
                             Some(existing) => existing.merge(&bbox),
                             None => bbox,
@@ -2064,7 +2085,7 @@ impl WasmLibrary {
             },
         );
 
-        self.dirty = true;
+        self.mark_dirty();
         Some(uuid)
     }
 
@@ -2092,19 +2113,19 @@ impl WasmLibrary {
             Some(Element::Polygon { polygon, .. }) => {
                 let translation = Vector2::new(dx, dy);
                 *polygon = polygon.translate(translation);
-                self.dirty = true;
+                self.mark_dirty();
                 true
             }
             Some(Element::Path { points, .. }) => {
                 for point in points.iter_mut() {
                     *point = Point::new(point.x + dx, point.y + dy);
                 }
-                self.dirty = true;
+                self.mark_dirty();
                 true
             }
             Some(Element::Text { position, .. }) => {
                 *position = Point::new(position.x + dx, position.y + dy);
-                self.dirty = true;
+                self.mark_dirty();
                 true
             }
             _ => false,
@@ -2142,7 +2163,7 @@ impl WasmLibrary {
                         // Compose: new_transform = translate(dx,dy) * old_transform
                         cell_ref.transform = Transform::translate(dx, dy).then(&cell_ref.transform);
                         count += 1;
-                        self.dirty = true;
+                        self.mark_dirty();
                     }
                 }
                 continue;
@@ -2186,7 +2207,7 @@ impl WasmLibrary {
                 transform[4],
                 transform[5],
             );
-            self.dirty = true;
+            self.mark_dirty();
             return true;
         }
         false
@@ -2255,7 +2276,7 @@ impl WasmLibrary {
                 cell_ref.repetition =
                     Some(Repetition::new(columns, rows, col_spacing, row_spacing));
             }
-            self.dirty = true;
+            self.mark_dirty();
             return true;
         }
         false
@@ -2366,7 +2387,7 @@ impl WasmLibrary {
             },
         );
 
-        self.dirty = true;
+        self.mark_dirty();
         Some(uuid)
     }
 
@@ -2447,7 +2468,7 @@ impl WasmLibrary {
             },
         );
 
-        self.dirty = true;
+        self.mark_dirty();
         Some(uuid)
     }
 
@@ -2876,6 +2897,8 @@ impl WasmLibrary {
             hierarchy_depth_limit: 0,
             hidden_cells: HashSet::new(),
             cell_image_bounds: HashMap::new(),
+            instance_bbox_cache: RefCell::new(HashMap::new()),
+            instance_bbox_cache_cell: RefCell::new(None),
         }
     }
 
@@ -3444,13 +3467,17 @@ impl WasmLibrary {
         }
     }
 
-    /// Compute the bounding box for a CellRef instance.
+    /// Compute the bounding box for a CellRef instance without caching.
     ///
     /// If the referenced cell has geometry, returns its bounding box transformed
-    /// by the CellRef's transform. If the cell is empty, returns a small
-    /// placeholder box centered at the CellRef's translation point so that
-    /// empty instances remain visible, selectable, and labeled.
-    fn instance_bbox(&self, cell_ref: &CellRef) -> BBox {
+    /// by the CellRef's transform (and all array-copy transforms, if arrayed).
+    /// If the cell is empty, returns a small placeholder box centered at the
+    /// CellRef's translation point so that empty instances remain visible,
+    /// selectable, and labeled.
+    ///
+    /// Prefer `instance_bbox_cached` at call sites that know the element index —
+    /// it memoises the result.
+    fn compute_instance_bbox(&self, cell_ref: &CellRef) -> BBox {
         let mut combined: Option<BBox> = None;
         for copy_transform in array_transforms(cell_ref) {
             self.collect_bounds_recursive(&cell_ref.cell_name, &copy_transform, &mut combined);
@@ -3465,6 +3492,47 @@ impl WasmLibrary {
                 Point::new(tx + HALF, ty + HALF),
             )
         })
+    }
+
+    /// Return the cached bbox for a CellRef in the active cell, computing on miss.
+    ///
+    /// The cache is keyed by `element_index` within the cell named in
+    /// `instance_bbox_cache_cell`. If `cell_name` differs from the cached
+    /// cell, the cache is wiped and re-bound to `cell_name`. This keeps the
+    /// key a cheap `usize` instead of allocating a String on every lookup.
+    fn instance_bbox_cached(&self, cell_name: &str, elem_idx: usize, cell_ref: &CellRef) -> BBox {
+        // Ensure the cache is bound to `cell_name`. If not, reset it.
+        {
+            let mut cache_cell = self.instance_bbox_cache_cell.borrow_mut();
+            if cache_cell.as_deref() != Some(cell_name) {
+                self.instance_bbox_cache.borrow_mut().clear();
+                *cache_cell = Some(cell_name.to_string());
+            }
+        }
+
+        if let Some(bbox) = self.instance_bbox_cache.borrow().get(&elem_idx).copied() {
+            return bbox;
+        }
+        let bbox = self.compute_instance_bbox(cell_ref);
+        self.instance_bbox_cache.borrow_mut().insert(elem_idx, bbox);
+        bbox
+    }
+
+    /// Invalidate the entire CellRef bbox cache.
+    ///
+    /// Called whenever geometry or CellRef transforms/repetitions change.
+    fn invalidate_instance_bbox_cache(&mut self) {
+        self.instance_bbox_cache.borrow_mut().clear();
+        *self.instance_bbox_cache_cell.borrow_mut() = None;
+    }
+
+    /// Mark the library as dirty AND invalidate derived caches.
+    ///
+    /// Prefer this over assigning `self.dirty = true` directly, so caches
+    /// (like the instance bbox cache) stay consistent with mutations.
+    fn mark_dirty(&mut self) {
+        self.dirty = true;
+        self.invalidate_instance_bbox_cache();
     }
 
     /// Recursively collect vertices from a referenced cell (for snap-to-geometry).
@@ -3494,66 +3562,6 @@ impl WasmLibrary {
                     }
                     _ => {}
                 }
-            }
-        }
-    }
-
-    /// Get all synthetic ref UUIDs for a CellRef at the given element index.
-    fn get_all_ref_uuids_for_element(&self, cellref_elem_idx: usize) -> Vec<String> {
-        let cell_name = match &self.active_cell {
-            Some(name) => name,
-            None => return Vec::new(),
-        };
-        let cell = match self.library.cell(cell_name) {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-        let element = match cell.elements().get(cellref_elem_idx) {
-            Some(e) => e,
-            None => return Vec::new(),
-        };
-        if let Element::CellRef(cell_ref) = element
-            && let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
-        {
-            let mut uuids = Vec::new();
-            let mut counter: usize = 0;
-            let copy_count = cell_ref.repetition.as_ref().map_or(1, |r| r.count());
-            for _ in 0..copy_count {
-                self.count_polygons_recursive(ref_cell, cellref_elem_idx, &mut counter, &mut uuids);
-            }
-            return uuids;
-        }
-        Vec::new()
-    }
-
-    /// Count polygons in a cell recursively, generating synthetic UUIDs.
-    fn count_polygons_recursive(
-        &self,
-        cell: &Cell,
-        cellref_elem_idx: usize,
-        counter: &mut usize,
-        uuids: &mut Vec<String>,
-    ) {
-        for element in cell.elements() {
-            match element {
-                Element::Polygon { .. } | Element::Path { .. } => {
-                    uuids.push(format!("{REF_UUID_PREFIX}{cellref_elem_idx}:{counter}"));
-                    *counter += 1;
-                }
-                Element::CellRef(nested_ref) => {
-                    if let Some(ref_cell) = self.library.cell(&nested_ref.cell_name) {
-                        let copy_count = nested_ref.repetition.as_ref().map_or(1, |r| r.count());
-                        for _ in 0..copy_count {
-                            self.count_polygons_recursive(
-                                ref_cell,
-                                cellref_elem_idx,
-                                counter,
-                                uuids,
-                            );
-                        }
-                    }
-                }
-                Element::Text { .. } => {}
             }
         }
     }
@@ -4009,7 +4017,7 @@ impl WasmLibrary {
 
         for (elem_idx, element) in cell.elements().iter().enumerate() {
             if let Element::CellRef(cell_ref) = element {
-                let bbox = self.instance_bbox(cell_ref);
+                let bbox = self.instance_bbox_cached(cell_name, elem_idx, cell_ref);
                 result.push((
                     elem_idx,
                     [bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y],
@@ -4042,7 +4050,7 @@ impl WasmLibrary {
 
         for (elem_idx, element) in cell.elements().iter().enumerate() {
             if let Element::CellRef(cell_ref) = element {
-                let bbox = self.instance_bbox(cell_ref);
+                let bbox = self.instance_bbox_cached(cell_name, elem_idx, cell_ref);
                 let rep = cell_ref.repetition.as_ref().and_then(|r| {
                     if r.is_single() {
                         None

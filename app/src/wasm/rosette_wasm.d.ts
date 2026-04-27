@@ -251,8 +251,10 @@ export class WasmLibrary {
     /**
      * Get all element IDs in the active cell.
      *
-     * Returns a vector of UUIDs for all elements in the active cell,
-     * including synthetic UUIDs for CellRef-resolved geometry.
+     * Returns a vector of UUIDs for all elements in the active cell. CellRef
+     * instances (including AREFs) contribute a single canonical ID
+     * `ref:{elem_idx}:0` each — array copies are NOT enumerated individually.
+     * This keeps "Select All" (Cmd+A) cheap on designs with large arrays.
      */
     get_all_ids(): string[];
     /**
@@ -387,10 +389,13 @@ export class WasmLibrary {
     /**
      * Get all element UUIDs that belong to the same instance group as the given UUID.
      *
-     * If the UUID is a synthetic ref UUID (from a CellRef instance), returns all
-     * synthetic UUIDs for that same CellRef element.
-     * If the UUID is part of a pre-flattened group (design mode), returns group members.
-     * Otherwise returns just the UUID itself.
+     * CellRef instances (including arrayed refs) are selected as a single entity,
+     * so ref UUIDs always return a one-element vec containing the canonical
+     * representative `ref:{elem_idx}:0`. This keeps selection sets small (O(1))
+     * regardless of array size, which is critical for pan/move/marquee performance
+     * on large AREFs (e.g. a 100×100 array would otherwise balloon to 10,000 IDs).
+     *
+     * For non-ref UUIDs, returns just the UUID itself.
      */
     get_group_ids(uuid: string): string[];
     /**
@@ -421,6 +426,7 @@ export class WasmLibrary {
      * - `name`: cell name
      * - `elementIndex`: CellRef element index (for matching with ref UUIDs)
      * - `minX`, `minY`, `maxX`, `maxY`: bounding box in world coordinates
+     * - `columns`, `rows` (optional): array repetition dimensions, present only for AREFs
      */
     get_instance_label_data(): any;
     /**

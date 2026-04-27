@@ -9,6 +9,8 @@ use geo::BooleanOps;
 use geo::algorithm::line_intersection::{LineIntersection, line_intersection};
 use geo::{Coord, LineString, Polygon as GeoPolygon};
 
+use crate::library::REF_UUID_PREFIX;
+
 /// A shape stored in the renderer.
 #[derive(Debug, Clone)]
 pub struct Shape {
@@ -408,6 +410,11 @@ impl ShapeManager {
 
     /// Get outline segments for selected shapes in screen coordinates.
     ///
+    /// Skips synthetic `ref:` UUIDs — those represent CellRef instances whose
+    /// selection outline is drawn separately as an instance bbox (see
+    /// `Renderer::append_instance_bbox_outlines`). Emitting per-polygon
+    /// outlines for every array copy would be O(copies) per pan frame.
+    ///
     /// # Arguments
     /// * `zoom` - Pixels per world unit
     /// * `offset_x`, `offset_y` - Screen position of world origin
@@ -417,10 +424,17 @@ impl ShapeManager {
         offset_x: f64,
         offset_y: f64,
     ) -> Vec<OutlineSegment> {
-        self.get_segments_for_ids(self.selected_ids.iter(), zoom, offset_x, offset_y)
+        let ids = self
+            .selected_ids
+            .iter()
+            .filter(|id| !id.starts_with(REF_UUID_PREFIX));
+        self.get_segments_for_ids(ids, zoom, offset_x, offset_y)
     }
 
     /// Get outline segments for hovered shapes (excluding if already selected).
+    ///
+    /// Skips synthetic `ref:` UUIDs for the same reason as
+    /// `get_selection_segments` — those are drawn as bbox outlines.
     pub fn get_hover_segments(
         &self,
         zoom: f64,
@@ -428,10 +442,11 @@ impl ShapeManager {
         offset_y: f64,
     ) -> Vec<OutlineSegment> {
         // Filter out shapes that are already selected (they show selection outline instead)
+        // and synthetic ref UUIDs (bbox-outlined separately).
         let hover_only: Vec<&String> = self
             .hovered_ids
             .iter()
-            .filter(|id| !self.selected_ids.contains(*id))
+            .filter(|id| !self.selected_ids.contains(*id) && !id.starts_with(REF_UUID_PREFIX))
             .collect();
 
         if hover_only.is_empty() {
