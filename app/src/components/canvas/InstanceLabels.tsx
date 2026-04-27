@@ -15,6 +15,8 @@ interface InstanceLabel {
   minY: number;
   maxX: number;
   maxY: number;
+  columns?: number;
+  rows?: number;
 }
 
 /** Ref UUID prefix used by the WASM library for CellRef-resolved polygons. */
@@ -161,7 +163,9 @@ export function InstanceLabels() {
                 paddingBottom: "2px",
               }}
             >
-              {label.name}
+              {label.columns != null && label.rows != null
+                ? `${label.name} [${label.columns}×${label.rows}]`
+                : label.name}
             </div>
 
             {/* Origin cross marker */}

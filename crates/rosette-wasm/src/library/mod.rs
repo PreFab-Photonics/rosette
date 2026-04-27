@@ -2503,11 +2503,12 @@ impl WasmLibrary {
     /// - `name`: cell name
     /// - `elementIndex`: CellRef element index (for matching with ref UUIDs)
     /// - `minX`, `minY`, `maxX`, `maxY`: bounding box in world coordinates
+    /// - `columns`, `rows` (optional): array repetition dimensions, present only for AREFs
     pub fn get_instance_label_data(&self) -> JsValue {
         let labels = self.get_instance_labels();
         let result = js_sys::Array::new();
 
-        for (elem_idx, name, bbox) in labels {
+        for (elem_idx, name, bbox, rep) in labels {
             let obj = js_sys::Object::new();
             js_sys::Reflect::set(&obj, &JsValue::from_str("name"), &JsValue::from_str(&name)).ok();
             js_sys::Reflect::set(
@@ -2540,6 +2541,20 @@ impl WasmLibrary {
                 &JsValue::from_f64(bbox[3]),
             )
             .ok();
+            if let Some((columns, rows)) = rep {
+                js_sys::Reflect::set(
+                    &obj,
+                    &JsValue::from_str("columns"),
+                    &JsValue::from_f64(columns as f64),
+                )
+                .ok();
+                js_sys::Reflect::set(
+                    &obj,
+                    &JsValue::from_str("rows"),
+                    &JsValue::from_f64(rows as f64),
+                )
+                .ok();
+            }
             result.push(&obj);
         }
 
@@ -4005,11 +4020,14 @@ impl WasmLibrary {
         result
     }
 
-    /// Get label data for all CellRef instances in the active cell.
+    /// Collect label data for all CellRef instances in the active cell.
     ///
-    /// Returns a JS array of `{ name: string, bbox: [minX, minY, maxX, maxY] }` objects
-    /// for rendering labels in the UI overlay.
-    pub(crate) fn get_instance_labels(&self) -> Vec<(usize, String, [f64; 4])> {
+    /// Returns `(element_index, cell_name, [minX, minY, maxX, maxY], repetition)`
+    /// where repetition is `Some((columns, rows))` for AREFs, `None` for SREFs.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn get_instance_labels(
+        &self,
+    ) -> Vec<(usize, String, [f64; 4], Option<(u16, u16)>)> {
         let mut labels = Vec::new();
 
         let cell_name = match &self.active_cell {
@@ -4025,10 +4043,18 @@ impl WasmLibrary {
         for (elem_idx, element) in cell.elements().iter().enumerate() {
             if let Element::CellRef(cell_ref) = element {
                 let bbox = self.instance_bbox(cell_ref);
+                let rep = cell_ref.repetition.as_ref().and_then(|r| {
+                    if r.is_single() {
+                        None
+                    } else {
+                        Some((r.columns, r.rows))
+                    }
+                });
                 labels.push((
                     elem_idx,
                     cell_ref.cell_name.clone(),
                     [bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y],
+                    rep,
                 ));
             }
         }
