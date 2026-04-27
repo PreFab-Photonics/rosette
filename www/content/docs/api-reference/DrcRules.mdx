@@ -362,3 +362,44 @@ A new DrcRules with the rule added.
 </PyFunctionReturn>
 
 </PyFunction>
+
+<PyFunction name={"snap_to_grid"} type={"(layer, grid_pitch, name=None) -> DrcRules"}>
+
+Add a snap-to-grid check for a layer. Verifies all polygon vertex coordinates are
+multiples of the manufacturing grid pitch. Off-grid geometry causes mask fracturing
+errors and is rejected by most foundries.
+
+Unlike other per-polygon rules, snap-to-grid checks run on fully-transformed (world)
+coordinates so that off-grid translations of cell instances are caught.
+
+Common grid pitches: `0.001` (1 nm) or `0.005` (5 nm).
+
+In TOML config, use `snap_to_grid = 0.001` in a per-layer section.
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer.
+
+</PyParameter>
+<PyParameter name={"grid_pitch"} type={"float"}>
+
+Grid pitch in design units (e.g., `0.001` for 1 nm, `0.005` for 5 nm). Must be positive.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>

@@ -1,4 +1,4 @@
-//! Minimum width check using ray-casting sampling.
+//! Minimum width check using ray-casting sampling and vertex-to-edge distances.
 
 use rosette_core::{Layer, Point, Polygon};
 
@@ -107,8 +107,16 @@ pub fn estimate_min_width_sampling(polygon: &Polygon, samples_per_edge: usize) -
         }
     }
 
+    // Also check vertex-to-edge distances. This catches taper narrow ends
+    // and other geometries where the narrowest point is at a vertex rather
+    // than along an edge. Ray-casting misses these because the perpendicular
+    // from a slanted edge doesn't pass through the narrow-end vertex, and
+    // the short end-cap edge's perpendicular rays skip adjacent edges.
+    let vertex_min = vertex_to_edge_min_distance(&edges, vertices);
+    min_width = min_width.min(vertex_min);
+
     if min_width.is_infinite() {
-        // Fallback to bounding box if ray casting found nothing
+        // Fallback to bounding box if nothing found
         let bbox = polygon.bbox();
         bbox.width().min(bbox.height())
     } else {
@@ -157,6 +165,106 @@ pub fn cast_ray_to_boundary(
     } else {
         Some(min_dist)
     }
+}
+
+/// Compute the shortest distance from a point to a line segment.
+///
+/// Projects the point onto the infinite line through (e1, e2), then clamps to
+/// the segment. Handles degenerate (zero-length) segments by returning the
+/// point-to-point distance.
+pub(crate) fn point_to_segment_distance(point: Point, e1: Point, e2: Point) -> f64 {
+    let seg = (e2.x - e1.x, e2.y - e1.y);
+    let seg_len_sq = seg.0 * seg.0 + seg.1 * seg.1;
+
+    if seg_len_sq < 1e-20 {
+        // Degenerate segment (zero length) — distance to the single point.
+        let dx = point.x - e1.x;
+        let dy = point.y - e1.y;
+        return (dx * dx + dy * dy).sqrt();
+    }
+
+    // Parameter t: projection of (point - e1) onto the segment direction,
+    // normalised by segment length squared so t ∈ [0, 1] means on-segment.
+    let to_point = (point.x - e1.x, point.y - e1.y);
+    let t = (to_point.0 * seg.0 + to_point.1 * seg.1) / seg_len_sq;
+    let t_clamped = t.clamp(0.0, 1.0);
+
+    let closest_x = e1.x + t_clamped * seg.0;
+    let closest_y = e1.y + t_clamped * seg.1;
+
+    let dx = point.x - closest_x;
+    let dy = point.y - closest_y;
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// Compute the minimum distance from a single vertex to all far-away edges.
+///
+/// Skips edges that are topologically close to the vertex along the polygon
+/// boundary using `skip_radius`. This avoids false positives on
+/// finely-discretized curves, where nearby vertices on the *same side* of
+/// the polygon would produce tiny distances that reflect local curvature
+/// rather than cross-sectional width.
+///
+/// **Assumption:** The `n/4` skip radius works well when vertices are
+/// roughly evenly distributed around the perimeter. For polygons with
+/// highly non-uniform vertex density (e.g., 30+ vertices on one side, 2
+/// on the other), a measurement from the dense side to the sparse side
+/// may be skipped. In practice, the sparse side's vertices still capture
+/// the width measurement in the other direction.
+pub(crate) fn vertex_min_distance_to_far_edges(
+    vi: usize,
+    vertex: Point,
+    edges: &[(Point, Point)],
+    n: usize,
+    skip_radius: usize,
+) -> f64 {
+    let mut min_dist = f64::INFINITY;
+
+    for (ei, &(e1, e2)) in edges.iter().enumerate() {
+        // Topological distance around the polygon ring.
+        let fwd = (ei + n - vi) % n; // steps forward from vi to ei
+        let bwd = (vi + n - ei) % n; // steps backward
+        let topo_dist = fwd.min(bwd);
+
+        if topo_dist <= skip_radius {
+            continue;
+        }
+
+        let dist = point_to_segment_distance(vertex, e1, e2);
+        if dist > 1e-10 {
+            min_dist = min_dist.min(dist);
+        }
+    }
+
+    min_dist
+}
+
+/// Compute the minimum distance from any vertex to a far-away edge.
+///
+/// This catches width measurements that the ray-casting approach misses —
+/// particularly taper narrow ends, where the vertex at a corner is the closest
+/// point to the opposite boundary but no edge's perpendicular ray passes
+/// through that vertex.
+///
+/// We skip `n/4` edges on each side of the vertex, ensuring only edges on
+/// the "opposite" side of the polygon are measured. See
+/// [`vertex_min_distance_to_far_edges`] for details on the skip heuristic.
+pub(crate) fn vertex_to_edge_min_distance(edges: &[(Point, Point)], vertices: &[Point]) -> f64 {
+    let n = vertices.len();
+    if n < 4 {
+        // Triangles: every edge is adjacent or nearly so — no opposite side.
+        return f64::INFINITY;
+    }
+
+    let skip_radius = (n / 4).max(1);
+    let mut min_dist = f64::INFINITY;
+
+    for (vi, &vertex) in vertices.iter().enumerate() {
+        let d = vertex_min_distance_to_far_edges(vi, vertex, edges, n, skip_radius);
+        min_dist = min_dist.min(d);
+    }
+
+    min_dist
 }
 
 /// Calculate intersection of a ray with a line segment.
@@ -301,7 +409,7 @@ mod tests {
     #[test]
     fn test_taper_width_narrow_end() {
         // Tapered shape: narrow at left (0.4 height), wide at right (2.0 height)
-        // The left and right edges are vertical, top/bottom are slanted
+        // The left and right edges are vertical, top/bottom are slanted.
         //
         //   (0, 0.2) *-----------------------* (10, 1.0)
         //            |                      /
@@ -309,12 +417,8 @@ mod tests {
         //            |                    /
         //   (0,-0.2) *-------------------* (10, -1.0)
         //
-        // Note: The algorithm measures perpendicular distance from each edge.
-        // The left edge (0.4 tall) shoots rays to the right (positive x).
-        // But those rays hit the far right edge, not the slanted top/bottom!
-        //
-        // So for this taper geometry, the minimum width comes from
-        // the perpendicular distance from the slanted edges.
+        // The vertex-to-edge measurement catches the narrow end: the top-left
+        // vertex (0, 0.2) is 0.4 from the bottom edge, and vice versa.
 
         let taper = Polygon::new(vec![
             Point::new(0.0, -0.2),  // bottom-left
@@ -325,32 +429,22 @@ mod tests {
 
         let measured = estimate_min_width_sampling(&taper, 10);
 
-        // For this long taper, the min perpendicular width is found where
-        // the slanted edge rays hit the opposite slanted edge.
-        // At the narrow end, this is approximately 0.4 / cos(theta)
-        // where theta is the slope angle.
-        // For our geometry: slope = 0.8/10 = 0.08, so cos(theta) ≈ 0.997
-        // So width ≈ 0.4 / 0.997 ≈ 0.4
-        //
-        // But wait - the rays from the slanted bottom edge go UP (perpendicular
-        // to the slant), and might not hit the slanted top edge at the narrow end.
-
-        // After more analysis: the measured value is around 0.55 because:
-        // - The left vertical edge rays go RIGHT, but skip adjacent edges,
-        //   so they travel all the way to the right edge (10 units away)
-        // - The bottom slanted edge rays go up-left, hitting the top slanted edge
-
-        // This is a limitation - the true perpendicular width at the narrow end
-        // is 0.4, but our algorithm doesn't catch it well for this geometry.
-        // For now, verify it detects SOME narrowing:
+        // The true width at the narrow end is 0.4. The vertex-to-edge
+        // distance from (0, 0.2) to the bottom edge (0,-0.2)->(10,-1.0)
+        // should measure exactly 0.4 (the point projects onto the segment
+        // at its start endpoint).
         assert!(
-            measured < 1.5,
-            "Taper width {} should be less than 1.5 (it's a narrow taper)",
+            measured < 0.45,
+            "Taper narrow-end width {} should be close to 0.4",
+            measured
+        );
+        assert!(
+            measured > 0.35,
+            "Taper narrow-end width {} should be close to 0.4",
             measured
         );
 
-        // Let's test with a more extreme taper where the algorithm will catch it
-        // A taper that goes from 0.3 to 3.0 over a short distance
+        // Steep taper: 0.3 -> 3.0 over 3.0 length
         let steep_taper = Polygon::new(vec![
             Point::new(0.0, -0.15), // bottom-left (0.3 total height)
             Point::new(3.0, -1.5),  // bottom-right (3.0 total height)
@@ -360,10 +454,14 @@ mod tests {
 
         let steep_measured = estimate_min_width_sampling(&steep_taper, 10);
 
-        // This steeper taper should show a smaller width
         assert!(
-            steep_measured < 1.0,
-            "Steep taper width {} should be less than 1.0",
+            steep_measured < 0.35,
+            "Steep taper width {} should be close to 0.3",
+            steep_measured
+        );
+        assert!(
+            steep_measured > 0.25,
+            "Steep taper width {} should be close to 0.3",
             steep_measured
         );
     }
@@ -383,6 +481,168 @@ mod tests {
         assert!(
             result.is_none(),
             "Taper with 1.0 narrow end should pass min_width=0.8"
+        );
+    }
+
+    #[test]
+    fn test_mmi_taper_width() {
+        // Realistic MMI input taper: waveguide_width=0.5 -> taper_width=1.2
+        // over 5.0 length. This is the shape created by mmi.py.
+        //
+        //   (0, 0.25) *-----------* (5, 0.6)
+        //             |          /
+        //             |         /
+        //   (0,-0.25) *-----------* (5, -0.6)
+        //
+        let taper = Polygon::new(vec![
+            Point::new(0.0, -0.25), // bottom-left (port_width/2)
+            Point::new(5.0, -0.6),  // bottom-right (taper_width/2)
+            Point::new(5.0, 0.6),   // top-right
+            Point::new(0.0, 0.25),  // top-left
+        ]);
+
+        let measured = estimate_min_width_sampling(&taper, 10);
+
+        // The narrow end is 0.5 (waveguide width).
+        // Vertex (0, 0.25) to bottom edge should give ~0.5.
+        assert!(
+            measured < 0.55,
+            "MMI taper width {} should be close to 0.5 (waveguide width)",
+            measured
+        );
+        assert!(
+            measured > 0.45,
+            "MMI taper width {} should be close to 0.5 (waveguide width)",
+            measured
+        );
+
+        // Should fail min_width=0.6
+        let result = check_width(&taper, Layer::new(1, 0), 0.6, None);
+        assert!(
+            result.is_some(),
+            "MMI taper with 0.5 narrow end should fail min_width=0.6"
+        );
+
+        // Should pass min_width=0.4
+        let result = check_width(&taper, Layer::new(1, 0), 0.4, None);
+        assert!(
+            result.is_none(),
+            "MMI taper with 0.5 narrow end should pass min_width=0.4"
+        );
+    }
+
+    #[test]
+    fn test_asymmetric_taper_width() {
+        // Taper where only the top edge is slanted, bottom is horizontal.
+        // Narrow end = 0.5, wide end = 1.5.
+        //
+        //   (0, 0.5)  *-----------* (10, 1.5)
+        //             |          /
+        //             |         /
+        //   (0, 0.0)  *-----------* (10, 0.0)
+        //
+        let taper = Polygon::new(vec![
+            Point::new(0.0, 0.0),  // bottom-left
+            Point::new(10.0, 0.0), // bottom-right
+            Point::new(10.0, 1.5), // top-right
+            Point::new(0.0, 0.5),  // top-left
+        ]);
+
+        let measured = estimate_min_width_sampling(&taper, 10);
+
+        // Narrow end is 0.5. Vertex (0, 0.5) is 0.5 from the bottom edge.
+        assert!(
+            measured < 0.55,
+            "Asymmetric taper width {} should be close to 0.5",
+            measured
+        );
+        assert!(
+            measured > 0.45,
+            "Asymmetric taper width {} should be close to 0.5",
+            measured
+        );
+    }
+
+    #[test]
+    fn test_curved_taper_width() {
+        // Taper with many vertices on the top edge (simulating an arc),
+        // straight bottom edge. Like a focused grating coupler taper.
+        //
+        // Narrow end at x=0: height = 0.5
+        // Wide end at x=10: height ~2.0
+        // Top edge is an arc with many points.
+        let n_arc = 32;
+        let mut vertices = Vec::new();
+
+        // Bottom edge: two points (straight)
+        vertices.push(Point::new(0.0, -0.25));
+        vertices.push(Point::new(10.0, -1.0));
+
+        // Top edge: arc from wide end back to narrow end (reversed for CCW)
+        for i in 0..=n_arc {
+            let t = 1.0 - i as f64 / n_arc as f64; // 1.0 -> 0.0
+            let x = t * 10.0;
+            // Parabolic-ish curve from 1.0 at x=10 to 0.25 at x=0
+            let y = 0.25 + 0.75 * t * t.sqrt();
+            vertices.push(Point::new(x, y));
+        }
+
+        let taper = Polygon::new(vertices);
+        let measured = estimate_min_width_sampling(&taper, 10);
+
+        // Narrow end is 0.5 (y: -0.25 to 0.25).
+        // The vertex-to-edge approach should find this.
+        assert!(
+            measured < 0.55,
+            "Curved taper width {} should be close to 0.5",
+            measured
+        );
+        assert!(
+            measured > 0.4,
+            "Curved taper width {} should be reasonable (>0.4)",
+            measured
+        );
+    }
+
+    #[test]
+    fn test_point_to_segment_distance_basic() {
+        // Point directly above the midpoint of a horizontal segment
+        let p = Point::new(5.0, 3.0);
+        let e1 = Point::new(0.0, 0.0);
+        let e2 = Point::new(10.0, 0.0);
+        let dist = point_to_segment_distance(p, e1, e2);
+        assert!(
+            (dist - 3.0).abs() < 1e-10,
+            "Distance should be 3.0, got {}",
+            dist
+        );
+    }
+
+    #[test]
+    fn test_point_to_segment_distance_endpoint() {
+        // Point closest to the start endpoint of the segment
+        let p = Point::new(-1.0, 0.0);
+        let e1 = Point::new(0.0, 0.0);
+        let e2 = Point::new(10.0, 0.0);
+        let dist = point_to_segment_distance(p, e1, e2);
+        assert!(
+            (dist - 1.0).abs() < 1e-10,
+            "Distance should be 1.0, got {}",
+            dist
+        );
+    }
+
+    #[test]
+    fn test_point_to_segment_distance_degenerate() {
+        // Zero-length segment
+        let p = Point::new(3.0, 4.0);
+        let e1 = Point::new(0.0, 0.0);
+        let e2 = Point::new(0.0, 0.0);
+        let dist = point_to_segment_distance(p, e1, e2);
+        assert!(
+            (dist - 5.0).abs() < 1e-10,
+            "Distance should be 5.0, got {}",
+            dist
         );
     }
 

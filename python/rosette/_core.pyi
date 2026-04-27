@@ -393,7 +393,15 @@ class Cell:
                 or contains non-printable ASCII characters (spaces, Unicode, etc.)
         """
         ...
-    def add_polygon(self, polygon: Polygon, layer: Layer | int | tuple[int, int]) -> None: ...
+    def add_polygon(self, polygon: Polygon, layer: Layer | int | tuple[int, int]) -> None:
+        """Add a polygon to the cell.
+
+        For repeated geometry (arrays, banks, test structures), define the
+        shape in a sub-cell and place instances with ``cell.at(x, y)`` +
+        ``add_ref()`` instead of calling ``add_polygon`` in a loop on the
+        parent cell.  This keeps the GDS compact and the viewer responsive.
+        """
+        ...
     def add_path(
         self,
         points: list[Point],
@@ -501,6 +509,11 @@ class Cell:
             # Get ports directly from instances
             port_in = gc_in.port("opt")
             port_out = gc_out.port("opt")
+
+            # Array of identical cells (preferred over looping add_polygon):
+            for col in range(10):
+                for row in range(10):
+                    top.add_ref(unit_cell.at(col * pitch, row * pitch))
         """
         ...
     def add_ref(self, ref: Cell | CellRef | Instance) -> None:
@@ -1136,6 +1149,21 @@ class DrcRules:
         name: str | None = None,
     ) -> DrcRules:
         """Add maximum width rule for a layer (e.g., single-mode waveguide enforcement)."""
+        ...
+    def snap_to_grid(
+        self,
+        layer: Layer | int | tuple[int, int],
+        grid_pitch: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add snap-to-grid check for a layer.
+
+        Verifies all vertex coordinates are multiples of the manufacturing grid
+        pitch. Off-grid geometry causes mask fracturing errors and is rejected
+        by foundries.
+
+        Common values: 0.001 (1 nm grid) or 0.005 (5 nm grid).
+        """
         ...
     def __repr__(self) -> str: ...
 

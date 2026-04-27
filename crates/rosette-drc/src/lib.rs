@@ -6,6 +6,7 @@
 //! - Minimum spacing
 //! - Minimum area
 //! - Minimum edge length (lithography resolution)
+//! - Snap-to-grid (manufacturing grid alignment)
 //! - Enclosure
 //! - Overlap (required/forbidden)
 //! - Edge angles

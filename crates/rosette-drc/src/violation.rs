@@ -69,6 +69,13 @@ pub enum RuleType {
         /// Actual measured width.
         actual: f64,
     },
+    /// Vertex coordinate is not on the manufacturing grid.
+    OffGrid {
+        /// Grid pitch in user units.
+        grid_pitch: f64,
+        /// The off-grid vertex (x, y).
+        vertex: (f64, f64),
+    },
 }
 
 /// A single DRC violation.
