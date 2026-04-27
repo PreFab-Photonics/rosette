@@ -264,13 +264,14 @@ class Instance:
         selected as one object.
 
         Args:
-            columns: Number of columns (>= 1).
-            rows: Number of rows (>= 1).
+            columns: Number of columns (1 to 32767).
+            rows: Number of rows (1 to 32767).
             col_spacing: Spacing between columns (X direction, in µm).
             row_spacing: Spacing between rows (Y direction, in µm).
 
         Raises:
-            ValueError: If columns or rows is less than 1.
+            ValueError: If columns or rows is outside the range [1, 32767].
+                The upper bound is the GDS COLROW INT16 limit.
 
         Example:
             arr = unit_cell.at(0, 0).array(10, 5, 20.0, 15.0)
@@ -378,10 +379,14 @@ class CellRef:
         selected as one object.
 
         Args:
-            columns: Number of columns (>= 1).
-            rows: Number of rows (>= 1).
+            columns: Number of columns (1 to 32767).
+            rows: Number of rows (1 to 32767).
             col_spacing: Spacing between columns (X direction, in µm).
             row_spacing: Spacing between rows (Y direction, in µm).
+
+        Raises:
+            ValueError: If columns or rows is outside the range [1, 32767].
+                The upper bound is the GDS COLROW INT16 limit.
 
         Example:
             ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)

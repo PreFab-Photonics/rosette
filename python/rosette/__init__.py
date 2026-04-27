@@ -86,6 +86,22 @@ except PackageNotFoundError:
 # DFM default model parameters — keep in sync with Rust DEFAULT_SIGMA / DEFAULT_THRESHOLD
 _DFM_DEFAULT_SIGMA = 0.08
 
+# Max columns/rows for GDS AREF (COLROW record is INT16).
+_GDS_ARRAY_MAX = 32767
+
+
+def _validate_array_dims(columns: int, rows: int) -> None:
+    """Validate array `columns` and `rows` against the GDS COLROW INT16 limit.
+
+    Raises:
+        ValueError: If either value is outside the inclusive range [1, 32767].
+    """
+    if not (1 <= columns <= _GDS_ARRAY_MAX) or not (1 <= rows <= _GDS_ARRAY_MAX):
+        raise ValueError(
+            f"columns and rows must be in [1, {_GDS_ARRAY_MAX}], got columns={columns}, rows={rows}"
+        )
+
+
 # =============================================================================
 # Instance: A positioned cell that knows both its definition and transform
 # =============================================================================
@@ -239,8 +255,8 @@ class Instance:
         selected as one object.
 
         Args:
-            columns: Number of columns (>= 1).
-            rows: Number of rows (>= 1).
+            columns: Number of columns (1 to 32767).
+            rows: Number of rows (1 to 32767).
             col_spacing: Spacing between columns (X direction, in um).
             row_spacing: Spacing between rows (Y direction, in um).
 
@@ -248,14 +264,14 @@ class Instance:
             A new Instance with array repetition set.
 
         Raises:
-            ValueError: If columns or rows is less than 1.
+            ValueError: If columns or rows is outside the range [1, 32767].
+                The upper bound is the GDS COLROW INT16 limit.
 
         Example:
             arr = unit_cell.at(0, 0).array(10, 5, 20.0, 15.0)
             top.add_ref(arr)  # Single AREF, not 50 individual refs
         """
-        if columns < 1 or rows < 1:
-            raise ValueError(f"columns and rows must be >= 1, got columns={columns}, rows={rows}")
+        _validate_array_dims(columns, rows)
         return Instance(self._cell, self._transform, (columns, rows, col_spacing, row_spacing))
 
     def port(self, name: str) -> Port:
@@ -460,8 +476,8 @@ class CellRef:
         selected as one object.
 
         Args:
-            columns: Number of columns (>= 1).
-            rows: Number of rows (>= 1).
+            columns: Number of columns (1 to 32767).
+            rows: Number of rows (1 to 32767).
             col_spacing: Spacing between columns (X direction, in um).
             row_spacing: Spacing between rows (Y direction, in um).
 
@@ -469,14 +485,14 @@ class CellRef:
             A new CellRef with array repetition set.
 
         Raises:
-            ValueError: If columns or rows is less than 1.
+            ValueError: If columns or rows is outside the range [1, 32767].
+                The upper bound is the GDS COLROW INT16 limit.
 
         Example:
             ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
             top.add_ref(ref)  # Single AREF, not 50 individual refs
         """
-        if columns < 1 or rows < 1:
-            raise ValueError(f"columns and rows must be >= 1, got columns={columns}, rows={rows}")
+        _validate_array_dims(columns, rows)
         return CellRef._from_inner(self._inner.array(columns, rows, col_spacing, row_spacing))
 
     def port(self, name: str, cell: Cell | _Cell) -> Port:

@@ -662,19 +662,62 @@ class TestCellRefArray:
     def test_instance_array_rejects_zero_columns(self):
         """Instance.array() raises ValueError for columns < 1."""
         child = Cell("unit")
-        with pytest.raises(ValueError, match="columns and rows must be >= 1"):
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
             child.at(0, 0).array(0, 5, 10.0, 10.0)
 
     def test_instance_array_rejects_zero_rows(self):
         """Instance.array() raises ValueError for rows < 1."""
         child = Cell("unit")
-        with pytest.raises(ValueError, match="columns and rows must be >= 1"):
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
             child.at(0, 0).array(5, 0, 10.0, 10.0)
 
     def test_cellref_array_rejects_zero(self):
         """CellRef.array() raises ValueError for columns or rows < 1."""
-        with pytest.raises(ValueError, match="columns and rows must be >= 1"):
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
             CellRef("unit").array(0, 0, 10.0, 10.0)
+
+    def test_instance_array_rejects_columns_above_gds_max(self):
+        """Instance.array() raises ValueError for columns > 32767 (GDS INT16 limit)."""
+        child = Cell("unit")
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
+            child.at(0, 0).array(100_000, 1, 10.0, 10.0)
+        # Just over the boundary — still rejected.
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
+            child.at(0, 0).array(32768, 1, 10.0, 10.0)
+
+    def test_instance_array_rejects_rows_above_gds_max(self):
+        """Instance.array() raises ValueError for rows > 32767 (GDS INT16 limit)."""
+        child = Cell("unit")
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
+            child.at(0, 0).array(1, 100_000, 10.0, 10.0)
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
+            child.at(0, 0).array(1, 32768, 10.0, 10.0)
+
+    def test_cellref_array_rejects_above_gds_max(self):
+        """CellRef.array() raises ValueError for columns or rows > 32767."""
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
+            CellRef("unit").array(100_000, 1, 10.0, 10.0)
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
+            CellRef("unit").array(1, 100_000, 10.0, 10.0)
+
+    def test_instance_array_accepts_gds_max(self):
+        """Instance.array() accepts 32767 (the exact GDS INT16 upper bound)."""
+        child = Cell("unit")
+        inst = child.at(0, 0).array(32767, 32767, 1.0, 1.0)
+        assert inst.cell_name == "unit"
+
+    def test_instance_array_above_u16_max_raises_value_error(self):
+        """Values > 65535 still raise ValueError (not PyO3's OverflowError).
+
+        Without the Python-side check, PyO3's u16 coercion would raise
+        OverflowError for values above 65535; the wrapper normalizes to
+        ValueError.
+        """
+        child = Cell("unit")
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
+            child.at(0, 0).array(1_000_000, 1, 10.0, 10.0)
+        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
+            CellRef("unit").array(1, 1_000_000, 10.0, 10.0)
 
     def test_instance_array_basic(self):
         """Instance.array() returns an Instance."""

@@ -218,10 +218,14 @@ impl PyCellRef {
     /// selected as one object.
     ///
     /// Args:
-    ///     columns: Number of columns (>= 1).
-    ///     rows: Number of rows (>= 1).
+    ///     columns: Number of columns (1 to 32767; GDS COLROW INT16 limit).
+    ///     rows: Number of rows (1 to 32767; GDS COLROW INT16 limit).
     ///     col_spacing: Spacing between columns (X direction, in µm).
     ///     row_spacing: Spacing between rows (Y direction, in µm).
+    ///
+    /// Note:
+    ///     The Python wrappers (`CellRef.array` / `Instance.array`) validate
+    ///     the [1, 32767] range before calling this binding.
     ///
     /// Example:
     ///     ```python
