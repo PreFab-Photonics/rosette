@@ -191,17 +191,24 @@ class Instance:
         rotated45 = block.at(0, 0).rotate(45).at(x + 4, y - 2)
     """
 
-    __slots__ = ("_cell", "_transform")
+    __slots__ = ("_cell", "_repetition", "_transform")
 
-    def __init__(self, cell: Cell, transform: Transform | None = None) -> None:
+    def __init__(
+        self,
+        cell: Cell,
+        transform: Transform | None = None,
+        repetition: tuple[int, int, float, float] | None = None,
+    ) -> None:
         """Create an Instance from a Cell and optional transform.
 
         Args:
             cell: The cell definition
             transform: Optional transform (defaults to identity)
+            repetition: Optional (columns, rows, col_spacing, row_spacing) tuple
         """
         self._cell = cell
         self._transform = transform if transform is not None else Transform.identity()
+        self._repetition = repetition
 
     @property
     def cell(self) -> Cell:
@@ -229,7 +236,7 @@ class Instance:
             A new Instance with updated transform
         """
         new_transform = Transform.translate(x, y).then(self._transform)
-        return Instance(self._cell, new_transform)
+        return Instance(self._cell, new_transform, self._repetition)
 
     def rotate(self, angle_deg: float) -> Instance:
         """Rotate by angle (in degrees).
@@ -241,7 +248,7 @@ class Instance:
             A new Instance with updated transform
         """
         new_transform = Transform.rotate(angle_deg).then(self._transform)
-        return Instance(self._cell, new_transform)
+        return Instance(self._cell, new_transform, self._repetition)
 
     def mirror_x(self) -> Instance:
         """Mirror across X axis.
@@ -250,7 +257,7 @@ class Instance:
             A new Instance with updated transform
         """
         new_transform = Transform.scale(1.0, -1.0).then(self._transform)
-        return Instance(self._cell, new_transform)
+        return Instance(self._cell, new_transform, self._repetition)
 
     def mirror_y(self) -> Instance:
         """Mirror across Y axis.
@@ -259,7 +266,7 @@ class Instance:
             A new Instance with updated transform
         """
         new_transform = Transform.scale(-1.0, 1.0).then(self._transform)
-        return Instance(self._cell, new_transform)
+        return Instance(self._cell, new_transform, self._repetition)
 
     def scale(self, s: float) -> Instance:
         """Scale uniformly.
@@ -271,7 +278,40 @@ class Instance:
             A new Instance with updated transform
         """
         new_transform = Transform.scale_uniform(s).then(self._transform)
-        return Instance(self._cell, new_transform)
+        return Instance(self._cell, new_transform, self._repetition)
+
+    def array(
+        self,
+        columns: int,
+        rows: int,
+        col_spacing: float,
+        row_spacing: float,
+    ) -> Instance:
+        """Set array repetition (columns x rows grid with given spacing).
+
+        Creates a GDS AREF - a single compact array reference instead of
+        many individual references. In the viewer, the entire array is
+        selected as one object.
+
+        Args:
+            columns: Number of columns (>= 1).
+            rows: Number of rows (>= 1).
+            col_spacing: Spacing between columns (X direction, in um).
+            row_spacing: Spacing between rows (Y direction, in um).
+
+        Returns:
+            A new Instance with array repetition set.
+
+        Raises:
+            ValueError: If columns or rows is less than 1.
+
+        Example:
+            arr = unit_cell.at(0, 0).array(10, 5, 20.0, 15.0)
+            top.add_ref(arr)  # Single AREF, not 50 individual refs
+        """
+        if columns < 1 or rows < 1:
+            raise ValueError(f"columns and rows must be >= 1, got columns={columns}, rows={rows}")
+        return Instance(self._cell, self._transform, (columns, rows, col_spacing, row_spacing))
 
     def port(self, name: str) -> Port:
         """Get a transformed port from this instance.
@@ -314,7 +354,7 @@ class Instance:
         """Convert to a CellRef for use with low-level APIs.
 
         Returns:
-            A CellRef with the same cell name and transform
+            A CellRef with the same cell name, transform, and array repetition
         """
         # Decompose into GDS-compatible: mirror_x (innermost),
         # then rotation, then translation (outermost).
@@ -328,6 +368,9 @@ class Instance:
             ref = ref.rotate(angle)
         pos = self._transform.apply(Point.origin())
         ref = ref.at(pos.x, pos.y)
+        # Propagate array repetition if set
+        if self._repetition is not None:
+            ref = ref.array(*self._repetition)
         return ref
 
     def _decompose_transform(self) -> tuple[float, bool]:
@@ -458,6 +501,39 @@ class CellRef:
         """Scale uniformly."""
         return CellRef._from_inner(self._inner.scale(s))
 
+    def array(
+        self,
+        columns: int,
+        rows: int,
+        col_spacing: float,
+        row_spacing: float,
+    ) -> CellRef:
+        """Set array repetition (columns x rows grid with given spacing).
+
+        Creates a GDS AREF - a single compact array reference instead of
+        many individual references. In the viewer, the entire array is
+        selected as one object.
+
+        Args:
+            columns: Number of columns (>= 1).
+            rows: Number of rows (>= 1).
+            col_spacing: Spacing between columns (X direction, in um).
+            row_spacing: Spacing between rows (Y direction, in um).
+
+        Returns:
+            A new CellRef with array repetition set.
+
+        Raises:
+            ValueError: If columns or rows is less than 1.
+
+        Example:
+            ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
+            top.add_ref(ref)  # Single AREF, not 50 individual refs
+        """
+        if columns < 1 or rows < 1:
+            raise ValueError(f"columns and rows must be >= 1, got columns={columns}, rows={rows}")
+        return CellRef._from_inner(self._inner.array(columns, rows, col_spacing, row_spacing))
+
     def port(self, name: str, cell: Cell | _Cell) -> Port:
         """Get a transformed port from this cell reference.
 
@@ -569,9 +645,13 @@ class Cell:
         """Add a polygon to the cell.
 
         For repeated geometry (arrays, banks, test structures), define the
-        shape in a sub-cell and place instances with ``cell.at(x, y)`` +
-        ``add_ref()`` instead of calling ``add_polygon`` in a loop on the
-        parent cell.  This keeps the GDS compact and the viewer responsive.
+        shape in a sub-cell and use ``.array()`` or individual ``add_ref()``
+        calls instead of calling ``add_polygon`` in a loop on the parent
+        cell.  This keeps the GDS compact and the viewer responsive::
+
+            unit = Cell("unit")
+            unit.add_polygon(Polygon.rect(Point.origin(), w, h), layer)
+            top.add_ref(unit.at(0, 0).array(cols, rows, pitch_x, pitch_y))
         """
         if _SOURCE_TRACKING:
             self._element_sources.append(_capture_source("polygon"))
@@ -697,10 +777,8 @@ class Cell:
             port_in = gc_in.port("opt")
             port_out = gc_out.port("opt")
 
-            # Array of identical cells (preferred over looping add_polygon):
-            for col in range(10):
-                for row in range(10):
-                    top.add_ref(unit_cell.at(col * pitch, row * pitch))
+            # Array of identical cells (single AREF, selected as one unit):
+            top.add_ref(unit_cell.at(0, 0).array(10, 10, pitch, pitch))
         """
         return Instance(self, Transform.translate(x, y))
 
@@ -760,6 +838,9 @@ class Cell:
             # Translation last (outermost transform)
             pos = instance.transform.apply(Point.origin())
             rust_ref = rust_ref.at(pos.x, pos.y)
+            # Propagate array repetition if set
+            if instance._repetition is not None:
+                rust_ref = rust_ref.array(*instance._repetition)
             self._inner.add_ref(rust_ref)
         else:
             # Raw CellRef - issue warning about untracked cell

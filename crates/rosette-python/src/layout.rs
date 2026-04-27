@@ -211,6 +211,30 @@ impl PyCellRef {
         PyCellRef(self.0.clone().scale(s))
     }
 
+    /// Set array repetition (columns x rows grid with given spacing).
+    ///
+    /// Creates a GDS AREF — a single compact array reference instead of
+    /// many individual references. In the viewer, the entire array is
+    /// selected as one object.
+    ///
+    /// Args:
+    ///     columns: Number of columns (>= 1).
+    ///     rows: Number of rows (>= 1).
+    ///     col_spacing: Spacing between columns (X direction, in µm).
+    ///     row_spacing: Spacing between rows (Y direction, in µm).
+    ///
+    /// Example:
+    ///     ```python
+    ///     ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
+    ///     ```
+    fn array(&self, columns: u16, rows: u16, col_spacing: f64, row_spacing: f64) -> Self {
+        PyCellRef(
+            self.0
+                .clone()
+                .array(columns, rows, col_spacing, row_spacing),
+        )
+    }
+
     /// Cell name being referenced.
     #[getter]
     fn cell_name(&self) -> &str {

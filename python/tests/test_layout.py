@@ -623,3 +623,142 @@ class TestInstance:
             child_read = lib.cell("child")
             assert child_read is not None
             assert child_read.polygon_count() == 1
+
+
+class TestCellRefArray:
+    """Tests for CellRef.array() - GDS AREF support."""
+
+    def test_cellref_array_basic(self):
+        """CellRef.array() returns a CellRef with same name."""
+        ref = CellRef("unit").at(0, 0).array(3, 2, 10.0, 20.0)
+        assert ref.cell_name == "unit"
+
+    def test_cellref_array_gds_roundtrip(self):
+        """CellRef with array writes as AREF and round-trips through GDS."""
+        from rosette import read_gds
+
+        child = Cell("unit")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+
+        top = Cell("top")
+        ref = CellRef("unit").at(0, 0).array(3, 2, 10.0, 20.0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # CellRef warning
+            top.add_ref(ref)
+
+        # Should be 1 ref (AREF), not 6 individual SREFs
+        assert top.ref_count() == 1
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "aref.gds"
+            write_gds(path, top, [child])
+
+            lib = read_gds(str(path))
+            top_read = lib.cell("top")
+            assert top_read is not None
+            assert top_read.ref_count() == 1
+
+    def test_instance_array_rejects_zero_columns(self):
+        """Instance.array() raises ValueError for columns < 1."""
+        child = Cell("unit")
+        with pytest.raises(ValueError, match="columns and rows must be >= 1"):
+            child.at(0, 0).array(0, 5, 10.0, 10.0)
+
+    def test_instance_array_rejects_zero_rows(self):
+        """Instance.array() raises ValueError for rows < 1."""
+        child = Cell("unit")
+        with pytest.raises(ValueError, match="columns and rows must be >= 1"):
+            child.at(0, 0).array(5, 0, 10.0, 10.0)
+
+    def test_cellref_array_rejects_zero(self):
+        """CellRef.array() raises ValueError for columns or rows < 1."""
+        with pytest.raises(ValueError, match="columns and rows must be >= 1"):
+            CellRef("unit").array(0, 0, 10.0, 10.0)
+
+    def test_instance_array_basic(self):
+        """Instance.array() returns an Instance."""
+        child = Cell("unit")
+        inst = child.at(0, 0).array(3, 2, 10.0, 20.0)
+        assert isinstance(inst, Instance)
+        assert inst.cell_name == "unit"
+
+    def test_instance_array_gds_roundtrip(self):
+        """Instance with array writes as AREF and round-trips through GDS."""
+        from rosette import read_gds
+
+        child = Cell("unit")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+
+        top = Cell("top")
+        arr = child.at(0, 0).array(4, 3, 15.0, 25.0)
+        top.add_ref(arr)
+
+        # Should be 1 ref (AREF), not 12 individual SREFs
+        assert top.ref_count() == 1
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "aref_inst.gds"
+            write_gds(path, top)
+
+            lib = read_gds(str(path))
+            top_read = lib.cell("top")
+            assert top_read is not None
+            assert top_read.ref_count() == 1
+
+    def test_instance_array_preserves_transforms(self):
+        """Instance.array() with rotation round-trips through GDS."""
+        from rosette import read_gds
+
+        child = Cell("unit")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+
+        top = Cell("top")
+        # array after rotation
+        top.add_ref(child.at(10, 20).rotate(45).array(2, 3, 5.0, 8.0))
+        # transform after array
+        top.add_ref(child.at(0, 0).array(2, 3, 5.0, 8.0).at(10, 20))
+
+        assert top.ref_count() == 2
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "aref_transform.gds"
+            write_gds(path, top)
+
+            lib = read_gds(str(path))
+            top_read = lib.cell("top")
+            assert top_read is not None
+            assert top_read.ref_count() == 2
+
+    def test_instance_array_to_ref(self):
+        """Instance.to_ref() preserves array repetition."""
+        child = Cell("unit")
+        inst = child.at(5, 10).array(3, 4, 8.0, 12.0)
+        ref = inst.to_ref()
+        assert isinstance(ref, CellRef)
+        assert ref.cell_name == "unit"
+
+    def test_instance_array_to_ref_gds_roundtrip(self):
+        """Instance.to_ref() with array round-trips through GDS as AREF."""
+        from rosette import read_gds
+
+        child = Cell("unit")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+
+        inst = child.at(0, 0).array(2, 3, 10.0, 15.0)
+        ref = inst.to_ref()
+
+        top = Cell("top")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            top.add_ref(ref)
+
+        assert top.ref_count() == 1
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "aref_toref.gds"
+            write_gds(path, top, [child])
+
+            lib = read_gds(str(path))
+            top_read = lib.cell("top")
+            assert top_read is not None
+            assert top_read.ref_count() == 1

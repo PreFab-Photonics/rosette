@@ -256,6 +256,27 @@ class Instance:
             A new Instance with updated transform
         """
         ...
+    def array(self, columns: int, rows: int, col_spacing: float, row_spacing: float) -> Instance:
+        """Set array repetition (columns x rows grid with given spacing).
+
+        Creates a GDS AREF — a single compact array reference instead of
+        many individual references. In the viewer, the entire array is
+        selected as one object.
+
+        Args:
+            columns: Number of columns (>= 1).
+            rows: Number of rows (>= 1).
+            col_spacing: Spacing between columns (X direction, in µm).
+            row_spacing: Spacing between rows (Y direction, in µm).
+
+        Raises:
+            ValueError: If columns or rows is less than 1.
+
+        Example:
+            arr = unit_cell.at(0, 0).array(10, 5, 20.0, 15.0)
+            top.add_ref(arr)
+        """
+        ...
     def port(self, name: str) -> Port:
         """Get a transformed port from this instance.
 
@@ -349,6 +370,23 @@ class CellRef:
     def mirror_x(self) -> CellRef: ...
     def mirror_y(self) -> CellRef: ...
     def scale(self, s: float) -> CellRef: ...
+    def array(self, columns: int, rows: int, col_spacing: float, row_spacing: float) -> CellRef:
+        """Set array repetition (columns x rows grid with given spacing).
+
+        Creates a GDS AREF — a single compact array reference instead of
+        many individual references. In the viewer, the entire array is
+        selected as one object.
+
+        Args:
+            columns: Number of columns (>= 1).
+            rows: Number of rows (>= 1).
+            col_spacing: Spacing between columns (X direction, in µm).
+            row_spacing: Spacing between rows (Y direction, in µm).
+
+        Example:
+            ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
+        """
+        ...
     def port(self, name: str, cell: Cell) -> Port:
         """Get a transformed port from this cell reference.
 
@@ -397,9 +435,13 @@ class Cell:
         """Add a polygon to the cell.
 
         For repeated geometry (arrays, banks, test structures), define the
-        shape in a sub-cell and place instances with ``cell.at(x, y)`` +
-        ``add_ref()`` instead of calling ``add_polygon`` in a loop on the
-        parent cell.  This keeps the GDS compact and the viewer responsive.
+        shape in a sub-cell and use ``.array()`` or individual ``add_ref()``
+        calls instead of calling ``add_polygon`` in a loop on the parent
+        cell.  This keeps the GDS compact and the viewer responsive::
+
+            unit = Cell("unit")
+            unit.add_polygon(Polygon.rect(Point.origin(), w, h), layer)
+            top.add_ref(unit.at(0, 0).array(cols, rows, pitch_x, pitch_y))
         """
         ...
     def add_path(
@@ -510,10 +552,8 @@ class Cell:
             port_in = gc_in.port("opt")
             port_out = gc_out.port("opt")
 
-            # Array of identical cells (preferred over looping add_polygon):
-            for col in range(10):
-                for row in range(10):
-                    top.add_ref(unit_cell.at(col * pitch, row * pitch))
+            # Array of identical cells (single AREF, selected as one unit):
+            top.add_ref(unit_cell.at(0, 0).array(10, 10, pitch, pitch))
         """
         ...
     def add_ref(self, ref: Cell | CellRef | Instance) -> None:

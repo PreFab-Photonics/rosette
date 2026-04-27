@@ -131,6 +131,57 @@ Scale factor.
 
 </PyFunction>
 
+<PyFunction name={"array"} type={"(columns, rows, col_spacing, row_spacing) -> CellRef"}>
+
+Set array repetition (columns x rows grid with given spacing).
+
+Creates a GDS AREF — a single compact array reference instead of
+many individual references. In the viewer, the entire array is
+selected and moved as one object.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+# 10x5 array with 20 µm column spacing and 15 µm row spacing
+ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
+top.add_ref(ref)
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"columns"} type={"int"}>
+
+Number of columns (>= 1).
+
+</PyParameter>
+<PyParameter name={"rows"} type={"int"}>
+
+Number of rows (>= 1).
+
+</PyParameter>
+<PyParameter name={"col_spacing"} type={"float"}>
+
+Spacing between columns (X direction, in µm).
+
+</PyParameter>
+<PyParameter name={"row_spacing"} type={"float"}>
+
+Spacing between rows (Y direction, in µm).
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"CellRef"}>
+
+A new CellRef with array repetition set.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
 <PyFunction name={"port"} type={"(name, cell) -> Port"}>
 
 Get a transformed port from this cell reference.
