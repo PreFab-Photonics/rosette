@@ -2194,12 +2194,19 @@ impl WasmLibrary {
 
     /// Get the array repetition parameters for a CellRef instance.
     ///
-    /// `id` must be a synthetic ref UUID (e.g. "ref:3:0").
+    /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
     /// Returns `[columns, rows, col_spacing, row_spacing]` or None if not arrayed.
     pub fn get_cell_ref_array(&self, id: &str) -> Option<Vec<f64>> {
-        let elem_idx = parse_ref_uuid_element_index(id)?;
-        let cell_name = self.active_cell.as_ref()?;
-        let cell = self.library.cell(cell_name)?;
+        // Resolve element index from either synthetic ref UUID or real UUID
+        let (cell_name, elem_idx) = if let Some(idx) = parse_ref_uuid_element_index(id) {
+            (self.active_cell.as_ref()?.clone(), idx)
+        } else if let Some(elem_ref) = self.element_refs.get(id) {
+            (elem_ref.cell_name.clone(), elem_ref.element_index)
+        } else {
+            return None;
+        };
+
+        let cell = self.library.cell(&cell_name)?;
         if let Some(Element::CellRef(cell_ref)) = cell.elements().get(elem_idx)
             && let Some(rep) = &cell_ref.repetition
         {
@@ -2215,8 +2222,7 @@ impl WasmLibrary {
 
     /// Set the array repetition parameters on a CellRef instance.
     ///
-    /// `id` must be a synthetic ref UUID (e.g. "ref:3:0").
-    /// `params` must be `[columns, rows, col_spacing, row_spacing]` (4 elements).
+    /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
     /// If columns and rows are both 1, removes the array (reverts to single instance).
     ///
     /// Returns true if the array was set, false otherwise.
@@ -2228,15 +2234,19 @@ impl WasmLibrary {
         col_spacing: f64,
         row_spacing: f64,
     ) -> bool {
-        let elem_idx = match parse_ref_uuid_element_index(id) {
-            Some(idx) => idx,
-            None => return false,
+        // Resolve element index from either synthetic ref UUID or real UUID
+        let (cell_name, elem_idx) = if let Some(idx) = parse_ref_uuid_element_index(id) {
+            match &self.active_cell {
+                Some(name) => (name.clone(), idx),
+                None => return false,
+            }
+        } else if let Some(elem_ref) = self.element_refs.get(id) {
+            (elem_ref.cell_name.clone(), elem_ref.element_index)
+        } else {
+            return false;
         };
-        let active_cell_name = match &self.active_cell {
-            Some(name) => name.clone(),
-            None => return false,
-        };
-        if let Some(cell) = self.library.cell_mut(&active_cell_name)
+
+        if let Some(cell) = self.library.cell_mut(&cell_name)
             && let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx)
         {
             if columns <= 1 && rows <= 1 {

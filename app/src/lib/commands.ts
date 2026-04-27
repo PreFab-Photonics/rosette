@@ -178,10 +178,12 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
 
       const refInfo = library.get_cell_ref_info(id);
       if (refInfo) {
+        const arrayParams = library.get_cell_ref_array(id);
         snapshots.push({
           type: "cell-ref",
           cellName: refInfo.cell_name,
           transform: new Float64Array(refInfo.transform),
+          repetition: arrayParams ? new Float64Array(arrayParams) : null,
         });
         refInfo.free();
       }
@@ -191,10 +193,12 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
     // Regular UUID - check if it's actually a CellRef with a real UUID
     const refInfo = library.get_cell_ref_info(id);
     if (refInfo) {
+      const arrayParams = library.get_cell_ref_array(id);
       snapshots.push({
         type: "cell-ref",
         cellName: refInfo.cell_name,
         transform: new Float64Array(refInfo.transform),
+        repetition: arrayParams ? new Float64Array(arrayParams) : null,
       });
       refInfo.free();
       continue;
@@ -268,6 +272,16 @@ function restoreSnapshots(library: WasmLibrary, snapshots: ClipboardSnapshot[]):
     if (snapshot.type === "cell-ref") {
       const id = library.add_cell_ref_with_transform(snapshot.cellName, snapshot.transform);
       if (id) {
+        // Restore AREF repetition if the original was an array reference
+        if (snapshot.repetition) {
+          library.set_cell_ref_array(
+            id,
+            snapshot.repetition[0], // columns
+            snapshot.repetition[1], // rows
+            snapshot.repetition[2], // col_spacing
+            snapshot.repetition[3], // row_spacing
+          );
+        }
         newIds.push(id);
       }
     } else if (snapshot.type === "text") {
@@ -382,55 +396,6 @@ export class DeleteElementsCommand implements Command {
     // If this is a redo, we need to use restoredIds instead of original elementIds
     let idsToDelete = this.restoredIds.length > 0 ? this.restoredIds : this.elementIds;
 
-    // Guard: block deletion of last CellRef(s) to a cell — user must delete
-    // the cell itself from the Explorer to avoid orphaning cell definitions.
-    const blockedCells = new Set<string>();
-    const blockedIds = new Set<string>();
-    // Collect which child cells are being dereferenced, deduplicating by CellRef
-    // element index (a cell with 2 polygons produces ref:N:0 and ref:N:1 but
-    // they're the same CellRef and count as 1 deletion, not 2).
-    const refDeleteUnique = new Map<string, Set<string>>(); // cellName → set of element indices
-    for (const id of idsToDelete) {
-      const refInfo = ctx.library.get_cell_ref_info(id);
-      if (refInfo) {
-        const cellName = refInfo.cell_name;
-        const elemKey = id.startsWith("ref:") ? id.split(":")[1] : id;
-        refInfo.free();
-        if (!refDeleteUnique.has(cellName)) refDeleteUnique.set(cellName, new Set());
-        refDeleteUnique.get(cellName)!.add(elemKey);
-      }
-    }
-    // For each affected child cell, check total parent ref count
-    for (const [cellName, deletedRefs] of refDeleteUnique) {
-      const parents = ctx.library.get_cell_ref_parents(cellName);
-      const totalRefs = Array.isArray(parents) ? parents.length : 0;
-      if (totalRefs > 0 && deletedRefs.size >= totalRefs) {
-        blockedCells.add(cellName);
-        // Mark the CellRef IDs pointing to this cell as blocked
-        for (const id of idsToDelete) {
-          const refInfo = ctx.library.get_cell_ref_info(id);
-          if (refInfo) {
-            if (refInfo.cell_name === cellName) blockedIds.add(id);
-            refInfo.free();
-          }
-        }
-      }
-    }
-
-    if (blockedIds.size > 0) {
-      // Filter out blocked IDs — delete the rest if any remain
-      idsToDelete = idsToDelete.filter((id) => !blockedIds.has(id));
-      const cellNames = [...blockedCells].map((n) => `"${n}"`).join(", ");
-      useStatusMessageStore
-        .getState()
-        .show(
-          `Cannot delete last reference to ${cellNames}. Delete the cell from the Explorer instead.`,
-          "warn",
-          5000,
-        );
-      if (idsToDelete.length === 0) return;
-    }
-
     // Snapshot elements before deleting (only on first execute)
     if (this.snapshots.length === 0) {
       this.snapshots = snapshotElements(ctx.library, idsToDelete);
@@ -543,6 +508,7 @@ export class PasteElementsCommand implements Command {
           type: "cell-ref",
           cellName: e.cellName,
           transform: new Float64Array(e.transform),
+          repetition: e.repetition ? new Float64Array(e.repetition) : null,
         };
       }
       if (e.type === "text") {
@@ -744,7 +710,12 @@ function offsetSnapshot(snapshot: ClipboardSnapshot, dx: number, dy: number): Cl
     const t = new Float64Array(snapshot.transform);
     t[4] += dx; // tx
     t[5] += dy; // ty
-    return { type: "cell-ref", cellName: snapshot.cellName, transform: t };
+    return {
+      type: "cell-ref",
+      cellName: snapshot.cellName,
+      transform: t,
+      repetition: snapshot.repetition ? new Float64Array(snapshot.repetition) : null,
+    };
   }
   if (snapshot.type === "image") {
     return { ...snapshot, x: snapshot.x + dx, y: snapshot.y + dy };

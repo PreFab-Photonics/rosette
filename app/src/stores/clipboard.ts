@@ -46,6 +46,8 @@ export interface CellRefSnapshot {
   cellName: string;
   /** Full affine transform [a, b, c, d, tx, ty]. */
   transform: Float64Array;
+  /** AREF repetition params [columns, rows, col_spacing, row_spacing], or null for SREF. */
+  repetition: Float64Array | null;
 }
 
 /**
