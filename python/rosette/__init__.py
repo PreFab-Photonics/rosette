@@ -566,7 +566,13 @@ class Cell:
     # --- Delegated methods ---
 
     def add_polygon(self, polygon: Polygon, layer: Layer | int | tuple[int, int]) -> None:
-        """Add a polygon to the cell."""
+        """Add a polygon to the cell.
+
+        For repeated geometry (arrays, banks, test structures), define the
+        shape in a sub-cell and place instances with ``cell.at(x, y)`` +
+        ``add_ref()`` instead of calling ``add_polygon`` in a loop on the
+        parent cell.  This keeps the GDS compact and the viewer responsive.
+        """
         if _SOURCE_TRACKING:
             self._element_sources.append(_capture_source("polygon"))
         self._inner.add_polygon(polygon, layer)
@@ -690,6 +696,11 @@ class Cell:
             # Get ports directly from instances
             port_in = gc_in.port("opt")
             port_out = gc_out.port("opt")
+
+            # Array of identical cells (preferred over looping add_polygon):
+            for col in range(10):
+                for row in range(10):
+                    top.add_ref(unit_cell.at(col * pitch, row * pitch))
         """
         return Instance(self, Transform.translate(x, y))
 
