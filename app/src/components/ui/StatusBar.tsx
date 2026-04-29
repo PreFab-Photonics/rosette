@@ -116,10 +116,16 @@ function StatusMessage({ isDark }: { isDark: boolean }) {
 function SelectionInfo({ isDark }: { isDark: boolean }) {
   const selectedIds = useSelectionStore((s) => s.selectedIds);
   const library = useWasmContextStore((s) => s.library);
+  // Subscribe so selection info (e.g. array copy counts) refreshes when
+  // library state mutates via commands like SetInstanceArrayCommand.
+  const syncGeneration = useWasmContextStore((s) => s.syncGeneration);
   const layers = useLayerStore((s) => s.layers);
   const pathMetadata = usePathStore((s) => s.pathMetadata);
 
   const info = useMemo(() => {
+    // Reference `syncGeneration` so this memo recomputes whenever the WASM
+    // library mutates (e.g. array params edited via the Inspector).
+    void syncGeneration;
     const count = selectedIds.size;
     if (count === 0 || !library) return null;
 
@@ -138,8 +144,19 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
           cellPathLengthNm != null
             ? ` \u00b7 length: ${(cellPathLengthNm / 1000).toFixed(3)} \u00b5m`
             : "";
+        // If this is an AREF, surface the array dimensions and copy count.
+        const arrayParams = library.get_cell_ref_array(firstId);
+        let arraySuffix = "";
+        if (arrayParams && arrayParams.length === 4) {
+          const cols = Math.max(1, Math.round(arrayParams[0]));
+          const rows = Math.max(1, Math.round(arrayParams[1]));
+          const copies = cols * rows;
+          if (copies > 1) {
+            arraySuffix = ` (${cols}\u00d7${rows} = ${copies} copies)`;
+          }
+        }
         return {
-          label: `Instance "${cellName}"${lengthSuffix}`,
+          label: `Instance "${cellName}"${arraySuffix}${lengthSuffix}`,
           layerNumber: null,
           datatype: null,
         };
@@ -184,13 +201,32 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
     }
 
     // --- Polygon(s) ---
-    // Gather layer info from all selected elements
+    // Gather layer info from all selected elements. While scanning, also
+    // tally any CellRef instances so we can surface array/copy counts for
+    // selections that include AREFs.
     let firstLayer: number | null = null;
     let firstDatatype: number | null = null;
     let mixed = false;
     let vertexCount = 0;
+    let refCount = 0;
+    let arrayCount = 0;
+    let totalCopies = 0;
 
     for (const id of selectedIds) {
+      if (id.startsWith("ref:")) {
+        refCount += 1;
+        const arrayParams = library.get_cell_ref_array(id);
+        if (arrayParams && arrayParams.length === 4) {
+          const cols = Math.max(1, Math.round(arrayParams[0]));
+          const rows = Math.max(1, Math.round(arrayParams[1]));
+          const copies = cols * rows;
+          totalCopies += copies;
+          if (copies > 1) arrayCount += 1;
+        } else {
+          totalCopies += 1;
+        }
+        continue;
+      }
       const elInfo = library.get_element_info(id);
       if (elInfo) {
         if (firstLayer === null) {
@@ -203,16 +239,44 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
           vertexCount = elInfo.vertices.length / 2;
         }
         elInfo.free();
-        // For multi-select we only need to detect mixed, so we can break early
-        if (mixed && count > 1) break;
       }
     }
 
-    if (count === 1) {
+    // A single non-ref element: polygon-style label.
+    if (count === 1 && refCount === 0) {
       return {
         label: `Polygon \u00b7 ${vertexCount} vertices`,
         layerNumber: firstLayer,
         datatype: firstDatatype,
+      };
+    }
+
+    // All selected items are CellRef instances (covers the single-ref
+    // fallback too, e.g. when get_cell_ref_info transiently returned null).
+    if (refCount === count) {
+      const arraySuffix =
+        arrayCount > 0
+          ? ` (${arrayCount} ${arrayCount === 1 ? "array" : "arrays"}, ${totalCopies} copies)`
+          : "";
+      const noun = count === 1 ? "instance" : "instances";
+      return {
+        label: `${count} ${noun}${arraySuffix}`,
+        layerNumber: null,
+        datatype: null,
+      };
+    }
+
+    // Mixed selection that includes CellRef instances alongside polygons/paths.
+    if (refCount > 0) {
+      const arraySuffix =
+        arrayCount > 0
+          ? ` \u00b7 ${arrayCount} ${arrayCount === 1 ? "array" : "arrays"}, ${totalCopies} copies`
+          : "";
+      const layerSuffix = mixed ? " \u00b7 Mixed layers" : "";
+      return {
+        label: `${count} elements${arraySuffix}${layerSuffix}`,
+        layerNumber: mixed ? null : firstLayer,
+        datatype: mixed ? null : firstDatatype,
       };
     }
 
@@ -221,7 +285,7 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
     }
 
     return { label: `${count} elements`, layerNumber: firstLayer, datatype: firstDatatype };
-  }, [selectedIds, library, pathMetadata]);
+  }, [selectedIds, library, pathMetadata, syncGeneration]);
 
   if (!info) return null;
 
