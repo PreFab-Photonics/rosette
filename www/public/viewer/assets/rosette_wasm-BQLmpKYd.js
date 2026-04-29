@@ -2002,7 +2002,7 @@ function Pe(a) {
 }
 async function Te(a) {
   if (_ !== void 0) return _;
-  a !== void 0 && (Object.getPrototypeOf(a) === Object.prototype ? { module_or_path: a } = a : console.warn("using deprecated parameters for the initialization function; pass a single object instead")), a === void 0 && (a = new URL("" + new URL("rosette_wasm_bg-CbvG6AcM.wasm", import.meta.url).href, import.meta.url));
+  a !== void 0 && (Object.getPrototypeOf(a) === Object.prototype ? { module_or_path: a } = a : console.warn("using deprecated parameters for the initialization function; pass a single object instead")), a === void 0 && (a = new URL("" + new URL("rosette_wasm_bg-9zWs4xFv.wasm", import.meta.url).href, import.meta.url));
   const e = ne();
   (typeof a == "string" || typeof Request == "function" && a instanceof Request || typeof URL == "function" && a instanceof URL) && (a = fetch(a));
   const { instance: t, module: n } = await Be(await a, e);

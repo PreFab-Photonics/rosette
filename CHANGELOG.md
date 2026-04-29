@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-29
+
+### Added
+
+- GDS AREF support: `.array()` on CellRef and Instance for efficient grid repetition
+- `Library.cell_bbox` for fully-resolved hierarchical bounding boxes (recursively expands refs and AREFs)
+- Snap-to-grid DRC check for manufacturing grid alignment (`snap_to_grid` config key)
+- Array dimension labels in viewer instance labels for AREFs
+- Docstring guidance to prefer cell refs over looped `add_polygon`
+
+### Changed
+
+- Array spacings documented and labelled as pitch (center-to-center) instead of gap; Inspector fields renamed to "Col pitch" / "Row pitch"
+- DRC width measurement accuracy improved on tapers via vertex-to-edge distance (complements ray-casting)
+- AREF selection performance: treat instance as single entity with cached bbox instead of expanding all copies
+- O(n^2) marquee selection for AREF arrays fixed to linear time
+- Build summary now uses hierarchical bbox (includes refs and paths) instead of local-only bbox
+- Array columns/rows validated to GDS COLROW INT16 limit [1, 32767]
+
+### Fixed
+
+- AREF cell reference deletion blocked by incorrect last-reference guard
+- AREF repetition lost on undo/paste (downgraded to single instance)
+- `Cell.bbox()` silently skipping paths (polygon ribbons)
+- DRC width false positives on finely-discretized curves (topological skip radius)
+
+### Removed
+
+- Bidirectional editing (app-to-source patching during `rosette serve`); serve pipeline is now one-way only
+- `_patcher.py`, `_server.py`, and `libcst` dependency
+
 ## [0.2.0] - 2026-04-17
 
 ### Added
@@ -193,7 +224,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `rosette serve` to use installed Rosette.app on macOS
 
-[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.9...v0.2.0
 [0.1.9]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.7...v0.1.8
