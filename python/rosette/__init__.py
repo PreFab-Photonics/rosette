@@ -291,9 +291,11 @@ class Instance:
             columns: Number of columns (1 to 32767).
             rows: Number of rows (1 to 32767).
             col_spacing: Column pitch - center-to-center distance between
-                adjacent copies along local +X, in um.
+                adjacent copies along local +X, in um. Negative values
+                place copies along local -X.
             row_spacing: Row pitch - center-to-center distance between
-                adjacent copies along local +Y, in um.
+                adjacent copies along local +Y, in um. Negative values
+                place copies along local -Y.
 
         Returns:
             A new Instance with array repetition set.
@@ -567,9 +569,11 @@ class CellRef:
             columns: Number of columns (1 to 32767).
             rows: Number of rows (1 to 32767).
             col_spacing: Column pitch - center-to-center distance between
-                adjacent copies along local +X, in um.
+                adjacent copies along local +X, in um. Negative values
+                place copies along local -X.
             row_spacing: Row pitch - center-to-center distance between
-                adjacent copies along local +Y, in um.
+                adjacent copies along local +Y, in um. Negative values
+                place copies along local -Y.
 
         Returns:
             A new CellRef with array repetition set.

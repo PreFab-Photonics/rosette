@@ -221,9 +221,11 @@ impl PyCellRef {
     ///     columns: Number of columns (1 to 32767; GDS COLROW INT16 limit).
     ///     rows: Number of rows (1 to 32767; GDS COLROW INT16 limit).
     ///     col_spacing: Column pitch — center-to-center distance between
-    ///         adjacent copies along local +X, in µm.
+    ///         adjacent copies along local +X, in µm. Negative values
+    ///         place copies along local −X.
     ///     row_spacing: Row pitch — center-to-center distance between
-    ///         adjacent copies along local +Y, in µm.
+    ///         adjacent copies along local +Y, in µm. Negative values
+    ///         place copies along local −Y.
     ///
     /// Note:
     ///     The Python wrappers (`CellRef.array` / `Instance.array`) validate

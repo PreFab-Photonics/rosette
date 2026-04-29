@@ -267,9 +267,11 @@ class Instance:
             columns: Number of columns (1 to 32767).
             rows: Number of rows (1 to 32767).
             col_spacing: Column pitch — center-to-center distance between
-                adjacent copies along local +X, in µm.
+                adjacent copies along local +X, in µm. Negative values
+                place copies along local -X.
             row_spacing: Row pitch — center-to-center distance between
-                adjacent copies along local +Y, in µm.
+                adjacent copies along local +Y, in µm. Negative values
+                place copies along local -Y.
 
         Raises:
             ValueError: If columns or rows is outside the range [1, 32767].
@@ -413,9 +415,11 @@ class CellRef:
             columns: Number of columns (1 to 32767).
             rows: Number of rows (1 to 32767).
             col_spacing: Column pitch — center-to-center distance between
-                adjacent copies along local +X, in µm.
+                adjacent copies along local +X, in µm. Negative values
+                place copies along local -X.
             row_spacing: Row pitch — center-to-center distance between
-                adjacent copies along local +Y, in µm.
+                adjacent copies along local +Y, in µm. Negative values
+                place copies along local -Y.
 
         Raises:
             ValueError: If columns or rows is outside the range [1, 32767].

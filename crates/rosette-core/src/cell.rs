@@ -87,6 +87,11 @@ impl Element {
 /// Pitch, not gap: to tile copies edge-to-edge in a rectangular grid,
 /// pass `col_spacing = child_bbox.width` (not `0`), and analogously
 /// for rows.
+///
+/// Negative spacings (or negative vector components) are permitted
+/// and place copies in the opposite direction along that axis, which
+/// is well-defined in GDS AREFs. For example, `col_spacing = -10.0`
+/// lays copies out along local −X rather than local +X.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Repetition {
@@ -217,6 +222,10 @@ impl CellRef {
     /// `col_spacing` and `row_spacing` are **pitches** — the
     /// center-to-center distance between adjacent copies, in the
     /// CellRef's local coordinate space. See [`Repetition`].
+    ///
+    /// Negative spacings are allowed and place copies in the opposite
+    /// direction along that axis (e.g. `col_spacing = -10.0` lays the
+    /// grid out along local −X).
     ///
     /// For hex or skewed lattices use
     /// [`array_vectors`](Self::array_vectors) instead.
@@ -1042,6 +1051,39 @@ mod tests {
         assert!((bbox.min().y - 0.0).abs() < 1e-10);
         assert!((bbox.max().x - 90.0).abs() < 1e-10);
         assert!((bbox.max().y - 50.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_repetition_accepts_negative_spacing() {
+        // Negative pitches are documented to place copies in the
+        // −X / −Y direction. copy_offset() must produce correspondingly
+        // negative displacements, and the resolved bbox must extend into
+        // the negative quadrant.
+        let rep = Repetition::new(3, 2, -10.0, -15.0);
+        // Corner copy at (col=2, row=1) → (−20, −15).
+        let off = rep.copy_offset(2, 1);
+        assert!((off.x - (-20.0)).abs() < 1e-12);
+        assert!((off.y - (-15.0)).abs() < 1e-12);
+
+        // End-to-end: same geometry as test_library_cell_bbox_aref but with
+        // negated pitches — bbox should be the mirror image about the origin.
+        let mut child = Cell::new("unit");
+        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
+
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("unit").array(5, 3, -20.0, -20.0));
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let bbox = lib.cell_bbox("top").unwrap();
+        // Columns at x-pitch −20: last origin at −80, prototype extends +10 → min x = −80, max x = 10.
+        // Rows    at y-pitch −20: last origin at −40, prototype extends +10 → min y = −40, max y = 10.
+        assert!((bbox.min().x - (-80.0)).abs() < 1e-10);
+        assert!((bbox.min().y - (-40.0)).abs() < 1e-10);
+        assert!((bbox.max().x - 10.0).abs() < 1e-10);
+        assert!((bbox.max().y - 10.0).abs() < 1e-10);
     }
 
     #[test]

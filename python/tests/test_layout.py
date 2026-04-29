@@ -807,6 +807,57 @@ class TestCellRefArray:
             assert top_read is not None
             assert top_read.ref_count() == 1
 
+    def test_array_accepts_negative_spacing(self):
+        """Negative col_spacing/row_spacing place copies along -X/-Y.
+
+        This is well-defined GDS AREF behavior and is relied on by the
+        viewer's ArrayDialog (which flips row_spacing to map screen-Y-down
+        onto world-Y-up before dispatching to the Rust core).
+
+        The test builds a 3x2 array of a 5x5 unit cell with both pitches
+        negative, round-trips it through GDS, and checks that the resolved
+        bounding box extends into the negative quadrant exactly as
+        predicted by mirroring the positive-pitch case.
+        """
+        from rosette import read_gds
+
+        child = Cell("unit")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+
+        top = Cell("top")
+        # 3 columns at pitch -10 → origins at x = 0, -10, -20
+        # 2 rows    at pitch -15 → origins at y = 0, -15
+        # Each copy spans [origin, origin + 5) on both axes.
+        top.add_ref(child.at(0, 0).array(3, 2, -10.0, -15.0))
+
+        # Check the in-memory bbox before writing.
+        lib = Library("lib")
+        lib.add_cell(child)
+        lib.add_cell(top)
+        bb = lib.cell_bbox("top")
+        assert bb is not None
+        assert bb.min.x == pytest.approx(-20.0)
+        assert bb.min.y == pytest.approx(-15.0)
+        assert bb.max.x == pytest.approx(5.0)
+        assert bb.max.y == pytest.approx(5.0)
+
+        # Round-trip through GDS and re-check the bbox.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "aref_neg.gds"
+            write_gds(path, top)
+
+            lib_read = read_gds(str(path))
+            top_read = lib_read.cell("top")
+            assert top_read is not None
+            assert top_read.ref_count() == 1  # still a single AREF
+
+            bb_read = lib_read.cell_bbox("top")
+            assert bb_read is not None
+            assert bb_read.min.x == pytest.approx(-20.0)
+            assert bb_read.min.y == pytest.approx(-15.0)
+            assert bb_read.max.x == pytest.approx(5.0)
+            assert bb_read.max.y == pytest.approx(5.0)
+
 
 class TestLibraryCellBbox:
     """Tests for Library.cell_bbox() — the fully-resolved bounding box.
