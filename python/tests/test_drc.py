@@ -512,6 +512,96 @@ snap_to_grid = 0.005
         assert "1 rules" in repr(rules)
 
 
+class TestAcuteAngle:
+    """Tests for the acute-angle DRC check."""
+
+    def test_rectangle_passes(self):
+        """Rectangle (all 90° interior angles) passes threshold 60°."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 10.0, 5.0), Layer(1, 0))
+
+        rules = DrcRules().acute_angle(Layer(1, 0), 60.0)
+        result = run_drc(cell, rules)
+        assert result.passed
+
+    def test_sharp_triangle_fails(self):
+        """Thin triangle with ~1° apex fails threshold 60°."""
+        cell = Cell("test")
+        # Apex at (50, 0), base from (0, -0.5) to (0, 0.5). Apex angle ~1.1°.
+        poly = Polygon([Point(0.0, 0.5), Point(0.0, -0.5), Point(50.0, 0.0)])
+        cell.add_polygon(poly, Layer(1, 0))
+
+        rules = DrcRules().acute_angle(Layer(1, 0), 60.0, name="ACUTE_60")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 1
+        v = result.violations[0]
+        assert v.rule_type == "acute_angle"
+        assert v.rule_name == "ACUTE_60"
+        assert v.severity == "error"
+        assert "Acute interior angle" in v.message
+
+    def test_reflex_vertex_ignored(self):
+        """L-shape has a 270° reflex vertex but no convex acute angles."""
+        cell = Cell("test")
+        cell.add_polygon(
+            Polygon(
+                [
+                    Point(0.0, 0.0),
+                    Point(10.0, 0.0),
+                    Point(10.0, 5.0),
+                    Point(5.0, 5.0),
+                    Point(5.0, 10.0),
+                    Point(0.0, 10.0),
+                ]
+            ),
+            Layer(1, 0),
+        )
+
+        rules = DrcRules().acute_angle(Layer(1, 0), 60.0)
+        result = run_drc(cell, rules)
+        assert result.passed, [v.message for v in result.violations]
+
+    def test_toml_config(self, tmp_path):
+        """acute_angle loads from TOML config."""
+        toml_content = """
+[drc.layers."1/0"]
+acute_angle = 60.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+        # Rectangle passes
+        ok_cell = Cell("ok")
+        ok_cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 1.0, 1.0), Layer(1, 0))
+        assert run_drc(ok_cell, rules).passed
+
+        # Sharp triangle fails
+        bad_cell = Cell("bad")
+        bad_cell.add_polygon(
+            Polygon([Point(0.0, 0.5), Point(0.0, -0.5), Point(50.0, 0.0)]),
+            Layer(1, 0),
+        )
+        bad_result = run_drc(bad_cell, rules)
+        assert not bad_result.passed
+        assert bad_result.violations[0].rule_type == "acute_angle"
+        assert bad_result.violations[0].rule_name == "L1/0.acute_angle"
+
+    def test_layer_accepts_int(self):
+        """acute_angle accepts int layer."""
+        rules = DrcRules().acute_angle(1, 60.0)
+        assert "1 rules" in repr(rules)
+
+    def test_layer_accepts_tuple(self):
+        """acute_angle accepts tuple layer."""
+        rules = DrcRules().acute_angle((1, 0), 60.0)
+        assert "1 rules" in repr(rules)
+
+
 class TestDrcResult:
     """Tests for DrcResult class."""
 

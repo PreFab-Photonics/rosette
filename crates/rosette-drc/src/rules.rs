@@ -70,6 +70,13 @@ pub enum Rule {
         grid_pitch: f64,
         name: Option<String>,
     },
+    /// Flag convex vertices whose interior angle is below a threshold.
+    AcuteAngle {
+        layer: Layer,
+        /// Minimum allowed interior angle (degrees). Typical: 60.0.
+        threshold_deg: f64,
+        name: Option<String>,
+    },
 }
 
 /// Builder for DRC rule sets.
@@ -263,6 +270,30 @@ impl DrcRules {
         self.rules.push(Rule::SnapToGrid {
             layer: layer.into(),
             grid_pitch,
+            name: name.map(String::from),
+        });
+        self
+    }
+
+    /// Add an acute interior angle check for polygons on a layer.
+    ///
+    /// Flags convex vertices (where the polygon turns inward) whose interior
+    /// angle is strictly less than `threshold_deg`. Reflex (concave / >180°)
+    /// vertices are not reported — they represent the polygon "poking outward"
+    /// and are not a lithography risk.
+    ///
+    /// Sharp inward corners are hard to manufacture: they round off during
+    /// lithography and can cause fracturing issues. A common threshold in
+    /// photonic PDKs is 60°.
+    pub fn acute_angle(
+        mut self,
+        layer: impl Into<Layer>,
+        threshold_deg: f64,
+        name: Option<&str>,
+    ) -> Self {
+        self.rules.push(Rule::AcuteAngle {
+            layer: layer.into(),
+            threshold_deg,
             name: name.map(String::from),
         });
         self

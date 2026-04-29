@@ -74,6 +74,7 @@ description = "Text annotations"
 #   min_area     - Minimum polygon area
 #   min_edge_length - Minimum polygon edge length
 #   angles       - Allowed edge angles in degrees (e.g., [0, 45, 90, 135])
+#   acute_angle  - Minimum allowed convex interior angle (degrees; e.g. 60)
 #   no_overlap   - Forbid overlapping polygons on same layer
 #   no_self_intersection - Forbid self-intersecting polygons
 #

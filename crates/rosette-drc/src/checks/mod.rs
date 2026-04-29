@@ -1,5 +1,6 @@
 //! DRC check implementations.
 
+mod acute_angle;
 mod angle;
 mod area;
 mod edge_length;
@@ -12,6 +13,7 @@ mod spacing;
 pub(crate) mod spatial;
 pub(crate) mod width;
 
+pub use acute_angle::check_acute_angle;
 pub use angle::check_angles;
 pub use area::check_area;
 pub use edge_length::check_edge_length;

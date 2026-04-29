@@ -403,3 +403,45 @@ A new DrcRules with the rule added.
 </PyFunctionReturn>
 
 </PyFunction>
+
+<PyFunction name={"acute_angle"} type={"(layer, threshold_deg, name=None) -> DrcRules"}>
+
+Add an acute interior angle check for a layer. Flags convex polygon vertices
+whose interior angle is strictly less than `threshold_deg`.
+
+Reflex (concave, > 180°) vertices are ignored — they represent the polygon turning
+outward and are not a lithography risk. Only inward-pointing sharp corners, which
+round off during lithography and can cause fracturing issues, are reported.
+
+A common threshold in photonic PDKs is `60.0` degrees.
+
+In TOML config, use `acute_angle = 60.0` in a per-layer section.
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer.
+
+</PyParameter>
+<PyParameter name={"threshold_deg"} type={"float"}>
+
+Minimum allowed convex interior angle in degrees. Vertices with an interior angle
+strictly less than this are reported.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>

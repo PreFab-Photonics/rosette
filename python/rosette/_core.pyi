@@ -1307,6 +1307,22 @@ class DrcRules:
         Common values: 0.001 (1 nm grid) or 0.005 (5 nm grid).
         """
         ...
+    def acute_angle(
+        self,
+        layer: Layer | int | tuple[int, int],
+        threshold_deg: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add acute interior angle check for a layer.
+
+        Flags convex polygon vertices whose interior angle is strictly less
+        than ``threshold_deg``. Reflex (concave, > 180°) vertices are ignored
+        — they represent the polygon turning outward and are not a
+        lithography risk.
+
+        Common value: 60.0 (typical photonic PDK default).
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class DrcViolation:
