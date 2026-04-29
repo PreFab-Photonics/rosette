@@ -211,7 +211,7 @@ impl PyCellRef {
         PyCellRef(self.0.clone().scale(s))
     }
 
-    /// Set array repetition (columns × rows grid with given pitch).
+    /// Set array repetition (columns × rows rectangular grid with given pitch).
     ///
     /// Creates a GDS AREF — a single compact array reference instead of
     /// many individual references. In the viewer, the entire array is
@@ -229,6 +229,9 @@ impl PyCellRef {
     ///     The Python wrappers (`CellRef.array` / `Instance.array`) validate
     ///     the [1, 32767] range before calling this binding.
     ///
+    ///     For hex packings or any skewed / non-orthogonal grid, use
+    ///     :meth:`array_vectors` instead.
+    ///
     /// Example:
     ///     ```python
     ///     ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
@@ -238,6 +241,49 @@ impl PyCellRef {
             self.0
                 .clone()
                 .array(columns, rows, col_spacing, row_spacing),
+        )
+    }
+
+    /// Set array repetition from arbitrary column and row displacement vectors.
+    ///
+    /// Lower-level constructor supporting non-orthogonal lattices — hex
+    /// packings, skewed test arrays, etc. Vectors are defined in the
+    /// CellRef's local (pre-transform) coordinate space, in µm.
+    ///
+    /// Args:
+    ///     columns: Number of columns (1 to 32767; GDS COLROW INT16 limit).
+    ///     rows: Number of rows (1 to 32767; GDS COLROW INT16 limit).
+    ///     col_vector: Column displacement — the offset between copy
+    ///         `(c, r)` and `(c+1, r)`, in µm.
+    ///     row_vector: Row displacement — the offset between copy
+    ///         `(c, r)` and `(c, r+1)`, in µm.
+    ///
+    /// Note:
+    ///     The Python wrappers validate the [1, 32767] range before
+    ///     calling this binding.
+    ///
+    /// Example:
+    ///     ```python
+    ///     # Hex packing (flat-top): adjacent rows staggered by pitch/2.
+    ///     import math
+    ///     pitch = 10.0
+    ///     ref = CellRef("unit").array_vectors(
+    ///         6, 4,
+    ///         Vector2(pitch, 0.0),
+    ///         Vector2(pitch / 2.0, pitch * math.sqrt(3.0) / 2.0),
+    ///     )
+    ///     ```
+    fn array_vectors(
+        &self,
+        columns: u16,
+        rows: u16,
+        col_vector: &PyVector2,
+        row_vector: &PyVector2,
+    ) -> Self {
+        PyCellRef(
+            self.0
+                .clone()
+                .array_vectors(columns, rows, col_vector.0, row_vector.0),
         )
     }
 

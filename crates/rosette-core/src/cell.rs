@@ -4,7 +4,7 @@
 //! enabling hierarchical layout design.
 
 use crate::error::{CellNameError, validate_cell_name};
-use crate::geometry::{BBox, Point, Polygon, Transform, offset_polygon};
+use crate::geometry::{BBox, Point, Polygon, Transform, Vector2, offset_polygon};
 use crate::layer::Layer;
 use crate::port::Port;
 
@@ -69,39 +69,64 @@ impl Element {
 
 /// Grid repetition parameters for array references (AREF).
 ///
-/// Defines an N×M rectangular grid of copies. Spacings are *pitches*
-/// (center-to-center distance between adjacent copies) expressed in
-/// the CellRef's local coordinate space — i.e. before the CellRef's
-/// own transform is applied. The CellRef's linear transform (rotation,
-/// mirror, scale) then rotates/scales those pitch vectors into the
-/// parent cell's frame.
+/// Defines an N×M grid of copies placed along two arbitrary lattice
+/// vectors. The vectors are *pitches* (center-to-center displacement
+/// between adjacent copies) expressed in the CellRef's local
+/// coordinate space — i.e. before the CellRef's own transform is
+/// applied. The CellRef's linear transform (rotation, mirror, scale)
+/// then rotates/scales those pitch vectors into the parent cell's
+/// frame.
 ///
-/// Pitch, not gap: to tile copies edge-to-edge, pass
-/// `col_spacing = child_bbox.width` (not `0`), and analogously for
-/// rows.
+/// The vectors may be arbitrary — they need not be orthogonal, allowing
+/// hex packings or skewed test arrays. For axis-aligned rectangular
+/// grids (the common case), use [`Repetition::new`] with scalar
+/// spacings; it is a convenience over [`Repetition::new_vectors`] that
+/// builds `col_vector = (col_spacing, 0)` and
+/// `row_vector = (0, row_spacing)`.
+///
+/// Pitch, not gap: to tile copies edge-to-edge in a rectangular grid,
+/// pass `col_spacing = child_bbox.width` (not `0`), and analogously
+/// for rows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Repetition {
-    /// Number of columns (copies along the column direction). Must be >= 1.
+    /// Number of columns (copies along `col_vector`). Must be >= 1.
     pub columns: u16,
-    /// Number of rows (copies along the row direction). Must be >= 1.
+    /// Number of rows (copies along `row_vector`). Must be >= 1.
     pub rows: u16,
-    /// Column pitch: center-to-center distance between adjacent copies
-    /// along the local +X direction.
-    pub col_spacing: f64,
-    /// Row pitch: center-to-center distance between adjacent copies
-    /// along the local +Y direction.
-    pub row_spacing: f64,
+    /// Column displacement vector: local-space pitch between adjacent
+    /// copies along the column direction.
+    pub col_vector: Vector2,
+    /// Row displacement vector: local-space pitch between adjacent
+    /// copies along the row direction.
+    pub row_vector: Vector2,
 }
 
 impl Repetition {
-    /// Create a new rectangular grid repetition.
+    /// Create a new axis-aligned rectangular grid repetition.
+    ///
+    /// Equivalent to
+    /// [`new_vectors`](Self::new_vectors)`(columns, rows,
+    /// Vector2::new(col_spacing, 0.0), Vector2::new(0.0, row_spacing))`.
     pub fn new(columns: u16, rows: u16, col_spacing: f64, row_spacing: f64) -> Self {
+        Self::new_vectors(
+            columns,
+            rows,
+            Vector2::new(col_spacing, 0.0),
+            Vector2::new(0.0, row_spacing),
+        )
+    }
+
+    /// Create a new grid repetition from arbitrary column and row vectors.
+    ///
+    /// Use this for hex packings or any skewed / non-orthogonal lattice.
+    /// Vectors are defined in the CellRef's local (pre-transform) space.
+    pub fn new_vectors(columns: u16, rows: u16, col_vector: Vector2, row_vector: Vector2) -> Self {
         Self {
             columns: columns.max(1),
             rows: rows.max(1),
-            col_spacing,
-            row_spacing,
+            col_vector,
+            row_vector,
         }
     }
 
@@ -113,6 +138,12 @@ impl Repetition {
     /// Total number of copies in the array.
     pub fn count(&self) -> usize {
         self.columns as usize * self.rows as usize
+    }
+
+    /// Offset of the copy at grid position `(col, row)` in the
+    /// CellRef's local coordinate space.
+    pub fn copy_offset(&self, col: u16, row: u16) -> Vector2 {
+        self.col_vector * col as f64 + self.row_vector * row as f64
     }
 }
 
@@ -180,13 +211,36 @@ impl CellRef {
         self
     }
 
-    /// Set array repetition parameters (GDS AREF).
+    /// Set array repetition parameters (GDS AREF) as an axis-aligned
+    /// rectangular grid.
     ///
     /// `col_spacing` and `row_spacing` are **pitches** — the
     /// center-to-center distance between adjacent copies, in the
     /// CellRef's local coordinate space. See [`Repetition`].
+    ///
+    /// For hex or skewed lattices use
+    /// [`array_vectors`](Self::array_vectors) instead.
     pub fn array(mut self, columns: u16, rows: u16, col_spacing: f64, row_spacing: f64) -> Self {
         self.repetition = Some(Repetition::new(columns, rows, col_spacing, row_spacing));
+        self
+    }
+
+    /// Set array repetition parameters (GDS AREF) from arbitrary column
+    /// and row displacement vectors.
+    ///
+    /// This is the lower-level constructor that allows non-orthogonal
+    /// (e.g. hex) lattices. Vectors are defined in the CellRef's local
+    /// (pre-transform) space. See [`Repetition`].
+    pub fn array_vectors(
+        mut self,
+        columns: u16,
+        rows: u16,
+        col_vector: Vector2,
+        row_vector: Vector2,
+    ) -> Self {
+        self.repetition = Some(Repetition::new_vectors(
+            columns, rows, col_vector, row_vector,
+        ));
         self
     }
 }
@@ -837,9 +891,12 @@ fn cell_bbox_recursive(
                 let mut ts = Vec::with_capacity(rep.count());
                 for row in 0..rep.rows {
                     for col in 0..rep.columns {
-                        let dx = col as f64 * rep.col_spacing;
-                        let dy = row as f64 * rep.row_spacing;
-                        ts.push(cell_ref.transform.then(&Transform::translate(dx, dy)));
+                        let offset = rep.copy_offset(col, row);
+                        ts.push(
+                            cell_ref
+                                .transform
+                                .then(&Transform::translate(offset.x, offset.y)),
+                        );
                     }
                 }
                 ts
@@ -1111,6 +1168,64 @@ mod tests {
         );
         assert!(
             (bbox.max().y - 15.0).abs() < 1e-9,
+            "max.y = {}",
+            bbox.max().y
+        );
+    }
+
+    #[test]
+    fn test_hex_packed_aref_bbox() {
+        // ROS-512: verify that a hex-packed AREF (non-orthogonal lattice
+        // vectors) flattens to the expected bounding box.
+        //
+        // Setup: 3×2 grid of 1×1 unit cells with flat-top hex packing.
+        //   col_vector = (pitch, 0)
+        //   row_vector = (pitch/2, pitch * sqrt(3)/2)
+        // Copies at grid (c, r) land at c * col + r * row:
+        //   (0,0)→(0,        0      )
+        //   (1,0)→(10,       0      )
+        //   (2,0)→(20,       0      )
+        //   (0,1)→(5,        8.6603 )
+        //   (1,1)→(15,       8.6603 )
+        //   (2,1)→(25,       8.6603 )
+        // Each unit cell occupies (0,0)-(1,1), so the union bbox is
+        //   (0, 0) .. (26, 9.6603).
+        let mut unit = Cell::new("unit");
+        unit.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), 1);
+
+        let pitch: f64 = 10.0;
+        let row_y = pitch * (3.0_f64).sqrt() / 2.0;
+
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("unit").array_vectors(
+            3,
+            2,
+            Vector2::new(pitch, 0.0),
+            Vector2::new(pitch / 2.0, row_y),
+        ));
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(unit).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let bbox = lib.cell_bbox("top").unwrap();
+        assert!(
+            (bbox.min().x - 0.0).abs() < 1e-10,
+            "min.x = {}",
+            bbox.min().x
+        );
+        assert!(
+            (bbox.min().y - 0.0).abs() < 1e-10,
+            "min.y = {}",
+            bbox.min().y
+        );
+        assert!(
+            (bbox.max().x - (2.0 * pitch + pitch / 2.0 + 1.0)).abs() < 1e-10,
+            "max.x = {}",
+            bbox.max().x
+        );
+        assert!(
+            (bbox.max().y - (row_y + 1.0)).abs() < 1e-10,
             "max.y = {}",
             bbox.max().y
         );

@@ -90,6 +90,27 @@ _DFM_DEFAULT_SIGMA = 0.08
 _GDS_ARRAY_MAX = 32767
 
 
+def _apply_repetition(ref, repetition):
+    """Apply an `Instance._repetition` 6-tuple to a CellRef-like object.
+
+    ``repetition`` is ``(columns, rows, col_x, col_y, row_x, row_y)``.  If
+    the lattice is axis-aligned (``col_y == 0`` and ``row_x == 0``) we use
+    the scalar ``.array()`` path so the GDS round-trip stays bit-identical
+    to pre-ROS-512 behaviour for the common rectangular case; otherwise
+    we dispatch to ``.array_vectors()`` so hex / skewed lattices are
+    preserved exactly.
+    """
+    columns, rows, col_x, col_y, row_x, row_y = repetition
+    if col_y == 0.0 and row_x == 0.0:
+        return ref.array(columns, rows, col_x, row_y)
+    return ref.array_vectors(
+        columns,
+        rows,
+        Vector2(col_x, col_y),
+        Vector2(row_x, row_y),
+    )
+
+
 def _validate_array_dims(columns: int, rows: int) -> None:
     """Validate array `columns` and `rows` against the GDS COLROW INT16 limit.
 
@@ -158,17 +179,29 @@ class Instance:
         self,
         cell: Cell,
         transform: Transform | None = None,
-        repetition: tuple[int, int, float, float] | None = None,
+        repetition: tuple[int, int, float, float]
+        | tuple[int, int, float, float, float, float]
+        | None = None,
     ) -> None:
         """Create an Instance from a Cell and optional transform.
 
         Args:
             cell: The cell definition
             transform: Optional transform (defaults to identity)
-            repetition: Optional (columns, rows, col_spacing, row_spacing) tuple
+            repetition: Optional AREF lattice, either
+                ``(columns, rows, col_spacing, row_spacing)`` for an
+                axis-aligned rectangular grid, or
+                ``(columns, rows, col_x, col_y, row_x, row_y)`` for an
+                arbitrary (possibly skewed/hex) grid, in local
+                (pre-transform) coordinates, in um.
         """
         self._cell = cell
         self._transform = transform if transform is not None else Transform.identity()
+        # Normalize to the internal 6-tuple form
+        # (columns, rows, col_x, col_y, row_x, row_y).
+        if repetition is not None and len(repetition) == 4:
+            cols, rws, cs, rs = repetition
+            repetition = (cols, rws, cs, 0.0, 0.0, rs)
         self._repetition = repetition
 
     @property
@@ -248,7 +281,7 @@ class Instance:
         col_spacing: float,
         row_spacing: float,
     ) -> Instance:
-        """Set array repetition (columns x rows grid with given pitch).
+        """Set array repetition (columns x rows rectangular grid with given pitch).
 
         Creates a GDS AREF - a single compact array reference instead of
         many individual references. In the viewer, the entire array is
@@ -269,12 +302,65 @@ class Instance:
             ValueError: If columns or rows is outside the range [1, 32767].
                 The upper bound is the GDS COLROW INT16 limit.
 
+        Note:
+            For hex packings or any skewed / non-orthogonal grid, use
+            :meth:`array_vectors` instead.
+
         Example:
             arr = unit_cell.at(0, 0).array(10, 5, 20.0, 15.0)
             top.add_ref(arr)  # Single AREF, not 50 individual refs
         """
         _validate_array_dims(columns, rows)
-        return Instance(self._cell, self._transform, (columns, rows, col_spacing, row_spacing))
+        return Instance(
+            self._cell,
+            self._transform,
+            (columns, rows, col_spacing, 0.0, 0.0, row_spacing),
+        )
+
+    def array_vectors(
+        self,
+        columns: int,
+        rows: int,
+        col_vector: Vector2,
+        row_vector: Vector2,
+    ) -> Instance:
+        """Set array repetition from arbitrary column and row displacement vectors.
+
+        Lower-level constructor supporting non-orthogonal lattices - hex
+        packings, skewed test arrays, etc. Vectors are defined in the
+        instance's local (pre-transform) coordinate space, in um.
+
+        Args:
+            columns: Number of columns (1 to 32767).
+            rows: Number of rows (1 to 32767).
+            col_vector: Column displacement - the offset between copy
+                ``(c, r)`` and ``(c+1, r)``, in um.
+            row_vector: Row displacement - the offset between copy
+                ``(c, r)`` and ``(c, r+1)``, in um.
+
+        Returns:
+            A new Instance with array repetition set.
+
+        Raises:
+            ValueError: If columns or rows is outside the range [1, 32767].
+
+        Example:
+            import math
+            pitch = 10.0
+            # Hex packing (flat-top): adjacent rows staggered by pitch/2.
+            arr = unit_cell.array_vectors(
+                6, 4,
+                Vector2(pitch, 0.0),
+                Vector2(pitch / 2.0, pitch * math.sqrt(3.0) / 2.0),
+            )
+            top.add_ref(arr)
+        """
+        _validate_array_dims(columns, rows)
+        return Instance(
+            self._cell,
+            self._transform,
+            (columns, rows, col_vector.x, col_vector.y, row_vector.x, row_vector.y),
+        )
 
     def port(self, name: str) -> Port:
         """Get a transformed port from this instance.
@@ -333,7 +419,7 @@ class Instance:
         ref = ref.at(pos.x, pos.y)
         # Propagate array repetition if set
         if self._repetition is not None:
-            ref = ref.array(*self._repetition)
+            ref = _apply_repetition(ref, self._repetition)
         return ref
 
     def _decompose_transform(self) -> tuple[float, bool]:
@@ -471,7 +557,7 @@ class CellRef:
         col_spacing: float,
         row_spacing: float,
     ) -> CellRef:
-        """Set array repetition (columns x rows grid with given pitch).
+        """Set array repetition (columns x rows rectangular grid with given pitch).
 
         Creates a GDS AREF - a single compact array reference instead of
         many individual references. In the viewer, the entire array is
@@ -492,12 +578,56 @@ class CellRef:
             ValueError: If columns or rows is outside the range [1, 32767].
                 The upper bound is the GDS COLROW INT16 limit.
 
+        Note:
+            For hex packings or any skewed / non-orthogonal grid, use
+            :meth:`array_vectors` instead.
+
         Example:
             ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
             top.add_ref(ref)  # Single AREF, not 50 individual refs
         """
         _validate_array_dims(columns, rows)
         return CellRef._from_inner(self._inner.array(columns, rows, col_spacing, row_spacing))
+
+    def array_vectors(
+        self,
+        columns: int,
+        rows: int,
+        col_vector: Vector2,
+        row_vector: Vector2,
+    ) -> CellRef:
+        """Set array repetition from arbitrary column and row displacement vectors.
+
+        Lower-level constructor supporting non-orthogonal lattices - hex
+        packings, skewed test arrays, etc. Vectors are defined in the
+        CellRef's local (pre-transform) coordinate space, in um.
+
+        Args:
+            columns: Number of columns (1 to 32767).
+            rows: Number of rows (1 to 32767).
+            col_vector: Column displacement - the offset between copy
+                ``(c, r)`` and ``(c+1, r)``, in um.
+            row_vector: Row displacement - the offset between copy
+                ``(c, r)`` and ``(c, r+1)``, in um.
+
+        Returns:
+            A new CellRef with array repetition set.
+
+        Raises:
+            ValueError: If columns or rows is outside the range [1, 32767].
+
+        Example:
+            import math
+            pitch = 10.0
+            # Hex packing (flat-top): adjacent rows staggered by pitch/2.
+            ref = CellRef("unit").array_vectors(
+                6, 4,
+                Vector2(pitch, 0.0),
+                Vector2(pitch / 2.0, pitch * math.sqrt(3.0) / 2.0),
+            )
+        """
+        _validate_array_dims(columns, rows)
+        return CellRef._from_inner(self._inner.array_vectors(columns, rows, col_vector, row_vector))
 
     def port(self, name: str, cell: Cell | _Cell) -> Port:
         """Get a transformed port from this cell reference.
@@ -795,7 +925,7 @@ class Cell:
             rust_ref = rust_ref.at(pos.x, pos.y)
             # Propagate array repetition if set
             if instance._repetition is not None:
-                rust_ref = rust_ref.array(*instance._repetition)
+                rust_ref = _apply_repetition(rust_ref, instance._repetition)
             self._inner.add_ref(rust_ref)
         else:
             # Raw CellRef - issue warning about untracked cell

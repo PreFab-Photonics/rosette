@@ -185,17 +185,20 @@ fn flatten_cell_recursive(
                         None => vec![cell_ref.transform],
                         Some(rep) if rep.is_single() => vec![cell_ref.transform],
                         Some(rep) => {
-                            // AREF pitch is defined in the CellRef's local space
-                            // (pre-transform), matching GDS writer semantics. Apply
-                            // the translation BEFORE the CellRef transform so that a
-                            // rotated/mirrored/scaled AREF's copies are placed
-                            // along the transformed lattice vectors.
+                            // AREF pitch vectors are defined in the CellRef's local
+                            // space (pre-transform), matching GDS writer semantics.
+                            // Apply the translation BEFORE the CellRef transform so
+                            // that a rotated/mirrored/scaled AREF's copies are
+                            // placed along the transformed lattice vectors.
                             let mut ts = Vec::with_capacity(rep.count());
                             for row in 0..rep.rows {
                                 for col in 0..rep.columns {
-                                    let dx = col as f64 * rep.col_spacing;
-                                    let dy = row as f64 * rep.row_spacing;
-                                    ts.push(cell_ref.transform.then(&Transform::translate(dx, dy)));
+                                    let offset = rep.copy_offset(col, row);
+                                    ts.push(
+                                        cell_ref
+                                            .transform
+                                            .then(&Transform::translate(offset.x, offset.y)),
+                                    );
                                 }
                             }
                             ts

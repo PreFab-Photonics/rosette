@@ -325,12 +325,27 @@ export class WasmLibrary {
      */
     get_cell_preview_polygons(cell_name: string, x: number, y: number): any;
     /**
-     * Get the array repetition parameters for a CellRef instance.
+     * Get the array repetition parameters for a CellRef instance
+     * as scalar column/row pitches.
      *
      * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
-     * Returns `[columns, rows, col_spacing, row_spacing]` or None if not arrayed.
+     * Returns `[columns, rows, col_spacing, row_spacing]` or None if not
+     * arrayed. For non-axis-aligned (skewed/hex) AREFs this collapses each
+     * lattice vector to its magnitude — callers that care about skew should
+     * use [`WasmLibrary::get_cell_ref_array_vectors`] instead.
      */
     get_cell_ref_array(id: string): Float64Array | undefined;
+    /**
+     * Get the full array repetition parameters for a CellRef instance,
+     * including skewed/non-orthogonal column and row displacement vectors.
+     *
+     * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+     * Returns `[columns, rows, col_x, col_y, row_x, row_y]` where
+     * `(col_x, col_y)` is the column displacement vector and
+     * `(row_x, row_y)` is the row displacement vector, both in the
+     * CellRef's local (pre-transform) coordinate space.
+     */
+    get_cell_ref_array_vectors(id: string): Float64Array | undefined;
     /**
      * Get CellRef information for a given UUID.
      *
@@ -572,14 +587,39 @@ export class WasmLibrary {
      */
     set_cell_origin(x: number, y: number): boolean;
     /**
-     * Set the array repetition parameters on a CellRef instance.
+     * Set the array repetition parameters on a CellRef instance as an
+     * axis-aligned rectangular grid.
      *
      * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
      * If columns and rows are both 1, removes the array (reverts to single instance).
      *
+     * # Skew preservation
+     *
+     * If the existing AREF has a non-orthogonal (skewed/hex) lattice,
+     * this method only updates `columns` and `rows` and leaves the
+     * existing lattice vectors intact — `col_spacing` and `row_spacing`
+     * are **ignored**. This prevents a callers that still speak the
+     * scalar API from silently collapsing a hex lattice to rectangular
+     * on every edit. For skewed/hex lattices use
+     * [`WasmLibrary::set_cell_ref_array_vectors`] to update the vectors
+     * themselves.
+     *
      * Returns true if the array was set, false otherwise.
      */
     set_cell_ref_array(id: string, columns: number, rows: number, col_spacing: number, row_spacing: number): boolean;
+    /**
+     * Set the array repetition parameters on a CellRef instance from full
+     * column and row displacement vectors (supports skewed/hex lattices).
+     *
+     * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+     * `(col_x, col_y)` is the column displacement vector, `(row_x, row_y)`
+     * is the row displacement vector, both in the CellRef's local
+     * (pre-transform) coordinate space. If columns and rows are both 1,
+     * removes the array (reverts to single instance).
+     *
+     * Returns true if the array was set, false otherwise.
+     */
+    set_cell_ref_array_vectors(id: string, columns: number, rows: number, col_x: number, col_y: number, row_x: number, row_y: number): boolean;
     /**
      * Set the full affine transform on a CellRef instance.
      *
@@ -1015,6 +1055,7 @@ export interface InitOutput {
     readonly wasmlibrary_get_cell_path_length: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_cell_preview_polygons: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly wasmlibrary_get_cell_ref_array: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_ref_array_vectors: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_get_cell_ref_info: (a: number, b: number, c: number) => number;
     readonly wasmlibrary_get_cell_ref_parents: (a: number, b: number, c: number) => any;
     readonly wasmlibrary_get_cell_tree: (a: number) => any;
@@ -1049,6 +1090,7 @@ export interface InitOutput {
     readonly wasmlibrary_set_cell_image_bounds: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmlibrary_set_cell_origin: (a: number, b: number, c: number) => number;
     readonly wasmlibrary_set_cell_ref_array: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly wasmlibrary_set_cell_ref_array_vectors: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
     readonly wasmlibrary_set_cell_ref_transform: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly wasmlibrary_set_cell_visibility: (a: number, b: number, c: number, d: number) => void;
     readonly wasmlibrary_set_hierarchy_depth_limit: (a: number, b: number) => void;

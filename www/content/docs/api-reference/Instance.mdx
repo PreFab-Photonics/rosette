@@ -186,11 +186,14 @@ A new Instance with updated transform.
 
 <PyFunction name={"array"} type={"(columns, rows, col_spacing, row_spacing) -> Instance"}>
 
-Set array repetition (columns × rows grid with given pitch).
+Set array repetition (columns × rows rectangular grid with given pitch).
 
 Creates a GDS AREF — a single compact array reference instead of
 many individual references. In the viewer, the entire array is
 selected and moved as one object.
+
+For hex packings or any skewed / non-orthogonal grid, use
+`array_vectors` instead.
 
 <Callout title={"Example"} type={"example"}>
 
@@ -224,6 +227,68 @@ along local +X, in µm.
 
 Row pitch — center-to-center distance between adjacent copies
 along local +Y, in µm.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Instance"}>
+
+A new Instance with array repetition set.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"array_vectors"} type={"(columns, rows, col_vector, row_vector) -> Instance"}>
+
+Set array repetition from arbitrary column and row displacement
+vectors.
+
+Lower-level constructor supporting non-orthogonal lattices — hex
+packings, skewed test arrays, etc. Vectors are defined in the
+instance's local (pre-transform) coordinate space, in µm.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+import math
+from rosette import Vector2
+
+# Hex packing (flat-top): adjacent rows staggered by pitch/2.
+pitch = 10.0
+arr = unit_cell.array_vectors(
+    6, 4,
+    Vector2(pitch, 0.0),
+    Vector2(pitch / 2.0, pitch * math.sqrt(3.0) / 2.0),
+)
+top.add_ref(arr)
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"columns"} type={"int"}>
+
+Number of columns (1 to 32767).
+
+</PyParameter>
+<PyParameter name={"rows"} type={"int"}>
+
+Number of rows (1 to 32767).
+
+</PyParameter>
+<PyParameter name={"col_vector"} type={"Vector2"}>
+
+Column displacement — the offset between copy `(c, r)` and
+`(c+1, r)`, in µm.
+
+</PyParameter>
+<PyParameter name={"row_vector"} type={"Vector2"}>
+
+Row displacement — the offset between copy `(c, r)` and
+`(c, r+1)`, in µm.
 
 </PyParameter>
 

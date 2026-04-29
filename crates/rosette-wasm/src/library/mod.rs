@@ -27,7 +27,7 @@ type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4], u32);
 /// the transformed lattice vectors.
 ///
 /// The offset for copy (col, row) is:
-///   `base.then(&Transform::translate(col * col_spacing, row * row_spacing))`
+///   `let v = rep.copy_offset(col, row); base.then(&Transform::translate(v.x, v.y))`
 fn array_transforms(cell_ref: &CellRef) -> Vec<Transform> {
     match &cell_ref.repetition {
         None => vec![cell_ref.transform],
@@ -36,9 +36,8 @@ fn array_transforms(cell_ref: &CellRef) -> Vec<Transform> {
             let mut transforms = Vec::with_capacity(rep.count());
             for row in 0..rep.rows {
                 for col in 0..rep.columns {
-                    let dx = col as f64 * rep.col_spacing;
-                    let dy = row as f64 * rep.row_spacing;
-                    let offset = cell_ref.transform.then(&Transform::translate(dx, dy));
+                    let v = rep.copy_offset(col, row);
+                    let offset = cell_ref.transform.then(&Transform::translate(v.x, v.y));
                     transforms.push(offset);
                 }
             }
@@ -2216,11 +2215,31 @@ impl WasmLibrary {
         false
     }
 
-    /// Get the array repetition parameters for a CellRef instance.
+    /// Get the array repetition parameters for a CellRef instance
+    /// as scalar column/row pitches.
     ///
     /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
-    /// Returns `[columns, rows, col_spacing, row_spacing]` or None if not arrayed.
+    /// Returns `[columns, rows, col_spacing, row_spacing]` or None if not
+    /// arrayed. For non-axis-aligned (skewed/hex) AREFs this collapses each
+    /// lattice vector to its magnitude — callers that care about skew should
+    /// use [`WasmLibrary::get_cell_ref_array_vectors`] instead.
     pub fn get_cell_ref_array(&self, id: &str) -> Option<Vec<f64>> {
+        let v = self.get_cell_ref_array_vectors(id)?;
+        // v = [columns, rows, col_x, col_y, row_x, row_y]
+        let col_spacing = (v[2] * v[2] + v[3] * v[3]).sqrt();
+        let row_spacing = (v[4] * v[4] + v[5] * v[5]).sqrt();
+        Some(vec![v[0], v[1], col_spacing, row_spacing])
+    }
+
+    /// Get the full array repetition parameters for a CellRef instance,
+    /// including skewed/non-orthogonal column and row displacement vectors.
+    ///
+    /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+    /// Returns `[columns, rows, col_x, col_y, row_x, row_y]` where
+    /// `(col_x, col_y)` is the column displacement vector and
+    /// `(row_x, row_y)` is the row displacement vector, both in the
+    /// CellRef's local (pre-transform) coordinate space.
+    pub fn get_cell_ref_array_vectors(&self, id: &str) -> Option<Vec<f64>> {
         // Resolve element index from either synthetic ref UUID or real UUID
         let (cell_name, elem_idx) = if let Some(idx) = parse_ref_uuid_element_index(id) {
             (self.active_cell.as_ref()?.clone(), idx)
@@ -2237,17 +2256,31 @@ impl WasmLibrary {
             return Some(vec![
                 rep.columns as f64,
                 rep.rows as f64,
-                rep.col_spacing,
-                rep.row_spacing,
+                rep.col_vector.x,
+                rep.col_vector.y,
+                rep.row_vector.x,
+                rep.row_vector.y,
             ]);
         }
         None
     }
 
-    /// Set the array repetition parameters on a CellRef instance.
+    /// Set the array repetition parameters on a CellRef instance as an
+    /// axis-aligned rectangular grid.
     ///
     /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
     /// If columns and rows are both 1, removes the array (reverts to single instance).
+    ///
+    /// # Skew preservation
+    ///
+    /// If the existing AREF has a non-orthogonal (skewed/hex) lattice,
+    /// this method only updates `columns` and `rows` and leaves the
+    /// existing lattice vectors intact — `col_spacing` and `row_spacing`
+    /// are **ignored**. This prevents a callers that still speak the
+    /// scalar API from silently collapsing a hex lattice to rectangular
+    /// on every edit. For skewed/hex lattices use
+    /// [`WasmLibrary::set_cell_ref_array_vectors`] to update the vectors
+    /// themselves.
     ///
     /// Returns true if the array was set, false otherwise.
     pub fn set_cell_ref_array(
@@ -2257,6 +2290,64 @@ impl WasmLibrary {
         rows: u16,
         col_spacing: f64,
         row_spacing: f64,
+    ) -> bool {
+        let (cell_name, elem_idx) = if let Some(idx) = parse_ref_uuid_element_index(id) {
+            match &self.active_cell {
+                Some(name) => (name.clone(), idx),
+                None => return false,
+            }
+        } else if let Some(elem_ref) = self.element_refs.get(id) {
+            (elem_ref.cell_name.clone(), elem_ref.element_index)
+        } else {
+            return false;
+        };
+
+        if let Some(cell) = self.library.cell_mut(&cell_name)
+            && let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx)
+        {
+            if columns <= 1 && rows <= 1 {
+                cell_ref.repetition = None;
+            } else if let Some(existing) = cell_ref.repetition
+                && (existing.col_vector.y != 0.0 || existing.row_vector.x != 0.0)
+            {
+                // Existing AREF is skewed: preserve the lattice vectors
+                // and only update the counts.
+                cell_ref.repetition = Some(Repetition::new_vectors(
+                    columns,
+                    rows,
+                    existing.col_vector,
+                    existing.row_vector,
+                ));
+            } else {
+                cell_ref.repetition =
+                    Some(Repetition::new(columns, rows, col_spacing, row_spacing));
+            }
+            self.mark_dirty();
+            return true;
+        }
+        false
+    }
+
+    /// Set the array repetition parameters on a CellRef instance from full
+    /// column and row displacement vectors (supports skewed/hex lattices).
+    ///
+    /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+    /// `(col_x, col_y)` is the column displacement vector, `(row_x, row_y)`
+    /// is the row displacement vector, both in the CellRef's local
+    /// (pre-transform) coordinate space. If columns and rows are both 1,
+    /// removes the array (reverts to single instance).
+    ///
+    /// Returns true if the array was set, false otherwise.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_cell_ref_array_vectors(
+        &mut self,
+        id: &str,
+        columns: u16,
+        rows: u16,
+        col_x: f64,
+        col_y: f64,
+        row_x: f64,
+        row_y: f64,
     ) -> bool {
         // Resolve element index from either synthetic ref UUID or real UUID
         let (cell_name, elem_idx) = if let Some(idx) = parse_ref_uuid_element_index(id) {
@@ -2276,8 +2367,12 @@ impl WasmLibrary {
             if columns <= 1 && rows <= 1 {
                 cell_ref.repetition = None;
             } else {
-                cell_ref.repetition =
-                    Some(Repetition::new(columns, rows, col_spacing, row_spacing));
+                cell_ref.repetition = Some(Repetition::new_vectors(
+                    columns,
+                    rows,
+                    Vector2::new(col_x, col_y),
+                    Vector2::new(row_x, row_y),
+                ));
             }
             self.mark_dirty();
             return true;
@@ -2848,13 +2943,14 @@ impl WasmLibrary {
                         // This correctly converts translation, rotation, and mirror.
                         cell_ref.transform = flip.then(&cell_ref.transform).then(&flip_inv);
 
-                        // Scale repetition pitch (in the CellRef's local
-                        // pre-transform space, matching GDS AREF semantics).
-                        // col_spacing is X-direction (just scale), row_spacing
-                        // is Y-direction (scale + negate for Y-flip).
+                        // Transform repetition lattice vectors (in the CellRef's
+                        // local pre-transform space, matching GDS AREF semantics):
+                        // scale X, scale+negate Y, for each vector component.
                         if let Some(ref mut rep) = cell_ref.repetition {
-                            rep.col_spacing *= s;
-                            rep.row_spacing *= -s;
+                            rep.col_vector =
+                                Vector2::new(rep.col_vector.x * s, -rep.col_vector.y * s);
+                            rep.row_vector =
+                                Vector2::new(rep.row_vector.x * s, -rep.row_vector.y * s);
                         }
                     }
                     Element::Text {
@@ -2953,9 +3049,14 @@ impl WasmLibrary {
                         // Inverse conjugation: T_original = S^{-1} * T_stored * S
                         cell_ref.transform = inv_flip.then(&cell_ref.transform).then(&flip);
 
+                        // Inverse of the Y-flip + unit-scale applied on import:
+                        // scale X by `inv`, scale+negate Y. Applied per-component
+                        // of each lattice vector (supports skewed/hex AREFs).
                         if let Some(ref mut rep) = cell_ref.repetition {
-                            rep.col_spacing *= inv;
-                            rep.row_spacing *= -inv;
+                            rep.col_vector =
+                                Vector2::new(rep.col_vector.x * inv, -rep.col_vector.y * inv);
+                            rep.row_vector =
+                                Vector2::new(rep.row_vector.x * inv, -rep.row_vector.y * inv);
                         }
                     }
                     Element::Text {
@@ -3018,9 +3119,14 @@ impl WasmLibrary {
                         // Inverse conjugation: T_original = S^{-1} * T_stored * S
                         cell_ref.transform = inv_flip.then(&cell_ref.transform).then(&flip);
 
+                        // Inverse of the Y-flip + unit-scale applied on import:
+                        // scale X by `inv`, scale+negate Y. Applied per-component
+                        // of each lattice vector (supports skewed/hex AREFs).
                         if let Some(ref mut rep) = cell_ref.repetition {
-                            rep.col_spacing *= inv;
-                            rep.row_spacing *= -inv;
+                            rep.col_vector =
+                                Vector2::new(rep.col_vector.x * inv, -rep.col_vector.y * inv);
+                            rep.row_vector =
+                                Vector2::new(rep.row_vector.x * inv, -rep.row_vector.y * inv);
                         }
                     }
                     Element::Text {

@@ -9,6 +9,7 @@ use std::path::Path;
 use byteorder::{BigEndian, ReadBytesExt};
 
 use rosette_core::cell::{CellRef, PathEndType, Repetition};
+use rosette_core::geometry::Vector2;
 use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform};
 
 use super::constants::*;
@@ -383,36 +384,46 @@ impl<'a> GdsReader<'a> {
         let reflected = has_strans && (strans & 0x8000) != 0;
         let transform = build_transform(origin, angle_deg, mag, reflected);
 
-        // Recover spacing in local coordinates.
-        // The writer computes:
-        //   col_end = origin + (t.a * col_spacing) * cols, origin.y + (t.c * col_spacing) * cols
-        //   row_end = origin + (t.b * row_spacing) * rows, origin.y + (t.d * row_spacing) * rows
-        //
-        // We need to invert: go from world-space vectors back to local spacing.
-        // World-space column vector (total span):
-        let col_total_x = col_end.x - origin.x;
-        let col_total_y = col_end.y - origin.y;
-        let row_total_x = row_end.x - origin.x;
-        let row_total_y = row_end.y - origin.y;
-
-        // Per-instance world-space vectors:
+        // Recover per-instance world-space lattice vectors from the three
+        // XY points:
+        //   col_world_vec = (col_end - origin) / columns
+        //   row_world_vec = (row_end - origin) / rows
         let cols = columns.max(1) as f64;
         let rows_f = rows.max(1) as f64;
+        let col_world_x = (col_end.x - origin.x) / cols;
+        let col_world_y = (col_end.y - origin.y) / cols;
+        let row_world_x = (row_end.x - origin.x) / rows_f;
+        let row_world_y = (row_end.y - origin.y) / rows_f;
 
-        let col_vec_x = col_total_x / cols;
-        let col_vec_y = col_total_y / cols;
-        let row_vec_x = row_total_x / rows_f;
-        let row_vec_y = row_total_y / rows_f;
+        // Convert world-space vectors into the CellRef's local (pre-transform)
+        // frame. The writer maps local vector `v` through the linear part of
+        // the CellRef transform `[a,b;c,d]` to produce the world vector. So
+        // we invert the 2x2 linear part here. This preserves arbitrary
+        // (non-orthogonal, hex, skewed) lattice vectors on round-trip,
+        // instead of the old behaviour of collapsing to scalar magnitudes
+        // and losing any off-axis component.
+        //
+        // Determinant == 0 would indicate a degenerate transform; fall
+        // back to the world-space vectors (equivalent to identity).
+        let det = transform.a * transform.d - transform.b * transform.c;
+        let (col_local_x, col_local_y, row_local_x, row_local_y) = if det.abs() > 1e-18 {
+            let inv_det = 1.0 / det;
+            // [a b; c d]^{-1} = (1/det) * [ d -b; -c  a ]
+            let col_lx = inv_det * (transform.d * col_world_x - transform.b * col_world_y);
+            let col_ly = inv_det * (-transform.c * col_world_x + transform.a * col_world_y);
+            let row_lx = inv_det * (transform.d * row_world_x - transform.b * row_world_y);
+            let row_ly = inv_det * (-transform.c * row_world_x + transform.a * row_world_y);
+            (col_lx, col_ly, row_lx, row_ly)
+        } else {
+            (col_world_x, col_world_y, row_world_x, row_world_y)
+        };
 
-        // The writer maps local (col_spacing, 0) through [a,b;c,d] to get the
-        // world-space column vector, and local (0, row_spacing) to get the row vector.
-        // So: col_vec = (a * cs, c * cs) => cs = col_vec / (a, c)
-        //     row_vec = (b * rs, d * rs) => rs = row_vec / (b, d)
-        // We use the magnitude since spacing is a scalar.
-        let col_spacing = (col_vec_x * col_vec_x + col_vec_y * col_vec_y).sqrt();
-        let row_spacing = (row_vec_x * row_vec_x + row_vec_y * row_vec_y).sqrt();
-
-        let repetition = Repetition::new(columns, rows, col_spacing, row_spacing);
+        let repetition = Repetition::new_vectors(
+            columns,
+            rows,
+            Vector2::new(col_local_x, col_local_y),
+            Vector2::new(row_local_x, row_local_y),
+        );
 
         let mut cell_ref = CellRef::with_transform(sname, transform);
         cell_ref.repetition = Some(repetition);
@@ -902,6 +913,101 @@ mod tests {
         let lib = Library::new("empty");
         let result = roundtrip(&lib);
         assert_eq!(result.cells().len(), 0);
+    }
+
+    #[test]
+    fn test_roundtrip_skewed_aref_preserves_lattice_vectors() {
+        // ROS-512: a skewed (non-orthogonal) AREF round-trips through GDS
+        // without losing its lattice structure. This is the regression case
+        // for the old reader behaviour, which collapsed each world-space
+        // lattice vector to a scalar magnitude, dropping off-axis components.
+        use rosette_core::Repetition;
+
+        let mut sub = Cell::new("UNIT");
+        sub.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
+
+        // Flat-top hex packing: row vector offset by (pitch/2, pitch*sqrt(3)/2).
+        let pitch: f64 = 10.0;
+        let row_y = pitch * (3.0_f64).sqrt() / 2.0;
+        let col_vec = rosette_core::geometry::Vector2::new(pitch, 0.0);
+        let row_vec = rosette_core::geometry::Vector2::new(pitch / 2.0, row_y);
+
+        let mut top = Cell::new("TOP");
+        top.add_ref(CellRef::new("UNIT").array_vectors(4, 3, col_vec, row_vec));
+
+        let mut lib = Library::new("test");
+        lib.add_cell(sub).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let result = roundtrip(&lib);
+        let top = result.cell("TOP").unwrap();
+        let refs: Vec<&CellRef> = top.cell_refs().collect();
+        assert_eq!(refs.len(), 1);
+        let rep = refs[0]
+            .repetition
+            .as_ref()
+            .expect("AREF repetition should be preserved");
+
+        assert_eq!(rep.columns, 4);
+        assert_eq!(rep.rows, 3);
+        // GDS DB units quantise coordinates to a grid (default 1 nm = 1e-3 µm).
+        // The reader recovers each lattice vector as
+        //   `(end - origin) / n_steps`
+        // so the worst-case per-component error is `~1 DB unit / n_steps`,
+        // i.e. ≤ 2.5e-4 µm for the 4-column test. Allow ~2× margin.
+        let tol = 5e-4;
+        assert!(
+            (rep.col_vector.x - col_vec.x).abs() < tol,
+            "col_vector.x = {}",
+            rep.col_vector.x
+        );
+        assert!(
+            (rep.col_vector.y - col_vec.y).abs() < tol,
+            "col_vector.y = {}",
+            rep.col_vector.y
+        );
+        assert!(
+            (rep.row_vector.x - row_vec.x).abs() < tol,
+            "row_vector.x = {}",
+            rep.row_vector.x
+        );
+        assert!(
+            (rep.row_vector.y - row_vec.y).abs() < tol,
+            "row_vector.y = {}",
+            rep.row_vector.y
+        );
+
+        // Writer path (legacy) also agrees for an axis-aligned AREF built
+        // with the scalar `.array()` builder.
+        let mut top2 = Cell::new("TOP2");
+        top2.add_ref(CellRef::new("UNIT").array(3, 2, 5.0, 7.0));
+        let mut lib2 = Library::new("test2");
+        let mut sub2 = Cell::new("UNIT");
+        sub2.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
+        lib2.add_cell(sub2).unwrap();
+        lib2.add_cell(top2).unwrap();
+        let r2 = roundtrip(&lib2);
+        let rep2 = r2
+            .cell("TOP2")
+            .unwrap()
+            .cell_refs()
+            .next()
+            .unwrap()
+            .repetition
+            .as_ref()
+            .unwrap();
+        let expected2 = Repetition::new(3, 2, 5.0, 7.0);
+        assert_eq!(rep2.columns, expected2.columns);
+        assert_eq!(rep2.rows, expected2.rows);
+        assert!(
+            (rep2.col_vector.x - expected2.col_vector.x).abs() < 1e-9
+                && (rep2.col_vector.y - expected2.col_vector.y).abs() < 1e-9
+                && (rep2.row_vector.x - expected2.row_vector.x).abs() < 1e-9
+                && (rep2.row_vector.y - expected2.row_vector.y).abs() < 1e-9,
+            "rectangular AREF should round-trip to within ULP: got {:?}, expected {:?}",
+            rep2,
+            expected2,
+        );
     }
 
     #[test]

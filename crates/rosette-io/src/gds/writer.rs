@@ -349,18 +349,22 @@ impl<W: Write> GdsWriter<W> {
         // Point 2: origin + column_vector * columns  (end of all columns)
         // Point 3: origin + row_vector * rows  (end of all rows)
         //
-        // Spacing is defined in the CellRef's local space (pre-transform), so we
-        // must transform the spacing vectors through the linear part of the
-        // CellRef transform to get world-space directions.
+        // The lattice vectors are defined in the CellRef's local space
+        // (pre-transform), so we must transform them through the linear part
+        // of the CellRef transform to get world-space directions. The
+        // vectors may be non-orthogonal (hex packing, skewed arrays) —
+        // each one is transformed independently by `[a,b;c,d]`.
         let origin = t.apply(Point::origin());
         let cols = rep.columns as f64;
         let rows = rep.rows as f64;
-        // Column direction: local (col_spacing, 0) transformed by [a,b;c,d]
-        let col_end_x = origin.x + (t.a * rep.col_spacing) * cols;
-        let col_end_y = origin.y + (t.c * rep.col_spacing) * cols;
-        // Row direction: local (0, row_spacing) transformed by [a,b;c,d]
-        let row_end_x = origin.x + (t.b * rep.row_spacing) * rows;
-        let row_end_y = origin.y + (t.d * rep.row_spacing) * rows;
+        // Column vector: local (cv.x, cv.y) transformed by [a,b;c,d]
+        let cv = rep.col_vector;
+        let col_end_x = origin.x + (t.a * cv.x + t.b * cv.y) * cols;
+        let col_end_y = origin.y + (t.c * cv.x + t.d * cv.y) * cols;
+        // Row vector: local (rv.x, rv.y) transformed by [a,b;c,d]
+        let rv = rep.row_vector;
+        let row_end_x = origin.x + (t.a * rv.x + t.b * rv.y) * rows;
+        let row_end_y = origin.y + (t.c * rv.x + t.d * rv.y) * rows;
 
         let mut xy_data = Vec::with_capacity(24);
         xy_data.extend_from_slice(&Self::to_db_units(origin.x).to_be_bytes());

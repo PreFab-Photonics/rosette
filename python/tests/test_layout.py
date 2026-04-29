@@ -980,3 +980,156 @@ class TestLibraryCellBbox:
             assert bb_rt.min.y == pytest.approx(bb_flat.min.y, abs=1e-6)
             assert bb_rt.max.x == pytest.approx(bb_flat.max.x, abs=1e-6)
             assert bb_rt.max.y == pytest.approx(bb_flat.max.y, abs=1e-6)
+
+
+class TestSkewedArefs:
+    """ROS-512: AREFs with non-orthogonal (hex / skewed) lattice vectors."""
+
+    def test_hex_packing_bbox_matches_analytic(self):
+        """Hex-packed AREF flattens to the expected bounding box."""
+        import math
+
+        unit = Cell("unit")
+        unit.add_polygon(Polygon.rect(Point(0, 0), 1.0, 1.0), Layer(1, 0))
+
+        pitch = 10.0
+        col = Vector2(pitch, 0.0)
+        row = Vector2(pitch / 2.0, pitch * math.sqrt(3) / 2.0)
+
+        top = Cell("top")
+        top.add_ref(CellRef("unit").array_vectors(3, 2, col, row))
+
+        lib = Library("lib")
+        lib.add_cell(unit)
+        lib.add_cell(top)
+
+        bb = lib.cell_bbox("top")
+        assert bb is not None
+        # Copies span (0,0)..(2,0) along col + (0,0)..(1,0) along row.
+        # Each unit is 1x1. Max x = 2*pitch + pitch/2 + 1 = 26.
+        # Max y = pitch * sqrt(3)/2 + 1.
+        assert bb.min.x == pytest.approx(0.0, abs=1e-9)
+        assert bb.min.y == pytest.approx(0.0, abs=1e-9)
+        assert bb.max.x == pytest.approx(2 * pitch + pitch / 2.0 + 1.0, abs=1e-9)
+        assert bb.max.y == pytest.approx(pitch * math.sqrt(3) / 2.0 + 1.0, abs=1e-9)
+
+    def test_skewed_aref_roundtrips_through_gds(self):
+        """Acceptance: skewed AREF vectors are preserved on GDS round-trip.
+
+        Before ROS-512 the reader collapsed each world-space lattice
+        vector to a scalar magnitude, silently discarding any off-axis
+        component. This test guards against that regression by comparing
+        the fully-resolved bbox before and after a GDS write/read cycle.
+        """
+        import math
+
+        from rosette import read_gds
+
+        unit = Cell("unit")
+        unit.add_polygon(Polygon.rect(Point(0, 0), 1.0, 1.0), Layer(1, 0))
+
+        pitch = 10.0
+        col = Vector2(pitch, 0.0)
+        row = Vector2(pitch / 2.0, pitch * math.sqrt(3) / 2.0)
+
+        top = Cell("top")
+        top.add_ref(CellRef("unit").array_vectors(4, 3, col, row))
+
+        lib = Library("lib")
+        lib.add_cell(unit)
+        lib.add_cell(top)
+
+        bb_before = lib.cell_bbox("top")
+        assert bb_before is not None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "hex.gds"
+            write_gds(path, top, [unit])
+
+            lib_rt = read_gds(str(path))
+            bb_after = lib_rt.cell_bbox("top")
+            assert bb_after is not None
+
+            # GDS stores coordinates on a DB-unit grid (default 1 nm = 1e-3 µm);
+            # per-copy quantization accumulates across the array.  Compare
+            # to within a small multiple of the grid.
+            tol = 1e-3
+            assert bb_after.min.x == pytest.approx(bb_before.min.x, abs=tol)
+            assert bb_after.min.y == pytest.approx(bb_before.min.y, abs=tol)
+            assert bb_after.max.x == pytest.approx(bb_before.max.x, abs=tol)
+            assert bb_after.max.y == pytest.approx(bb_before.max.y, abs=tol)
+
+    def test_array_vectors_degenerates_to_array_for_rectangular_case(self):
+        """`array_vectors` with axis-aligned vectors matches `array`."""
+        unit = Cell("unit")
+        unit.add_polygon(Polygon.rect(Point(0, 0), 1.0, 1.0), Layer(1, 0))
+
+        top_scalar = Cell("top_scalar")
+        top_scalar.add_ref(CellRef("unit").array(3, 2, 5.0, 7.0))
+
+        top_vec = Cell("top_vec")
+        top_vec.add_ref(CellRef("unit").array_vectors(3, 2, Vector2(5.0, 0.0), Vector2(0.0, 7.0)))
+
+        lib = Library("lib")
+        lib.add_cell(unit)
+        lib.add_cell(top_scalar)
+        lib.add_cell(top_vec)
+
+        bb_s = lib.cell_bbox("top_scalar")
+        bb_v = lib.cell_bbox("top_vec")
+        assert bb_s is not None and bb_v is not None
+        assert bb_v.min.x == pytest.approx(bb_s.min.x)
+        assert bb_v.min.y == pytest.approx(bb_s.min.y)
+        assert bb_v.max.x == pytest.approx(bb_s.max.x)
+        assert bb_v.max.y == pytest.approx(bb_s.max.y)
+
+    def test_instance_array_vectors_roundtrips(self):
+        """`Instance.array_vectors` propagates through `to_ref` and GDS."""
+        import math
+
+        from rosette import read_gds
+
+        unit = Cell("unit")
+        unit.add_polygon(Polygon.rect(Point(0, 0), 1.0, 1.0), Layer(1, 0))
+
+        pitch = 10.0
+        arr = unit.at(0, 0).array_vectors(
+            3,
+            2,
+            Vector2(pitch, 0.0),
+            Vector2(pitch / 2.0, pitch * math.sqrt(3) / 2.0),
+        )
+
+        top = Cell("top")
+        top.add_ref(arr)
+
+        lib = Library("lib")
+        lib.add_cell(unit)
+        lib.add_cell(top)
+
+        bb_before = lib.cell_bbox("top")
+        assert bb_before is not None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "hex_instance.gds"
+            write_gds(path, top, [unit])
+            bb_after = read_gds(str(path)).cell_bbox("top")
+            assert bb_after is not None
+            tol = 1e-3  # one GDS DB unit (1 nm) in µm
+            assert bb_after.min.x == pytest.approx(bb_before.min.x, abs=tol)
+            assert bb_after.max.x == pytest.approx(bb_before.max.x, abs=tol)
+            assert bb_after.max.y == pytest.approx(bb_before.max.y, abs=tol)
+
+    def test_array_vectors_validates_dims(self):
+        """Dim validation applies to `array_vectors` too."""
+        unit = Cell("unit")
+        unit.add_polygon(Polygon.rect(Point(0, 0), 1.0, 1.0), Layer(1, 0))
+
+        with pytest.raises(ValueError):
+            CellRef("unit").array_vectors(0, 1, Vector2(1, 0), Vector2(0, 1))
+        with pytest.raises(ValueError):
+            CellRef("unit").array_vectors(1, 0, Vector2(1, 0), Vector2(0, 1))
+        with pytest.raises(ValueError):
+            CellRef("unit").array_vectors(100_000, 1, Vector2(1, 0), Vector2(0, 1))
+        with pytest.raises(ValueError):
+            unit.at(0, 0).array_vectors(0, 1, Vector2(1, 0), Vector2(0, 1))

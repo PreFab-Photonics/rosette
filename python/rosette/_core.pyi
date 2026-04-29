@@ -257,7 +257,7 @@ class Instance:
         """
         ...
     def array(self, columns: int, rows: int, col_spacing: float, row_spacing: float) -> Instance:
-        """Set array repetition (columns x rows grid with given pitch).
+        """Set array repetition (columns x rows rectangular grid with given pitch).
 
         Creates a GDS AREF — a single compact array reference instead of
         many individual references. In the viewer, the entire array is
@@ -275,9 +275,38 @@ class Instance:
             ValueError: If columns or rows is outside the range [1, 32767].
                 The upper bound is the GDS COLROW INT16 limit.
 
+        Note:
+            For hex packings or any skewed / non-orthogonal grid, use
+            :meth:`array_vectors` instead.
+
         Example:
             arr = unit_cell.at(0, 0).array(10, 5, 20.0, 15.0)
             top.add_ref(arr)
+        """
+        ...
+    def array_vectors(
+        self,
+        columns: int,
+        rows: int,
+        col_vector: Vector2,
+        row_vector: Vector2,
+    ) -> Instance:
+        """Set array repetition from arbitrary column and row displacement vectors.
+
+        Lower-level constructor supporting non-orthogonal lattices — hex
+        packings, skewed test arrays, etc. Vectors are defined in the
+        instance's local (pre-transform) coordinate space, in µm.
+
+        Args:
+            columns: Number of columns (1 to 32767).
+            rows: Number of rows (1 to 32767).
+            col_vector: Column displacement — the offset between copy
+                ``(c, r)`` and ``(c+1, r)``, in µm.
+            row_vector: Row displacement — the offset between copy
+                ``(c, r)`` and ``(c, r+1)``, in µm.
+
+        Raises:
+            ValueError: If columns or rows is outside the range [1, 32767].
         """
         ...
     def port(self, name: str) -> Port:
@@ -374,7 +403,7 @@ class CellRef:
     def mirror_y(self) -> CellRef: ...
     def scale(self, s: float) -> CellRef: ...
     def array(self, columns: int, rows: int, col_spacing: float, row_spacing: float) -> CellRef:
-        """Set array repetition (columns x rows grid with given pitch).
+        """Set array repetition (columns x rows rectangular grid with given pitch).
 
         Creates a GDS AREF — a single compact array reference instead of
         many individual references. In the viewer, the entire array is
@@ -392,8 +421,37 @@ class CellRef:
             ValueError: If columns or rows is outside the range [1, 32767].
                 The upper bound is the GDS COLROW INT16 limit.
 
+        Note:
+            For hex packings or any skewed / non-orthogonal grid, use
+            :meth:`array_vectors` instead.
+
         Example:
             ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
+        """
+        ...
+    def array_vectors(
+        self,
+        columns: int,
+        rows: int,
+        col_vector: Vector2,
+        row_vector: Vector2,
+    ) -> CellRef:
+        """Set array repetition from arbitrary column and row displacement vectors.
+
+        Lower-level constructor supporting non-orthogonal lattices — hex
+        packings, skewed test arrays, etc. Vectors are defined in the
+        CellRef's local (pre-transform) coordinate space, in µm.
+
+        Args:
+            columns: Number of columns (1 to 32767).
+            rows: Number of rows (1 to 32767).
+            col_vector: Column displacement — the offset between copy
+                ``(c, r)`` and ``(c+1, r)``, in µm.
+            row_vector: Row displacement — the offset between copy
+                ``(c, r)`` and ``(c, r+1)``, in µm.
+
+        Raises:
+            ValueError: If columns or rows is outside the range [1, 32767].
         """
         ...
     def port(self, name: str, cell: Cell) -> Port:
