@@ -629,6 +629,15 @@ class Cell:
         When adding a Cell or Instance, the child cell is automatically
         tracked for write_gds().
 
+        For uniform grids of identical copies at a fixed pitch, call
+        ``.array()`` on the instance before passing it to ``add_ref``
+        instead of looping ``add_ref`` N*M times.  This emits a single
+        GDS AREF rather than many SREFs -- compact on disk and fast in
+        the viewer.  Mix with individual ``add_ref`` calls when per-copy
+        differences are needed (labels, unique port connections, etc.)::
+
+            top.add_ref(unit.at(0, 0).array(cols, rows, pitch_x, pitch_y))
+
         Args:
             ref: A Cell (placed at origin), Instance, or CellRef to add
 
