@@ -77,6 +77,17 @@ pub enum Rule {
         threshold_deg: f64,
         name: Option<String>,
     },
+    /// Inner layer must not be fully contained inside outer layer.
+    ///
+    /// Defines an "exclusion zone": polygons on `inner` that sit entirely
+    /// inside `outer` (or inside the union of `outer` polygons) are flagged.
+    /// Partial crossings are not a violation — the inner polygon must be
+    /// wholly inside for the rule to trigger.
+    NotInside {
+        inner: Layer,
+        outer: Layer,
+        name: Option<String>,
+    },
 }
 
 /// Builder for DRC rule sets.
@@ -294,6 +305,30 @@ impl DrcRules {
         self.rules.push(Rule::AcuteAngle {
             layer: layer.into(),
             threshold_deg,
+            name: name.map(String::from),
+        });
+        self
+    }
+
+    /// Add a "not-inside" / exclusion zone rule.
+    ///
+    /// Flags polygons on `inner` that are fully contained inside the union of
+    /// polygons on `outer`. Partial crossings (an `inner` polygon that crosses
+    /// the boundary of an `outer` polygon) are not violations — the inner must
+    /// sit wholly inside an exclusion zone for the rule to trigger.
+    ///
+    /// Use this for keep-out zones: "routing layer must not sit entirely inside
+    /// a no-fly marker". It is distinct from `forbid_overlap`, which flags any
+    /// overlap at all.
+    pub fn not_inside(
+        mut self,
+        inner: impl Into<Layer>,
+        outer: impl Into<Layer>,
+        name: Option<&str>,
+    ) -> Self {
+        self.rules.push(Rule::NotInside {
+            inner: inner.into(),
+            outer: outer.into(),
             name: name.map(String::from),
         });
         self

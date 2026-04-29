@@ -1323,6 +1323,23 @@ class DrcRules:
         Common value: 60.0 (typical photonic PDK default).
         """
         ...
+    def not_inside(
+        self,
+        inner: Layer | int | tuple[int, int],
+        outer: Layer | int | tuple[int, int],
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add a not-inside / exclusion-zone rule.
+
+        Flags polygons on ``inner`` that are fully contained inside the union
+        of polygons on ``outer``. Partial crossings (an inner polygon that
+        crosses an outer boundary) are not violations — an inner polygon must
+        sit wholly inside an outer region for the rule to trigger.
+
+        Use this for keep-out zones. Distinct from ``forbid_overlap``, which
+        flags any overlap at all.
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class DrcViolation:

@@ -177,6 +177,19 @@ impl PyDrcRules {
         )))
     }
 
+    /// Add not-inside / exclusion-zone rule.
+    #[pyo3(signature = (inner, outer, name=None))]
+    fn not_inside(
+        &self,
+        inner: &Bound<'_, PyAny>,
+        outer: &Bound<'_, PyAny>,
+        name: Option<&str>,
+    ) -> PyResult<Self> {
+        let inner = extract_layer(inner)?;
+        let outer = extract_layer(outer)?;
+        Ok(PyDrcRules(self.0.clone().not_inside(inner, outer, name)))
+    }
+
     fn __repr__(&self) -> String {
         format!("DrcRules({} rules)", self.0.rules().len())
     }
@@ -226,6 +239,7 @@ impl PyDrcViolation {
             RuleType::MaxWidth { .. } => "max_width".to_string(),
             RuleType::OffGrid { .. } => "off_grid".to_string(),
             RuleType::AcuteAngle { .. } => "acute_angle".to_string(),
+            RuleType::NotInside => "not_inside".to_string(),
         }
     }
 

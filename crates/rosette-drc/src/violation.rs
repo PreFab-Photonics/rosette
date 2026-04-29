@@ -85,6 +85,9 @@ pub enum RuleType {
         /// The offending vertex (x, y).
         vertex: (f64, f64),
     },
+    /// An inner-layer polygon is fully contained inside an outer (exclusion)
+    /// region, violating a `not_inside` rule.
+    NotInside,
 }
 
 /// A single DRC violation.

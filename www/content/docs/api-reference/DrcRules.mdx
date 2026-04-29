@@ -445,3 +445,55 @@ A new DrcRules with the rule added.
 </PyFunctionReturn>
 
 </PyFunction>
+
+<PyFunction name={"not_inside"} type={"(inner, outer, name=None) -> DrcRules"}>
+
+Add a not-inside / exclusion-zone rule. Flags polygons on `inner` that are fully
+contained inside the union of polygons on `outer`.
+
+Partial crossings — where an inner polygon crosses an outer boundary — are not
+violations. The inner polygon must sit wholly inside an outer region for the rule
+to trigger. Use this for keep-out zones, such as no-fly regions for a routing
+layer.
+
+Distinct from `forbid_overlap`, which flags any overlap at all.
+
+In TOML config, add to the `[[drc.rules]]` array:
+
+```toml
+[[drc.rules]]
+type = "not_inside"
+inner = "silicon"
+outer = "keepout"
+name = "KEEPOUT.SI"
+```
+
+<div>
+
+<PyParameter name={"inner"} type={"Layer | int | tuple[int, int]"}>
+
+Layer whose polygons are being checked for containment.
+
+</PyParameter>
+<PyParameter name={"outer"} type={"Layer | int | tuple[int, int]"}>
+
+Layer defining the exclusion / keep-out region. Polygons on this layer are unioned
+before the containment test, so adjacent outer polygons collectively count as a
+single exclusion zone.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>

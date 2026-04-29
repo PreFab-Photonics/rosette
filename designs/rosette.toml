@@ -83,6 +83,8 @@ description = "Text annotations"
 #   spacing      - Minimum spacing between different layers
 #   require_overlap - Two layers must overlap
 #   forbid_overlap  - Two layers must not overlap
+#   not_inside   - Inner layer must not be fully contained inside outer layer
+#                  (keep-out / exclusion zone)
 #
 # =============================================================================
 

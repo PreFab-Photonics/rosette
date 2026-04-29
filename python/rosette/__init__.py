@@ -1438,6 +1438,12 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
             layer2, _ = _resolve_layer(rule["layer2"], layer_lookup, context=rule_context)
             rules = rules.forbid_overlap(layer1, layer2, name)
 
+        elif rule_type == "not_inside":
+            _validate_rule_fields(rule, ["inner", "outer"], i)
+            inner, _ = _resolve_layer(rule["inner"], layer_lookup, context=rule_context)
+            outer, _ = _resolve_layer(rule["outer"], layer_lookup, context=rule_context)
+            rules = rules.not_inside(inner, outer, name)
+
         else:
             raise ValueError(f"Unknown DRC rule type: {rule_type}")
 
