@@ -26,6 +26,7 @@ import {
   AddCellRefCommand,
   DeleteCellCommand,
   FlattenCellCommand,
+  FlattenArrayCommand,
   AlignElementsCommand,
   BooleanOperationCommand,
   placeRectangleInViewport,
@@ -36,6 +37,7 @@ import {
   TextToPolygonsCommand,
   DeleteRulersCommand,
 } from "@/lib/commands";
+import { useStatusMessageStore } from "@/stores/status-message";
 import type { AlignType } from "@/lib/align";
 import type { BooleanOpType } from "@/lib/commands";
 import { useRulerStore } from "@/stores/ruler";
@@ -55,6 +57,14 @@ import {
 // =============================================================================
 // Types
 // =============================================================================
+
+/**
+ * Threshold (in total flattened SREFs) above which the flatten-array palette
+ * command prompts the user for confirmation. Flattening a large AREF turns a
+ * compact GDS representation into a bloated one, so we want to give users a
+ * chance to bail out if they trigger the action by accident.
+ */
+const FLATTEN_ARRAY_WARNING_THRESHOLD = 1000;
 
 /** Command category types. */
 export type CommandType = "command" | "tool" | "layer" | "cell";
@@ -738,6 +748,46 @@ export function getCommands(): CommandItem[] {
         close();
       },
       searchableText: "Create array grid duplicate copies repeat tile",
+    },
+    {
+      id: "edit-flatten-array",
+      type: "command",
+      name: "Edit: Flatten Array",
+      action: () => {
+        const { library, renderer } = useWasmContextStore.getState();
+        const { selectedIds } = useSelectionStore.getState();
+        if (!library || !renderer || selectedIds.size === 0) {
+          close();
+          return;
+        }
+        // Keep only selected refs that are actually AREFs (have a repetition).
+        const arefIds = [...selectedIds].filter((id) => {
+          const arrayParams = library.get_cell_ref_array(id);
+          return arrayParams !== undefined && arrayParams.length === 4;
+        });
+        if (arefIds.length === 0) {
+          useStatusMessageStore.getState().show("No array references selected", "warn");
+          close();
+          return;
+        }
+        const totalCopies = FlattenArrayCommand.countCopies(library, arefIds);
+        // Warn before bloating the design. `window.confirm` matches the pattern
+        // used elsewhere in the app (file-ops.ts) and keeps the footprint small.
+        if (totalCopies > FLATTEN_ARRAY_WARNING_THRESHOLD) {
+          const msg =
+            `Flattening will create ${totalCopies} individual references ` +
+            `(threshold: ${FLATTEN_ARRAY_WARNING_THRESHOLD}). ` +
+            `This can significantly increase file size. Continue?`;
+          if (!window.confirm(msg)) {
+            close();
+            return;
+          }
+        }
+        const cmd = new FlattenArrayCommand(arefIds, selectedIds);
+        useHistoryStore.getState().execute(cmd, { library, renderer });
+        close();
+      },
+      searchableText: "Flatten array AREF break explode expand individual refs SREF instance",
     },
     {
       id: "edit-delete",
