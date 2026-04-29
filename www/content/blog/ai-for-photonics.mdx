@@ -1,0 +1,17 @@
+---
+title: An Accidental Convergence
+description: Photonic design became code. That turned out to matter.
+date: 2026-04-29
+---
+
+The daily work of photonic chip design is writing code. This shift happened gradually. A few years ago the dominant workflow was still GUI-heavy. Today the default is a script that produces the layout deterministically. The output is GDS, but the source of truth is Python.
+
+The work is now closer to ordinary software engineering than to traditional analog layout. The constraints (minimum bend radius, waveguide width, port alignment, layer mappings) live in configuration files or component definitions rather than in a design rule manual you keep open in another window. The verification is mechanical: run the build, run the checks, read the output, fix the violations.
+
+But the people doing this work are not software engineers. They are physicists, electrical engineers, people who understand waveguide behavior and process constraints deeply but who write code to produce layouts, not because code is their craft. This is exactly where language models turn out to be useful. There is a real criticism that AI-generated code is mediocre, and from the perspective of experienced software engineers that may be true. But most photonic designers are not experienced software engineers. For them, the floor matters more than the ceiling. A model that produces correct, conventional, well-structured layout code raises the baseline quality of what gets built. It does not need to be exceptional code. It needs to be better than what would have been written at 2 am before a tapeout.
+
+In practice, this means the mundane parts get better. Generating ten variants of a test structure with different parameters. Routing a fanout while respecting a pitch constraint on one side and a bend-radius limit on the other. Fixing a set of disconnected ports or minimum-spacing violations in a tree. These are the tasks that eat hours but don't require invention. They require attention to detail and willingness to iterate. Models are quite decent at both.
+
+The harder parts (designing a new grating coupler, deciding whether a particular MMI length will have acceptable insertion loss, judging where process variation is likely to bite) are not out of reach in the same way. A model cannot produce those answers from a prompt alone. But a model also cannot do basic arithmetic reliably, until you give it a Python interpreter, at which point it becomes perfectly precise. The same pattern applies here: given the right tools (a simulator it can call, measurement data it can reference, design rules it can check against), the same iterate-and-verify loop starts to work. How far that extends is not yet clear, and finding out is part of what makes this interesting.
+
+The way we build photonic circuits has converged with the kind of work that current language models happen to be most useful for. The convergence is accidental but real. It also makes visible every part of the process that hasn't caught up yet, inefficiencies that were always there but that nobody had reason to fix. Now there is a reason.

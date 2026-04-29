@@ -3,6 +3,7 @@ import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BlogHero, blogOgImages } from "@/components/blog/hero";
 import { blog, getBlogPostImage } from "@/lib/source";
 
 interface Props {
@@ -40,6 +41,8 @@ export default async function BlogPost(props: Props) {
       </Link>
 
       <article className="mt-8">
+        <BlogHero slug={params.slug} />
+
         <time className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
           {new Date(page.data.date).toLocaleDateString("en-US", {
             year: "numeric",
@@ -91,7 +94,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     openGraph: {
       type: "article",
       publishedTime: new Date(page.data.date).toISOString(),
-      images: getBlogPostImage(page).url,
+      images: blogOgImages[params.slug] ?? getBlogPostImage(page).url,
     },
   };
 }
