@@ -185,12 +185,17 @@ fn flatten_cell_recursive(
                         None => vec![cell_ref.transform],
                         Some(rep) if rep.is_single() => vec![cell_ref.transform],
                         Some(rep) => {
+                            // AREF pitch is defined in the CellRef's local space
+                            // (pre-transform), matching GDS writer semantics. Apply
+                            // the translation BEFORE the CellRef transform so that a
+                            // rotated/mirrored/scaled AREF's copies are placed
+                            // along the transformed lattice vectors.
                             let mut ts = Vec::with_capacity(rep.count());
                             for row in 0..rep.rows {
                                 for col in 0..rep.columns {
                                     let dx = col as f64 * rep.col_spacing;
                                     let dy = row as f64 * rep.row_spacing;
-                                    ts.push(Transform::translate(dx, dy).then(&cell_ref.transform));
+                                    ts.push(cell_ref.transform.then(&Transform::translate(dx, dy)));
                                 }
                             }
                             ts
@@ -276,5 +281,80 @@ mod tests {
         // Original rect at (0,0), translated by (10, 20)
         assert!(flat.polygons[0].vertices.contains(&10.0));
         assert!(flat.polygons[0].vertices.contains(&20.0));
+    }
+
+    #[test]
+    fn test_flatten_rotated_aref_pitch_is_local() {
+        // Regression test for ROS-517.
+        //
+        // For a rotated AREF the pitch vector is defined in the CellRef's
+        // local space and must be rotated into world space, matching the
+        // GDS writer. A 2×1 array of a point-like child with
+        // `col_spacing = 10`, rotated 90° ccw, should place the second copy
+        // at world (0, 10) — NOT at world (10, 0) (which would correspond
+        // to applying the pitch in the parent frame, i.e. the old bug).
+        use crate::CellRef;
+
+        let mut child = Cell::new("dot");
+        // A small rectangle centered on the origin so we can read back the
+        // approximate placement from vertex extents.
+        child.add_polygon(
+            Polygon::rect(Point::new(-0.5, -0.5), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+
+        let mut top = Cell::new("top");
+        top.add_ref(
+            CellRef::new("dot")
+                .rotate(std::f64::consts::FRAC_PI_2)
+                .array(2, 1, 10.0, 0.0),
+        );
+
+        let mut library = Library::new("lib");
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
+
+        let flat = flatten_library(&library, 1.0);
+        assert_eq!(flat.polygons.len(), 2);
+
+        // Compute the per-polygon centroid (each polygon is a ~1×1 rect,
+        // so the centroid is effectively its placement point).
+        let centroid = |p: &FlatPolygon| {
+            let mut sx = 0.0;
+            let mut sy = 0.0;
+            let n = (p.vertices.len() / 2) as f64;
+            for chunk in p.vertices.chunks_exact(2) {
+                sx += chunk[0];
+                sy += chunk[1];
+            }
+            (sx / n, sy / n)
+        };
+
+        let mut centers: Vec<(f64, f64)> = flat.polygons.iter().map(centroid).collect();
+        // Sort by y so we have a deterministic ordering independent of
+        // flatten's traversal.
+        centers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        // Expected: copies at (0, 0) and (0, 10) in world space.
+        assert!(
+            (centers[0].0 - 0.0).abs() < 1e-9,
+            "copy0.x = {}",
+            centers[0].0
+        );
+        assert!(
+            (centers[0].1 - 0.0).abs() < 1e-9,
+            "copy0.y = {}",
+            centers[0].1
+        );
+        assert!(
+            (centers[1].0 - 0.0).abs() < 1e-9,
+            "copy1.x = {}",
+            centers[1].0
+        );
+        assert!(
+            (centers[1].1 - 10.0).abs() < 1e-9,
+            "copy1.y = {}",
+            centers[1].1
+        );
     }
 }

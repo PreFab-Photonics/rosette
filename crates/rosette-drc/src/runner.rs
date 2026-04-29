@@ -541,6 +541,11 @@ impl DrcRunner {
     }
 
     /// Expand a CellRef's repetition into individual transforms.
+    ///
+    /// AREF pitch (`col_spacing`, `row_spacing`) is defined in the CellRef's
+    /// local (pre-transform) space, matching GDS writer semantics. We apply
+    /// the per-copy translation BEFORE `cell_ref.transform` so copies lie
+    /// along the transformed lattice vectors for rotated/mirrored/scaled refs.
     fn expand_cellref_transforms(cell_ref: &rosette_core::CellRef) -> Vec<Transform> {
         match &cell_ref.repetition {
             None => vec![cell_ref.transform],
@@ -551,7 +556,7 @@ impl DrcRunner {
                     for col in 0..rep.columns {
                         let dx = col as f64 * rep.col_spacing;
                         let dy = row as f64 * rep.row_spacing;
-                        ts.push(Transform::translate(dx, dy).then(&cell_ref.transform));
+                        ts.push(cell_ref.transform.then(&Transform::translate(dx, dy)));
                     }
                 }
                 ts

@@ -930,3 +930,53 @@ class TestLibraryCellBbox:
         lib = Library("lib")
         lib.add_cell(cell)
         assert isinstance(lib.cell_bbox("c"), BBox)
+
+    def test_rotated_aref_matches_gds_roundtrip(self):
+        """ROS-517: rotated AREF placement is consistent viewer ↔ writer.
+
+        Before the fix, flatten/viewer/cell_bbox applied the AREF pitch in
+        the *parent* frame while the GDS writer applied it in the
+        CellRef's local (pre-transform) frame. They only agreed for
+        axis-aligned AREFs. This test builds a rotated AREF, writes it to
+        GDS, reads it back, and asserts that the fully-resolved bounding
+        box matches — which is the round-trip invariant the two code
+        paths must share.
+        """
+        from rosette import read_gds
+
+        child = Cell("unit")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+
+        top = Cell("top")
+        # 2x1 AREF rotated 90° — the case where writer and flatten used
+        # to diverge. Local copies at (0,0) and (10,0); after rotating
+        # 90° ccw, copies should sit at world (0,0) and (0,10).
+        top.add_ref(child.at(0, 0).rotate(90).array(2, 1, 10.0, 0.0))
+
+        lib = Library("lib")
+        lib.add_cell(child)
+        lib.add_cell(top)
+
+        # Fully-resolved bbox via the Rust flatten path.
+        bb_flat = lib.cell_bbox("top")
+        assert bb_flat is not None
+
+        # Local 2x1 union: (0,0)-(15,5). Rotated 90° ccw → (-5, 0)-(0, 15).
+        assert bb_flat.min.x == pytest.approx(-5.0)
+        assert bb_flat.min.y == pytest.approx(0.0)
+        assert bb_flat.max.x == pytest.approx(0.0)
+        assert bb_flat.max.y == pytest.approx(15.0)
+
+        # Round-trip through GDS and re-measure — must match.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "rotated_aref.gds"
+            write_gds(path, top, [child])
+
+            lib_rt = read_gds(str(path))
+            bb_rt = lib_rt.cell_bbox("top")
+            assert bb_rt is not None
+
+            assert bb_rt.min.x == pytest.approx(bb_flat.min.x, abs=1e-6)
+            assert bb_rt.min.y == pytest.approx(bb_flat.min.y, abs=1e-6)
+            assert bb_rt.max.x == pytest.approx(bb_flat.max.x, abs=1e-6)
+            assert bb_rt.max.y == pytest.approx(bb_flat.max.y, abs=1e-6)

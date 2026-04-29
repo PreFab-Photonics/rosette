@@ -21,10 +21,13 @@ type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4], u32);
 ///
 /// For a non-arrayed CellRef, yields a single transform (the base).
 /// For an arrayed CellRef, yields `rows * cols` transforms with offsets
-/// applied in the CellRef's local space (pre-multiplied).
+/// applied in the CellRef's local (pre-transform) space, matching GDS
+/// writer semantics. The per-copy translation is applied BEFORE the
+/// CellRef transform, so rotated/mirrored/scaled AREFs place copies along
+/// the transformed lattice vectors.
 ///
 /// The offset for copy (col, row) is:
-///   `Transform::translate(col * col_spacing, row * row_spacing).then(&base)`
+///   `base.then(&Transform::translate(col * col_spacing, row * row_spacing))`
 fn array_transforms(cell_ref: &CellRef) -> Vec<Transform> {
     match &cell_ref.repetition {
         None => vec![cell_ref.transform],
@@ -35,7 +38,7 @@ fn array_transforms(cell_ref: &CellRef) -> Vec<Transform> {
                 for col in 0..rep.columns {
                     let dx = col as f64 * rep.col_spacing;
                     let dy = row as f64 * rep.row_spacing;
-                    let offset = Transform::translate(dx, dy).then(&cell_ref.transform);
+                    let offset = cell_ref.transform.then(&Transform::translate(dx, dy));
                     transforms.push(offset);
                 }
             }
@@ -2845,9 +2848,10 @@ impl WasmLibrary {
                         // This correctly converts translation, rotation, and mirror.
                         cell_ref.transform = flip.then(&cell_ref.transform).then(&flip_inv);
 
-                        // Scale repetition spacing (in parent cell's coordinate space).
-                        // col_spacing is X-direction (just scale), row_spacing is
-                        // Y-direction (scale + negate for Y-flip).
+                        // Scale repetition pitch (in the CellRef's local
+                        // pre-transform space, matching GDS AREF semantics).
+                        // col_spacing is X-direction (just scale), row_spacing
+                        // is Y-direction (scale + negate for Y-flip).
                         if let Some(ref mut rep) = cell_ref.repetition {
                             rep.col_spacing *= s;
                             rep.row_spacing *= -s;

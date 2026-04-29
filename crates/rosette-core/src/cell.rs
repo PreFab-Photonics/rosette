@@ -827,7 +827,9 @@ fn cell_bbox_recursive(
 
         // Collect all per-copy transforms in the cell_ref's local space.
         // For a non-arrayed ref this is just `cell_ref.transform`; for an
-        // AREF we prepend a per-copy translation for each grid position.
+        // AREF the pitch vector is defined in the CellRef's local
+        // (pre-transform) space, matching GDS writer semantics, so we apply
+        // the per-copy translation BEFORE `cell_ref.transform`.
         let copy_transforms: Vec<Transform> = match &cell_ref.repetition {
             None => vec![cell_ref.transform],
             Some(rep) if rep.is_single() => vec![cell_ref.transform],
@@ -837,7 +839,7 @@ fn cell_bbox_recursive(
                     for col in 0..rep.columns {
                         let dx = col as f64 * rep.col_spacing;
                         let dy = row as f64 * rep.row_spacing;
-                        ts.push(Transform::translate(dx, dy).then(&cell_ref.transform));
+                        ts.push(cell_ref.transform.then(&Transform::translate(dx, dy)));
                     }
                 }
                 ts
@@ -1051,6 +1053,67 @@ mod tests {
         assert!((bbox.min().y - (-5.0)).abs() < 1e-10);
         assert!((bbox.max().x - 30.0).abs() < 1e-10);
         assert!((bbox.max().y - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_library_cell_bbox_rotated_aref_pitch_is_local() {
+        // Regression test for ROS-517.
+        //
+        // An AREF's `col_spacing`/`row_spacing` is a pitch vector in the
+        // CellRef's *local* (pre-transform) space. When the CellRef itself
+        // carries a rotation, the pitch vector must be rotated into world
+        // space — it is NOT a parent-frame translation. This must match the
+        // GDS writer, which maps local `(col_spacing, 0)` and
+        // `(0, row_spacing)` through the CellRef's linear transform.
+        //
+        // Setup: 2×1 array of a 5×5 child, pitch (10, 0), rotated 90° ccw.
+        //
+        // Local copies: (0,0)→(5,5) and (10,0)→(15,5) → local union (0,0)-(15,5).
+        // Rotated 90° ccw about origin ((x,y)→(-y,x)):
+        //   (0,0)   → ( 0,  0)
+        //   (15,0)  → ( 0, 15)
+        //   (15,5)  → (-5, 15)
+        //   (0,5)   → (-5,  0)
+        // World bbox: (-5, 0) .. (0, 15).
+        //
+        // If the translation were applied in the parent frame (the old buggy
+        // behavior), copy 1 would land at parent (10, 0) and the bbox would
+        // extend to x=10, which is what this test guards against.
+        let mut unit = Cell::new("unit");
+        unit.add_polygon(Polygon::rect(Point::origin(), 5.0, 5.0), 1);
+
+        let mut top = Cell::new("top");
+        top.add_ref(
+            CellRef::new("unit")
+                .rotate(std::f64::consts::FRAC_PI_2)
+                .array(2, 1, 10.0, 0.0),
+        );
+
+        let mut lib = Library::new("lib");
+        lib.add_cell(unit).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let bbox = lib.cell_bbox("top").unwrap();
+        assert!(
+            (bbox.min().x - (-5.0)).abs() < 1e-9,
+            "min.x = {}",
+            bbox.min().x
+        );
+        assert!(
+            (bbox.min().y - 0.0).abs() < 1e-9,
+            "min.y = {}",
+            bbox.min().y
+        );
+        assert!(
+            (bbox.max().x - 0.0).abs() < 1e-9,
+            "max.x = {}",
+            bbox.max().x
+        );
+        assert!(
+            (bbox.max().y - 15.0).abs() < 1e-9,
+            "max.y = {}",
+            bbox.max().y
+        );
     }
 
     #[test]
