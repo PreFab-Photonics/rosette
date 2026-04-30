@@ -55,6 +55,9 @@ Component Catalog
    * - ``sbend``
      - ``in``, ``out``
      - Lateral offset, same input/output direction
+   * - ``bragg_grating``
+     - ``in``, ``out``
+     - Sidewall-corrugated wavelength-selective reflector / DBR
    * - ``mmi_1x2``
      - ``in``, ``out1``, ``out2``
      - 1-to-2 power splitter
@@ -130,6 +133,7 @@ Internal modules available to component authors:
 * ``_utils`` -- ``safe_cell_name()`` for GDS-safe cell naming.
 """
 
+from rosette.components.bragg_grating import bragg_grating
 from rosette.components.crossing import crossing
 from rosette.components.directional_coupler import directional_coupler
 from rosette.components.grating_coupler import grating_coupler
@@ -138,6 +142,7 @@ from rosette.components.ring import ring
 from rosette.components.sbend import sbend
 
 __all__ = [
+    "bragg_grating",
     "crossing",
     "directional_coupler",
     "grating_coupler",
