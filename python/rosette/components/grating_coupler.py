@@ -47,6 +47,7 @@ import warnings
 from typing import Literal
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+from rosette.components._curves import gaussian_envelope
 from rosette.components._utils import safe_cell_name
 
 __all__ = ["grating_coupler"]
@@ -175,18 +176,18 @@ def grating_coupler(
     taper = _create_taper(waveguide_width, grating_width, taper_length, focusing_angle)
     cell.add_polygon(taper, layer)
 
+    # Precompute per-tooth fill-factor multiplier. For "apodized" a Gaussian
+    # envelope with sigma = 25% of length and a 30% floor modulates
+    # fill_factor down at the edges to suppress backscatter and smooth the
+    # diffraction profile; for "uniform" every tooth uses fill_factor as-is.
+    if grating_type == "apodized":
+        ff_multipliers = gaussian_envelope(num_periods, sigma=0.25, floor=0.3)
+    else:
+        ff_multipliers = [1.0] * num_periods
+
     # Create grating teeth (extend in -X direction after taper)
     for i in range(num_periods):
-        # Calculate fill factor for this tooth
-        if grating_type == "apodized":
-            # Gaussian apodization
-            center = num_periods / 2.0
-            sigma = num_periods / 4.0
-            x = i - center
-            gaussian = math.exp(-x * x / (2.0 * sigma * sigma))
-            ff = fill_factor * (0.3 + 0.7 * gaussian)
-        else:
-            ff = fill_factor
+        ff = fill_factor * ff_multipliers[i]
 
         tooth_width = period * ff
         gap = period * (1.0 - ff)

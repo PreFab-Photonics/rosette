@@ -19,7 +19,52 @@ __all__ = [
     "estimate_sbend_path_length",
     "euler_sbend_point",
     "euler_sbend_tangent",
+    "gaussian_envelope",
 ]
+
+
+def gaussian_envelope(n: int, sigma: float, floor: float = 0.0) -> list[float]:
+    """Return ``n`` samples of a Gaussian envelope centered at ``(n-1)/2``.
+
+    The envelope has the form::
+
+        w[i] = floor + (1 - floor) * exp(-(i - center)^2 / (2 * s^2))
+
+    where ``center = (n - 1) / 2`` and ``s = sigma * n`` (so ``sigma`` is a
+    fraction of the total length in samples, matching the bragg_grating
+    convention). The underlying Gaussian peaks at ``1.0`` at the center
+    and approaches ``floor`` at the tails; for odd ``n`` the central
+    sample lands exactly on the peak, for even ``n`` the two central
+    samples straddle it symmetrically and both fall slightly below ``1.0``.
+
+    Args:
+        n: Number of samples (must be >= 1).
+        sigma: Standard deviation as a fraction of the total length
+            (must be > 0). Smaller values give stronger apodization.
+        floor: Pedestal added to the Gaussian tails, in [0, 1]. Use
+            ``0.0`` for a pure Gaussian; use a positive value to keep a
+            nonzero floor at the edges (e.g. ``0.3`` keeps the envelope
+            at roughly 30% or more across the array).
+
+    Returns:
+        List of ``n`` floats, each in ``[floor, 1.0]``. The tail values
+        approach but do not in general equal ``floor``.
+
+    Raises:
+        ValueError: If ``n < 1``, ``sigma <= 0``, or ``floor`` is not in
+            ``[0, 1]``.
+    """
+    if n < 1:
+        raise ValueError(f"n must be >= 1, got {n}")
+    if sigma <= 0:
+        raise ValueError(f"sigma must be > 0, got {sigma}")
+    if not 0.0 <= floor <= 1.0:
+        raise ValueError(f"floor must be in [0, 1], got {floor}")
+
+    center = (n - 1) / 2.0
+    s = sigma * n
+    amplitude = 1.0 - floor
+    return [floor + amplitude * math.exp(-((i - center) ** 2) / (2.0 * s * s)) for i in range(n)]
 
 
 def cosine_sbend_point(t: float, length: float, offset: float) -> tuple[float, float]:

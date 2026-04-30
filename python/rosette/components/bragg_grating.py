@@ -37,6 +37,7 @@ import math
 from typing import Literal
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+from rosette.components._curves import gaussian_envelope
 from rosette.components._utils import safe_cell_name
 
 __all__ = ["bragg_grating"]
@@ -352,15 +353,10 @@ def _compute_amplitudes(
 
     if apodization == "gaussian":
         # Envelope centered on the middle period. `sigma` is given as a
-        # fraction of the total grating length; convert to a period-count
-        # sigma so the peak reaches `corrugation_width` at the center.
-        center = (num_periods - 1) / 2.0
-        sigma_n = sigma * num_periods
-        if sigma_n <= 0:
-            sigma_n = 1.0  # guarded above, but keep division safe
-        return [
-            corrugation_width * math.exp(-((i - center) ** 2) / (2.0 * sigma_n * sigma_n))
-            for i in range(num_periods)
-        ]
+        # fraction of the total grating length; the envelope drops to 0
+        # at the tails (floor=0.0), so the peak reaches `corrugation_width`
+        # at the center.
+        envelope = gaussian_envelope(num_periods, sigma=sigma, floor=0.0)
+        return [corrugation_width * w for w in envelope]
 
     raise ValueError(f"Unknown apodization: {apodization!r}")
