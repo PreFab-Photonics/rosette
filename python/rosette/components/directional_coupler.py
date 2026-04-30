@@ -11,6 +11,46 @@ in a close-proximity coupling region, then separate again::
     ├──────────── total_length ────────────┤
 
 ``total_length = 2 * bend_length + coupling_length``.
+
+Ports (all with width = *waveguide_width*):
+    - ``"in1"``  at ``(0,            +port_spacing/2)``, facing **-X**
+    - ``"in2"``  at ``(0,            -port_spacing/2)``, facing **-X**
+    - ``"out1"`` at ``(total_length, +port_spacing/2)``, facing **+X**
+    - ``"out2"`` at ``(total_length, -port_spacing/2)``, facing **+X**
+
+Coupling-length vs. bend-length trade-off
+-----------------------------------------
+The power coupling ratio is set by the evanescent interaction integrated
+over the whole path, which is dominated by the straight coupling region
+but includes a non-negligible contribution from the S-bends (the arms
+spend some distance close together while the bends bring them in and
+out of the *gap* separation).
+
+Practical guidance:
+
+* **Short ``coupling_length`` (~0-5 um).** The S-bend contribution
+  dominates. Power coupling is hard to predict because the effective
+  interaction length depends strongly on *bend_length*. Prefer a
+  dedicated bent coupler design for sub-50% ratios.
+* **Moderate ``coupling_length`` (10-30 um).** The straight region
+  dominates. Power coupling ~ ``sin^2(kappa * coupling_length)`` where
+  ``kappa`` depends on *gap* and *waveguide_width*. This is the usual
+  operating regime; tune *coupling_length* to hit the target ratio.
+* **Long ``coupling_length`` (>> cross-over length).** Full power
+  transfer occurs at ``L = pi / (2 * kappa)``. Longer couplers oscillate
+  between the two waveguides and become very wavelength-sensitive.
+
+**Bend length** should be long enough to keep bend loss negligible
+(roughly ``bend_length >= 5 * waveguide_width`` for silicon photonics;
+check your PDK's minimum radius). Shorter bends reduce footprint but
+increase both the S-bend coupling contribution and the bend loss. If
+you need a predictable splitting ratio, **fix *bend_length* first**
+(set by the process's minimum radius) and tune *coupling_length* to
+set the ratio.
+
+**Gap** sets the coupling strength ``kappa`` exponentially. Halving
+*gap* typically doubles ``kappa``, which halves the coupling length
+needed for a given ratio.
 """
 
 import math
@@ -44,8 +84,8 @@ def directional_coupler(
 
     Ports (where ``py = port_spacing / 2``,
     ``tl = 2 * bend_length + coupling_length``):
-        - ``"in1"``  at ``(0, +py)``, facing **-X** (upper input)
-        - ``"in2"``  at ``(0, -py)``, facing **-X** (lower input)
+        - ``"in1"``  at ``(0,  +py)``, facing **-X** (upper input)
+        - ``"in2"``  at ``(0,  -py)``, facing **-X** (lower input)
         - ``"out1"`` at ``(tl, +py)``, facing **+X** (upper output)
         - ``"out2"`` at ``(tl, -py)``, facing **+X** (lower output)
 
@@ -55,31 +95,112 @@ def directional_coupler(
         layer: GDS layer for the geometry.
         waveguide_width: Waveguide width in microns.
         coupling_length: Length of the parallel coupling region in
-            microns.
+            microns. Dominates the power coupling ratio for typical
+            values; see the module docstring for the trade-off.
         gap: Edge-to-edge gap between the two waveguides in the
-            coupling region in microns.
+            coupling region in microns. Sets the evanescent coupling
+            strength (exponentially; smaller gap -> stronger coupling).
         bend_length: Horizontal length of each cosine S-bend transition
-            in microns.
+            in microns. Long enough to keep bend loss negligible
+            (typically ``>= 5 * waveguide_width``); overly short bends
+            contribute significantly to the net coupling and reduce
+            splitting-ratio predictability.
         port_spacing: Center-to-center distance between the upper and
             lower port pairs in microns. Must be strictly greater than
             ``gap + waveguide_width`` so the S-bends can bring the two
-            arms together in the coupling region.
+            arms together in the coupling region. Larger *port_spacing*
+            means steeper S-bends (more loss) or longer *bend_length*
+            (more footprint).
         num_segments: Number of polygon segments per S-bend curve.
+            Must be >= 1. Increase for smoother polygons on tight bends.
 
     Returns:
         Cell with ports ``"in1"``, ``"in2"``, ``"out1"``, ``"out2"``.
         ``path_length`` = arc length through one arm
-        (``2 * S_bend_arc + coupling_length``).
+        (``2 * S_bend_arc + coupling_length``), where ``S_bend_arc`` is
+        the numerically integrated cosine-S-bend length over
+        *bend_length* with offset ``(port_spacing - gap - waveguide_width)
+        / 2``. The two arms are symmetric so either has the same
+        *path_length*; use this for delay-line matching.
 
     Raises:
         ValueError: If *coupling_length*, *gap*, *waveguide_width*, or
             *bend_length* is not positive; if *num_segments* < 1;
             if *port_spacing* <= *gap* + *waveguide_width*.
 
-    Example:
-        >>> from rosette import Layer
-        >>> from rosette.components import directional_coupler
-        >>> dc = directional_coupler(Layer(1, 0), coupling_length=30.0, gap=0.15)
+    Placement notes:
+        Input ports at ``x = 0`` face **-X**; output ports at
+        ``x = total_length`` face **+X**, following the standard
+        convention. Route *into* the input ports from the left.
+
+        To rotate the coupler (e.g. 90 deg so inputs face **-Y**), rotate
+        **before** translating: ``.at(0, 0).rotate(90).at(x, y)``.
+
+        **Transform order matters.** ``.at(x, y).rotate(deg)`` translates
+        first then rotates the *entire coordinate frame* around the origin,
+        which moves the component to an unexpected position. Always
+        rotate first, then translate.
+
+        For a Mach-Zehnder interferometer, use two directional couplers
+        (or ``mmi_2x2``) with a pair of matched-length arms between them.
+        A typical 50/50 coupler at 1550 nm on silicon uses ``gap=0.2``,
+        ``coupling_length`` around 10-20 um for single-mode waveguides.
+
+    Examples:
+        Standalone 3 dB (50/50) coupler::
+
+            >>> from rosette import Layer
+            >>> from rosette.components import directional_coupler
+            >>> dc = directional_coupler(Layer(1, 0), coupling_length=20.0, gap=0.2)
+            >>> dc.port("out1").position.y > 0
+            True
+
+        Tight coupler for small power tap (~5%)::
+
+            # Short interaction length -> small cross-coupling.
+            dc = directional_coupler(
+                Layer(1, 0),
+                coupling_length=2.0,
+                gap=0.2,
+                bend_length=15.0,
+            )
+
+        Two couplers as a Mach-Zehnder interferometer skeleton::
+
+            from rosette import Cell, Layer, Route, write_gds
+            from rosette.components import directional_coupler
+
+            layer = Layer(1, 0)
+            coupling_length = 15.0
+            bend_length = 10.0                       # default
+            dc = directional_coupler(
+                layer, coupling_length=coupling_length, gap=0.2,
+                bend_length=bend_length,
+            )
+
+            # Couplers separated by a 100 um straight gap. Use the coupler's
+            # x-extent (2*bend_length + coupling_length), NOT dc.path_length
+            # (which is the optical arc length through one arm and is a few
+            # hundred nm longer than the x-extent).
+            total_x = 2 * bend_length + coupling_length
+            dc_in  = dc.at(0, 0)
+            dc_out = dc.at(0, 0).at(total_x + 100, 0)
+
+            upper = Route.through(
+                dc_in.port("out1"), dc_out.port("in1"),
+                layer=layer, bend_radius=10.0,
+            )
+            lower = Route.through(
+                dc_in.port("out2"), dc_out.port("in2"),
+                layer=layer, bend_radius=10.0,
+            )
+
+            design = Cell("mzi_skeleton")
+            design.add_ref(dc_in)
+            design.add_ref(dc_out)
+            design.add_ref(upper.to_cell("upper"))
+            design.add_ref(lower.to_cell("lower"))
+            write_gds("output/mzi_skeleton.gds", design)
     """
     if coupling_length <= 0:
         raise ValueError("Coupling length must be positive")

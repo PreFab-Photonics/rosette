@@ -171,6 +171,46 @@ def euler_sbend_point(t: float, length: float, offset: float) -> tuple[float, fl
     The curve is constructed from two Euler spirals meeting at the midpoint,
     scaled and positioned to achieve the desired length and offset.
 
+    Curvature profile and the ``s_max = 1.0`` choice
+    -------------------------------------------------
+    A clothoid is parameterised by arc length ``s``: its tangent angle is
+    ``theta(s) = (pi / 2) * s^2`` and its curvature is
+    ``kappa(s) = pi * s``. Each half of the S-bend traces the clothoid
+    from ``s = 0`` (zero curvature at the port) up to ``s = s_max``
+    (maximum curvature at the midpoint), then the second half mirrors
+    back down to zero curvature at the exit port. So ``s_max`` sets the
+    **fraction of a full clothoid** each half uses, and thereby how
+    concentrated the curvature is relative to the endpoints.
+
+    We fix ``s_max = 1.0``. That choice:
+
+    * Places the endpoint tangent angle at ``theta(1) = pi/2 = 90°`` at
+      the unscaled curve. After the anisotropic ``(scale_x, scale_y)``
+      rescaling, the centerline enters and leaves each port with zero
+      slope (matching an ``in``/``out`` port facing ±X), while the
+      curvature peaks smoothly at the midpoint.
+    * Gives a curvature profile that is roughly half a "natural"
+      clothoid per half-S-bend — enough to be clearly clothoid-like
+      (curvature ramps linearly with arc length, avoiding the
+      discontinuity of a circular bend and the non-monotonic curvature
+      of a cosine bend) without being so tight that the scaling becomes
+      numerically sensitive.
+    * Lets the anisotropic ``scale_x = (length/2) / C(1)``,
+      ``scale_y = (|offset|/2) / S(1)`` place the midpoint exactly at
+      the geometric centre ``(length/2, offset/2)``, independent of
+      aspect ratio.
+
+    Larger ``s_max`` would pack more of a full clothoid into the same
+    endpoint-to-endpoint span, sharpening the curvature peak in the
+    middle (higher peak ``kappa``, larger peak bend radius inverse)
+    at the cost of less headroom before the scaling becomes ill-
+    conditioned.     Smaller ``s_max`` gives a curve closer to a gentle
+    cosine, losing the loss advantage of a true clothoid. ``s_max = 1.0``
+    is a common choice for clothoid S-bends — it gives a full 90° tangent
+    sweep in each half before the anisotropic rescaling, which is enough
+    to recover most of the loss benefit of a clothoid without needing to
+    expose a tuning knob.
+
     Args:
         t: Parameter from 0 to 1
         length: Horizontal length
@@ -185,8 +225,12 @@ def euler_sbend_point(t: float, length: float, offset: float) -> tuple[float, fl
     sign = 1.0 if offset > 0 else -1.0
     abs_offset = abs(offset)
 
-    # Euler spiral parameter - determines the "tightness"
-    # We use s_max = 1.0 as a reasonable value for typical S-bends
+    # Euler spiral parameter - determines the "tightness".
+    # s_max = 1.0 gives a clothoid whose endpoint tangent reaches 90
+    # degrees on the unscaled curve; after the anisotropic
+    # (scale_x, scale_y) rescaling this becomes a full S-bend with
+    # zero slope at the ports and peak curvature at the midpoint.
+    # See the docstring for a full discussion.
     s_max = 1.0
 
     # Get the Fresnel values at s_max (endpoint of half-spiral)
