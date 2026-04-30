@@ -40,7 +40,9 @@ def sbend(
     transitions inside a route.
 
     When ``offset=0`` the result is a straight waveguide of the given
-    *length* (degenerate case).
+    *length* (degenerate case). In this case *bend_type* and *num_segments*
+    have no geometric meaning and are ignored — the returned cell is a
+    single rectangular polygon with ``path_length = length``.
 
     Ports:
         - ``"in"``  at ``(0, 0)``, facing **-X**, width = *waveguide_width*
@@ -83,11 +85,33 @@ def sbend(
     if length <= 0:
         raise ValueError("S-bend length must be positive")
     if waveguide_width <= 0:
-        raise ValueError("S-bend width must be positive")
+        raise ValueError("Waveguide width must be positive")
+
+    # Degenerate case: zero offset is a plain straight waveguide. Skip the
+    # centerline/tangent machinery so the result is a single rectangle and
+    # the cell name reflects the straight geometry.
+    if offset == 0:
+        half_width = waveguide_width / 2.0
+        cell = Cell(safe_cell_name(f"sb_straight_l{length:.2f}_w{waveguide_width:.3f}"))
+        cell.add_polygon(
+            Polygon(
+                [
+                    Point(0.0, -half_width),
+                    Point(length, -half_width),
+                    Point(length, half_width),
+                    Point(0.0, half_width),
+                ]
+            ),
+            layer,
+        )
+        cell.add_port(Port("in", Point(0.0, 0.0), -Vector2.unit_x(), waveguide_width))
+        cell.add_port(Port("out", Point(length, 0.0), Vector2.unit_x(), waveguide_width))
+        cell.path_length = length
+        return cell
 
     # Default segments based on geometry
     if num_segments is None:
-        aspect = abs(offset) / length if offset != 0 else 0
+        aspect = abs(offset) / length
         num_segments = 32 + int(aspect * 32)
 
     # Select curve functions based on bend type

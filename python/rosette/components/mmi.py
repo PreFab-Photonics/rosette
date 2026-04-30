@@ -194,7 +194,7 @@ def _create_mmi(
     if mmi_width <= 0:
         raise ValueError("MMI width must be positive")
     if port_width <= 0:
-        raise ValueError("Port width must be positive")
+        raise ValueError("Waveguide width must be positive")
     if taper_width <= 0:
         raise ValueError("Taper width must be positive")
     if taper_length < 0:
@@ -208,7 +208,11 @@ def _create_mmi(
     half_port = port_width / 2.0
     half_taper = taper_width / 2.0
 
-    cell = Cell(safe_cell_name(f"mmi_{mmi_type}_l{length:.1f}_w{mmi_width:.1f}"))
+    cell = Cell(
+        safe_cell_name(
+            f"mmi_{mmi_type}_l{length:.1f}_w{mmi_width:.1f}_pw{port_width:.3f}_tw{taper_width:.3f}"
+        )
+    )
 
     # MMI body (rectangular multimode region)
     body = Polygon(

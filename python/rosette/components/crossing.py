@@ -55,7 +55,9 @@ def crossing(
               Most broadband and process-tolerant.
         center_width: Maximum width at the center of the expansion
             region in microns. Default: ``3 * waveguide_width`` for
-            elliptical/mmi; ignored for simple.
+            ``"elliptical"`` / ``"mmi"``. Must be ``None`` when
+            ``crossing_type="simple"`` (the simple crossing has no
+            center expansion region).
 
     Returns:
         Cell with ports ``"in1"``, ``"out1"``, ``"in2"``, ``"out2"``.
@@ -63,7 +65,8 @@ def crossing(
 
     Raises:
         ValueError: If *waveguide_width* or *arm_length* is not positive;
-            if *crossing_type* is unknown; if *center_width* <= 0; if
+            if *crossing_type* is unknown; if *center_width* is set while
+            ``crossing_type="simple"``; if *center_width* <= 0; if
             *arm_length* <= *center_width* / 2 for non-simple types.
 
     Example:
@@ -72,11 +75,16 @@ def crossing(
         >>> c = crossing(Layer(1, 0), crossing_type="elliptical")
     """
     if waveguide_width <= 0:
-        raise ValueError("Width must be positive")
+        raise ValueError("Waveguide width must be positive")
     if arm_length <= 0:
         raise ValueError("Arm length must be positive")
     if crossing_type not in ("simple", "elliptical", "mmi"):
         raise ValueError(f"Unknown crossing type: {crossing_type!r}")
+    if crossing_type == "simple" and center_width is not None:
+        raise ValueError(
+            "center_width is not applicable to crossing_type='simple' "
+            "(the simple crossing has no center expansion region)"
+        )
 
     if center_width is None:
         center_width = waveguide_width * 3 if crossing_type != "simple" else waveguide_width

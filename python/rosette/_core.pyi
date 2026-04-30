@@ -5,6 +5,7 @@ All coordinates, dimensions, and distances are in microns (um).
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Literal
 
 # =============================================================================
 # Geometry Types
@@ -1380,8 +1381,9 @@ def grating_coupler(
     period: float = 0.63,
     fill_factor: float = 0.5,
     num_periods: int = 25,
+    grating_type: Literal["uniform", "apodized"] = "uniform",
     focusing_angle: float | None = 20.0,
-    grating_width: float = 12.0,
+    grating_width: float | None = None,
     taper_length: float = 20.0,
 ) -> Cell:
     """Create a grating coupler for fiber-to-chip coupling.

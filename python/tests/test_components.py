@@ -139,6 +139,64 @@ class TestSBend:
         vertical_diff = port_out.position.y - port_in.position.y
         assert vertical_diff == pytest.approx(5.0)
 
+    def test_zero_offset_is_straight_rectangle(self, layer):
+        """offset=0 short-circuits to a straight waveguide rectangle.
+
+        This is the degenerate-case short-circuit: the S-bend code is skipped
+        entirely, producing a single rectangular polygon and ports at y=0.
+        """
+        length = 15.0
+        width = 0.5
+        cell = sbend(layer, waveguide_width=width, length=length, offset=0.0)
+        assert cell.polygon_count() == 1
+        # Both ports on the centerline
+        assert cell.port("in").position.y == pytest.approx(0.0)
+        assert cell.port("out").position.y == pytest.approx(0.0)
+        assert cell.port("out").position.x == pytest.approx(length)
+        # Path length is just the straight length
+        assert cell.path_length == pytest.approx(length)
+        # BBox matches a plain rectangle
+        bb = cell.bbox()
+        assert bb.min.x == pytest.approx(0.0)
+        assert bb.max.x == pytest.approx(length)
+        assert bb.min.y == pytest.approx(-width / 2)
+        assert bb.max.y == pytest.approx(width / 2)
+
+    @pytest.mark.parametrize("bend_type", ["cosine", "circular", "euler"])
+    def test_zero_offset_ignores_bend_type_and_num_segments(self, layer, bend_type):
+        """offset=0 ignores bend_type and num_segments (documented contract).
+
+        For a zero-offset S-bend the curve profile and segmentation have no
+        geometric meaning — the result is always a single straight rectangle,
+        regardless of which bend_type or how many segments the caller passes.
+        """
+        cell = sbend(
+            layer,
+            waveguide_width=0.5,
+            length=10.0,
+            offset=0.0,
+            bend_type=bend_type,
+            num_segments=128,
+        )
+        assert cell.polygon_count() == 1
+        assert cell.path_length == pytest.approx(10.0)
+
+    @pytest.mark.parametrize(
+        "kwargs,match",
+        [
+            ({"length": 0.0}, "S-bend length must be positive"),
+            ({"length": -1.0}, "S-bend length must be positive"),
+            ({"waveguide_width": 0.0}, "Waveguide width must be positive"),
+            ({"waveguide_width": -0.1}, "Waveguide width must be positive"),
+        ],
+    )
+    def test_validation(self, layer, kwargs, match):
+        """Invalid parameters raise ValueError with a helpful message."""
+        defaults = {"length": 20.0, "offset": 5.0}
+        defaults.update(kwargs)
+        with pytest.raises(ValueError, match=match):
+            sbend(layer, **defaults)
+
 
 class TestMMI:
     """MMI component tests."""
@@ -169,6 +227,28 @@ class TestMMI:
         assert "out1" in ports
         assert "out2" in ports
 
+    def test_cell_name_distinguishes_waveguide_width(self, layer):
+        """Two 1x2 MMIs with different waveguide_width must have different cell names.
+
+        Before the polish pass the cell name was derived only from ``(mmi_type,
+        length, mmi_width)`` so differently-portsized MMIs collided in the
+        library. Include port_width + taper_width in the generated name.
+        """
+        a = mmi_1x2(layer, waveguide_width=0.5)
+        b = mmi_1x2(layer, waveguide_width=0.7)
+        assert a.name != b.name
+
+    def test_cell_name_distinguishes_taper_width(self, layer):
+        """Different taper widths must produce different cell names."""
+        a = mmi_1x2(layer, taper_width=1.2)
+        b = mmi_1x2(layer, taper_width=1.5)
+        assert a.name != b.name
+
+    def test_waveguide_width_validation_message(self, layer):
+        """Invalid waveguide_width raises with the user-facing parameter name."""
+        with pytest.raises(ValueError, match="Waveguide width"):
+            mmi_1x2(layer, waveguide_width=0.0)
+
 
 class TestRing:
     """Ring resonator tests."""
@@ -189,6 +269,11 @@ class TestRing:
         assert "add" in ports
         assert "drop" in ports
 
+    def test_waveguide_width_validation_message(self, layer):
+        """Invalid waveguide_width raises with the user-facing parameter name."""
+        with pytest.raises(ValueError, match="Waveguide width"):
+            ring(layer, waveguide_width=0.0)
+
 
 class TestCrossing:
     """Crossing component tests."""
@@ -207,6 +292,25 @@ class TestCrossing:
         """MMI-based crossing."""
         cell = crossing(layer, waveguide_width=0.5, crossing_type="mmi")
         assert cell.polygon_count() > 0
+
+    def test_simple_rejects_center_width(self, layer):
+        """Setting center_width with crossing_type='simple' is a user error.
+
+        The simple crossing has no center expansion region, so center_width
+        would have been silently ignored before the polish pass.
+        """
+        with pytest.raises(ValueError, match="not applicable to crossing_type='simple'"):
+            crossing(layer, crossing_type="simple", center_width=3.0)
+
+    def test_simple_accepts_default_center_width(self, layer):
+        """Leaving center_width unset (the default) still works for 'simple'."""
+        cell = crossing(layer, crossing_type="simple")
+        assert cell.polygon_count() > 0
+
+    def test_waveguide_width_validation_message(self, layer):
+        """Invalid waveguide_width raises with the user-facing parameter name."""
+        with pytest.raises(ValueError, match="Waveguide width"):
+            crossing(layer, waveguide_width=0.0)
 
 
 class TestGratingCoupler:
@@ -227,6 +331,52 @@ class TestGratingCoupler:
         cell = grating_coupler(layer, waveguide_width=0.5, focusing_angle=30.0)
         assert cell.polygon_count() > 0
 
+    def test_straight_default_grating_width(self, layer):
+        """focusing_angle=None with no grating_width uses the internal default."""
+        cell = grating_coupler(layer, focusing_angle=None)
+        assert cell.polygon_count() > 0
+
+    def test_straight_custom_grating_width(self, layer):
+        """focusing_angle=None with an explicit grating_width works."""
+        cell = grating_coupler(layer, focusing_angle=None, grating_width=8.0)
+        assert cell.polygon_count() > 0
+
+    def test_focusing_with_grating_width_is_conflict(self, layer):
+        """Setting both focusing_angle and grating_width warns and ignores.
+
+        Before the polish pass grating_width was silently ignored for focused
+        GCs; now it emits a UserWarning so the confusion is surfaced without
+        breaking callers that echoed the old default value.
+        """
+        with pytest.warns(UserWarning, match="grating_width is only applicable"):
+            cell = grating_coupler(layer, focusing_angle=20.0, grating_width=12.0)
+        # The cell still builds successfully — grating_width is just ignored.
+        assert cell.polygon_count() > 0
+
+    def test_cell_name_distinguishes_parameters(self, layer):
+        """GCs with different geometry-affecting parameters get distinct names.
+
+        Before the polish pass the cell name was only
+        ``gc_w{waveguide_width}_p{period}``, so GCs differing in
+        focusing_angle / num_periods / fill_factor / grating_type /
+        grating_width / taper_length silently collided in the library.
+        """
+        base = grating_coupler(layer)
+        variants = [
+            grating_coupler(layer, waveguide_width=0.7),
+            grating_coupler(layer, period=0.60),
+            grating_coupler(layer, fill_factor=0.6),
+            grating_coupler(layer, num_periods=30),
+            grating_coupler(layer, grating_type="apodized"),
+            grating_coupler(layer, focusing_angle=None),  # switches to straight
+            grating_coupler(layer, focusing_angle=None, grating_width=15.0),
+            grating_coupler(layer, focusing_angle=25.0),
+            grating_coupler(layer, taper_length=30.0),
+        ]
+        names = {base.name} | {v.name for v in variants}
+        # All ten variants (base + 9) must have unique names
+        assert len(names) == 10
+
 
 class TestDirectionalCoupler:
     """Directional coupler tests."""
@@ -240,6 +390,36 @@ class TestDirectionalCoupler:
         assert "in2" in ports
         assert "out1" in ports
         assert "out2" in ports
+
+    def test_waveguide_width_validation_message(self, layer):
+        """Invalid waveguide_width raises with the user-facing parameter name."""
+        with pytest.raises(ValueError, match="Waveguide width"):
+            directional_coupler(layer, waveguide_width=0.0)
+
+    def test_port_spacing_must_exceed_gap_plus_width(self, layer):
+        """Port spacing <= gap + waveguide_width would invert the S-bend.
+
+        Previously this was enforced only implicitly by geometry; now it
+        raises with a clear message so users don't silently build an
+        inside-out directional coupler.
+        """
+        with pytest.raises(ValueError, match="Port spacing"):
+            directional_coupler(
+                layer,
+                waveguide_width=0.5,
+                gap=0.2,
+                port_spacing=0.6,  # 0.6 < 0.2 + 0.5 = 0.7
+            )
+
+    def test_port_spacing_equal_to_gap_plus_width_is_rejected(self, layer):
+        """Equality case (zero-offset S-bends) is also rejected."""
+        with pytest.raises(ValueError, match="Port spacing"):
+            directional_coupler(
+                layer,
+                waveguide_width=0.5,
+                gap=0.2,
+                port_spacing=0.7,  # exactly gap + waveguide_width
+            )
 
 
 class TestBraggGrating:

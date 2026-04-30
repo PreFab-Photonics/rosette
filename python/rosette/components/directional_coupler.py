@@ -61,8 +61,9 @@ def directional_coupler(
         bend_length: Horizontal length of each cosine S-bend transition
             in microns.
         port_spacing: Center-to-center distance between the upper and
-            lower port pairs in microns. Must be large enough for the
-            S-bends to reach the coupling gap.
+            lower port pairs in microns. Must be strictly greater than
+            ``gap + waveguide_width`` so the S-bends can bring the two
+            arms together in the coupling region.
         num_segments: Number of polygon segments per S-bend curve.
 
     Returns:
@@ -72,7 +73,8 @@ def directional_coupler(
 
     Raises:
         ValueError: If *coupling_length*, *gap*, *waveguide_width*, or
-            *bend_length* is not positive; if *num_segments* < 1.
+            *bend_length* is not positive; if *num_segments* < 1;
+            if *port_spacing* <= *gap* + *waveguide_width*.
 
     Example:
         >>> from rosette import Layer
@@ -84,11 +86,17 @@ def directional_coupler(
     if gap <= 0:
         raise ValueError("Gap must be positive")
     if waveguide_width <= 0:
-        raise ValueError("Width must be positive")
+        raise ValueError("Waveguide width must be positive")
     if bend_length <= 0:
         raise ValueError("Bend length must be positive")
     if num_segments < 1:
         raise ValueError("Number of segments must be at least 1")
+    if port_spacing <= gap + waveguide_width:
+        raise ValueError(
+            f"Port spacing ({port_spacing}) must be greater than "
+            f"gap + waveguide_width ({gap + waveguide_width}) so the "
+            f"S-bends can bring the two arms together in the coupling region"
+        )
 
     total_length = 2 * bend_length + coupling_length
     port_y = port_spacing / 2

@@ -43,6 +43,7 @@ closely-spaced component ports to the wider GC pitch::
 """
 
 import math
+import warnings
 from typing import Literal
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
@@ -59,7 +60,7 @@ def grating_coupler(
     num_periods: int = 25,
     grating_type: Literal["uniform", "apodized"] = "uniform",
     focusing_angle: float | None = 20.0,
-    grating_width: float = 12.0,
+    grating_width: float | None = None,
     taper_length: float = 20.0,
 ) -> Cell:
     """Create a grating coupler for fiber-to-chip coupling.
@@ -81,7 +82,10 @@ def grating_coupler(
       teeth whose curvature is centered at the focal point (the origin).
       *focusing_angle* is the **full** angular aperture of the fan; each
       tooth spans +-half that angle. The *grating_width* parameter is
-      ignored when *focusing_angle* is set.
+      meaningless for focused GCs (the aperture is set by
+      *focusing_angle* and the grating tooth radii); passing a
+      non-``None`` value together with *focusing_angle* emits a
+      ``UserWarning`` and the value is ignored.
 
     Apodization:
 
@@ -104,8 +108,12 @@ def grating_coupler(
         focusing_angle: Full angular aperture of the curved grating
             fan in degrees (default: 20.0). Set to ``None`` for straight
             (rectangular) teeth.
-        grating_width: Width of the grating region in microns (only
-            used when *focusing_angle* is ``None``).
+        grating_width: Width of the grating region in microns. Only
+            applicable when *focusing_angle* is ``None`` (straight
+            teeth). If ``None`` (default) and *focusing_angle* is
+            ``None``, a default of ``12.0`` um is used. Passing a
+            non-``None`` value together with *focusing_angle* emits a
+            ``UserWarning`` and the value is ignored.
         taper_length: Length of the taper from waveguide to grating
             aperture in microns.
 
@@ -117,6 +125,10 @@ def grating_coupler(
         ValueError: If *waveguide_width*, *period*, *taper_length*, or
             *grating_width* is not positive; if *fill_factor* is not
             strictly between 0 and 1; if *num_periods* < 1.
+
+    Warns:
+        UserWarning: If *grating_width* is set while *focusing_angle* is
+            also set (the *grating_width* is ignored for focused GCs).
 
     Example:
         >>> from rosette import Layer
@@ -131,12 +143,33 @@ def grating_coupler(
         raise ValueError("Fill factor must be between 0 and 1")
     if taper_length <= 0:
         raise ValueError("Taper length must be positive")
-    if grating_width <= 0:
+    if focusing_angle is not None and grating_width is not None:
+        warnings.warn(
+            "grating_width is only applicable to straight GCs "
+            "(focusing_angle=None); the value is ignored for focused GCs.",
+            UserWarning,
+            stacklevel=2,
+        )
+        grating_width = None
+    if focusing_angle is None and grating_width is None:
+        grating_width = 12.0
+    if focusing_angle is None and grating_width <= 0:
         raise ValueError("Grating width must be positive")
     if num_periods < 1:
         raise ValueError("Number of periods must be at least 1")
 
-    cell = Cell(safe_cell_name(f"gc_w{waveguide_width:.3f}_p{period:.3f}"))
+    # Include every geometry-affecting parameter so distinct GCs get distinct
+    # cell names. safe_cell_name will truncate + hash if the result exceeds
+    # the GDS-II 32-character limit, so we can be generous here.
+    fa_tag = f"fa{focusing_angle:.1f}" if focusing_angle is not None else "fstraight"
+    gw_tag = f"_gw{grating_width:.2f}" if focusing_angle is None else ""
+    cell = Cell(
+        safe_cell_name(
+            f"gc_w{waveguide_width:.3f}_p{period:.3f}_ff{fill_factor:.2f}"
+            f"_n{num_periods}_{grating_type[:3]}_{fa_tag}{gw_tag}"
+            f"_tl{taper_length:.1f}"
+        )
+    )
 
     # Create taper from waveguide to grating width (extends in -X direction)
     taper = _create_taper(waveguide_width, grating_width, taper_length, focusing_angle)
@@ -187,11 +220,16 @@ def grating_coupler(
 
 def _create_taper(
     width_in: float,
-    width_out: float,
+    width_out: float | None,
     length: float,
     focusing_angle: float | None,
 ) -> Polygon:
-    """Create the taper polygon extending in -X direction."""
+    """Create the taper polygon extending in -X direction.
+
+    ``width_out`` is only used for the straight (non-focused) case. The
+    caller must pass a positive value when ``focusing_angle is None``;
+    ``width_out`` is allowed to be ``None`` otherwise.
+    """
     half_wg = width_in / 2.0
 
     if focusing_angle is not None:

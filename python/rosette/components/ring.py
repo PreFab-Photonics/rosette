@@ -162,7 +162,7 @@ def ring(
     if radius <= 0:
         raise ValueError("Ring radius must be positive")
     if waveguide_width <= 0:
-        raise ValueError("Ring width must be positive")
+        raise ValueError("Waveguide width must be positive")
     if radius <= waveguide_width / 2:
         raise ValueError("Radius must be greater than half the waveguide width")
     if gap <= 0:
