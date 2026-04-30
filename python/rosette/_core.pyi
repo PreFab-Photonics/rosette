@@ -1308,6 +1308,39 @@ class DrcRules:
         Common values: 0.001 (1 nm grid) or 0.005 (5 nm grid).
         """
         ...
+    def acute_angle(
+        self,
+        layer: Layer | int | tuple[int, int],
+        threshold_deg: float,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add acute interior angle check for a layer.
+
+        Flags convex polygon vertices whose interior angle is strictly less
+        than ``threshold_deg``. Reflex (concave, > 180°) vertices are ignored
+        — they represent the polygon turning outward and are not a
+        lithography risk.
+
+        Common value: 60.0 (typical photonic PDK default).
+        """
+        ...
+    def not_inside(
+        self,
+        inner: Layer | int | tuple[int, int],
+        outer: Layer | int | tuple[int, int],
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add a not-inside / exclusion-zone rule.
+
+        Flags polygons on ``inner`` that are fully contained inside the union
+        of polygons on ``outer``. Partial crossings (an inner polygon that
+        crosses an outer boundary) are not violations — an inner polygon must
+        sit wholly inside an outer region for the rule to trigger.
+
+        Use this for keep-out zones. Distinct from ``forbid_overlap``, which
+        flags any overlap at all.
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class DrcViolation:

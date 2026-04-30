@@ -76,6 +76,18 @@ pub enum RuleType {
         /// The off-grid vertex (x, y).
         vertex: (f64, f64),
     },
+    /// Polygon has a convex vertex with interior angle below the threshold.
+    AcuteAngle {
+        /// Measured interior angle (degrees).
+        angle_deg: f64,
+        /// Configured minimum allowed interior angle (degrees).
+        threshold_deg: f64,
+        /// The offending vertex (x, y).
+        vertex: (f64, f64),
+    },
+    /// An inner-layer polygon is fully contained inside an outer (exclusion)
+    /// region, violating a `not_inside` rule.
+    NotInside,
 }
 
 /// A single DRC violation.

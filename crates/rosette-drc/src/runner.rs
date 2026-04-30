@@ -7,9 +7,9 @@ use rosette_core::cell::Element;
 use rosette_core::{BBox, Cell, Layer, Library, Point, Polygon, Transform, offset_polygon};
 
 use crate::checks::{
-    check_angles, check_area, check_edge_length, check_enclosure, check_forbid_overlap_bulk,
-    check_max_width, check_require_overlap_bulk, check_self_intersection, check_snap_to_grid,
-    check_spacing, check_width,
+    check_acute_angle, check_angles, check_area, check_edge_length, check_enclosure,
+    check_forbid_overlap_bulk, check_max_width, check_not_inside, check_require_overlap_bulk,
+    check_self_intersection, check_snap_to_grid, check_spacing, check_width,
 };
 use crate::rules::{DrcRules, Rule};
 use crate::violation::{DrcViolation, RuleType, Severity};
@@ -106,12 +106,14 @@ impl DrcRunner {
                 | Rule::AllowedAngles { .. }
                 | Rule::MinEdgeLength { .. }
                 | Rule::SelfIntersection { .. }
-                | Rule::MaxWidth { .. } => per_polygon_rules.push(rule),
+                | Rule::MaxWidth { .. }
+                | Rule::AcuteAngle { .. } => per_polygon_rules.push(rule),
                 Rule::SnapToGrid { .. } => transform_dep_rules.push(rule),
                 Rule::MinSpacing { .. }
                 | Rule::Enclosure { .. }
                 | Rule::RequireOverlap { .. }
-                | Rule::ForbidOverlap { .. } => pairwise_rules.push(rule),
+                | Rule::ForbidOverlap { .. }
+                | Rule::NotInside { .. } => pairwise_rules.push(rule),
             }
         }
 
@@ -921,6 +923,31 @@ impl DrcRunner {
                         check_snap_to_grid(poly, *layer, *grid_pitch, name.as_deref())
                     })
                     .collect()
+            }
+
+            Rule::AcuteAngle {
+                layer,
+                threshold_deg,
+                name,
+            } => {
+                let Some(polys) = polygons_by_layer.get(layer) else {
+                    return Vec::new();
+                };
+
+                polys
+                    .iter()
+                    .flat_map(|(poly, _)| {
+                        check_acute_angle(poly, *layer, *threshold_deg, name.as_deref())
+                    })
+                    .collect()
+            }
+
+            Rule::NotInside { inner, outer, name } => {
+                let empty = Vec::new();
+                let inner_polys = polygons_by_layer.get(inner).unwrap_or(&empty);
+                let outer_polys = polygons_by_layer.get(outer).unwrap_or(&empty);
+
+                check_not_inside(inner_polys, *inner, outer_polys, *outer, name.as_deref())
             }
         }
     }

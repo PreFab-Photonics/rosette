@@ -161,6 +161,35 @@ impl PyDrcRules {
         ))
     }
 
+    /// Add acute interior angle check.
+    #[pyo3(signature = (layer, threshold_deg, name=None))]
+    fn acute_angle(
+        &self,
+        layer: &Bound<'_, PyAny>,
+        threshold_deg: f64,
+        name: Option<&str>,
+    ) -> PyResult<Self> {
+        let layer = extract_layer(layer)?;
+        Ok(PyDrcRules(self.0.clone().acute_angle(
+            layer,
+            threshold_deg,
+            name,
+        )))
+    }
+
+    /// Add not-inside / exclusion-zone rule.
+    #[pyo3(signature = (inner, outer, name=None))]
+    fn not_inside(
+        &self,
+        inner: &Bound<'_, PyAny>,
+        outer: &Bound<'_, PyAny>,
+        name: Option<&str>,
+    ) -> PyResult<Self> {
+        let inner = extract_layer(inner)?;
+        let outer = extract_layer(outer)?;
+        Ok(PyDrcRules(self.0.clone().not_inside(inner, outer, name)))
+    }
+
     fn __repr__(&self) -> String {
         format!("DrcRules({} rules)", self.0.rules().len())
     }
@@ -209,6 +238,8 @@ impl PyDrcViolation {
             RuleType::SelfIntersection => "self_intersection".to_string(),
             RuleType::MaxWidth { .. } => "max_width".to_string(),
             RuleType::OffGrid { .. } => "off_grid".to_string(),
+            RuleType::AcuteAngle { .. } => "acute_angle".to_string(),
+            RuleType::NotInside => "not_inside".to_string(),
         }
     }
 

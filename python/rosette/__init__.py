@@ -1377,6 +1377,9 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         if "snap_to_grid" in layer_rules:
             rules = rules.snap_to_grid(layer, layer_rules["snap_to_grid"], f"{prefix}.snap_to_grid")
 
+        if "acute_angle" in layer_rules:
+            rules = rules.acute_angle(layer, layer_rules["acute_angle"], f"{prefix}.acute_angle")
+
         # Warn about unrecognized keys that might be typos
         _KNOWN_LAYER_KEYS = {
             "min_width",
@@ -1388,6 +1391,7 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
             "no_self_intersection",
             "no_overlap",
             "snap_to_grid",
+            "acute_angle",
         }
         unknown_keys = set(layer_rules.keys()) - _KNOWN_LAYER_KEYS
         for key in sorted(unknown_keys):
@@ -1433,6 +1437,12 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
             layer1, _ = _resolve_layer(rule["layer1"], layer_lookup, context=rule_context)
             layer2, _ = _resolve_layer(rule["layer2"], layer_lookup, context=rule_context)
             rules = rules.forbid_overlap(layer1, layer2, name)
+
+        elif rule_type == "not_inside":
+            _validate_rule_fields(rule, ["inner", "outer"], i)
+            inner, _ = _resolve_layer(rule["inner"], layer_lookup, context=rule_context)
+            outer, _ = _resolve_layer(rule["outer"], layer_lookup, context=rule_context)
+            rules = rules.not_inside(inner, outer, name)
 
         else:
             raise ValueError(f"Unknown DRC rule type: {rule_type}")

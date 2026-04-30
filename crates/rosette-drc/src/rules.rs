@@ -70,6 +70,24 @@ pub enum Rule {
         grid_pitch: f64,
         name: Option<String>,
     },
+    /// Flag convex vertices whose interior angle is below a threshold.
+    AcuteAngle {
+        layer: Layer,
+        /// Minimum allowed interior angle (degrees). Typical: 60.0.
+        threshold_deg: f64,
+        name: Option<String>,
+    },
+    /// Inner layer must not be fully contained inside outer layer.
+    ///
+    /// Defines an "exclusion zone": polygons on `inner` that sit entirely
+    /// inside `outer` (or inside the union of `outer` polygons) are flagged.
+    /// Partial crossings are not a violation — the inner polygon must be
+    /// wholly inside for the rule to trigger.
+    NotInside {
+        inner: Layer,
+        outer: Layer,
+        name: Option<String>,
+    },
 }
 
 /// Builder for DRC rule sets.
@@ -263,6 +281,54 @@ impl DrcRules {
         self.rules.push(Rule::SnapToGrid {
             layer: layer.into(),
             grid_pitch,
+            name: name.map(String::from),
+        });
+        self
+    }
+
+    /// Add an acute interior angle check for polygons on a layer.
+    ///
+    /// Flags convex vertices (where the polygon turns inward) whose interior
+    /// angle is strictly less than `threshold_deg`. Reflex (concave / >180°)
+    /// vertices are not reported — they represent the polygon "poking outward"
+    /// and are not a lithography risk.
+    ///
+    /// Sharp inward corners are hard to manufacture: they round off during
+    /// lithography and can cause fracturing issues. A common threshold in
+    /// photonic PDKs is 60°.
+    pub fn acute_angle(
+        mut self,
+        layer: impl Into<Layer>,
+        threshold_deg: f64,
+        name: Option<&str>,
+    ) -> Self {
+        self.rules.push(Rule::AcuteAngle {
+            layer: layer.into(),
+            threshold_deg,
+            name: name.map(String::from),
+        });
+        self
+    }
+
+    /// Add a "not-inside" / exclusion zone rule.
+    ///
+    /// Flags polygons on `inner` that are fully contained inside the union of
+    /// polygons on `outer`. Partial crossings (an `inner` polygon that crosses
+    /// the boundary of an `outer` polygon) are not violations — the inner must
+    /// sit wholly inside an exclusion zone for the rule to trigger.
+    ///
+    /// Use this for keep-out zones: "routing layer must not sit entirely inside
+    /// a no-fly marker". It is distinct from `forbid_overlap`, which flags any
+    /// overlap at all.
+    pub fn not_inside(
+        mut self,
+        inner: impl Into<Layer>,
+        outer: impl Into<Layer>,
+        name: Option<&str>,
+    ) -> Self {
+        self.rules.push(Rule::NotInside {
+            inner: inner.into(),
+            outer: outer.into(),
             name: name.map(String::from),
         });
         self

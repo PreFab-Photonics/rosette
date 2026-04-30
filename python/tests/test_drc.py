@@ -512,6 +512,200 @@ snap_to_grid = 0.005
         assert "1 rules" in repr(rules)
 
 
+class TestAcuteAngle:
+    """Tests for the acute-angle DRC check."""
+
+    def test_rectangle_passes(self):
+        """Rectangle (all 90° interior angles) passes threshold 60°."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 10.0, 5.0), Layer(1, 0))
+
+        rules = DrcRules().acute_angle(Layer(1, 0), 60.0)
+        result = run_drc(cell, rules)
+        assert result.passed
+
+    def test_sharp_triangle_fails(self):
+        """Thin triangle with ~1° apex fails threshold 60°."""
+        cell = Cell("test")
+        # Apex at (50, 0), base from (0, -0.5) to (0, 0.5). Apex angle ~1.1°.
+        poly = Polygon([Point(0.0, 0.5), Point(0.0, -0.5), Point(50.0, 0.0)])
+        cell.add_polygon(poly, Layer(1, 0))
+
+        rules = DrcRules().acute_angle(Layer(1, 0), 60.0, name="ACUTE_60")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 1
+        v = result.violations[0]
+        assert v.rule_type == "acute_angle"
+        assert v.rule_name == "ACUTE_60"
+        assert v.severity == "error"
+        assert "Acute interior angle" in v.message
+
+    def test_reflex_vertex_ignored(self):
+        """L-shape has a 270° reflex vertex but no convex acute angles."""
+        cell = Cell("test")
+        cell.add_polygon(
+            Polygon(
+                [
+                    Point(0.0, 0.0),
+                    Point(10.0, 0.0),
+                    Point(10.0, 5.0),
+                    Point(5.0, 5.0),
+                    Point(5.0, 10.0),
+                    Point(0.0, 10.0),
+                ]
+            ),
+            Layer(1, 0),
+        )
+
+        rules = DrcRules().acute_angle(Layer(1, 0), 60.0)
+        result = run_drc(cell, rules)
+        assert result.passed, [v.message for v in result.violations]
+
+    def test_toml_config(self, tmp_path):
+        """acute_angle loads from TOML config."""
+        toml_content = """
+[drc.layers."1/0"]
+acute_angle = 60.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+        # Rectangle passes
+        ok_cell = Cell("ok")
+        ok_cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 1.0, 1.0), Layer(1, 0))
+        assert run_drc(ok_cell, rules).passed
+
+        # Sharp triangle fails
+        bad_cell = Cell("bad")
+        bad_cell.add_polygon(
+            Polygon([Point(0.0, 0.5), Point(0.0, -0.5), Point(50.0, 0.0)]),
+            Layer(1, 0),
+        )
+        bad_result = run_drc(bad_cell, rules)
+        assert not bad_result.passed
+        assert bad_result.violations[0].rule_type == "acute_angle"
+        assert bad_result.violations[0].rule_name == "L1/0.acute_angle"
+
+    def test_layer_accepts_int(self):
+        """acute_angle accepts int layer."""
+        rules = DrcRules().acute_angle(1, 60.0)
+        assert "1 rules" in repr(rules)
+
+    def test_layer_accepts_tuple(self):
+        """acute_angle accepts tuple layer."""
+        rules = DrcRules().acute_angle((1, 0), 60.0)
+        assert "1 rules" in repr(rules)
+
+
+class TestNotInside:
+    """Tests for the not-inside / exclusion-zone DRC check."""
+
+    def test_inner_fully_inside_outer_fails(self):
+        """Inner polygon sitting entirely inside an outer (exclusion) polygon violates."""
+        cell = Cell("test")
+        # Exclusion zone on layer (2, 0), forbidden layer on (1, 0).
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 20.0, 20.0), Layer(2, 0))
+        cell.add_polygon(Polygon.rect(Point(5.0, 5.0), 3.0, 3.0), Layer(1, 0))
+
+        rules = DrcRules().not_inside(Layer(1, 0), Layer(2, 0), name="KEEPOUT")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 1
+        v = result.violations[0]
+        assert v.rule_type == "not_inside"
+        assert v.rule_name == "KEEPOUT"
+        assert v.layer == (1, 0)
+        assert v.layer2 == (2, 0)
+
+    def test_inner_partially_outside_passes(self):
+        """Inner polygon crossing an exclusion boundary is not a violation."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 10.0, 10.0), Layer(2, 0))
+        # Straddles the boundary
+        cell.add_polygon(Polygon.rect(Point(5.0, 5.0), 10.0, 10.0), Layer(1, 0))
+
+        rules = DrcRules().not_inside(Layer(1, 0), Layer(2, 0))
+        assert run_drc(cell, rules).passed
+
+    def test_inner_outside_outer_passes(self):
+        """Inner polygon entirely outside the exclusion zone is fine."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 5.0, 5.0), Layer(2, 0))
+        cell.add_polygon(Polygon.rect(Point(50.0, 50.0), 3.0, 3.0), Layer(1, 0))
+
+        rules = DrcRules().not_inside(Layer(1, 0), Layer(2, 0))
+        assert run_drc(cell, rules).passed
+
+    def test_no_exclusion_zone_passes(self):
+        """With no outer-layer polygons, nothing can be inside anything."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 5.0, 5.0), Layer(1, 0))
+
+        rules = DrcRules().not_inside(Layer(1, 0), Layer(2, 0))
+        assert run_drc(cell, rules).passed
+
+    def test_union_of_outers_contains_inner(self):
+        """Two abutting outer polygons together enclose an inner polygon."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 10.0, 10.0), Layer(2, 0))
+        cell.add_polygon(Polygon.rect(Point(10.0, 0.0), 10.0, 10.0), Layer(2, 0))
+        # Inner straddles the seam between the two outer rectangles.
+        cell.add_polygon(Polygon.rect(Point(5.0, 2.0), 10.0, 6.0), Layer(1, 0))
+
+        rules = DrcRules().not_inside(Layer(1, 0), Layer(2, 0))
+        result = run_drc(cell, rules)
+        assert not result.passed
+        assert len(result.violations) == 1
+
+    def test_toml_config(self, tmp_path):
+        """not_inside loads from TOML [[drc.rules]]."""
+        toml_content = """
+[[drc.rules]]
+type = "not_inside"
+inner = "1/0"
+outer = "2/0"
+name = "KEEPOUT.SI"
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+        # Violating design
+        bad = Cell("bad")
+        bad.add_polygon(Polygon.rect(Point(0.0, 0.0), 20.0, 20.0), Layer(2, 0))
+        bad.add_polygon(Polygon.rect(Point(5.0, 5.0), 3.0, 3.0), Layer(1, 0))
+        bad_result = run_drc(bad, rules)
+        assert not bad_result.passed
+        assert bad_result.violations[0].rule_type == "not_inside"
+        assert bad_result.violations[0].rule_name == "KEEPOUT.SI"
+
+        # Passing design (no inner polygons)
+        ok = Cell("ok")
+        ok.add_polygon(Polygon.rect(Point(0.0, 0.0), 20.0, 20.0), Layer(2, 0))
+        assert run_drc(ok, rules).passed
+
+    def test_toml_missing_fields_raises(self, tmp_path):
+        """not_inside with missing fields raises ValueError."""
+        toml_content = """
+[[drc.rules]]
+type = "not_inside"
+inner = "1/0"
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        with pytest.raises(ValueError, match=r"missing required fields.*outer"):
+            load_drc_rules(config_file)
+
+
 class TestDrcResult:
     """Tests for DrcResult class."""
 
