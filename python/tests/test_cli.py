@@ -77,8 +77,22 @@ class TestRosetteInit:
         src_dir = project_dir / ".rosette" / "src"
         assert not src_dir.exists()
 
-        # Blank template does not include components
-        assert not (project_dir / "components").exists()
+        # Blank template ships a minimal components/ scaffold so that
+        # `from components import ...` doesn't ModuleNotFoundError.
+        components_dir = project_dir / "components"
+        assert components_dir.is_dir()
+        assert (components_dir / "__init__.py").exists()
+        assert (components_dir / "_utils.py").exists()
+        assert (components_dir / "_curves.py").exists()
+        # No public component modules are pre-seeded.
+        assert not (components_dir / "mmi.py").exists()
+        assert not (components_dir / "ring.py").exists()
+        # The minimal __init__.py has an empty __all__ and no re-exports.
+        init_content = (components_dir / "__init__.py").read_text()
+        assert "__all__" in init_content
+        assert "from components.mmi" not in init_content
+        # __pycache__ must not leak into user projects.
+        assert not (components_dir / "__pycache__").exists()
 
     def test_init_uses_dir_name_as_default(self, tmp_path: Path, monkeypatch):
         """rosette init uses directory name for project name."""
@@ -149,6 +163,101 @@ class TestRosetteInit:
         assert components_dir.is_dir()
         assert (components_dir / "mmi.py").exists()
         assert (components_dir / "ring.py").exists()
+        # __pycache__ must not leak into user projects.
+        assert not (components_dir / "__pycache__").exists()
+
+    def test_init_generic_components_import_roundtrip(self, tmp_path: Path, monkeypatch):
+        """`from components import mmi_1x2` resolves to the *local* copy.
+
+        Shadcn-style components are useless if edits to
+        ``components/mmi.py`` in a user project are silently shadowed by
+        the installed ``rosette.components`` package. This test runs
+        ``rosette init --template generic``, imports ``components``, and
+        asserts each public re-export resolves to a function whose
+        ``__module__`` lives under the user's ``components`` package --
+        not under ``rosette.components``. Regression test for ROS-530.
+        """
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("generic", tool="opencode")
+
+        # Put the project root at the front of sys.path, import `components`,
+        # and verify the public re-exports resolve to the local copies.
+        import importlib
+        import sys
+
+        sys.path.insert(0, str(project_dir))
+        # Evict any prior `components` module from other tests / repo root.
+        for mod in list(sys.modules):
+            if mod == "components" or mod.startswith("components."):
+                del sys.modules[mod]
+        try:
+            components = importlib.import_module("components")
+            for name in ("mmi_1x2", "ring", "grating_coupler", "bragg_grating"):
+                assert hasattr(components, name), f"components.{name} missing"
+                func = getattr(components, name)
+                assert callable(func)
+                # The re-exports must come from the project-local package,
+                # not from the installed rosette.components package.
+                assert func.__module__.startswith("components."), (
+                    f"components.{name}.__module__ = {func.__module__!r}; "
+                    "expected it to live under the project-local `components` package. "
+                    "If this fails, `_copy_components` is shipping absolute "
+                    "`rosette.components.*` imports verbatim and user edits to "
+                    "`components/<x>.py` will be silently ignored."
+                )
+            # Same check for the submodule form (`from components.mmi import ...`).
+            # This also catches transitive imports of `_utils`/`_curves` leaking
+            # back to the installed package.
+            mmi = importlib.import_module("components.mmi")
+            assert mmi.mmi_1x2.__module__ == "components.mmi"
+            assert mmi.mmi_1x2 is components.mmi_1x2
+        finally:
+            sys.path.remove(str(project_dir))
+            for mod in list(sys.modules):
+                if mod == "components" or mod.startswith("components."):
+                    del sys.modules[mod]
+
+    def test_init_generic_components_edits_take_effect(self, tmp_path: Path, monkeypatch):
+        """Edits to `components/<x>.py` in a user project are honored.
+
+        This is the shadcn-style contract: users should be able to tweak a
+        copied component and have their edits drive subsequent imports.
+        Regression test for ROS-530 (companion to the __module__ check).
+        """
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("generic", tool="opencode")
+
+        # Mutate the local copy in a way that doesn't require running the
+        # component: add a sentinel attribute. If imports resolve against
+        # the installed package, the attribute will be missing.
+        mmi_path = project_dir / "components" / "mmi.py"
+        mmi_src = mmi_path.read_text()
+        mmi_path.write_text(mmi_src + "\n_ROS_530_LOCAL_EDIT = True\n")
+
+        import importlib
+        import sys
+
+        sys.path.insert(0, str(project_dir))
+        for mod in list(sys.modules):
+            if mod == "components" or mod.startswith("components."):
+                del sys.modules[mod]
+        try:
+            mmi = importlib.import_module("components.mmi")
+            assert getattr(mmi, "_ROS_530_LOCAL_EDIT", False) is True, (
+                "Local edits to components/mmi.py did not take effect -- "
+                "imports are resolving against the installed rosette.components package."
+            )
+        finally:
+            sys.path.remove(str(project_dir))
+            for mod in list(sys.modules):
+                if mod == "components" or mod.startswith("components."):
+                    del sys.modules[mod]
 
     def test_init_stores_template_in_toml(self, tmp_path: Path, monkeypatch):
         """rosette init records the template name in rosette.toml."""
@@ -221,6 +330,77 @@ class TestRosetteInit:
         assert "output/*.gds" in gitignore
         # Section header added
         assert "# Rosette" in gitignore
+
+
+class TestRewriteComponentImports:
+    """Tests for `_rewrite_component_imports` (see ROS-530).
+
+    The rewriter is what makes copied components self-contained. Without
+    it, `from components import mmi_1x2` in a user project resolves
+    against the installed `rosette.components` package instead of the
+    local copy.
+    """
+
+    def test_rewrites_submodule_imports(self):
+        from rosette.cli import _rewrite_component_imports
+
+        src = "from rosette.components._utils import safe_cell_name\n"
+        assert _rewrite_component_imports(src) == "from ._utils import safe_cell_name\n"
+
+    def test_rewrites_init_reexports(self):
+        from rosette.cli import _rewrite_component_imports
+
+        src = "from rosette.components.mmi import mmi_1x2, mmi_2x1, mmi_2x2\n"
+        assert _rewrite_component_imports(src) == "from .mmi import mmi_1x2, mmi_2x1, mmi_2x2\n"
+
+    def test_rewrites_from_package_import(self):
+        """`from rosette.components import X` -> `from . import X`."""
+        from rosette.cli import _rewrite_component_imports
+
+        src = "from rosette.components import mmi_1x2\n"
+        assert _rewrite_component_imports(src) == "from . import mmi_1x2\n"
+
+    def test_leaves_core_rosette_import_alone(self):
+        """`from rosette import ...` points at the core package and must not be touched."""
+        from rosette.cli import _rewrite_component_imports
+
+        src = "from rosette import Cell, Layer, Point\n"
+        assert _rewrite_component_imports(src) == src
+
+    def test_leaves_indented_docstring_examples_alone(self):
+        """Docstring examples teach the installed-package import path; leave them."""
+        from rosette.cli import _rewrite_component_imports
+
+        src = (
+            '"""My docstring.\n\n'
+            "Example::\n\n"
+            "    >>> from rosette.components import mmi_1x2\n"
+            "    >>> mmi_1x2(...)\n"
+            '"""\n'
+        )
+        assert _rewrite_component_imports(src) == src
+
+    def test_preserves_other_lines_verbatim(self):
+        from rosette.cli import _rewrite_component_imports
+
+        src = (
+            "from rosette import Cell\n"
+            "from rosette.components._utils import safe_cell_name\n"
+            "\n"
+            "def f(): pass\n"
+        )
+        expected = "from rosette import Cell\nfrom ._utils import safe_cell_name\n\ndef f(): pass\n"
+        assert _rewrite_component_imports(src) == expected
+
+    def test_raises_on_unsupported_import_form(self):
+        """`import rosette.components` at column 0 must raise, not silently ship."""
+        from rosette.cli import _rewrite_component_imports
+
+        with pytest.raises(RuntimeError, match="unsupported import form"):
+            _rewrite_component_imports("import rosette.components.mmi\n")
+
+        with pytest.raises(RuntimeError, match="unsupported import form"):
+            _rewrite_component_imports("import rosette.components\n")
 
 
 class TestRosetteBuild:

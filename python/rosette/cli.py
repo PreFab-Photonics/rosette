@@ -109,8 +109,134 @@ def _append_gitignore(src_path: Path, dest_path: Path):
         dest_path.write_text("# Rosette\n" + "\n".join(new_entries) + "\n")
 
 
-def _copy_components(project_dir: Path):
-    """Copy the components directory to the project for user customization."""
+# What `_copy_components` ships into user projects (non-minimal):
+#   - __init__.py         (the public re-exports + conventions docstring)
+#   - _utils.py           (safe_cell_name helper, stable API for component authors)
+#   - _curves.py          (shared S-bend math, stable API for component authors)
+#   - All public component modules (bragg_grating.py, crossing.py, mmi.py, ...)
+# What it deliberately skips:
+#   - __pycache__/ and *.pyc         (build artifacts; see _COMPONENT_COPY_IGNORE)
+#   - Tests (components/ has none today; kept here for future proofing)
+# In minimal mode (blank template) only the allow-list below is kept so the
+# `from components import ...` re-export surface exists without pre-loading
+# the full stdlib catalog. Non-minimal mode ships everything that survives
+# `_COMPONENT_COPY_IGNORE`.
+_MINIMAL_COMPONENT_FILES = ("__init__.py", "_utils.py", "_curves.py")
+_COMPONENT_COPY_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
+
+
+def _rewrite_component_imports(src: str) -> str:
+    """Rewrite ``rosette.components.*`` imports to package-relative form.
+
+    The stdlib components package uses absolute imports like
+    ``from rosette.components._utils import safe_cell_name`` and
+    ``from rosette.components.mmi import mmi_1x2`` (in ``__init__.py``).
+    If those are copied verbatim into a user's ``components/`` package,
+    ``from components import mmi_1x2`` still resolves against the
+    installed ``rosette.components`` package -- so local edits to
+    ``components/mmi.py`` are silently ignored. That defeats the whole
+    shadcn-style "copy into the project and edit" workflow.
+
+    This rewrites only **top-level** (column-zero) ``from
+    rosette.components[.X] import ...`` statements to their relative
+    form. Indented occurrences (docstring examples that teach users the
+    public import path against the installed package) are left alone.
+
+    Leaves ``from rosette import ...`` -- the core package -- untouched.
+
+    Supported import forms (everything the current stdlib uses):
+
+    * ``from rosette.components import X [as Y][, ...]``
+    * ``from rosette.components.X import Y [as Z][, ...]``
+
+    Explicitly **unsupported** column-zero forms (would produce a
+    still-shadowed import if present):
+
+    * ``import rosette.components`` / ``import rosette.components.X``
+    * Multi-line ``from rosette.components... import (\\n    ...\\n)``
+      where the module path is on a continuation line.
+
+    If any of these ever show up in the stdlib components package, this
+    function raises ``RuntimeError`` so that a broken ``rosette init``
+    fails loudly at dev time rather than silently shipping a package
+    whose user edits are ignored.
+    """
+    out_lines: list[str] = []
+    for line in src.splitlines(keepends=True):
+        # Only rewrite lines that start at column 0. Docstring examples
+        # are always indented inside triple-quoted strings, so this
+        # cleanly separates real imports from prose.
+        if line.startswith("from rosette.components."):
+            # e.g. "from rosette.components._utils import X"
+            #  ->  "from ._utils import X"
+            out_lines.append("from ." + line[len("from rosette.components.") :])
+        elif line.startswith("from rosette.components import "):
+            # e.g. "from rosette.components import mmi_1x2"
+            #  ->  "from . import mmi_1x2"
+            out_lines.append("from . import " + line[len("from rosette.components import ") :])
+        elif line.startswith("import rosette.components"):
+            # Not currently used in the stdlib. If someone adds this form,
+            # the rewritten project would still defer to the installed
+            # package. Fail loudly so the issue is fixed at the source.
+            raise RuntimeError(
+                "rosette.components contains an unsupported import form "
+                f"(found `{line.rstrip()}`). Extend _rewrite_component_imports "
+                "in cli.py to handle `import rosette.components[.X]`, or "
+                "change the source to use `from rosette.components[.X] import ...` "
+                "instead."
+            )
+        else:
+            out_lines.append(line)
+    return "".join(out_lines)
+
+
+# Trimmed __init__.py written for blank-template projects. Preserves the
+# conventions docstring but drops the component re-exports so that a missing
+# module never causes a `ModuleNotFoundError` at import time.
+_MINIMAL_COMPONENTS_INIT = '''\
+"""Photonic components (minimal scaffold).
+
+This ``components/`` package was created by ``rosette init --template blank``
+and ships only the shared internals (``_utils``, ``_curves``). Add component
+modules one at a time and re-export them from this file, for example::
+
+    from components.my_sbend import my_sbend
+
+    __all__ = ["my_sbend"]
+
+For the full stdlib catalog (mmi, ring, grating_coupler, bragg_grating, ...),
+either re-run ``rosette init`` with ``--template generic`` or copy files from
+``rosette/components/`` in the rosette source tree.
+
+See ``rosette.components`` for the authoring conventions (units, coordinate
+system, port directions, path length, cell names).
+"""
+
+__all__: list[str] = []
+'''
+
+
+def _copy_components(project_dir: Path, *, minimal: bool = False) -> None:
+    """Copy the components directory to the project for user customization.
+
+    The stdlib ``rosette/components/`` package is copied into
+    ``<project>/components/`` (shadcn-style), with absolute
+    ``rosette.components.*`` imports rewritten to package-relative form
+    (see ``_rewrite_component_imports``) so local edits in the user's
+    project actually take effect. See ``_MINIMAL_COMPONENT_FILES`` and
+    ``_COMPONENT_COPY_IGNORE`` above for what is shipped vs. skipped.
+
+    Parameters
+    ----------
+    project_dir:
+        Target project root. ``components/`` will be created inside it.
+    minimal:
+        If ``True`` (blank template), ship only the package scaffold
+        (``__init__.py``, ``_utils.py``, ``_curves.py``) and rewrite
+        ``__init__.py`` to drop the stdlib re-exports. Users then add
+        components one file at a time. If ``False`` (generic and other
+        non-blank templates), copy the full stdlib catalog.
+    """
     import tempfile
 
     if not COMPONENTS_DIR.exists():
@@ -119,11 +245,37 @@ def _copy_components(project_dir: Path):
 
     target_dir = project_dir / "components"
 
-    # Copy to temp location first, then move atomically
-    # This prevents data loss if copytree fails mid-operation
+    # Copy to temp location first, then move atomically.
+    # This prevents data loss if copytree fails mid-operation.
     with tempfile.TemporaryDirectory(dir=project_dir) as tmp:
         tmp_target = Path(tmp) / "components"
-        shutil.copytree(COMPONENTS_DIR, tmp_target)
+        shutil.copytree(COMPONENTS_DIR, tmp_target, ignore=_COMPONENT_COPY_IGNORE)
+
+        if minimal:
+            # Keep only the scaffolding files; drop every component module.
+            for entry in tmp_target.iterdir():
+                if entry.name in _MINIMAL_COMPONENT_FILES:
+                    continue
+                if entry.is_dir():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
+            # Replace __init__.py with a scaffold that doesn't import anything
+            # the user hasn't added yet.
+            (tmp_target / "__init__.py").write_text(_MINIMAL_COMPONENTS_INIT)
+
+        # Rewrite absolute `rosette.components.*` imports to package-relative
+        # form so the copied package is self-contained: edits to
+        # `components/mmi.py` in a user project actually take effect when
+        # they `from components import mmi_1x2`. Without this step the
+        # re-exports in `__init__.py` (and the `_utils`/`_curves` imports in
+        # every component module) still resolve against the installed
+        # `rosette.components` package. See `_rewrite_component_imports`.
+        for py_file in tmp_target.rglob("*.py"):
+            original = py_file.read_text()
+            rewritten = _rewrite_component_imports(original)
+            if rewritten != original:
+                py_file.write_text(rewritten)
 
         # Only remove existing after successful copy
         if target_dir.exists():
@@ -134,7 +286,8 @@ def _copy_components(project_dir: Path):
 
     # Count files copied
     py_files = list(target_dir.glob("*.py"))
-    print(f"Copied {len(py_files)} component files to components/")
+    label = "scaffold" if minimal else "component"
+    print(f"Copied {len(py_files)} {label} files to components/")
 
 
 def _find_design_files() -> list[Path]:
@@ -635,10 +788,11 @@ def init_project(template: str | None = None, tool: str | None = None):
     (project_dir / "designs").mkdir(exist_ok=True)
     (project_dir / "output").mkdir(exist_ok=True)
 
-    # Copy components for user customization (shadcn-style)
-    # Blank template starts empty — no pre-built components
-    if template != "blank":
-        _copy_components(project_dir)
+    # Copy components for user customization (shadcn-style).
+    # Blank template gets a minimal scaffold (just __init__.py + shared
+    # internals) so `from components import ...` doesn't ModuleNotFoundError;
+    # all other templates get the full stdlib catalog.
+    _copy_components(project_dir, minimal=(template == "blank"))
 
     # Copy API stub for agent reference
     _copy_api_stub(project_dir / ".rosette")
@@ -721,6 +875,16 @@ def update_project():
       - designs/ - your design files
       - components/ - your customizable components (shadcn-style)
       - rosette.toml - your project config
+
+    Components are intentionally NOT refreshed here. The shadcn-style copy
+    in ``components/`` is yours to edit, and ``rosette update`` must not
+    clobber local changes. To pull a newer version of a specific stdlib
+    component into an existing project, diff your local copy against
+    ``rosette/components/<name>.py`` in the installed rosette package and
+    merge the changes manually (or delete your copy and re-run the
+    relevant parts of ``rosette init`` in a scratch dir to see what's new).
+    A future release may add ``rosette update --components=check`` and
+    ``--components=<name>`` to automate this; see ROS-530.
     """
     project_dir = Path.cwd()
 

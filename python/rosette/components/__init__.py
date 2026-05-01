@@ -8,11 +8,21 @@ Imports::
     # In the main rosette repo:
     from rosette.components import mmi_1x2, ring, grating_coupler
 
-    # In user projects (after ``rosette init``):
+    # In user projects created with ``rosette init --template generic``:
     from components import mmi_1x2, ring, grating_coupler
 
 Components are designed to be copied and modified to match your PDK or
 process requirements.
+
+.. note::
+
+   Projects scaffolded with ``rosette init --template blank`` ship a
+   minimal ``components/`` package (just ``__init__.py``, ``_utils.py``,
+   and ``_curves.py``) so you can author components one at a time. The
+   ``generic`` template copies the full stdlib component set out of the
+   box. If you started from ``blank`` and want the full catalog, either
+   re-init with ``generic`` or copy the files from the rosette source
+   tree manually.
 
 Conventions
 -----------
