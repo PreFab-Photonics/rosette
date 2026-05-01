@@ -86,6 +86,9 @@ Component Catalog
    * - ``crossing``
      - ``in1``, ``out1``, ``in2``, ``out2``
      - Low-loss waveguide intersection
+   * - ``edge_coupler``
+     - ``opt``
+     - Fiber-edge coupling via inverse taper / spot-size converter
    * - ``grating_coupler``
      - ``opt``
      - Fiber-to-chip coupling
@@ -149,6 +152,7 @@ Internal modules available to component authors:
 from rosette.components.bragg_grating import bragg_grating
 from rosette.components.crossing import crossing
 from rosette.components.directional_coupler import directional_coupler
+from rosette.components.edge_coupler import edge_coupler
 from rosette.components.grating_coupler import grating_coupler
 from rosette.components.mmi import mmi_1x2, mmi_2x1, mmi_2x2
 from rosette.components.ring import ring
@@ -158,6 +162,7 @@ __all__ = [
     "bragg_grating",
     "crossing",
     "directional_coupler",
+    "edge_coupler",
     "grating_coupler",
     "mmi_1x2",
     "mmi_2x1",

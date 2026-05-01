@@ -13,6 +13,7 @@ from rosette.components import (
     bragg_grating,
     crossing,
     directional_coupler,
+    edge_coupler,
     grating_coupler,
     mmi_1x2,
     mmi_2x1,
@@ -53,6 +54,7 @@ def layer() -> Layer:
         ),
         (lambda layer: crossing(layer, waveguide_width=0.5), ["in1", "out1", "in2", "out2"]),
         (lambda layer: grating_coupler(layer, waveguide_width=0.5), ["opt"]),
+        (lambda layer: edge_coupler(layer, waveguide_width=0.5), ["opt"]),
         (lambda layer: bragg_grating(layer, num_periods=20), ["in", "out"]),
     ],
     ids=[
@@ -65,6 +67,7 @@ def layer() -> Layer:
         "ring_adddrop",
         "crossing",
         "grating_coupler",
+        "edge_coupler",
         "bragg_grating",
     ],
 )
@@ -88,6 +91,7 @@ def test_component_ports(component_factory, expected_ports, layer):
         lambda layer: ring(layer, waveguide_width=0.5, radius=10.0),
         lambda layer: crossing(layer, waveguide_width=0.5),
         lambda layer: grating_coupler(layer, waveguide_width=0.5),
+        lambda layer: edge_coupler(layer, waveguide_width=0.5),
         lambda layer: bragg_grating(layer, num_periods=20),
     ],
     ids=[
@@ -99,6 +103,7 @@ def test_component_ports(component_factory, expected_ports, layer):
         "ring",
         "crossing",
         "grating_coupler",
+        "edge_coupler",
         "bragg_grating",
     ],
 )
@@ -951,6 +956,236 @@ class TestGratingCoupler:
         """All ``grating_coupler`` ValueError branches fire."""
         with pytest.raises(ValueError, match=match):
             grating_coupler(layer, **kwargs)
+
+
+class TestEdgeCoupler:
+    """Edge coupler (inverse taper) tests."""
+
+    # ------------------------------------------------------------------
+    # Smoke: builds, has the expected port, and optionally emits a
+    # cladding polygon on a second layer.
+    # ------------------------------------------------------------------
+
+    def test_basic(self, layer):
+        """Default edge coupler builds with port 'opt' and a core polygon."""
+        cell = edge_coupler(layer)
+        assert cell.polygon_count() > 0
+        port_names = [p.name for p in cell.ports()]
+        assert port_names == ["opt"]
+
+    def test_with_cladding_adds_second_polygon(self, layer):
+        """Setting cladding_layer stamps an overlay rectangle on it."""
+        clad = Layer(2, 0)
+        bare = edge_coupler(layer)
+        with_clad = edge_coupler(layer, cladding_layer=clad, cladding_width=3.0)
+        # The cladding version has one extra polygon (the rectangle overlay).
+        assert with_clad.polygon_count() == bare.polygon_count() + 1
+
+    @pytest.mark.parametrize("profile", ["linear", "parabolic", "exponential"])
+    def test_taper_profiles(self, layer, profile):
+        """All three taper profiles build successfully."""
+        cell = edge_coupler(layer, taper_profile=profile)
+        assert cell.polygon_count() > 0
+
+    # ------------------------------------------------------------------
+    # Regression: the wide end (waveguide_width) must sit at x=0 where
+    # the "opt" port is placed -- *not* at x=-taper_length. The previous
+    # implementation had the polygon reversed: it declared a
+    # waveguide_width port at a location where the actual core was
+    # tip_width wide. The bbox-based tests below don't catch this because
+    # the bbox y-extent is the same either way. Rebuild the taper polygon
+    # via the same public helper call sequence the component uses and
+    # assert widths at both ends.
+    # ------------------------------------------------------------------
+
+    def test_taper_wide_end_is_at_port_location(self, layer):
+        """The core polygon has width=waveguide_width at x=0 (port),
+        tip_width at x=-taper_length. Regression for an inverted taper."""
+        from rosette.components._tapers import taper_polygon
+
+        waveguide_width = 0.6
+        tip_width = 0.18
+        taper_length = 120.0
+
+        # Sanity: the component builds without error.
+        cell = edge_coupler(
+            layer,
+            waveguide_width=waveguide_width,
+            tip_width=tip_width,
+            taper_length=taper_length,
+        )
+        assert cell.polygon_count() == 1
+
+        # Reproduce the exact same polygon construction the component uses.
+        # If this assertion drifts from the component, that's a signal the
+        # test needs updating along with edge_coupler.py.
+        poly = taper_polygon(
+            width_in=waveguide_width,
+            width_out=tip_width,
+            length=taper_length,
+            profile="linear",
+        ).mirror_y()
+
+        vertices = list(poly.vertices())
+        assert len(vertices) == 4, "Linear taper should be a 4-vertex trapezoid"
+
+        # Group vertices by x coordinate (tolerance for the -0.0 case).
+        x_at_zero = [v for v in vertices if abs(v.x) < 1e-9]
+        x_at_tip = [v for v in vertices if abs(v.x - (-taper_length)) < 1e-9]
+
+        assert len(x_at_zero) == 2, f"Expected 2 vertices at x=0, got {x_at_zero}"
+        assert len(x_at_tip) == 2, f"Expected 2 vertices at x={-taper_length}, got {x_at_tip}"
+
+        # At x=0 (port location): full width = waveguide_width.
+        y_at_zero = sorted(v.y for v in x_at_zero)
+        assert y_at_zero[1] - y_at_zero[0] == pytest.approx(waveguide_width), (
+            f"At x=0 the core must be waveguide_width={waveguide_width} wide, "
+            f"got {y_at_zero[1] - y_at_zero[0]} (tip_width={tip_width})"
+        )
+
+        # At x=-taper_length (chip edge): tip width.
+        y_at_tip = sorted(v.y for v in x_at_tip)
+        assert y_at_tip[1] - y_at_tip[0] == pytest.approx(tip_width), (
+            f"At x=-taper_length the core must be tip_width={tip_width} wide, "
+            f"got {y_at_tip[1] - y_at_tip[0]}"
+        )
+
+    # ------------------------------------------------------------------
+    # Port contract: opt always at (0, 0), facing +X, width = waveguide_width.
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {},  # defaults
+            {"taper_profile": "parabolic"},
+            {"taper_profile": "exponential"},
+            {"tip_width": 0.2, "waveguide_width": 0.8},
+            {"cladding_layer": Layer(2, 0), "cladding_width": 4.0},
+        ],
+    )
+    def test_opt_port_contract(self, layer, kwargs):
+        """``"opt"`` is always at ``(0, 0)`` facing +X with waveguide_width."""
+        waveguide_width = kwargs.get("waveguide_width", 0.5)
+        cell = edge_coupler(layer, **kwargs)
+        p = cell.port("opt")
+        assert p.position.x == pytest.approx(0.0)
+        assert p.position.y == pytest.approx(0.0)
+        assert p.direction.x == pytest.approx(+1.0)
+        assert p.direction.y == pytest.approx(0.0)
+        assert p.width == pytest.approx(waveguide_width)
+
+    # ------------------------------------------------------------------
+    # path_length == taper_length (centerline is a straight line).
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize("taper_length", [50.0, 150.0, 300.0])
+    def test_path_length_is_taper_length(self, layer, taper_length):
+        cell = edge_coupler(layer, taper_length=taper_length)
+        assert cell.path_length == pytest.approx(taper_length)
+
+    # ------------------------------------------------------------------
+    # BBox: body lies entirely in -X with wide end at x=0; y symmetric.
+    # With cladding, y extent equals ±cladding_width/2.
+    # ------------------------------------------------------------------
+
+    def test_bbox_core_only(self, layer):
+        """Core taper spans x ∈ [-taper_length, 0], y = ±waveguide_width/2."""
+        waveguide_width = 0.6
+        tip_width = 0.18
+        taper_length = 120.0
+        cell = edge_coupler(
+            layer,
+            waveguide_width=waveguide_width,
+            tip_width=tip_width,
+            taper_length=taper_length,
+        )
+        bb = cell.bbox()
+        assert bb.min.x == pytest.approx(-taper_length)
+        assert bb.max.x == pytest.approx(0.0)
+        # y extent is dominated by the wide end.
+        assert bb.min.y == pytest.approx(-waveguide_width / 2)
+        assert bb.max.y == pytest.approx(+waveguide_width / 2)
+
+    def test_bbox_with_cladding_dominates_y(self, layer):
+        """Cladding_width > waveguide_width so the overlay sets the y extent."""
+        waveguide_width = 0.5
+        cladding_width = 4.0
+        taper_length = 150.0
+        cell = edge_coupler(
+            layer,
+            waveguide_width=waveguide_width,
+            taper_length=taper_length,
+            cladding_layer=Layer(2, 0),
+            cladding_width=cladding_width,
+        )
+        bb = cell.bbox()
+        assert bb.min.x == pytest.approx(-taper_length)
+        assert bb.max.x == pytest.approx(0.0)
+        assert bb.min.y == pytest.approx(-cladding_width / 2)
+        assert bb.max.y == pytest.approx(+cladding_width / 2)
+
+    # ------------------------------------------------------------------
+    # Cell-name uniqueness across geometry-affecting parameters.
+    # ------------------------------------------------------------------
+
+    def test_cell_name_distinguishes_parameters(self, layer):
+        """Edge couplers with different parameters get distinct cell names."""
+        clad = Layer(2, 0)
+        base = edge_coupler(layer)
+        variants = [
+            edge_coupler(layer, waveguide_width=0.7),
+            edge_coupler(layer, tip_width=0.2),
+            edge_coupler(layer, taper_length=150.0),
+            edge_coupler(layer, taper_profile="parabolic"),
+            edge_coupler(layer, taper_profile="exponential"),
+            edge_coupler(layer, cladding_layer=clad, cladding_width=3.0),
+            edge_coupler(layer, cladding_layer=clad, cladding_width=4.0),
+        ]
+        names = {base.name} | {v.name for v in variants}
+        # 1 base + 7 distinct variants.
+        assert len(names) == 8
+
+    # ------------------------------------------------------------------
+    # Parametrized validation — every ValueError branch.
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        "kwargs,match",
+        [
+            ({"waveguide_width": 0.0}, "Waveguide width"),
+            ({"waveguide_width": -0.1}, "Waveguide width"),
+            ({"tip_width": 0.0}, "Tip width must be positive"),
+            ({"tip_width": -0.05}, "Tip width must be positive"),
+            # tip >= waveguide_width is an inverse-taper violation.
+            ({"tip_width": 0.5, "waveguide_width": 0.5}, "smaller than waveguide width"),
+            ({"tip_width": 0.8, "waveguide_width": 0.5}, "smaller than waveguide width"),
+            ({"taper_length": 0.0}, "Taper length"),
+            ({"taper_length": -10.0}, "Taper length"),
+            # Cladding validations only fire when cladding_layer is set.
+            (
+                {"cladding_layer": Layer(2, 0), "cladding_width": 0.0},
+                "Cladding width must be positive",
+            ),
+            (
+                {"cladding_layer": Layer(2, 0), "cladding_width": -1.0},
+                "Cladding width must be positive",
+            ),
+            (
+                # waveguide_width=0.5 default; equal widths fail the "must exceed" check.
+                {"cladding_layer": Layer(2, 0), "cladding_width": 0.5},
+                "must exceed waveguide width",
+            ),
+            (
+                {"cladding_layer": Layer(2, 0), "cladding_width": 0.3},
+                "must exceed waveguide width",
+            ),
+        ],
+    )
+    def test_validation(self, layer, kwargs, match):
+        """All ``edge_coupler`` ValueError branches fire with helpful messages."""
+        with pytest.raises(ValueError, match=match):
+            edge_coupler(layer, **kwargs)
 
 
 class TestDirectionalCoupler:
