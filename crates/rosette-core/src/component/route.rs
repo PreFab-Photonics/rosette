@@ -26,9 +26,29 @@
 use std::f64::consts::PI;
 
 use crate::cell::{BendInfo, Cell};
-use crate::geometry::{Point, Polygon, Vector2};
+use crate::geometry::{Point, Polygon, Vector2, fresnel_c, fresnel_s};
 use crate::layer::Layer;
 use crate::port::Port;
+
+/// Corner bend shape for [`Route`].
+///
+/// `Circular` inserts a constant-radius arc fillet at each corner. `Euler`
+/// inserts a pair of mirrored clothoid (Cornu-spiral) segments whose
+/// curvature varies linearly with arc length, reaching the specified
+/// `bend_radius` at the midpoint of the corner. Euler corners are longer
+/// (roughly 2× the arc length of a circular bend with the same peak
+/// curvature) but avoid the curvature discontinuity at the tangent
+/// points, which reduces radiation loss on high-index-contrast platforms
+/// like silicon photonics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum BendProfile {
+    /// Circular arc fillet (default).
+    #[default]
+    Circular,
+    /// Euler (clothoid) fillet with linearly-varying curvature.
+    Euler,
+}
 
 /// A waypoint along a route path.
 #[derive(Debug, Clone)]
@@ -118,6 +138,8 @@ pub struct Route {
     auto_taper: bool,
     /// Length of auto-inserted tapers.
     taper_length: f64,
+    /// Corner bend profile (circular or Euler).
+    bend_profile: BendProfile,
     /// Layer for the route.
     layer: Layer,
 }
@@ -137,6 +159,7 @@ impl Route {
             default_bend_radius: 5.0,
             auto_taper: true,
             taper_length: 10.0,
+            bend_profile: BendProfile::Circular,
             layer,
         }
     }
@@ -165,6 +188,12 @@ impl Route {
     pub fn with_taper_length(mut self, length: f64) -> Self {
         assert!(length > 0.0, "Taper length must be positive");
         self.taper_length = length;
+        self
+    }
+
+    /// Set the corner bend profile (circular or Euler).
+    pub fn with_bend_profile(mut self, profile: BendProfile) -> Self {
+        self.bend_profile = profile;
         self
     }
 
@@ -425,10 +454,14 @@ impl Route {
                 continue;
             }
 
-            // Calculate setback for this bend radius
+            // Calculate setback for this bend radius. The setback is the
+            // distance from the corner vertex to the entry/exit of the
+            // bend along the incoming/outgoing tangent. Circular and
+            // Euler fillets use different functions of (radius, turn).
             let requested_radius = curr.bend_radius;
             let mut radius = requested_radius;
-            let mut setback = radius * (turn_angle.abs() / 2.0).tan();
+            let setback_per_radius = setback_ratio(self.bend_profile, turn_angle);
+            let mut setback = radius * setback_per_radius;
 
             // Check if there's enough space
             let to_prev = prev.position.distance_to(curr.position);
@@ -448,7 +481,11 @@ impl Route {
             if setback > available * 0.9 {
                 // Need to reduce bend radius
                 let new_setback = available * 0.9;
-                let new_radius = new_setback / (turn_angle.abs() / 2.0).tan();
+                let new_radius = if setback_per_radius > 1e-12 {
+                    new_setback / setback_per_radius
+                } else {
+                    radius
+                };
                 warnings.push(format!(
                     "Bend radius auto-reduced from {:.1} to {:.1} um at ({:.1}, {:.1}). \
                      Fix: increase spacing or use smaller bend_radius",
@@ -525,12 +562,20 @@ impl Route {
                 && let Some(corner) = corners.get(i)
                 && corner.turn_angle.abs() > 1e-6
             {
-                let bend_poly = self.generate_bend_polygon(
-                    &points[i + 1],
-                    corner,
-                    points[i].position,
-                    points[i + 2].position,
-                );
+                let bend_poly = match self.bend_profile {
+                    BendProfile::Circular => self.generate_bend_polygon(
+                        &points[i + 1],
+                        corner,
+                        points[i].position,
+                        points[i + 2].position,
+                    ),
+                    BendProfile::Euler => self.generate_euler_bend_polygon(
+                        &points[i + 1],
+                        corner,
+                        points[i].position,
+                        points[i + 2].position,
+                    ),
+                };
                 if let Some(poly) = bend_poly {
                     polygons.push(poly);
                 }
@@ -641,6 +686,145 @@ impl Route {
         Some(Polygon::new(vertices))
     }
 
+    /// Generate an Euler (clothoid) bend polygon at a corner.
+    ///
+    /// The corner is built from two mirrored clothoid halves meeting at the
+    /// midpoint, with curvature varying linearly from 0 at the entry/exit
+    /// tangent points up to a peak of `1 / corner.bend_radius` at the midpoint.
+    ///
+    /// Parameterisation (using the Fresnel convention
+    /// `C(t) = integral_0^t cos(pi u^2 / 2) du`, likewise for `S`):
+    ///     x(t) = a * C(t),    y(t) = a * S(t),    arc length s = a * t,
+    ///     tangent angle theta(t) = pi * t^2 / 2,  curvature kappa(t) = pi * t / a.
+    /// Setting `theta(t_max) = phi = |turn| / 2` gives `t_max = sqrt(2 phi / pi)`,
+    /// and setting `kappa(t_max) = 1 / R` gives `a = R * sqrt(2 * pi * phi)`.
+    ///
+    /// Half arc length `s_max = a * t_max = R * |turn|`, so total Euler arc
+    /// length is `2 * R * |turn|` — double the circular-arc equivalent.
+    fn generate_euler_bend_polygon(
+        &self,
+        corner_point: &PathPoint,
+        corner: &Corner,
+        prev_pos: Point,
+        next_pos: Point,
+    ) -> Option<Polygon> {
+        if corner.turn_angle.abs() < 1e-6 || corner.bend_radius < 1e-6 {
+            return None;
+        }
+
+        let incoming = (corner_point.position - prev_pos).normalize();
+        let outgoing = (next_pos - corner_point.position).normalize();
+
+        let turn_abs = corner.turn_angle.abs();
+        let turn_sign = if corner.turn_angle > 0.0 { 1.0 } else { -1.0 };
+        let half_angle = turn_abs / 2.0;
+        let radius = corner.bend_radius;
+
+        // Clothoid parameters.
+        let t_max = (2.0 * half_angle / PI).sqrt();
+        let a = radius * (2.0 * PI * half_angle).sqrt();
+
+        // Anchor points.
+        let corner_vertex = corner_point.position;
+        let bend_start = corner_vertex + incoming * (-corner.setback);
+
+        // Local +Y axis for the first-half parameterisation: the clothoid
+        // (a*C(t), a*S(t)) bends into positive y, and we want that to be the
+        // side the corner bulges toward. For a CCW turn (turn_sign = +1) the
+        // bend center sits to the left of `incoming`, i.e. along `+incoming_perp`.
+        // For a CW turn (turn_sign = -1) it sits to the right, i.e. along
+        // `-incoming_perp`. Pre-multiplying by `turn_sign` gives the
+        // signed local +Y direction in world coordinates.
+        let incoming_perp = incoming.perpendicular() * turn_sign;
+
+        // Reflection data for the second half: reflect the first-half
+        // samples across the bisector line through the corner vertex.
+        //
+        // Bisector direction (from corner vertex into the bulge) is
+        // (-incoming + outgoing) normalised, then signed by turn_sign —
+        // though the sign drops out for reflection since the bisector is
+        // an undirected line. We just need the normal to the bisector.
+        let bisector_dir_unnorm = -incoming + outgoing;
+        let bisector_len = bisector_dir_unnorm.length();
+        let bisector_dir = if bisector_len > 1e-12 {
+            bisector_dir_unnorm * (1.0 / bisector_len)
+        } else {
+            // Degenerate: incoming == outgoing (no turn) or 180° flip.
+            // Already filtered by the 1e-6 turn-angle check, so this is
+            // only the 180° case. Fall back to a well-defined normal.
+            incoming_perp
+        };
+        let bisector_normal = bisector_dir.perpendicular();
+
+        // Sample each half.
+        let num_per_half = ((turn_abs * 180.0 / PI).ceil() as usize).max(16);
+
+        let mut centerline: Vec<Point> = Vec::with_capacity(2 * num_per_half + 1);
+        let mut tangents: Vec<Vector2> = Vec::with_capacity(2 * num_per_half + 1);
+
+        // First half: t in [0, t_max], anchored at bend_start, local frame
+        // (incoming, incoming_perp).
+        let mut first_half_points: Vec<Point> = Vec::with_capacity(num_per_half + 1);
+        let mut first_half_tangents: Vec<Vector2> = Vec::with_capacity(num_per_half + 1);
+        for i in 0..=num_per_half {
+            let t = t_max * i as f64 / num_per_half as f64;
+            let local_x = a * fresnel_c(t);
+            let local_y = a * fresnel_s(t);
+            let theta = PI * t * t / 2.0;
+            let local_tx = theta.cos();
+            let local_ty = theta.sin();
+
+            let world = bend_start + incoming * local_x + incoming_perp * local_y;
+            // Tangent in direction of travel along the path.
+            let world_tan = (incoming * local_tx + incoming_perp * local_ty).normalize();
+            first_half_points.push(world);
+            first_half_tangents.push(world_tan);
+        }
+
+        // Build the centerline: first half forward, then reflected second half.
+        centerline.extend_from_slice(&first_half_points);
+        tangents.extend_from_slice(&first_half_tangents);
+
+        // Second half: reflect first-half samples (except the midpoint) across
+        // the bisector, in reverse order so we walk forward along the path.
+        for i in (0..num_per_half).rev() {
+            let p = first_half_points[i];
+            let tan = first_half_tangents[i];
+            // Reflect position across the bisector line through corner_vertex.
+            let offset = p - corner_vertex;
+            let d = offset.dot(bisector_normal);
+            let reflected = p + bisector_normal * (-2.0 * d);
+            // Reflect tangent across bisector (as a free vector). Then negate
+            // to preserve direction of travel (the first half's tangent at
+            // the mirror sample points into the midpoint; after reflection
+            // it still points into the midpoint, but forward-travel along
+            // the second half points *away* from the midpoint).
+            let reflected_tan_free = tan + bisector_normal * (-2.0 * tan.dot(bisector_normal));
+            let reflected_tan = (-reflected_tan_free).normalize();
+            centerline.push(reflected);
+            tangents.push(reflected_tan);
+        }
+
+        // Build outer/inner offset curves. We pick a consistent side using
+        // turn_sign so the polygon orientation matches the circular branch
+        // for unions downstream.
+        let half_width = corner_point.width / 2.0;
+        let mut outer_vertices: Vec<Point> = Vec::with_capacity(centerline.len());
+        let mut inner_vertices: Vec<Point> = Vec::with_capacity(centerline.len());
+        for (p, tan) in centerline.iter().zip(tangents.iter()) {
+            let left_normal = tan.perpendicular();
+            let side = left_normal * turn_sign;
+            outer_vertices.push(*p + side * (-half_width));
+            inner_vertices.push(*p + side * half_width);
+        }
+
+        let mut vertices = outer_vertices;
+        inner_vertices.reverse();
+        vertices.extend(inner_vertices);
+
+        Some(Polygon::new(vertices))
+    }
+
     /// Calculate total path length.
     fn calculate_path_length(&self, points: &[PathPoint], corners: &[Corner]) -> f64 {
         let mut total = 0.0;
@@ -659,10 +843,25 @@ impl Route {
             total += segment_length - start_setback - end_setback;
         }
 
-        // Add bend arc lengths
+        // Add bend arc lengths.
+        //
+        //   Circular: a single arc of radius R through angle |turn| has
+        //             arc length = R * |turn|.
+        //
+        //   Euler:    each half-clothoid uses parameters
+        //                 a = R * sqrt(2 * pi * phi),  t_max = sqrt(2 * phi / pi),
+        //             where phi = |turn|/2 and R is the peak-curvature radius
+        //             at the midpoint. Arc length per half is s = a * t_max
+        //             = R * 2 * phi = R * |turn|. Total across both halves
+        //             is 2 * R * |turn| — double the circular case, because
+        //             the curvature ramps linearly from 0 rather than
+        //             sitting at 1/R the whole way.
         for corner in corners {
             if corner.turn_angle.abs() > 1e-6 {
-                total += corner.bend_radius * corner.turn_angle.abs();
+                total += match self.bend_profile {
+                    BendProfile::Circular => corner.bend_radius * corner.turn_angle.abs(),
+                    BendProfile::Euler => 2.0 * corner.bend_radius * corner.turn_angle.abs(),
+                };
             }
         }
 
@@ -702,6 +901,38 @@ impl Route {
     /// Get warnings from the last generation.
     pub fn warnings(&self) -> Vec<String> {
         self.generate().warnings
+    }
+}
+
+/// Ratio of setback to bend radius for a given corner turn angle and profile.
+///
+/// The setback is the distance from the corner vertex to the entry/exit of
+/// the fillet along the incoming/outgoing tangent. For a circular arc of
+/// radius `R` filling an angle of `|turn|`, the setback is `R * tan(|turn|/2)`.
+/// For an Euler (clothoid) fillet with peak curvature `1/R` at the midpoint,
+/// the setback is larger — see the derivation in [`Route::generate_euler_bend_polygon`].
+fn setback_ratio(profile: BendProfile, turn_angle: f64) -> f64 {
+    let turn_abs = turn_angle.abs();
+    match profile {
+        BendProfile::Circular => (turn_abs / 2.0).tan(),
+        BendProfile::Euler => {
+            // setback = a * [C(t_max) - S(t_max) * cot(phi)]
+            // where phi = |turn| / 2, t_max = sqrt(2 phi / pi), a = R * sqrt(2 pi phi).
+            // setback/R = sqrt(2 pi phi) * [C(t_max) - S(t_max) * cot(phi)].
+            let phi = turn_abs / 2.0;
+            let t_max = (2.0 * phi / PI).sqrt();
+            let c = fresnel_c(t_max);
+            let s = fresnel_s(t_max);
+            let sin_phi = phi.sin();
+            let cos_phi = phi.cos();
+            // Guard against the phi=0 limit (shouldn't hit here since callers
+            // filter out turn_abs < 1e-6, but be defensive).
+            if sin_phi.abs() < 1e-12 {
+                return 0.0;
+            }
+            let cot_phi = cos_phi / sin_phi;
+            (2.0 * PI * phi).sqrt() * (c - s * cot_phi)
+        }
     }
 }
 
@@ -859,5 +1090,239 @@ mod tests {
         assert!(approx_eq(wp.position.y, 20.0));
         assert_eq!(wp.width, Some(0.8));
         assert_eq!(wp.bend_radius, Some(10.0));
+    }
+
+    #[test]
+    fn test_euler_setback_ratio_matches_formula() {
+        // For phi -> 0, setback_ratio(Euler) / setback_ratio(Circular) -> 4/3.
+        let small = 0.05; // ~3 degrees
+        let circ = setback_ratio(BendProfile::Circular, small);
+        let eul = setback_ratio(BendProfile::Euler, small);
+        let ratio = eul / circ;
+        assert!(
+            (ratio - 4.0 / 3.0).abs() < 0.02,
+            "expected Euler/circular setback ratio ≈ 4/3 at small phi, got {}",
+            ratio
+        );
+
+        // Setback should scale linearly with R: check monotonically positive.
+        let phi90 = PI / 2.0;
+        let eul90 = setback_ratio(BendProfile::Euler, phi90);
+        assert!(eul90 > 0.0);
+    }
+
+    #[test]
+    fn test_route_euler_90_degree_bend() {
+        let layer = Layer::new(1, 0);
+        let mut route = Route::new(layer)
+            .with_width(0.5)
+            .with_bend_radius(5.0)
+            .with_bend_profile(BendProfile::Euler);
+
+        route.start_at(0.0, 0.0, 0.0);
+        route.to(60.0, 0.0);
+        route.to(60.0, 60.0);
+        route.end_at(60.0, 60.0, PI / 2.0);
+
+        let result = route.generate();
+
+        assert!(
+            result.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            result.warnings
+        );
+        assert!(result.polygons.len() >= 3);
+
+        // Euler arc length for a 90° corner = 2 * R * (pi/2) = R * pi.
+        // Setback = R * K(pi/4) where K is the Euler setback ratio.
+        let r = 5.0;
+        let setback = r * setback_ratio(BendProfile::Euler, PI / 2.0);
+        let expected = (60.0 - setback) * 2.0 + r * PI;
+        assert!(
+            (result.path_length - expected).abs() < 0.5,
+            "path length {} not close to expected {} (setback {})",
+            result.path_length,
+            expected,
+            setback
+        );
+    }
+
+    #[test]
+    fn test_route_euler_total_arc_length_doubles_circular() {
+        // For the same bend_radius, Euler arc contribution is 2x circular.
+        let layer = Layer::new(1, 0);
+
+        let make = |profile: BendProfile| {
+            let mut r = Route::new(layer)
+                .with_width(0.5)
+                .with_bend_radius(5.0)
+                .with_bend_profile(profile);
+            r.start_at(0.0, 0.0, 0.0);
+            r.to(50.0, 0.0);
+            r.to(50.0, 50.0);
+            r.end_at(50.0, 50.0, PI / 2.0);
+            r.generate()
+        };
+
+        let circ = make(BendProfile::Circular);
+        let eul = make(BendProfile::Euler);
+
+        // Arc contribution: circular = R*pi/2, euler = R*pi.
+        // But straight-segment contribution differs because setbacks differ.
+        // The *extra* length from Euler vs circular should equal:
+        //     (arc_euler - arc_circ) - 2 * (setback_euler - setback_circ)
+        //   = R*pi/2 - 2 * R * (K_eul(pi/2) - tan(pi/4))
+        let r = 5.0;
+        let k_eul = setback_ratio(BendProfile::Euler, PI / 2.0);
+        let k_circ = (PI / 4.0).tan();
+        let extra_expected = r * PI / 2.0 - 2.0 * r * (k_eul - k_circ);
+        let extra = eul.path_length - circ.path_length;
+        assert!(
+            (extra - extra_expected).abs() < 0.2,
+            "extra path length {} (expected {}) — euler={}, circ={}",
+            extra,
+            extra_expected,
+            eul.path_length,
+            circ.path_length
+        );
+    }
+
+    #[test]
+    fn test_route_euler_polygon_count_and_density() {
+        // A single-corner Euler route emits three polygons (incoming
+        // straight, Euler fillet, outgoing straight) and the fillet is
+        // sampled densely enough to resemble a smooth curve. The precise
+        // entry/exit tangent alignment is covered by
+        // `test_route_euler_polygon_entry_exit_tangent`.
+        let layer = Layer::new(1, 0);
+        let mut route = Route::new(layer)
+            .with_width(0.5)
+            .with_bend_radius(8.0)
+            .with_bend_profile(BendProfile::Euler);
+
+        route.start_at(0.0, 0.0, 0.0);
+        route.to(100.0, 0.0);
+        route.to(100.0, 50.0);
+        route.end_at(100.0, 50.0, PI / 2.0);
+
+        let result = route.generate();
+        assert!(result.warnings.is_empty());
+
+        assert_eq!(
+            result.polygons.len(),
+            3,
+            "expected 3 polygons (straight + euler bend + straight), got {}",
+            result.polygons.len()
+        );
+
+        // The bend polygon should have at least 2 * (16 + 1) = 34 vertices
+        // (16 samples per half, outer + inner).
+        let bend_poly = &result.polygons[1];
+        assert!(
+            bend_poly.vertices().len() >= 2 * 16,
+            "expected dense euler bend polygon, got {} vertices",
+            bend_poly.vertices().len()
+        );
+    }
+
+    #[test]
+    fn test_route_euler_polygon_entry_exit_tangent() {
+        // The Euler fillet must join the adjacent straights with a
+        // *continuous tangent* (zero curvature at entry and exit). In
+        // practice this means the entry/exit points of the bend polygon
+        // lie on the incoming/outgoing axis lines (up to the half-width
+        // offset for outer/inner vertices).
+        //
+        // We construct a 90° CCW corner at (100, 0) with incoming axis
+        // y = 0 and outgoing axis x = 100. The bend polygon must have
+        // vertices on/near y = ±half_width at the entry and on/near
+        // x = 100 ± half_width at the exit.
+        let layer = Layer::new(1, 0);
+        let half_width = 0.25;
+        let mut route = Route::new(layer)
+            .with_width(2.0 * half_width)
+            .with_bend_radius(10.0)
+            .with_bend_profile(BendProfile::Euler);
+
+        route.start_at(0.0, 0.0, 0.0);
+        route.to(100.0, 0.0);
+        route.to(100.0, 100.0);
+        route.end_at(100.0, 100.0, PI / 2.0);
+
+        let result = route.generate();
+        assert!(result.warnings.is_empty());
+        assert_eq!(result.polygons.len(), 3);
+
+        // Bend is the middle polygon. For each vertex, compute its distance
+        // to the incoming axis (y=0) and outgoing axis (x=100). The minimum
+        // over all vertices should be <= half_width + small slack (the
+        // entry/exit vertices offset perpendicular to tangent give
+        // y = ±half_width at entry and x = 100 ± half_width at exit).
+        let bend = &result.polygons[1];
+        let verts = bend.vertices();
+        // Entry side (small x, near y=0).
+        let min_entry_y = verts
+            .iter()
+            .filter(|v| v.x < 95.0) // entry side (well before the corner in x)
+            .map(|v| v.y.abs())
+            .fold(f64::INFINITY, f64::min);
+        // Exit side (near x=100, y > 5).
+        let min_exit_dx = verts
+            .iter()
+            .filter(|v| v.y > 5.0)
+            .map(|v| (v.x - 100.0).abs())
+            .fold(f64::INFINITY, f64::min);
+
+        // Vertices at the entry tangent point must be at distance ≈ half_width
+        // from y=0 (the outer/inner offset). Allow 0.01 um slack for numeric
+        // rounding in the Fresnel integration.
+        assert!(
+            min_entry_y <= half_width + 0.01,
+            "entry vertex not on incoming tangent line: min |y| = {}, expected ≤ {}",
+            min_entry_y,
+            half_width + 0.01
+        );
+        assert!(
+            min_exit_dx <= half_width + 0.01,
+            "exit vertex not on outgoing tangent line: min |x-100| = {}, expected ≤ {}",
+            min_exit_dx,
+            half_width + 0.01
+        );
+
+        // Also check that some vertex DOES sit at ≈ half_width (we don't want
+        // the polygon to trivially satisfy the upper bound by having no
+        // entry/exit vertices at all).
+        let max_entry_y_near_tangent = verts
+            .iter()
+            .filter(|v| v.x < 95.0 && v.y.abs() <= half_width + 0.05)
+            .count();
+        assert!(
+            max_entry_y_near_tangent >= 2,
+            "expected at least 2 vertices near the entry tangent line (outer + inner)"
+        );
+    }
+
+    #[test]
+    fn test_route_euler_s_curve() {
+        let layer = Layer::new(1, 0);
+        let mut route = Route::new(layer)
+            .with_width(0.5)
+            .with_bend_radius(5.0)
+            .with_bend_profile(BendProfile::Euler);
+
+        route.start_at(0.0, 0.0, 0.0);
+        route.to(40.0, 0.0);
+        route.to(40.0, 30.0);
+        route.to(80.0, 30.0);
+        route.end_at(80.0, 30.0, 0.0);
+
+        let result = route.generate();
+        assert!(
+            result.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            result.warnings
+        );
+        // Should have: straight + euler bend + straight + euler bend + straight
+        assert!(result.polygons.len() >= 5);
     }
 }

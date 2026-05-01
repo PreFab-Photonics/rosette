@@ -5,8 +5,15 @@ title: Route
 Waypoint-based waveguide route.
 
 Route connects an ordered sequence of waypoints with straight segments,
-inserting circular bends at corners and tapers for width transitions.
-It is **not** an auto-router — you must supply intermediate waypoints
+inserting bends at corners and tapers for width transitions. The corner
+shape is controlled by the `bend_profile` parameter: `"circular"`
+(default) uses a constant-radius arc fillet, while `"euler"` uses a
+clothoid (Cornu-spiral) fillet whose curvature varies linearly with arc
+length — lower-loss on high-index-contrast platforms, at the cost of a
+longer fillet (roughly 2x the arc length of a circular bend with the
+same peak curvature).
+
+Route is **not** an auto-router — you must supply intermediate waypoints
 to create the path shape you want.
 
 <Callout type="info" title="Waypoints create the shape">
@@ -51,7 +58,7 @@ Warnings from route generation (e.g., auto-reduced bend radii).
 
 ## Methods
 
-<PyFunction name={"__init__"} type={"(layer, width=0.5, bend_radius=5.0, auto_taper=True, taper_length=10.0) -> None"}>
+<PyFunction name={"__init__"} type={"(layer, width=0.5, bend_radius=5.0, auto_taper=True, taper_length=10.0, bend_profile='circular') -> None"}>
 
 Create a new Route.
 
@@ -69,7 +76,9 @@ Default waveguide width.
 </PyParameter>
 <PyParameter name={"bend_radius"} type={"float"} value={"5.0"}>
 
-Default bend radius.
+Default bend radius. With `bend_profile="circular"` this is the constant
+arc radius of each corner. With `bend_profile="euler"` this is the
+*minimum* radius of curvature, reached at the midpoint of each corner.
 
 </PyParameter>
 <PyParameter name={"auto_taper"} type={"bool"} value={"True"}>
@@ -80,6 +89,14 @@ Whether to automatically add tapers for width changes.
 <PyParameter name={"taper_length"} type={"float"} value={"10.0"}>
 
 Length of auto-generated tapers.
+
+</PyParameter>
+<PyParameter name={"bend_profile"} type={"Literal['circular', 'euler']"} value={"'circular'"}>
+
+Corner bend shape. `"circular"` (default) inserts a constant-radius arc
+fillet. `"euler"` inserts a clothoid (Cornu-spiral) fillet whose
+curvature varies linearly with arc length — lower-loss on
+high-index-contrast platforms at the cost of a longer fillet.
 
 </PyParameter>
 
@@ -260,7 +277,7 @@ A Cell containing the route geometry, with `path_length` set.
 
 </PyFunction>
 
-<PyFunction name={"through"} type={"(*waypoints, layer, width=0.5, bend_radius=5.0) -> Route"}>
+<PyFunction name={"through"} type={"(*waypoints, layer, width=0.5, bend_radius=5.0, bend_profile='circular') -> Route"}>
 
 Create a route through a series of waypoints (static method).
 
@@ -312,6 +329,12 @@ Default waveguide width.
 <PyParameter name={"bend_radius"} type={"float"} value={"5.0"}>
 
 Default bend radius.
+
+</PyParameter>
+<PyParameter name={"bend_profile"} type={"Literal['circular', 'euler']"} value={"'circular'"}>
+
+Corner bend shape — `"circular"` (default) or `"euler"` (clothoid corner
+with linearly-varying curvature).
 
 </PyParameter>
 

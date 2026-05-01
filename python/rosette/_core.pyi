@@ -847,6 +847,7 @@ class Route:
         bend_radius: float = 5.0,
         auto_taper: bool = True,
         taper_length: float = 10.0,
+        bend_profile: Literal["circular", "euler"] = "circular",
     ) -> None: ...
     def start_at(self, x: float, y: float, angle: float = 0.0) -> None:
         """Start the route at a specific position and angle (degrees)."""
@@ -909,6 +910,7 @@ class Route:
         layer: Layer | int | tuple[int, int],
         width: float = 0.5,
         bend_radius: float = 5.0,
+        bend_profile: Literal["circular", "euler"] = "circular",
     ) -> Route:
         """Create a route through a series of waypoints.
 
@@ -930,6 +932,8 @@ class Route:
             layer: The layer for the route
             width: Default waveguide width
             bend_radius: Default bend radius
+            bend_profile: Corner shape — "circular" (default) or "euler"
+                (clothoid corner with linearly-varying curvature).
 
         Example — S-bend between two component ports::
 

@@ -17,4 +17,4 @@ mod route;
 
 pub use component::{Component, ComponentBuilder};
 pub use connection::{connect_transform, place_at_port};
-pub use route::{Route, RouteResult, Waypoint};
+pub use route::{BendProfile, Route, RouteResult, Waypoint};

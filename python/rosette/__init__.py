@@ -33,6 +33,7 @@ import warnings
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
+from typing import Literal
 
 from rosette._core import (
     # Geometry
@@ -1011,17 +1012,34 @@ class Route:
         bend_radius: float = 5.0,
         auto_taper: bool = True,
         taper_length: float = 10.0,
+        bend_profile: Literal["circular", "euler"] = "circular",
     ) -> None:
         """Create a new Route.
 
         Args:
             layer: The layer for the route geometry
             width: Default waveguide width
-            bend_radius: Default bend radius
+            bend_radius: Default bend radius. With ``bend_profile="circular"``
+                this is the constant arc radius of each corner. With
+                ``bend_profile="euler"`` this is the *minimum* radius of
+                curvature, reached at the midpoint of each corner.
             auto_taper: Whether to automatically add tapers for width changes
             taper_length: Length of auto-generated tapers
+            bend_profile: Corner bend shape. ``"circular"`` (default) inserts
+                a constant-radius arc fillet. ``"euler"`` inserts a clothoid
+                (Cornu-spiral) fillet whose curvature varies linearly with
+                arc length — lower-loss on high-index-contrast platforms at
+                the cost of a longer fillet (roughly 2x the arc length of a
+                circular bend with the same peak curvature).
         """
-        self._inner = _Route(layer, width, bend_radius, auto_taper, taper_length)
+        self._inner = _Route(
+            layer,
+            width,
+            bend_radius,
+            auto_taper,
+            taper_length,
+            bend_profile,
+        )
 
     def start_at(self, x: float, y: float, angle: float = 0.0) -> None:
         """Start the route at a specific position and angle (degrees)."""
@@ -1105,6 +1123,7 @@ class Route:
         layer: Layer | int | tuple[int, int],
         width: float = 0.5,
         bend_radius: float = 5.0,
+        bend_profile: Literal["circular", "euler"] = "circular",
     ) -> Route:
         """Create a route through a series of waypoints.
 
@@ -1126,6 +1145,8 @@ class Route:
             layer: The layer for the route
             width: Default waveguide width
             bend_radius: Default bend radius
+            bend_profile: Corner bend shape — ``"circular"`` (default) or
+                ``"euler"`` (clothoid corner, linearly-varying curvature).
 
         Returns:
             A Route that can be converted to a Cell with to_cell()
@@ -1142,7 +1163,13 @@ class Route:
             )
             cell = route.to_cell("my_route")
         """
-        inner_route = _Route.through(*waypoints, layer=layer, width=width, bend_radius=bend_radius)
+        inner_route = _Route.through(
+            *waypoints,
+            layer=layer,
+            width=width,
+            bend_radius=bend_radius,
+            bend_profile=bend_profile,
+        )
         route = object.__new__(Route)
         route._inner = inner_route
         return route

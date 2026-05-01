@@ -25,7 +25,8 @@ pub mod port;
 // Re-export primary types at crate root for convenience
 pub use cell::{BendInfo, Cell, CellMetadata, CellRef, Library, PathEndType, Repetition};
 pub use component::{
-    Component, ComponentBuilder, Route, RouteResult, Waypoint, connect_transform, place_at_port,
+    BendProfile, Component, ComponentBuilder, Route, RouteResult, Waypoint, connect_transform,
+    place_at_port,
 };
 pub use error::{CellNameError, validate_cell_name};
 pub use flatten::{FlatGeometry, FlatPolygon, flatten_cell, flatten_library};

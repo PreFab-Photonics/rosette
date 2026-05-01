@@ -5,8 +5,19 @@ use crate::geometry::PyPoint;
 use crate::layout::{PyCell, PyPort};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
-use rosette_core::Route;
+use rosette_core::{BendProfile, Route};
 use std::f64::consts::PI;
+
+/// Parse a `bend_profile` string from Python into the Rust enum.
+fn parse_bend_profile(s: &str) -> PyResult<BendProfile> {
+    match s {
+        "circular" => Ok(BendProfile::Circular),
+        "euler" => Ok(BendProfile::Euler),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "bend_profile must be 'circular' or 'euler', got {other:?}"
+        ))),
+    }
+}
 
 /// A path-based waveguide route.
 ///
@@ -35,14 +46,20 @@ impl PyRoute {
     ///     bend_radius: Default bend radius at corners (default: 5.0)
     ///     auto_taper: Auto-insert tapers for width transitions (default: True)
     ///     taper_length: Length of auto-inserted tapers (default: 10.0)
+    ///     bend_profile: Corner bend shape — "circular" (constant radius arc) or
+    ///         "euler" (clothoid, linearly varying curvature). "euler" gives a
+    ///         smoother transition at the cost of a longer fillet; the
+    ///         specified bend_radius is interpreted as the *minimum* radius
+    ///         of curvature, reached at the corner midpoint. Default: "circular".
     #[new]
-    #[pyo3(signature = (layer, width=0.5, bend_radius=5.0, auto_taper=true, taper_length=10.0))]
+    #[pyo3(signature = (layer, width=0.5, bend_radius=5.0, auto_taper=true, taper_length=10.0, bend_profile="circular"))]
     fn new(
         layer: &Bound<'_, PyAny>,
         width: f64,
         bend_radius: f64,
         auto_taper: bool,
         taper_length: f64,
+        bend_profile: &str,
     ) -> PyResult<Self> {
         let layer = extract_layer(layer)?;
 
@@ -62,9 +79,12 @@ impl PyRoute {
             ));
         }
 
+        let profile = parse_bend_profile(bend_profile)?;
+
         let mut route = Route::new(layer)
             .with_width(width)
-            .with_bend_radius(bend_radius);
+            .with_bend_radius(bend_radius)
+            .with_bend_profile(profile);
 
         if auto_taper {
             route = route.with_auto_taper(true).with_taper_length(taper_length);
@@ -160,6 +180,7 @@ impl PyRoute {
     ///     layer: The layer for the route
     ///     width: Default waveguide width (default: 0.5)
     ///     bend_radius: Default bend radius (default: 5.0)
+    ///     bend_profile: "circular" or "euler" (default: "circular").
     ///
     /// Returns:
     ///     Route object
@@ -167,12 +188,13 @@ impl PyRoute {
     /// Example:
     ///     route = Route.through(port_a, (50, 0), (50, 30), port_b, layer=Layer(1, 0))
     #[staticmethod]
-    #[pyo3(signature = (*waypoints, layer, width=0.5, bend_radius=5.0))]
+    #[pyo3(signature = (*waypoints, layer, width=0.5, bend_radius=5.0, bend_profile="circular"))]
     fn through(
         waypoints: &Bound<'_, PyTuple>,
         layer: &Bound<'_, PyAny>,
         width: f64,
         bend_radius: f64,
+        bend_profile: &str,
     ) -> PyResult<PyRoute> {
         let layer_val = extract_layer(layer)?;
 
@@ -187,9 +209,12 @@ impl PyRoute {
             ));
         }
 
+        let profile = parse_bend_profile(bend_profile)?;
+
         let mut route = Route::new(layer_val)
             .with_width(width)
-            .with_bend_radius(bend_radius);
+            .with_bend_radius(bend_radius)
+            .with_bend_profile(profile);
 
         let items: Vec<Bound<'_, PyAny>> = waypoints.iter().collect();
 
