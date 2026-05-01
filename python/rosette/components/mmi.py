@@ -73,6 +73,7 @@ is ``taper_width ≈ 2-3 x waveguide_width``; the module default is
 from typing import Literal
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+from rosette.components._tapers import taper_polygon
 from rosette.components._utils import safe_cell_name
 
 __all__ = ["mmi_1x2", "mmi_2x1", "mmi_2x2"]
@@ -402,8 +403,6 @@ def _create_mmi(
     total_length = length + 2 * taper_length
     half_width = mmi_width / 2.0
     half_sep = port_separation / 2.0
-    half_port = port_width / 2.0
-    half_taper = taper_width / 2.0
 
     cell = Cell(
         safe_cell_name(
@@ -438,30 +437,27 @@ def _create_mmi(
         output_positions = [-half_sep, half_sep]
         output_names = ["out1", "out2"]
 
-    # Add input tapers
-    for y in input_positions:
-        taper = Polygon(
-            [
-                Point(0.0, y - half_port),
-                Point(taper_length, y - half_taper),
-                Point(taper_length, y + half_taper),
-                Point(0.0, y + half_port),
-            ]
-        )
-        cell.add_polygon(taper, layer)
+    # Tapers: port_width at the outer face, taper_width at the MMI body
+    # interface. The helper always produces a linear trapezoid here;
+    # non-linear MMI tapers are uncommon and can be added later by
+    # threading a ``profile`` parameter through the component API if a
+    # user needs it. When taper_length == 0 the tapers degenerate and
+    # are skipped entirely (the port widths must then equal taper_width
+    # for a geometric match, but that's the caller's responsibility --
+    # the API contract only validates taper_length >= 0).
+    if taper_length > 0:
+        input_taper = taper_polygon(port_width, taper_width, taper_length)
+        for y in input_positions:
+            cell.add_polygon(input_taper.translate(Vector2(0.0, y)), layer)
 
-    # Add output tapers
-    x_start = taper_length + length
-    for y in output_positions:
-        taper = Polygon(
-            [
-                Point(x_start, y - half_taper),
-                Point(total_length, y - half_port),
-                Point(total_length, y + half_port),
-                Point(x_start, y + half_taper),
-            ]
-        )
-        cell.add_polygon(taper, layer)
+        # Output taper: wide end at x_start (MMI body), narrow end at
+        # total_length (port face). Build the canonical shape with the
+        # widths flipped (wide -> narrow along +X) and translate so its
+        # wide end lands at x_start.
+        x_start = taper_length + length
+        output_taper = taper_polygon(taper_width, port_width, taper_length)
+        for y in output_positions:
+            cell.add_polygon(output_taper.translate(Vector2(x_start, y)), layer)
 
     # Add input ports
     for name, y in zip(input_names, input_positions, strict=True):

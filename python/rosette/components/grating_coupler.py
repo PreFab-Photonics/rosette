@@ -48,6 +48,7 @@ from typing import Literal
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
 from rosette.components._curves import gaussian_envelope
+from rosette.components._tapers import taper_polygon
 from rosette.components._utils import safe_cell_name
 
 __all__ = ["grating_coupler"]
@@ -231,10 +232,13 @@ def _create_taper(
     caller must pass a positive value when ``focusing_angle is None``;
     ``width_out`` is allowed to be ``None`` otherwise.
     """
-    half_wg = width_in / 2.0
-
     if focusing_angle is not None:
-        # Focused GC: taper with curved outer edge (arc)
+        # Focused GC: taper with curved outer edge (arc). The outer edge
+        # is an arc of radius ``length`` centered at the origin; neither
+        # end is a plain straight edge, so this case can't be expressed
+        # through the shared ``taper_polygon`` helper (which assumes
+        # straight end faces).
+        half_wg = width_in / 2.0
         half_angle_rad = math.radians(focusing_angle / 2.0)
         n = 64  # arc resolution
 
@@ -254,17 +258,12 @@ def _create_taper(
         vertices.append(Point(0.0, half_wg))
 
         return Polygon(vertices)
-    else:
-        # Standard GC: trapezoidal taper
-        half_grating = width_out / 2.0
-        return Polygon(
-            [
-                Point(0.0, -half_wg),
-                Point(-length, -half_grating),
-                Point(-length, half_grating),
-                Point(0.0, half_wg),
-            ]
-        )
+
+    # Standard GC: trapezoidal taper from waveguide_width at x=0 to
+    # grating_width at x=-length. Build the canonical shape (extending
+    # in +X, width_in at x=0 and width_out at x=+length) and mirror
+    # across the Y-axis so it extends in -X as required.
+    return taper_polygon(width_in, width_out, length).mirror_y()
 
 
 def _curved_tooth(

@@ -140,6 +140,9 @@ Follow this skeleton when creating new components::
 Internal modules available to component authors:
 
 * ``_curves`` -- S-bend curve math (cosine, circular, Euler variants).
+* ``_tapers`` -- ``taper_polygon()`` for width-transition tapers
+  (linear, parabolic, exponential profiles). Used by ``mmi`` and
+  ``grating_coupler``.
 * ``_utils`` -- ``safe_cell_name()`` for GDS-safe cell naming.
 """
 
