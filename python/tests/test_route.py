@@ -183,7 +183,10 @@ def _euler_setback_ratio(turn_angle: float) -> float:
     """Ground-truth Euler setback / bend_radius, computed from the Fresnel integrals.
 
     This mirrors the Rust ``setback_ratio`` helper; we recompute it here so
-    the test is an independent check of the Rust implementation.
+    the test is an independent check of the Rust implementation. The
+    closure constraint (both half-clothoids meet on the corner's interior
+    angle bisector) gives ``setback = a * (C + S * tan(phi))`` where
+    ``phi = |turn|/2``, ``a = R * sqrt(2 pi phi)``. See ROS-544.
     """
     phi = abs(turn_angle) / 2.0
     if phi < 1e-12:
@@ -191,9 +194,12 @@ def _euler_setback_ratio(turn_angle: float) -> float:
     t_max = math.sqrt(2.0 * phi / math.pi)
     c = fresnel_c(t_max)
     s = fresnel_s(t_max)
-    # cot(phi) = cos(phi) / sin(phi)
-    cot_phi = math.cos(phi) / math.sin(phi)
-    return math.sqrt(2.0 * math.pi * phi) * (c - s * cot_phi)
+    # tan(phi) = sin(phi) / cos(phi); cos(phi) stays away from 0 for
+    # |turn| < pi (single corners never exceed a U-turn).
+    if abs(math.cos(phi)) < 1e-12:
+        return 0.0
+    tan_phi = math.sin(phi) / math.cos(phi)
+    return math.sqrt(2.0 * math.pi * phi) * (c + s * tan_phi)
 
 
 def _euler_clothoid_arc_length_numeric(

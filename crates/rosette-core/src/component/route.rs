@@ -909,29 +909,52 @@ impl Route {
 /// The setback is the distance from the corner vertex to the entry/exit of
 /// the fillet along the incoming/outgoing tangent. For a circular arc of
 /// radius `R` filling an angle of `|turn|`, the setback is `R * tan(|turn|/2)`.
-/// For an Euler (clothoid) fillet with peak curvature `1/R` at the midpoint,
-/// the setback is larger — see the derivation in [`Route::generate_euler_bend_polygon`].
+/// For an Euler (clothoid) fillet the setback is derived from the closure
+/// constraint that both half-clothoids meet on the corner's interior angle
+/// bisector — see below.
 fn setback_ratio(profile: BendProfile, turn_angle: f64) -> f64 {
     let turn_abs = turn_angle.abs();
     match profile {
         BendProfile::Circular => (turn_abs / 2.0).tan(),
         BendProfile::Euler => {
-            // setback = a * [C(t_max) - S(t_max) * cot(phi)]
-            // where phi = |turn| / 2, t_max = sqrt(2 phi / pi), a = R * sqrt(2 pi phi).
-            // setback/R = sqrt(2 pi phi) * [C(t_max) - S(t_max) * cot(phi)].
+            // Derivation. Place the first-half clothoid's anchor (`bend_start`)
+            // at the local origin with local +X along `incoming` and local +Y
+            // pointing into the bulge. The first-half endpoint M1 is at
+            // `(a*C(t_max), a*S(t_max))` with `phi = |turn|/2`,
+            // `t_max = sqrt(2 phi / pi)`, `a = R * sqrt(2 pi phi)`.
+            //
+            // The second half is M1 reflected across the bisector through the
+            // corner vertex (at local `(setback, 0)`). For the two halves to
+            // meet continuously at M1, M1 must lie *on* that bisector. The
+            // bisector direction (from the vertex into the bulge) is
+            // `(-sin phi, cos phi)`, so the constraint
+            //
+            //     (a*C - setback) / (-sin phi) == (a*S) / cos phi
+            //
+            // gives
+            //
+            //     setback = a * (C(t_max) + S(t_max) * tan(phi)).
+            //
+            // Sanity check: small-phi expansion gives setback ≈ 2*R*phi
+            // = R * |turn|, which is exactly the Euler half-arc length —
+            // consistent with the total-arc-length identity
+            // `total = 2 * R * |turn|` used by `calculate_path_length`.
             let phi = turn_abs / 2.0;
             let t_max = (2.0 * phi / PI).sqrt();
             let c = fresnel_c(t_max);
             let s = fresnel_s(t_max);
             let sin_phi = phi.sin();
             let cos_phi = phi.cos();
-            // Guard against the phi=0 limit (shouldn't hit here since callers
-            // filter out turn_abs < 1e-6, but be defensive).
-            if sin_phi.abs() < 1e-12 {
+            // Guard against the phi -> pi/2 singularity (U-turn, tan phi
+            // blows up). Upstream callers filter out phi < 1e-6, but the
+            // U-turn end is unguarded there — the auto-reduce logic will
+            // not accept a U-turn corner anyway, but return 0.0 defensively
+            // so this never divides by zero.
+            if cos_phi.abs() < 1e-12 {
                 return 0.0;
             }
-            let cot_phi = cos_phi / sin_phi;
-            (2.0 * PI * phi).sqrt() * (c - s * cot_phi)
+            let tan_phi = sin_phi / cos_phi;
+            (2.0 * PI * phi).sqrt() * (c + s * tan_phi)
         }
     }
 }
@@ -1094,25 +1117,109 @@ mod tests {
 
     #[test]
     fn test_euler_setback_ratio_matches_formula() {
-        // For phi -> 0, setback_ratio(Euler) / setback_ratio(Circular) -> 4/3.
+        // Small-angle limit: setback(Euler) ≈ 2 R phi (= half-arc length),
+        // setback(Circular) ≈ R phi, so the ratio approaches 2. Consistent
+        // with the `total_arc_length = 2 * R * |turn|` identity for Euler.
         let small = 0.05; // ~3 degrees
         let circ = setback_ratio(BendProfile::Circular, small);
         let eul = setback_ratio(BendProfile::Euler, small);
         let ratio = eul / circ;
         assert!(
-            (ratio - 4.0 / 3.0).abs() < 0.02,
-            "expected Euler/circular setback ratio ≈ 4/3 at small phi, got {}",
+            (ratio - 2.0).abs() < 0.02,
+            "expected Euler/circular setback ratio ≈ 2 at small phi, got {}",
             ratio
         );
 
-        // Setback should scale linearly with R: check monotonically positive.
-        let phi90 = PI / 2.0;
-        let eul90 = setback_ratio(BendProfile::Euler, phi90);
-        assert!(eul90 > 0.0);
+        // Setback must be strictly positive over the full useful angle range.
+        for deg in [1.0_f64, 15.0, 30.0, 45.0, 60.0, 90.0, 135.0] {
+            let k = setback_ratio(BendProfile::Euler, deg.to_radians());
+            assert!(k > 0.0, "setback_ratio non-positive at {deg}°: {k}");
+        }
     }
 
     #[test]
-    fn test_route_euler_90_degree_bend() {
+    fn test_euler_setback_places_midpoint_on_bisector() {
+        // Regression for ROS-544: the polygon construction in
+        // `generate_euler_bend_polygon` reflects the first clothoid half
+        // across the bisector through the corner vertex. The two halves
+        // only meet continuously if the first-half endpoint M1 lies on
+        // that bisector. Verify that the setback ratio places M1 on the
+        // bisector for several representative turn angles.
+        for deg in [20.0_f64, 45.0, 60.0, 90.0, 120.0, 150.0] {
+            let turn = deg.to_radians();
+            let phi = turn / 2.0;
+            let t_max = (2.0 * phi / PI).sqrt();
+            let c = fresnel_c(t_max);
+            let s = fresnel_s(t_max);
+            let a = (2.0 * PI * phi).sqrt(); // a/R
+            let setback = setback_ratio(BendProfile::Euler, turn); // setback/R
+
+            // M1 (in units of R) in the local frame anchored at bend_start
+            // with local +X = incoming, local +Y = into-bulge. The corner
+            // vertex is at (setback, 0); M1 is at (a*C, a*S).
+            // The bisector from the vertex into the bulge has direction
+            // (-sin phi, cos phi). "M1 on bisector" means the vector
+            // (M1 - vertex) is parallel to that direction, i.e. its
+            // component along the bisector *normal* is zero.
+            let m1 = (a * c, a * s);
+            let v = (m1.0 - setback, m1.1);
+            // Bisector normal = perpendicular rotated 90° CCW from dir.
+            // dir = (-sin phi, cos phi)  =>  normal = (-cos phi, -sin phi).
+            let nx = -phi.cos();
+            let ny = -phi.sin();
+            let perp = v.0 * nx + v.1 * ny;
+            assert!(
+                perp.abs() < 1e-6,
+                "M1 off bisector by {} at turn={}° (setback={}, M1=({:.4},{:.4}))",
+                perp,
+                deg,
+                setback,
+                m1.0,
+                m1.1
+            );
+        }
+    }
+
+    #[test]
+    fn test_route_euler_90_degree_bend_path_length() {
+        // Single 90° Euler corner path length identity:
+        //   path = (leg - setback) * 2 + arc,
+        //   arc  = 2 * R * (pi/2) = R * pi,   (Euler total arc length)
+        //   setback = R * K_eul(pi/2).
+        // This is the Rust-side parity check for the Python test
+        // `test_euler_90_degree_bend_path_length`.
+        let layer = Layer::new(1, 0);
+        let r = 5.0;
+        let leg = 60.0;
+        let mut route = Route::new(layer)
+            .with_width(0.5)
+            .with_bend_radius(r)
+            .with_bend_profile(BendProfile::Euler);
+        route.start_at(0.0, 0.0, 0.0);
+        route.to(leg, 0.0);
+        route.to(leg, leg);
+        route.end_at(leg, leg, PI / 2.0);
+
+        let result = route.generate();
+        assert!(
+            result.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            result.warnings
+        );
+
+        let setback = r * setback_ratio(BendProfile::Euler, PI / 2.0);
+        let expected = 2.0 * (leg - setback) + r * PI;
+        assert!(
+            (result.path_length - expected).abs() < 0.5,
+            "path_length {} not close to expected {} (setback {})",
+            result.path_length,
+            expected,
+            setback
+        );
+    }
+
+    #[test]
+    fn test_route_euler_s_curve() {
         let layer = Layer::new(1, 0);
         let mut route = Route::new(layer)
             .with_width(0.5)
@@ -1120,31 +1227,237 @@ mod tests {
             .with_bend_profile(BendProfile::Euler);
 
         route.start_at(0.0, 0.0, 0.0);
-        route.to(60.0, 0.0);
-        route.to(60.0, 60.0);
-        route.end_at(60.0, 60.0, PI / 2.0);
+        route.to(40.0, 0.0);
+        route.to(40.0, 30.0);
+        route.to(80.0, 30.0);
+        route.end_at(80.0, 30.0, 0.0);
 
         let result = route.generate();
-
         assert!(
             result.warnings.is_empty(),
             "unexpected warnings: {:?}",
             result.warnings
         );
-        assert!(result.polygons.len() >= 3);
+        // Should have: straight + euler bend + straight + euler bend + straight
+        assert!(result.polygons.len() >= 5);
+    }
 
-        // Euler arc length for a 90° corner = 2 * R * (pi/2) = R * pi.
-        // Setback = R * K(pi/4) where K is the Euler setback ratio.
-        let r = 5.0;
-        let setback = r * setback_ratio(BendProfile::Euler, PI / 2.0);
-        let expected = (60.0 - setback) * 2.0 + r * PI;
+    // -----------------------------------------------------------------
+    // ROS-544 regression: Euler polygon simplicity
+    // -----------------------------------------------------------------
+
+    /// Test that two line segments AB and CD strictly cross in their
+    /// interiors (sharing an endpoint does not count as a crossing).
+    fn segments_cross(a: Point, b: Point, c: Point, d: Point) -> bool {
+        fn orient(p: Point, q: Point, r: Point) -> f64 {
+            (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+        }
+        let o1 = orient(a, b, c);
+        let o2 = orient(a, b, d);
+        let o3 = orient(c, d, a);
+        let o4 = orient(c, d, b);
+        // Require strict sign change on both pairs. Using 1e-9 tol so
+        // that near-coincident vertices (within Fresnel numeric noise)
+        // don't trip a false positive.
+        let tol = 1e-9;
+        (o1 > tol && o2 < -tol || o1 < -tol && o2 > tol)
+            && (o3 > tol && o4 < -tol || o3 < -tol && o4 > tol)
+    }
+
+    /// Brute-force O(n^2) self-intersection check on a closed polygon.
+    fn polygon_is_simple(polygon: &Polygon) -> bool {
+        let verts = polygon.vertices();
+        let n = verts.len();
+        if n < 4 {
+            return true;
+        }
+        for i in 0..n {
+            let a = verts[i];
+            let b = verts[(i + 1) % n];
+            // Skip adjacent edges (they share a vertex by construction).
+            for j in (i + 2)..n {
+                // Also skip the pair (last, first) when i == 0.
+                if i == 0 && j == n - 1 {
+                    continue;
+                }
+                let c = verts[j];
+                let d = verts[(j + 1) % n];
+                if segments_cross(a, b, c, d) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn test_route_euler_polygon_is_simple_single_corner() {
+        // Regression: ROS-544. The previous setback formula produced
+        // self-intersecting "arrowhead" spikes at each corner. A correct
+        // Euler bend polygon must be a simple (non-self-intersecting)
+        // closed curve.
+        for turn_deg in [30.0_f64, 45.0, 60.0, 90.0, 120.0, 150.0] {
+            for radius in [3.0_f64, 5.0, 10.0] {
+                let layer = Layer::new(1, 0);
+                let mut route = Route::new(layer)
+                    .with_width(0.5)
+                    .with_bend_radius(radius)
+                    .with_bend_profile(BendProfile::Euler);
+
+                // Long run-in / run-out so there's plenty of room for the
+                // (now larger) Euler setback without auto-reduction.
+                let run = 10.0 * radius;
+                let theta = turn_deg.to_radians();
+                let exit_x = run + run * theta.cos();
+                let exit_y = run * theta.sin();
+
+                route.start_at(0.0, 0.0, 0.0);
+                route.to(run, 0.0);
+                route.end_at(exit_x, exit_y, theta);
+
+                let result = route.generate();
+                assert!(
+                    result.warnings.is_empty(),
+                    "unexpected auto-reduce at turn={}°, R={}: {:?}",
+                    turn_deg,
+                    radius,
+                    result.warnings
+                );
+                // Bend is the middle polygon (straight, bend, straight).
+                assert_eq!(
+                    result.polygons.len(),
+                    3,
+                    "unexpected polygon count at turn={}°, R={}",
+                    turn_deg,
+                    radius
+                );
+                let bend = &result.polygons[1];
+                assert!(
+                    polygon_is_simple(bend),
+                    "Euler bend polygon self-intersects at turn={}°, R={} ({} vertices)",
+                    turn_deg,
+                    radius,
+                    bend.vertices().len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_route_euler_polygon_fits_corner_bounding_box() {
+        // The Euler fillet must stay on the *concave* side of the corner —
+        // it should not bulge past the incoming or outgoing tangent lines
+        // on the convex (outside) side. The pre-fix bug's spike did
+        // exactly that, poking past the outgoing tangent.
+        //
+        // Layout: 90° CCW corner at (run, 0), incoming along +X from the
+        // origin, outgoing along +Y to (run, run). The bulge is in the
+        // upper-left quadrant relative to the corner. On the *convex*
+        // side:
+        //   - incoming axis (y=0): convex side is y < 0,
+        //   - outgoing axis (x=run): convex side is x > run.
+        // The polygon is allowed to cross each tangent line by at most
+        // one half-width (the outer-offset vertices at the entry/exit
+        // of the fillet), but no further.
+        let half_width = 0.25;
+        let radius = 5.0_f64;
+        let run = 10.0 * radius;
+        let layer = Layer::new(1, 0);
+        let mut route = Route::new(layer)
+            .with_width(2.0 * half_width)
+            .with_bend_radius(radius)
+            .with_bend_profile(BendProfile::Euler);
+        route.start_at(0.0, 0.0, 0.0);
+        route.to(run, 0.0);
+        route.end_at(run, run, PI / 2.0);
+        let result = route.generate();
         assert!(
-            (result.path_length - expected).abs() < 0.5,
-            "path length {} not close to expected {} (setback {})",
-            result.path_length,
-            expected,
-            setback
+            result.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            result.warnings
         );
+        let bend = &result.polygons[1];
+        let slack = half_width + 1e-6;
+        for v in bend.vertices() {
+            // Convex side of the incoming tangent (y = 0) is y < 0.
+            // Polygon is allowed to reach y = -half_width (outer offset
+            // at the entry vertex) but no further below.
+            assert!(
+                v.y >= -slack,
+                "bend vertex {:?} on convex side of incoming tangent: y = {} < -{}",
+                v,
+                v.y,
+                slack
+            );
+            // Convex side of the outgoing tangent (x = run) is x > run.
+            // Polygon is allowed to reach x = run + half_width but no
+            // further to the right.
+            assert!(
+                v.x <= run + slack,
+                "bend vertex {:?} on convex side of outgoing tangent: x = {} > {}",
+                v,
+                v.x,
+                run + slack
+            );
+        }
+    }
+
+    #[test]
+    fn test_route_euler_polygon_perpendicular_deviation_bounded() {
+        // The Euler polygon is the union of two offset curves at
+        // ±half_width from the clothoid centerline. By construction
+        // each vertex sits at distance exactly half_width from the
+        // nearest centerline point, so the *minimum* distance from any
+        // polygon vertex to the centerline should be <= half_width +
+        // numeric tolerance. A self-intersecting spike (the ROS-544
+        // bug) produces vertices that lie *far* from the centerline
+        // (the "wing" tip), which this test catches.
+        //
+        // We don't have direct access to the centerline here, but we
+        // can bound max perpendicular deviation a different way:
+        // the polygon must fit inside the convex hull of a
+        // [entry_tangent_point, exit_tangent_point, corner_vertex]
+        // triangle dilated by half_width. Equivalently, no vertex can
+        // sit farther than `max_deviation` from the corner vertex
+        // where `max_deviation = setback + half_width + small_slack`.
+        let half_width = 0.25;
+        let radius = 5.0_f64;
+        let run = 10.0 * radius;
+        let layer = Layer::new(1, 0);
+        let mut route = Route::new(layer)
+            .with_width(2.0 * half_width)
+            .with_bend_radius(radius)
+            .with_bend_profile(BendProfile::Euler);
+        route.start_at(0.0, 0.0, 0.0);
+        route.to(run, 0.0);
+        route.end_at(
+            run + run * (PI / 2.0).cos(),
+            run * (PI / 2.0).sin(),
+            PI / 2.0,
+        );
+        let result = route.generate();
+        assert!(result.warnings.is_empty());
+        let bend = &result.polygons[1];
+
+        // Corner vertex is at (run, 0) in this layout.
+        let corner = Point::new(run, 0.0);
+        let setback = radius * setback_ratio(BendProfile::Euler, PI / 2.0);
+        // Slack: `+ radius * 0.5` permits the natural outward bulge of
+        // the clothoid beyond the setback-length triangle. A self-
+        // intersecting spike exceeds this bound significantly.
+        let max_allowed = setback + half_width + radius * 0.5;
+
+        for v in bend.vertices() {
+            let d = ((v.x - corner.x).powi(2) + (v.y - corner.y).powi(2)).sqrt();
+            assert!(
+                d <= max_allowed,
+                "bend vertex {:?} too far from corner: {} > {} (setback {})",
+                v,
+                d,
+                max_allowed,
+                setback
+            );
+        }
     }
 
     #[test]
@@ -1300,29 +1613,5 @@ mod tests {
             max_entry_y_near_tangent >= 2,
             "expected at least 2 vertices near the entry tangent line (outer + inner)"
         );
-    }
-
-    #[test]
-    fn test_route_euler_s_curve() {
-        let layer = Layer::new(1, 0);
-        let mut route = Route::new(layer)
-            .with_width(0.5)
-            .with_bend_radius(5.0)
-            .with_bend_profile(BendProfile::Euler);
-
-        route.start_at(0.0, 0.0, 0.0);
-        route.to(40.0, 0.0);
-        route.to(40.0, 30.0);
-        route.to(80.0, 30.0);
-        route.end_at(80.0, 30.0, 0.0);
-
-        let result = route.generate();
-        assert!(
-            result.warnings.is_empty(),
-            "unexpected warnings: {:?}",
-            result.warnings
-        );
-        // Should have: straight + euler bend + straight + euler bend + straight
-        assert!(result.polygons.len() >= 5);
     }
 }
