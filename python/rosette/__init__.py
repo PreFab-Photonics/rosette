@@ -16,10 +16,10 @@ Example usage:
     cell = route.to_cell("my_route")
 
 In user projects (after `rosette init`), components are local:
-    from components import mmi_1x2, ring, grating_coupler
+    from components import mmi, ring, grating_coupler
 
 For library development, import from rosette.components:
-    from rosette.components import mmi_1x2, ring, grating_coupler
+    from rosette.components import mmi, ring, grating_coupler
 """
 
 from __future__ import annotations

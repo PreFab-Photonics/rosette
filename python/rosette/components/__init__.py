@@ -6,10 +6,10 @@ that returns a ``Cell`` with named ports, ready for placement and routing.
 Imports::
 
     # In the main rosette repo:
-    from rosette.components import mmi_1x2, ring, grating_coupler
+    from rosette.components import mmi, ring, grating_coupler
 
     # In user projects created with ``rosette init --template generic``:
-    from components import mmi_1x2, ring, grating_coupler
+    from components import mmi, ring, grating_coupler
 
 Components are designed to be copied and modified to match your PDK or
 process requirements.
@@ -68,15 +68,9 @@ Component Catalog
    * - ``bragg_grating``
      - ``in``, ``out``
      - Sidewall-corrugated wavelength-selective reflector / DBR
-   * - ``mmi_1x2``
-     - ``in``, ``out1``, ``out2``
-     - 1-to-2 power splitter
-   * - ``mmi_2x1``
-     - ``in1``, ``in2``, ``out``
-     - 2-to-1 power combiner
-   * - ``mmi_2x2``
-     - ``in1``, ``in2``, ``out1``, ``out2``
-     - 2-by-2 coupler
+   * - ``mmi``
+     - ``in``/``in1``/``in2``, ``out``/``out1``/``out2`` (per ``n_in``/``n_out``)
+     - Multi-mode interferometer (1x2 splitter, 2x1 combiner, 2x2 coupler)
    * - ``directional_coupler``
      - ``in1``, ``in2``, ``out1``, ``out2``
      - Evanescent directional coupler
@@ -154,7 +148,7 @@ from rosette.components.crossing import crossing
 from rosette.components.directional_coupler import directional_coupler
 from rosette.components.edge_coupler import edge_coupler
 from rosette.components.grating_coupler import grating_coupler
-from rosette.components.mmi import mmi_1x2, mmi_2x1, mmi_2x2
+from rosette.components.mmi import mmi
 from rosette.components.ring import ring
 from rosette.components.sbend import sbend
 
@@ -164,9 +158,7 @@ __all__ = [
     "directional_coupler",
     "edge_coupler",
     "grating_coupler",
-    "mmi_1x2",
-    "mmi_2x1",
-    "mmi_2x2",
+    "mmi",
     "ring",
     "sbend",
 ]

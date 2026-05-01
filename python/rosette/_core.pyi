@@ -1407,7 +1407,7 @@ def run_drc(
 #
 # The stubs below document components from the project's components/ directory.
 # They are NOT importable from rosette -- import them as:
-#     from components import grating_coupler, mmi_1x2, ...
+#     from components import grating_coupler, mmi, ...
 #
 # These stubs are included here as a quick reference for type signatures and
 # placement notes. The editable source lives in components/.

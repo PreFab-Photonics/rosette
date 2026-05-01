@@ -20,8 +20,7 @@ from rosette.components import (
     crossing,
     directional_coupler,
     grating_coupler,
-    mmi_1x2,
-    mmi_2x2,
+    mmi,
     ring,
     sbend,
 )
@@ -132,13 +131,13 @@ def sbend_cell(layer: Layer) -> Cell:
 @pytest.fixture
 def mmi_1x2_cell(layer: Layer) -> Cell:
     """1x2 MMI splitter."""
-    return mmi_1x2(layer)
+    return mmi(layer, n_in=1, n_out=2)
 
 
 @pytest.fixture
 def mmi_2x2_cell(layer: Layer) -> Cell:
     """2x2 MMI coupler."""
-    return mmi_2x2(layer)
+    return mmi(layer, n_in=2, n_out=2)
 
 
 @pytest.fixture

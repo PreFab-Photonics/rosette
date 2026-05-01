@@ -167,7 +167,7 @@ class TestRosetteInit:
         assert not (components_dir / "__pycache__").exists()
 
     def test_init_generic_components_import_roundtrip(self, tmp_path: Path, monkeypatch):
-        """`from components import mmi_1x2` resolves to the *local* copy.
+        """`from components import mmi` resolves to the *local* copy.
 
         Shadcn-style components are useless if edits to
         ``components/mmi.py`` in a user project are silently shadowed by
@@ -195,7 +195,7 @@ class TestRosetteInit:
                 del sys.modules[mod]
         try:
             components = importlib.import_module("components")
-            for name in ("mmi_1x2", "ring", "grating_coupler", "bragg_grating"):
+            for name in ("mmi", "ring", "grating_coupler", "bragg_grating"):
                 assert hasattr(components, name), f"components.{name} missing"
                 func = getattr(components, name)
                 assert callable(func)
@@ -211,9 +211,9 @@ class TestRosetteInit:
             # Same check for the submodule form (`from components.mmi import ...`).
             # This also catches transitive imports of `_utils`/`_curves` leaking
             # back to the installed package.
-            mmi = importlib.import_module("components.mmi")
-            assert mmi.mmi_1x2.__module__ == "components.mmi"
-            assert mmi.mmi_1x2 is components.mmi_1x2
+            mmi_mod = importlib.import_module("components.mmi")
+            assert mmi_mod.mmi.__module__ == "components.mmi"
+            assert mmi_mod.mmi is components.mmi
         finally:
             sys.path.remove(str(project_dir))
             for mod in list(sys.modules):
@@ -336,7 +336,7 @@ class TestRewriteComponentImports:
     """Tests for `_rewrite_component_imports` (see ROS-530).
 
     The rewriter is what makes copied components self-contained. Without
-    it, `from components import mmi_1x2` in a user project resolves
+    it, `from components import mmi` in a user project resolves
     against the installed `rosette.components` package instead of the
     local copy.
     """
@@ -350,15 +350,15 @@ class TestRewriteComponentImports:
     def test_rewrites_init_reexports(self):
         from rosette.cli import _rewrite_component_imports
 
-        src = "from rosette.components.mmi import mmi_1x2, mmi_2x1, mmi_2x2\n"
-        assert _rewrite_component_imports(src) == "from .mmi import mmi_1x2, mmi_2x1, mmi_2x2\n"
+        src = "from rosette.components.mmi import mmi\n"
+        assert _rewrite_component_imports(src) == "from .mmi import mmi\n"
 
     def test_rewrites_from_package_import(self):
         """`from rosette.components import X` -> `from . import X`."""
         from rosette.cli import _rewrite_component_imports
 
-        src = "from rosette.components import mmi_1x2\n"
-        assert _rewrite_component_imports(src) == "from . import mmi_1x2\n"
+        src = "from rosette.components import mmi\n"
+        assert _rewrite_component_imports(src) == "from . import mmi\n"
 
     def test_leaves_core_rosette_import_alone(self):
         """`from rosette import ...` points at the core package and must not be touched."""
@@ -374,8 +374,8 @@ class TestRewriteComponentImports:
         src = (
             '"""My docstring.\n\n'
             "Example::\n\n"
-            "    >>> from rosette.components import mmi_1x2\n"
-            "    >>> mmi_1x2(...)\n"
+            "    >>> from rosette.components import mmi\n"
+            "    >>> mmi(...)\n"
             '"""\n'
         )
         assert _rewrite_component_imports(src) == src

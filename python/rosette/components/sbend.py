@@ -157,10 +157,10 @@ def sbend(
         pitch (127 um) and land on two grating couplers::
 
             from rosette import Cell, Layer, write_gds
-            from rosette.components import grating_coupler, mmi_1x2, sbend
+            from rosette.components import grating_coupler, mmi, sbend
 
             layer = Layer(1, 0)
-            splitter = mmi_1x2(layer)
+            splitter = mmi(layer)
             gc = grating_coupler(layer)
 
             # Splitter outputs sit at y = +/- 1 um (port_separation=2).

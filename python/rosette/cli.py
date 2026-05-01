@@ -130,9 +130,9 @@ def _rewrite_component_imports(src: str) -> str:
 
     The stdlib components package uses absolute imports like
     ``from rosette.components._utils import safe_cell_name`` and
-    ``from rosette.components.mmi import mmi_1x2`` (in ``__init__.py``).
+    ``from rosette.components.mmi import mmi`` (in ``__init__.py``).
     If those are copied verbatim into a user's ``components/`` package,
-    ``from components import mmi_1x2`` still resolves against the
+    ``from components import mmi`` still resolves against the
     installed ``rosette.components`` package -- so local edits to
     ``components/mmi.py`` are silently ignored. That defeats the whole
     shadcn-style "copy into the project and edit" workflow.
@@ -171,8 +171,8 @@ def _rewrite_component_imports(src: str) -> str:
             #  ->  "from ._utils import X"
             out_lines.append("from ." + line[len("from rosette.components.") :])
         elif line.startswith("from rosette.components import "):
-            # e.g. "from rosette.components import mmi_1x2"
-            #  ->  "from . import mmi_1x2"
+            # e.g. "from rosette.components import mmi"
+            #  ->  "from . import mmi"
             out_lines.append("from . import " + line[len("from rosette.components import ") :])
         elif line.startswith("import rosette.components"):
             # Not currently used in the stdlib. If someone adds this form,
@@ -267,7 +267,7 @@ def _copy_components(project_dir: Path, *, minimal: bool = False) -> None:
         # Rewrite absolute `rosette.components.*` imports to package-relative
         # form so the copied package is self-contained: edits to
         # `components/mmi.py` in a user project actually take effect when
-        # they `from components import mmi_1x2`. Without this step the
+        # they `from components import mmi`. Without this step the
         # re-exports in `__init__.py` (and the `_utils`/`_curves` imports in
         # every component module) still resolve against the installed
         # `rosette.components` package. See `_rewrite_component_imports`.

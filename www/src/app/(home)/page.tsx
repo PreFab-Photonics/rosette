@@ -27,16 +27,16 @@ export const metadata: Metadata = {
 /* -------------------------------------------------------------------------- */
 
 const heroCodeFallback = `from rosette import Cell, Layer, Route, write_gds
-from components.mmi import mmi_1x2
+from components.mmi import mmi
 from components.grating_coupler import grating_coupler
 
 chip = Cell("splitter")
 gc = grating_coupler(layer=Layer(1, 0)).at(0, 0)
-mmi = mmi_1x2(layer=Layer(1, 0)).at(80, 0)
+splitter = mmi(layer=Layer(1, 0)).at(80, 0)
 chip.add_ref(gc)
-chip.add_ref(mmi)
+chip.add_ref(splitter)
 
-Route.through(gc.port("opt"), mmi.port("in"),
+Route.through(gc.port("opt"), splitter.port("in"),
     layer=Layer(1, 0), width=0.5, bend_radius=10.0)
 
 write_gds("splitter.gds", chip)`;

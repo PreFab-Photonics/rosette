@@ -142,7 +142,7 @@ def directional_coupler(
         rotate first, then translate.
 
         For a Mach-Zehnder interferometer, use two directional couplers
-        (or ``mmi_2x2``) with a pair of matched-length arms between them.
+        (or ``mmi(n_in=2, n_out=2)``) with a pair of matched-length arms between them.
         A typical 50/50 coupler at 1550 nm on silicon uses ``gap=0.2``,
         ``coupling_length`` around 10-20 um for single-mode waveguides.
 

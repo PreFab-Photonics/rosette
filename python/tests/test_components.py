@@ -15,9 +15,7 @@ from rosette.components import (
     directional_coupler,
     edge_coupler,
     grating_coupler,
-    mmi_1x2,
-    mmi_2x1,
-    mmi_2x2,
+    mmi,
     ring,
     sbend,
 )
@@ -40,9 +38,9 @@ def layer() -> Layer:
         # Two-port components (new API: layer first)
         (lambda layer: sbend(layer, waveguide_width=0.5, length=20.0, offset=5.0), ["in", "out"]),
         # Multi-port components
-        (lambda layer: mmi_1x2(layer), ["in", "out1", "out2"]),
-        (lambda layer: mmi_2x1(layer), ["in1", "in2", "out"]),
-        (lambda layer: mmi_2x2(layer), ["in1", "in2", "out1", "out2"]),
+        (lambda layer: mmi(layer), ["in", "out1", "out2"]),
+        (lambda layer: mmi(layer, n_in=2, n_out=1), ["in1", "in2", "out"]),
+        (lambda layer: mmi(layer, n_in=2, n_out=2), ["in1", "in2", "out1", "out2"]),
         (lambda layer: directional_coupler(layer), ["in1", "in2", "out1", "out2"]),
         (
             lambda layer: ring(layer, waveguide_width=0.5, radius=10.0, coupling="allpass"),
@@ -84,9 +82,9 @@ def test_component_ports(component_factory, expected_ports, layer):
     "component_factory",
     [
         lambda layer: sbend(layer, waveguide_width=0.5, length=20.0, offset=5.0),
-        lambda layer: mmi_1x2(layer),
-        lambda layer: mmi_2x1(layer),
-        lambda layer: mmi_2x2(layer),
+        lambda layer: mmi(layer),
+        lambda layer: mmi(layer, n_in=2, n_out=1),
+        lambda layer: mmi(layer, n_in=2, n_out=2),
         lambda layer: directional_coupler(layer),
         lambda layer: ring(layer, waveguide_width=0.5, radius=10.0),
         lambda layer: crossing(layer, waveguide_width=0.5),
@@ -275,8 +273,8 @@ class TestMMI:
     """MMI component tests."""
 
     def test_1x2(self, layer):
-        """1x2 MMI splitter."""
-        cell = mmi_1x2(layer)
+        """1x2 MMI splitter (default n_in=1, n_out=2)."""
+        cell = mmi(layer)
         assert cell.polygon_count() > 0
         ports = [p.name for p in cell.ports()]
         assert "in" in ports
@@ -285,7 +283,7 @@ class TestMMI:
 
     def test_2x1(self, layer):
         """2x1 MMI combiner."""
-        cell = mmi_2x1(layer)
+        cell = mmi(layer, n_in=2, n_out=1)
         ports = [p.name for p in cell.ports()]
         assert "in1" in ports
         assert "in2" in ports
@@ -293,7 +291,7 @@ class TestMMI:
 
     def test_2x2(self, layer):
         """2x2 MMI coupler."""
-        cell = mmi_2x2(layer)
+        cell = mmi(layer, n_in=2, n_out=2)
         ports = [p.name for p in cell.ports()]
         assert "in1" in ports
         assert "in2" in ports
@@ -305,22 +303,41 @@ class TestMMI:
 
         Before the polish pass the cell name was derived only from ``(mmi_type,
         length, mmi_width)`` so differently-portsized MMIs collided in the
-        library. Include port_width + taper_width in the generated name.
+        library. Include waveguide_width + taper_width in the generated name.
         """
-        a = mmi_1x2(layer, waveguide_width=0.5)
-        b = mmi_1x2(layer, waveguide_width=0.7)
+        a = mmi(layer, waveguide_width=0.5)
+        b = mmi(layer, waveguide_width=0.7)
         assert a.name != b.name
 
     def test_cell_name_distinguishes_taper_width(self, layer):
         """Different taper widths must produce different cell names."""
-        a = mmi_1x2(layer, taper_width=1.2)
-        b = mmi_1x2(layer, taper_width=1.5)
+        a = mmi(layer, taper_width=1.2)
+        b = mmi(layer, taper_width=1.5)
         assert a.name != b.name
+
+    def test_cell_name_distinguishes_variant(self, layer):
+        """Cell name encodes n_in x n_out so variants don't collide."""
+        a = mmi(layer, n_in=1, n_out=2)
+        b = mmi(layer, n_in=2, n_out=1)
+        c = mmi(layer, n_in=2, n_out=2)
+        assert len({a.name, b.name, c.name}) == 3
 
     def test_waveguide_width_validation_message(self, layer):
         """Invalid waveguide_width raises with the user-facing parameter name."""
         with pytest.raises(ValueError, match="Waveguide width"):
-            mmi_1x2(layer, waveguide_width=0.0)
+            mmi(layer, waveguide_width=0.0)
+
+    @pytest.mark.parametrize("bad", [0, 3, 4, -1])
+    def test_n_in_validation(self, layer, bad):
+        """Only n_in in {1, 2} is supported; anything else raises."""
+        with pytest.raises(ValueError, match="n_in must be 1 or 2"):
+            mmi(layer, n_in=bad)
+
+    @pytest.mark.parametrize("bad", [0, 3, 4, -1])
+    def test_n_out_validation(self, layer, bad):
+        """Only n_out in {1, 2} is supported; anything else raises."""
+        with pytest.raises(ValueError, match="n_out must be 1 or 2"):
+            mmi(layer, n_out=bad)
 
     # ------------------------------------------------------------------
     # Port positions / directions / widths — one parameter-set per variant.
@@ -328,15 +345,17 @@ class TestMMI:
     # ------------------------------------------------------------------
 
     def test_1x2_port_positions_directions_widths(self, layer):
-        """mmi_1x2 ports match docstring: in @(0,0), out1/2 @(tl, ±sep/2)."""
+        """1x2 ports match docstring: in @(0,0), out1/2 @(tl, ±sep/2)."""
         length = 10.0
         taper_length = 5.0
         waveguide_width = 0.5
         port_separation = 2.0
         total_length = length + 2 * taper_length
 
-        cell = mmi_1x2(
+        cell = mmi(
             layer,
+            n_in=1,
+            n_out=2,
             waveguide_width=waveguide_width,
             length=length,
             taper_length=taper_length,
@@ -365,12 +384,18 @@ class TestMMI:
         assert p_out2.width == pytest.approx(waveguide_width)
 
     def test_2x1_port_positions_directions_widths(self, layer):
-        """mmi_2x1: in1/2 @(0, ±sep/2) facing -X, out @(tl, 0) facing +X."""
+        """2x1: in1/2 @(0, ±sep/2) facing -X, out @(tl, 0) facing +X."""
         waveguide_width = 0.5
         port_separation = 2.0
         total_length = 10.0 + 2 * 5.0  # defaults
 
-        cell = mmi_2x1(layer, waveguide_width=waveguide_width, port_separation=port_separation)
+        cell = mmi(
+            layer,
+            n_in=2,
+            n_out=1,
+            waveguide_width=waveguide_width,
+            port_separation=port_separation,
+        )
         p_in1 = cell.port("in1")
         p_in2 = cell.port("in2")
         p_out = cell.port("out")
@@ -391,15 +416,17 @@ class TestMMI:
         assert p_out.width == pytest.approx(waveguide_width)
 
     def test_2x2_port_positions_directions_widths(self, layer):
-        """mmi_2x2: all four ports at ±sep/2 on left/right faces."""
+        """2x2: all four ports at ±sep/2 on left/right faces."""
         waveguide_width = 0.5
         port_separation = 2.0
         length = 15.0
         taper_length = 5.0
         total_length = length + 2 * taper_length
 
-        cell = mmi_2x2(
+        cell = mmi(
             layer,
+            n_in=2,
+            n_out=2,
             waveguide_width=waveguide_width,
             length=length,
             taper_length=taper_length,
@@ -425,18 +452,18 @@ class TestMMI:
     # ------------------------------------------------------------------
 
     @pytest.mark.parametrize(
-        "factory,length,taper_length",
+        "n_in,n_out,length,taper_length",
         [
-            (mmi_1x2, 10.0, 5.0),
-            (mmi_2x1, 10.0, 5.0),
-            (mmi_2x2, 15.0, 5.0),
-            (mmi_2x2, 20.0, 2.0),
-            (mmi_1x2, 5.0, 0.0),  # taper_length >= 0 is allowed
+            (1, 2, 10.0, 5.0),
+            (2, 1, 10.0, 5.0),
+            (2, 2, 15.0, 5.0),
+            (2, 2, 20.0, 2.0),
+            (1, 2, 5.0, 0.0),  # taper_length >= 0 is allowed
         ],
     )
-    def test_path_length_is_total_length(self, layer, factory, length, taper_length):
+    def test_path_length_is_total_length(self, layer, n_in, n_out, length, taper_length):
         """path_length == length + 2*taper_length for all MMI variants."""
-        cell = factory(layer, length=length, taper_length=taper_length)
+        cell = mmi(layer, n_in=n_in, n_out=n_out, length=length, taper_length=taper_length)
         assert cell.path_length == pytest.approx(length + 2 * taper_length)
 
     # ------------------------------------------------------------------
@@ -448,7 +475,14 @@ class TestMMI:
         length = 10.0
         taper_length = 5.0
         mmi_width = 6.0
-        cell = mmi_2x2(layer, length=length, taper_length=taper_length, mmi_width=mmi_width)
+        cell = mmi(
+            layer,
+            n_in=2,
+            n_out=2,
+            length=length,
+            taper_length=taper_length,
+            mmi_width=mmi_width,
+        )
         bb = cell.bbox()
         total_length = length + 2 * taper_length
         assert bb.min.x == pytest.approx(0.0)
@@ -458,7 +492,8 @@ class TestMMI:
         assert bb.min.y == pytest.approx(-mmi_width / 2)
 
     # ------------------------------------------------------------------
-    # Parametrized ValueError branches (all 6 in _create_mmi).
+    # Parametrized ValueError branches — fire across every (n_in, n_out)
+    # combination.
     # ------------------------------------------------------------------
 
     @pytest.mark.parametrize(
@@ -477,11 +512,11 @@ class TestMMI:
             ({"port_separation": -1.0}, "Port separation"),
         ],
     )
-    @pytest.mark.parametrize("factory", [mmi_1x2, mmi_2x1, mmi_2x2])
-    def test_validation(self, layer, factory, kwargs, match):
-        """All six ``_create_mmi`` ValueError branches fire for each variant."""
+    @pytest.mark.parametrize("n_in,n_out", [(1, 2), (2, 1), (2, 2)])
+    def test_validation(self, layer, n_in, n_out, kwargs, match):
+        """All positive-value validation branches fire for each variant."""
         with pytest.raises(ValueError, match=match):
-            factory(layer, **kwargs)
+            mmi(layer, n_in=n_in, n_out=n_out, **kwargs)
 
 
 class TestRing:
@@ -1504,12 +1539,12 @@ class TestCompositions:
 
     Catches port-direction or width regressions that slip through single
     component tests. The representative fixture is a Mach-Zehnder
-    interferometer (2x ``mmi_2x2`` + two waveguide arms via ``Route``),
+    interferometer (2x 2x2 ``mmi`` + two waveguide arms via ``Route``),
     which is the canonical "first real circuit" in photonics.
     """
 
     def test_mzi_from_mmi_2x2_and_routes(self, layer, tmp_path):
-        """Build an MZI from two mmi_2x2 + two arms and verify it's valid.
+        """Build an MZI from two 2x2 MMIs + two arms and verify it's valid.
 
         Asserts:
           * Arm ports connect at the same position with opposite
@@ -1526,16 +1561,18 @@ class TestCompositions:
         arm_span = 40.0  # horizontal gap between the two MMIs
         arm_y_offset = 10.0  # how far each arm deflects off-center
 
-        mmi = mmi_2x2(
+        mmi_cell = mmi(
             layer,
+            n_in=2,
+            n_out=2,
             waveguide_width=waveguide_width,
             length=mmi_length,
             port_separation=port_separation,
             taper_length=taper_length,
         )
 
-        mmi_left = mmi.at(0, 0)
-        mmi_right = mmi.at(total_mmi_length + arm_span, 0)
+        mmi_left = mmi_cell.at(0, 0)
+        mmi_right = mmi_cell.at(total_mmi_length + arm_span, 0)
 
         upper_start = mmi_left.port("out2")  # upper output of the left MMI
         upper_end = mmi_right.port("in2")  # upper input of the right MMI
@@ -1605,15 +1642,15 @@ class TestCompositions:
     def test_mmi_arms_port_pairs_connect(self, layer):
         """Port-pair matching without any routing, as a pure contract check.
 
-        Two ``mmi_2x2`` placed back-to-back with the inter-MMI gap set
+        Two 2x2 MMIs placed back-to-back with the inter-MMI gap set
         to zero must have directly-matching port pairs per the MZI
         wiring convention.
         """
-        mmi = mmi_2x2(layer, waveguide_width=0.5, length=15.0, taper_length=5.0)
+        mmi_cell = mmi(layer, n_in=2, n_out=2, waveguide_width=0.5, length=15.0, taper_length=5.0)
         total = 15.0 + 2 * 5.0  # 25.0
 
-        left = mmi.at(0, 0)
-        right = mmi.at(total, 0)  # butt-coupled
+        left = mmi_cell.at(0, 0)
+        right = mmi_cell.at(total, 0)  # butt-coupled
 
         # Each output port of the left MMI should lie at the same (x, y)
         # as the corresponding input port of the right MMI, with
