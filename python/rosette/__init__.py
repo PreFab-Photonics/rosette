@@ -30,6 +30,7 @@ import re
 import sys
 import tomllib
 import warnings
+from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
@@ -124,6 +125,41 @@ def _validate_array_dims(columns: int, rows: int) -> None:
         )
 
 
+def _transform_port(original_port: Port, transform: Transform) -> Port:
+    """Apply a transform to a port's position and direction.
+
+    Position is transformed through the full affine map. Direction is
+    transformed using only the 2x2 linear part (rotation + mirror),
+    which keeps it a unit vector.
+    """
+    pos = transform.apply(original_port.position)
+    origin = transform.apply(Point.origin())
+    dir_pt = transform.apply(Point(original_port.direction.x, original_port.direction.y))
+    dx = dir_pt.x - origin.x
+    dy = dir_pt.y - origin.y
+    length = math.sqrt(dx * dx + dy * dy)
+    if length > 0:
+        direction = Vector2(dx / length, dy / length)
+    else:
+        direction = original_port.direction
+    return Port(original_port.name, pos, direction, original_port.width)
+
+
+def _repetition_copy_offset(
+    repetition: tuple[int, int, float, float, float, float],
+    col: int,
+    row: int,
+) -> tuple[float, float]:
+    """Return the local-space offset of copy ``(col, row)``.
+
+    Mirrors ``rosette_core::Repetition::copy_offset``: the offset is
+    ``col * col_vector + row * row_vector`` in the cell's pre-transform
+    coordinate space.
+    """
+    _, _, col_x, col_y, row_x, row_y = repetition
+    return (col * col_x + row * row_x, col * col_y + row * row_y)
+
+
 # =============================================================================
 # Instance: A positioned cell that knows both its definition and transform
 # =============================================================================
@@ -150,6 +186,15 @@ class Instance:
     Instances can be added directly to cells and support transform chaining:
         gc = gc_cell.at(100, 50)
         top.add_ref(gc)
+
+    **Arrayed instances are iterable.** After :meth:`array` or
+    :meth:`array_vectors` is applied, ``len(instance)`` returns the
+    total copy count (``columns * rows``) and ``for copy in instance``
+    walks the individual copies -- yielding :class:`ArrayCopy` views
+    with per-copy ports and transforms. A non-arrayed instance behaves
+    as a 1x1 grid: ``len(inst) == 1`` and iteration yields one copy at
+    ``(col=0, row=0)``. Because ``__len__`` is always >= 1, ``bool(inst)``
+    is always ``True``.
 
     **Transform chaining order:** Each chained call wraps the *outside* of
     the accumulated transform. This means the *first* call in the chain is
@@ -365,42 +410,126 @@ class Instance:
             (columns, rows, col_vector.x, col_vector.y, row_vector.x, row_vector.y),
         )
 
-    def port(self, name: str) -> Port:
+    def port(self, name: str, col: int = 0, row: int = 0) -> Port:
         """Get a transformed port from this instance.
 
         Unlike CellRef.port(), this doesn't require passing the Cell again
         since the Instance already knows its cell definition.
 
+        For arrayed instances (see :meth:`array` / :meth:`array_vectors`),
+        pass ``col`` and ``row`` to address a specific copy in the
+        lattice. The default ``(0, 0)`` returns the port of the anchor
+        copy, matching the behaviour of non-arrayed instances.
+
         Args:
-            name: Name of the port to retrieve
+            name: Name of the port to retrieve.
+            col: Grid column of the copy to query (0-indexed). Only
+                meaningful on arrayed instances.
+            row: Grid row of the copy to query (0-indexed). Only
+                meaningful on arrayed instances.
 
         Returns:
-            The port with position and direction transformed
+            The port with position and direction transformed into
+            world space for the requested copy.
 
         Raises:
-            KeyError: If the port is not found in the cell
+            KeyError: If the port is not found in the cell.
+            IndexError: If ``col`` or ``row`` is outside the array
+                bounds.
 
         Example:
             gc = gc_cell.at(100, 50)
             opt_port = gc.port("opt")  # No need to pass gc_cell!
+
+            # Arrayed: address a specific copy.
+            bank = ring_cell.array(8, 1, 30.0, 0.0)
+            p = bank.port("in", col=3)
         """
-        # Get the original port from the cell
         original_port = self._cell.port(name)
-        # Apply the transform to get the positioned port
-        pos = self._transform.apply(original_port.position)
-        # Transform the direction vector using the 2x2 linear part of the
-        # transform.  This correctly handles rotation, mirroring, and any
-        # combination without needing decomposition.
-        origin = self._transform.apply(Point.origin())
-        dir_pt = self._transform.apply(Point(original_port.direction.x, original_port.direction.y))
-        dx = dir_pt.x - origin.x
-        dy = dir_pt.y - origin.y
-        length = math.sqrt(dx * dx + dy * dy)
-        if length > 0:
-            direction = Vector2(dx / length, dy / length)
-        else:
-            direction = original_port.direction
-        return Port(name, pos, direction, original_port.width)
+        copy_transform = self._copy_transform(col, row)
+        return _transform_port(original_port, copy_transform)
+
+    @property
+    def array_shape(self) -> tuple[int, int]:
+        """Grid dimensions ``(columns, rows)`` of this instance.
+
+        Returns ``(1, 1)`` for non-arrayed instances so the result is
+        always meaningful. Use this to size iteration or assertions
+        without checking whether :meth:`array` was called.
+        """
+        if self._repetition is None:
+            return (1, 1)
+        columns, rows, *_ = self._repetition
+        return (int(columns), int(rows))
+
+    def _copy_transform(self, col: int, row: int) -> Transform:
+        """Return the world-space transform for copy ``(col, row)``.
+
+        Validates the indices and composes the outer transform with
+        the local copy offset: ``outer ∘ translate(copy_offset)``.
+        """
+        columns, rows = self.array_shape
+        if not (0 <= col < columns):
+            raise IndexError(f"col {col} out of range for array with {columns} column(s)")
+        if not (0 <= row < rows):
+            raise IndexError(f"row {row} out of range for array with {rows} row(s)")
+        if self._repetition is None:
+            return self._transform
+        dx, dy = _repetition_copy_offset(self._repetition, col, row)
+        # Copy offsets live in the instance's local (pre-transform) space,
+        # so translate first (innermost), then wrap with the outer
+        # transform. Transform.then(other) reads as "other then self",
+        # meaning `self` applied last -- so the outer transform is on the
+        # left. This matches AREF semantics: the array is laid out in
+        # local space, and the whole lattice is rotated/translated by
+        # the outer transform.
+        return self._transform.then(Transform.translate(dx, dy))
+
+    def copies(self) -> Iterator[ArrayCopy]:
+        """Iterate over the individual copies in this instance's array.
+
+        Yields one :class:`ArrayCopy` per grid position, in
+        column-major order (``col`` varies fastest). Each yielded
+        object exposes ``col``, ``row``, a world-space ``transform``,
+        and a :meth:`ArrayCopy.port` convenience for per-copy port
+        access — without mutating this instance or adding any extra
+        GDS references.
+
+        For a non-arrayed instance this yields exactly one copy at
+        ``(col=0, row=0)``, so code written against :meth:`copies`
+        works uniformly regardless of whether :meth:`array` was
+        called.
+
+        Example:
+            bank = ring_cell.array(8, 1, 30.0, 0.0)
+            top.add_ref(bank)                        # one AREF
+            for copy in bank.copies():
+                top.add_text(
+                    f"R{copy.col}",
+                    copy.port("in").position,
+                    layer=Layer(10, 0),
+                )
+        """
+        columns, rows = self.array_shape
+        for r in range(rows):
+            for c in range(columns):
+                yield ArrayCopy(self, c, r)
+
+    def __iter__(self) -> Iterator[ArrayCopy]:
+        """Alias for :meth:`copies`.
+
+        Lets ``for copy in instance:`` work on any instance, arrayed
+        or not.
+        """
+        return self.copies()
+
+    def __len__(self) -> int:
+        """Number of copies in the array (``columns * rows``).
+
+        Returns 1 for non-arrayed instances.
+        """
+        columns, rows = self.array_shape
+        return columns * rows
 
     def to_ref(self) -> CellRef:
         """Convert to a CellRef for use with low-level APIs.
@@ -486,6 +615,113 @@ class Instance:
     def __repr__(self) -> str:
         pos = self._transform.apply(Point.origin())
         return f"Instance('{self._cell.name}', at=({pos.x:.2f}, {pos.y:.2f}))"
+
+
+# =============================================================================
+# ArrayCopy: A single copy in an arrayed Instance
+# =============================================================================
+
+
+class ArrayCopy:
+    """A single copy in an arrayed :class:`Instance`.
+
+    Produced by :meth:`Instance.copies` (and iteration over an
+    ``Instance``). Exposes the copy's grid position, its world-space
+    transform, and a :meth:`port` helper for retrieving the
+    transformed port of this specific copy.
+
+    ``ArrayCopy`` is deliberately a lightweight view over its parent
+    instance — it does **not** add geometry or a GDS reference when
+    constructed. The parent AREF is the only thing in the output.
+    This lets you attach per-copy labels, compute per-copy routing
+    endpoints, or build side-channel metadata without bloating the
+    GDS with ``columns * rows`` extra SREFs.
+
+    Example:
+        pds = pd_cell.array(8, 8, 50.0, 50.0)
+        top.add_ref(pds)                             # one AREF
+
+        netlist = []
+        for copy in pds.copies():
+            anode = copy.port("A").position
+            cathode = copy.port("K").position
+            netlist.append({
+                "name": f"PD_{copy.col}_{copy.row}",
+                "anode": anode,
+                "cathode": cathode,
+            })
+    """
+
+    __slots__ = ("_instance", "_transform", "col", "row")
+
+    def __init__(self, instance: Instance, col: int, row: int) -> None:
+        """Create an ArrayCopy view.
+
+        Typically you don't call this directly — use
+        :meth:`Instance.copies` or iterate over the parent instance.
+
+        Args:
+            instance: The parent arrayed (or single) Instance.
+            col: Grid column of this copy (0-indexed).
+            row: Grid row of this copy (0-indexed).
+        """
+        self._instance = instance
+        self.col = col
+        self.row = row
+        # Precompute the world-space transform so repeated `.transform`
+        # or `.port(...)` calls don't redo the work.
+        self._transform = instance._copy_transform(col, row)
+
+    @property
+    def transform(self) -> Transform:
+        """World-space transform of this copy.
+
+        This is the outer transform of the parent Instance composed
+        with the local copy offset. Applying it to the parent cell's
+        local coordinates gives world-space coordinates for *this*
+        copy specifically.
+        """
+        return self._transform
+
+    @property
+    def position(self) -> Point:
+        """World-space position of the copy's anchor (local origin)."""
+        return self._transform.apply(Point.origin())
+
+    @property
+    def cell(self) -> Cell:
+        """The underlying cell definition (shared with the parent Instance)."""
+        return self._instance._cell
+
+    @property
+    def cell_name(self) -> str:
+        """Name of the referenced cell."""
+        return self._instance._cell.name
+
+    def port(self, name: str) -> Port:
+        """Get the transformed port of this specific copy.
+
+        Both position and direction are transformed into world space.
+        Equivalent to ``parent.port(name, col=self.col, row=self.row)``.
+
+        Args:
+            name: Name of the port to retrieve.
+
+        Returns:
+            The port with position and direction transformed.
+
+        Raises:
+            KeyError: If the port is not found in the cell.
+        """
+        original_port = self._instance._cell.port(name)
+        return _transform_port(original_port, self._transform)
+
+    def __repr__(self) -> str:
+        pos = self.position
+        return (
+            f"ArrayCopy('{self.cell_name}', col={self.col}, row={self.row}, "
+            f"at=({pos.x:.2f}, {pos.y:.2f}))"
+        )
 
 
 # =============================================================================
@@ -2377,6 +2613,7 @@ def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
 
 __all__ = [
     "DEFAULT_LAYERS",
+    "ArrayCopy",
     "BBox",
     "Cell",
     "CellRef",

@@ -1,0 +1,117 @@
+---
+title: ArrayCopy
+---
+
+A single copy in an arrayed [`Instance`](./Instance).
+
+Produced by [`Instance.copies()`](./Instance#copies) and iteration over
+an `Instance`. Exposes the copy's grid position, its world-space
+transform, and a `port(name)` helper for retrieving the transformed
+port of this specific copy.
+
+`ArrayCopy` is a lightweight **view** over its parent instance — it
+does not add geometry or a GDS reference when constructed. The parent
+AREF is the only thing written to the output. This lets you attach
+per-copy labels, compute per-copy routing endpoints, or build
+side-channel metadata (netlists, measurement scripts) without bloating
+the GDS with `columns * rows` extra SREFs.
+
+```python
+# 8x8 photodiode array: one AREF in the GDS, per-copy metadata in Python.
+pds = pd_cell.array(8, 8, 50.0, 50.0)
+top.add_ref(pds)
+
+netlist = []
+for copy in pds.copies():
+    netlist.append({
+        "name": f"PD_{copy.col}_{copy.row}",
+        "anode":   copy.port("A").position,
+        "cathode": copy.port("K").position,
+    })
+```
+
+## Attributes
+
+<PyAttribute name={"col"} type={"int"}>
+
+Grid column of this copy (0-indexed).
+
+</PyAttribute>
+
+<PyAttribute name={"row"} type={"int"}>
+
+Grid row of this copy (0-indexed).
+
+</PyAttribute>
+
+<PyAttribute name={"transform"} type={"Transform"}>
+
+World-space transform of this copy. The outer transform of the parent
+`Instance` composed with the local copy offset. Applying it to the
+parent cell's local coordinates gives world-space coordinates for
+*this* copy specifically.
+
+</PyAttribute>
+
+<PyAttribute name={"position"} type={"Point"}>
+
+World-space position of the copy's anchor (its local origin).
+
+Equivalent to `copy.transform.apply(Point.origin())`.
+
+</PyAttribute>
+
+<PyAttribute name={"cell"} type={"Cell"}>
+
+The underlying cell definition (shared with the parent `Instance`).
+
+</PyAttribute>
+
+<PyAttribute name={"cell_name"} type={"str"}>
+
+Name of the referenced cell.
+
+</PyAttribute>
+
+## Methods
+
+<PyFunction name={"port"} type={"(name) -> Port"}>
+
+Get the transformed port of this specific copy.
+
+Both position and direction are transformed into world space.
+Equivalent to `parent.port(name, col=self.col, row=self.row)`.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+# Ring bank with per-ring labels.
+bank = ring_cell.array(8, 1, 30.0, 0.0)
+top.add_ref(bank)
+for copy in bank.copies():
+    top.add_text(
+        f"R{copy.col}",
+        copy.port("in").position,
+        layer=Layer(10, 0),
+    )
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"name"} type={"str"}>
+
+Name of the port to retrieve.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Port"}>
+
+The port with position and direction transformed into world space.
+
+</PyFunctionReturn>
+
+</PyFunction>

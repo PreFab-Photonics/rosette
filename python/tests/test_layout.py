@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from rosette import (
+    ArrayCopy,
     BBox,
     Cell,
     CellRef,
@@ -1184,3 +1185,193 @@ class TestSkewedArefs:
             CellRef("unit").array_vectors(100_000, 1, Vector2(1, 0), Vector2(0, 1))
         with pytest.raises(ValueError):
             unit.at(0, 0).array_vectors(0, 1, Vector2(1, 0), Vector2(0, 1))
+
+
+class TestArrayCopies:
+    """Tests for Instance.copies(), iteration, and per-copy port access (ROS-510).
+
+    Arrayed instances store a single GDS AREF. These APIs let callers
+    enumerate the individual copies and query their transformed ports
+    *without* dropping the AREF or allocating ``columns * rows``
+    extra SREFs.
+    """
+
+    def _unit_cell(self, with_port: bool = True) -> Cell:
+        c = Cell("unit")
+        c.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+        if with_port:
+            # Port anchored at local (0, 2.5) facing -X.
+            c.add_port(Port("in", Point(0, 2.5), Vector2(-1, 0), 0.5))
+        return c
+
+    def test_array_shape_non_arrayed(self):
+        """array_shape is (1, 1) on a plain instance."""
+        inst = self._unit_cell(False).at(10, 20)
+        assert inst.array_shape == (1, 1)
+        assert len(inst) == 1
+
+    def test_array_shape_arrayed(self):
+        """array_shape reports (columns, rows)."""
+        inst = self._unit_cell(False).at(0, 0).array(4, 3, 15.0, 25.0)
+        assert inst.array_shape == (4, 3)
+        assert len(inst) == 12
+
+    def test_copies_length_matches_grid(self):
+        """list(inst.copies()) has length columns * rows."""
+        inst = self._unit_cell(False).at(0, 0).array(4, 3, 15.0, 25.0)
+        assert len(list(inst.copies())) == 12
+
+    def test_iter_equivalent_to_copies(self):
+        """for copy in inst works the same as for copy in inst.copies()."""
+        inst = self._unit_cell(False).at(0, 0).array(3, 2, 10.0, 20.0)
+        via_iter = [(c.col, c.row) for c in inst]
+        via_copies = [(c.col, c.row) for c in inst.copies()]
+        assert via_iter == via_copies
+
+    def test_copies_non_arrayed_yields_single(self):
+        """A non-arrayed instance yields exactly one copy at (0, 0)."""
+        inst = self._unit_cell(False).at(100, 50)
+        out = list(inst.copies())
+        assert len(out) == 1
+        assert out[0].col == 0 and out[0].row == 0
+        assert out[0].position.x == 100.0
+        assert out[0].position.y == 50.0
+
+    def test_copies_yields_array_copy_not_instance(self):
+        """Iteration yields ArrayCopy, not Instance (avoids accidental add_ref)."""
+        inst = self._unit_cell(False).at(0, 0).array(2, 2, 10.0, 10.0)
+        for copy in inst.copies():
+            assert isinstance(copy, ArrayCopy)
+            assert not isinstance(copy, Instance)
+
+    def test_copies_column_major_order(self):
+        """Copies are yielded in column-major order: col varies fastest."""
+        inst = self._unit_cell(False).at(0, 0).array(3, 2, 10.0, 20.0)
+        order = [(c.col, c.row) for c in inst]
+        assert order == [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]
+
+    def test_copies_positions_rectangular(self):
+        """Per-copy positions follow the rectangular lattice."""
+        inst = self._unit_cell(False).at(0, 0).array(3, 2, 10.0, 20.0)
+        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst}
+        assert positions[(0, 0)] == (0.0, 0.0)
+        assert positions[(2, 0)] == (20.0, 0.0)
+        assert positions[(0, 1)] == (0.0, 20.0)
+        assert positions[(2, 1)] == (20.0, 20.0)
+
+    def test_copies_positions_with_translation(self):
+        """Outer translation shifts every copy uniformly."""
+        inst = self._unit_cell(False).at(100, 50).array(2, 2, 10.0, 10.0)
+        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst}
+        assert positions[(0, 0)] == (100.0, 50.0)
+        assert positions[(1, 0)] == (110.0, 50.0)
+        assert positions[(0, 1)] == (100.0, 60.0)
+        assert positions[(1, 1)] == (110.0, 60.0)
+
+    def test_copies_positions_with_rotation(self):
+        """Outer rotation rotates the whole lattice around the origin.
+
+        Local layout is copies at (0,0), (10,0), (20,0). Rotating the
+        whole array 90° CCW sends (x, y) to (-y, x), so copies end up
+        at (0,0), (0,10), (0,20).
+        """
+        inst = self._unit_cell(False).at(0, 0).array(3, 1, 10.0, 0.0).rotate(90)
+        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst}
+        tol = 1e-9
+        assert abs(positions[(0, 0)][0] - 0.0) < tol
+        assert abs(positions[(0, 0)][1] - 0.0) < tol
+        assert abs(positions[(1, 0)][0] - 0.0) < tol
+        assert abs(positions[(1, 0)][1] - 10.0) < tol
+        assert abs(positions[(2, 0)][0] - 0.0) < tol
+        assert abs(positions[(2, 0)][1] - 20.0) < tol
+
+    def test_copies_hex_lattice(self):
+        """copies() walks a non-orthogonal lattice via array_vectors."""
+        import math
+
+        pitch = 10.0
+        inst = (
+            self._unit_cell(False)
+            .at(0, 0)
+            .array_vectors(
+                2,
+                2,
+                Vector2(pitch, 0.0),
+                Vector2(pitch / 2.0, pitch * math.sqrt(3.0) / 2.0),
+            )
+        )
+        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst}
+        tol = 1e-9
+        assert abs(positions[(0, 1)][0] - pitch / 2.0) < tol
+        assert abs(positions[(0, 1)][1] - pitch * math.sqrt(3.0) / 2.0) < tol
+        # Second row, second column: col_vec + row_vec.
+        assert abs(positions[(1, 1)][0] - (pitch + pitch / 2.0)) < tol
+        assert abs(positions[(1, 1)][1] - pitch * math.sqrt(3.0) / 2.0) < tol
+
+    def test_copy_port_matches_instance_port(self):
+        """copy.port(name) == inst.port(name, col, row)."""
+        inst = self._unit_cell().at(5, 5).array(3, 2, 10.0, 20.0)
+        for copy in inst.copies():
+            via_copy = copy.port("in")
+            via_inst = inst.port("in", col=copy.col, row=copy.row)
+            assert via_copy.position.x == via_inst.position.x
+            assert via_copy.position.y == via_inst.position.y
+            assert via_copy.direction.x == via_inst.direction.x
+            assert via_copy.direction.y == via_inst.direction.y
+
+    def test_copy_port_transforms_direction(self):
+        """Port direction is rotated by the outer transform, untouched by copy offset."""
+        inst = self._unit_cell().at(0, 0).array(3, 1, 10.0, 0.0).rotate(90)
+        # Local direction (-1, 0) rotated 90° CCW -> (0, -1).
+        for copy in inst:
+            p = copy.port("in")
+            assert abs(p.direction.x - 0.0) < 1e-9
+            assert abs(p.direction.y - (-1.0)) < 1e-9
+
+    def test_instance_port_default_matches_legacy(self):
+        """inst.port(name) with no col/row matches the pre-ROS-510 behaviour."""
+        c = self._unit_cell()
+        # Non-arrayed: should be identical to the single-copy transform.
+        inst = c.at(100, 50).rotate(30)
+        p_default = inst.port("in")
+        p_iter = next(iter(inst)).port("in")
+        assert p_default.position.x == p_iter.position.x
+        assert p_default.position.y == p_iter.position.y
+
+    def test_instance_port_arrayed_default_is_anchor(self):
+        """inst.port(name) on an arrayed instance returns the (0, 0) copy."""
+        inst = self._unit_cell().at(100, 50).array(3, 2, 10.0, 20.0)
+        p_default = inst.port("in")
+        p_anchor = inst.port("in", col=0, row=0)
+        assert p_default.position.x == p_anchor.position.x
+        assert p_default.position.y == p_anchor.position.y
+
+    def test_port_col_row_out_of_range_raises(self):
+        """Out-of-range col/row raises IndexError."""
+        inst = self._unit_cell().at(0, 0).array(3, 2, 10.0, 20.0)
+        with pytest.raises(IndexError):
+            inst.port("in", col=3, row=0)
+        with pytest.raises(IndexError):
+            inst.port("in", col=0, row=2)
+        with pytest.raises(IndexError):
+            inst.port("in", col=-1, row=0)
+
+    def test_copies_does_not_mutate_parent(self):
+        """Iterating doesn't change the parent's repetition or ref count."""
+        inst = self._unit_cell(False).at(0, 0).array(3, 2, 10.0, 20.0)
+        top = Cell("top")
+        top.add_ref(inst)
+        assert top.ref_count() == 1
+        # Walk all copies.
+        list(inst.copies())
+        # AREF still a single ref.
+        assert top.ref_count() == 1
+        assert inst.array_shape == (3, 2)
+
+    def test_copy_transform_round_trip_with_point(self):
+        """copy.transform applied to local origin gives copy.position."""
+        inst = self._unit_cell(False).at(10, 20).rotate(45).array(2, 2, 5.0, 8.0)
+        for copy in inst:
+            via_transform = copy.transform.apply(Point.origin())
+            assert abs(via_transform.x - copy.position.x) < 1e-9
+            assert abs(via_transform.y - copy.position.y) < 1e-9
