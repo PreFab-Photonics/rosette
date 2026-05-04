@@ -12,6 +12,7 @@
     "Cell",
     "CellRef",
     "Instance",
+    "ArrayCopy",
     "Route",
     "Library",
     "Layer",

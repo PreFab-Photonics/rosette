@@ -312,7 +312,7 @@ class Instance:
             ValueError: If columns or rows is outside the range [1, 32767].
         """
         ...
-    def port(self, name: str) -> Port:
+    def port(self, name: str, col: int = 0, row: int = 0) -> Port:
         """Get a transformed port from this instance.
 
         Unlike CellRef.port(), this doesn't require passing the Cell again
@@ -322,14 +322,24 @@ class Instance:
         rotation, mirroring). For example, a port facing +X will face -X
         after a 180-degree rotation.
 
+        For arrayed instances (see :meth:`array` / :meth:`array_vectors`),
+        pass ``col`` and ``row`` to address a specific copy in the
+        lattice. The default ``(0, 0)`` returns the port of the anchor
+        copy, matching the behaviour of non-arrayed instances.
+
         Args:
             name: Name of the port to retrieve
+            col: Grid column of the copy to query (0-indexed). Only
+                meaningful on arrayed instances.
+            row: Grid row of the copy to query (0-indexed). Only
+                meaningful on arrayed instances.
 
         Returns:
             The port with position and direction transformed
 
         Raises:
             KeyError: If the port is not found in the cell
+            IndexError: If ``col`` or ``row`` is outside the array bounds
 
         Example:
             gc = gc_cell.at(100, 50)
@@ -338,6 +348,100 @@ class Instance:
             # 180-degree rotation flips both position and direction:
             flipped = gc_cell.at(0, 0).rotate(180).at(50, 0)
             p = flipped.port("opt")   # direction is now (-1, 0)
+
+            # Arrayed: address a specific copy.
+            bank = ring_cell.array(8, 1, 30.0, 0.0)
+            p = bank.port("in", col=3)
+        """
+        ...
+    @property
+    def array_shape(self) -> tuple[int, int]:
+        """Grid dimensions ``(columns, rows)`` of this instance.
+
+        Returns ``(1, 1)`` for non-arrayed instances.
+        """
+        ...
+    def copies(self) -> Iterator[ArrayCopy]:
+        """Iterate over the individual copies in this instance's array.
+
+        Yields one :class:`ArrayCopy` per grid position, in
+        column-major order (``col`` varies fastest). Each yielded
+        object exposes ``col``, ``row``, a world-space ``transform``,
+        and a :meth:`ArrayCopy.port` convenience for per-copy port
+        access — without mutating this instance or adding extra GDS
+        references.
+
+        For a non-arrayed instance this yields exactly one copy at
+        ``(col=0, row=0)``.
+        """
+        ...
+    def __iter__(self) -> Iterator[ArrayCopy]:
+        """Alias for :meth:`copies`."""
+        ...
+    def __len__(self) -> int:
+        """Number of copies (``columns * rows``; 1 for non-arrayed)."""
+        ...
+    def __repr__(self) -> str: ...
+
+class ArrayCopy:
+    """A single copy in an arrayed :class:`Instance`.
+
+    Produced by :meth:`Instance.copies` (and iteration over an
+    ``Instance``). Exposes the copy's grid position, its world-space
+    transform, and a :meth:`port` helper for retrieving the
+    transformed port of this specific copy.
+
+    ``ArrayCopy`` is a lightweight view over the parent instance — it
+    does **not** add geometry or a GDS reference when constructed.
+    """
+
+    col: int
+    """Grid column of this copy (0-indexed)."""
+
+    row: int
+    """Grid row of this copy (0-indexed)."""
+
+    def __init__(self, instance: Instance, col: int, row: int) -> None:
+        """Create an ArrayCopy view.
+
+        Typically not called directly — use :meth:`Instance.copies`
+        or iterate over the parent instance instead.
+        """
+        ...
+
+    @property
+    def transform(self) -> Transform:
+        """World-space transform of this copy.
+
+        The outer transform of the parent Instance composed with the
+        local copy offset.
+        """
+        ...
+    @property
+    def position(self) -> Point:
+        """World-space position of the copy's anchor (local origin)."""
+        ...
+    @property
+    def cell(self) -> Cell:
+        """The underlying cell definition (shared with the parent Instance)."""
+        ...
+    @property
+    def cell_name(self) -> str:
+        """Name of the referenced cell."""
+        ...
+    def port(self, name: str) -> Port:
+        """Get the transformed port of this specific copy.
+
+        Equivalent to ``parent.port(name, col=self.col, row=self.row)``.
+
+        Args:
+            name: Name of the port to retrieve.
+
+        Returns:
+            The port with position and direction transformed.
+
+        Raises:
+            KeyError: If the port is not found in the cell.
         """
         ...
     def __repr__(self) -> str: ...
