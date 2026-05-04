@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useLayerStore,
   LAYER_PALETTE,
@@ -643,6 +643,7 @@ function LayerRow({
   isFocused,
   isExpanded,
   isDark,
+  inUse,
   onSelect,
   onToggleExpand,
   startEditing,
@@ -653,6 +654,8 @@ function LayerRow({
   isFocused: boolean;
   isExpanded: boolean;
   isDark: boolean;
+  /** Whether any geometry in the library sits on this layer. */
+  inUse: boolean;
   onSelect: () => void;
   onToggleExpand: () => void;
   startEditing: boolean;
@@ -768,6 +771,7 @@ function LayerRow({
         onContextMenu={handleContextMenu}
         onMouseDown={(e) => e.preventDefault()}
         tabIndex={-1}
+        title={!inUse ? "No shapes use this layer" : undefined}
       >
         {/* Color swatch - click to open editor */}
         <span
@@ -805,7 +809,7 @@ function LayerRow({
             <span
               className={cn(
                 "absolute inset-0 truncate text-sm leading-5 select-none",
-                !layer.visible && "opacity-40",
+                !layer.visible ? "opacity-40" : !inUse && "opacity-50",
               )}
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -821,7 +825,7 @@ function LayerRow({
         <div
           className={cn(
             "flex flex-shrink-0 items-center self-center font-mono text-xs",
-            !layer.visible && "opacity-40",
+            !layer.visible ? "opacity-40" : !inUse && "opacity-50",
           )}
         >
           <span className="select-none">{layer.layerNumber}</span>
@@ -871,6 +875,22 @@ export function LayersPanel() {
 
   const layers = getAllLayers();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Derive the set of layers that actually carry geometry somewhere in the
+  // library. Recomputed whenever the library is synced to the renderer.
+  const library = useWasmContextStore((s) => s.library);
+  const syncGeneration = useWasmContextStore((s) => s.syncGeneration);
+  const usedLayerKeys = useMemo(() => {
+    // Re-run whenever the library is synced to the renderer.
+    void syncGeneration;
+    const set = new Set<string>();
+    if (!library) return set;
+    const flat = library.get_used_layers();
+    for (let i = 0; i + 1 < flat.length; i += 2) {
+      set.add(`${flat[i]}/${flat[i + 1]}`);
+    }
+    return set;
+  }, [library, syncGeneration]);
 
   const handleToggleExpand = useCallback(
     (layerId: number) => {
@@ -1019,6 +1039,7 @@ export function LayersPanel() {
             isFocused={isFocused && layer.id === focusedLayerId}
             isExpanded={expandedLayerId === layer.id}
             isDark={isDark}
+            inUse={usedLayerKeys.has(`${layer.layerNumber}/${layer.datatype}`)}
             onSelect={() => setActiveLayer(layer.id)}
             onToggleExpand={() => handleToggleExpand(layer.id)}
             startEditing={editingLayerId === layer.id}
