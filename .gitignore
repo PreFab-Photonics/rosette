@@ -31,6 +31,8 @@ output/*.svg
 
 # Editor / tools
 .opencode/
+opencode.json
+opencode.jsonc
 
 # Project (user .rosette/ dirs, but not template ones)
 .rosette/
