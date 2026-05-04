@@ -692,6 +692,14 @@ impl Route {
     /// midpoint, with curvature varying linearly from 0 at the entry/exit
     /// tangent points up to a peak of `1 / corner.bend_radius` at the midpoint.
     ///
+    /// Note: this is a per-corner, *isotropic* clothoid fillet. It is **not**
+    /// the same shape as the whole-S-bend clothoid used by the Python
+    /// `rosette.components.sbend(bend_type="euler")` helper, which
+    /// anisotropically rescales the clothoid (different `scale_x`, `scale_y`)
+    /// so the curve passes through a prescribed `(length, offset)` pair. Both
+    /// are intentionally kept — see `python/rosette/components/sbend.py` and
+    /// `euler_sbend_point` in `_curves.py` for the comparison.
+    ///
     /// Parameterisation (using the Fresnel convention
     /// `C(t) = integral_0^t cos(pi u^2 / 2) du`, likewise for `S`):
     ///     x(t) = a * C(t),    y(t) = a * S(t),    arc length s = a * t,

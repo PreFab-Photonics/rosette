@@ -171,6 +171,15 @@ def euler_sbend_point(t: float, length: float, offset: float) -> tuple[float, fl
     The curve is constructed from two Euler spirals meeting at the midpoint,
     scaled and positioned to achieve the desired length and offset.
 
+    Note: this builds a whole-S-bend clothoid with **anisotropic**
+    ``(scale_x, scale_y)`` rescaling so it hits ``(length, offset)``
+    exactly. It is **not** the same shape as the per-corner isotropic
+    clothoid fillet used by ``Route(bend_profile="euler")`` — see
+    ``generate_euler_bend_polygon`` in ``rosette-core/src/component/route.rs``.
+    Both are intentionally kept: this one lets the caller fix both
+    endpoints, the Route one preserves the true constant-rate-of-curvature
+    clothoid shape.
+
     Curvature profile and the ``s_max = 1.0`` choice
     -------------------------------------------------
     A clothoid is parameterised by arc length ``s``: its tangent angle is

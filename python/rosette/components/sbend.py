@@ -34,6 +34,30 @@ loss and radiation:
 * ``"euler"`` -- Two clothoid (Cornu) segments. Curvature varies linearly
   with arc length, peaking at the midpoint and zero at the ports. Lowest
   optical loss of the three; preferred for tight or lossy processes.
+
+Relationship to ``Route(bend_profile="euler")``
+-----------------------------------------------
+This is **not the same clothoid** as the one inserted by
+:class:`rosette.Route` when ``bend_profile="euler"``. The two
+implementations describe genuinely different shapes:
+
+* ``sbend(bend_type="euler")`` *anisotropically* rescales a clothoid
+  (different ``scale_x`` and ``scale_y``) so that the curve passes
+  exactly through ``(length, offset)``. This lets you fix both endpoints
+  of an S-bend independently, which is convenient for photonic S-bends
+  with prescribed port positions — but the rescaled curve is no longer
+  a true constant-rate-of-curvature-change clothoid.
+* ``Route(bend_profile="euler")`` inserts an *isotropic* clothoid
+  fillet at each corner, with the straight segments between corners
+  unchanged. The fillet is a pure clothoid (linear ``kappa`` vs. arc
+  length) parameterised by ``bend_radius``, but its footprint is fixed
+  by the turn angle and radius — you cannot make it pass through a
+  prescribed ``(length, offset)`` pair.
+
+Use ``sbend`` when the endpoint geometry is prescribed and you are
+willing to accept anisotropic scaling; use ``Route`` when you want the
+true clothoid shape and can let the footprint fall out of the turn
+geometry.
 """
 
 import math
@@ -96,7 +120,11 @@ def sbend(
               at the junction.
             - ``"euler"`` -- Two clothoid (Cornu-spiral) segments. Curvature
               varies linearly with arc length, giving the lowest optical
-              loss of the three options.
+              loss of the three options. Note: this is an *anisotropically*
+              rescaled clothoid (so the curve hits ``(length, offset)``
+              exactly) and is **not** the same shape as the isotropic
+              clothoid fillet inserted by ``Route(bend_profile="euler")``.
+              See this module's docstring for the full comparison.
         num_segments: Number of polygon segments. ``None`` (default)
             auto-selects based on the aspect ratio ``|offset| / length``
             (roughly ``32 + 32 * |offset|/length``). Increase for smoother

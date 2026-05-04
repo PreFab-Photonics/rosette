@@ -1039,6 +1039,13 @@ class Route:
                 arc length — lower-loss on high-index-contrast platforms at
                 the cost of a longer fillet (roughly 2x the arc length of a
                 circular bend with the same peak curvature).
+
+                Note: this is an *isotropic* per-corner clothoid fillet and
+                is **not** the same shape as the whole-S-bend clothoid used
+                by :func:`rosette.components.sbend` with ``bend_type="euler"``.
+                That variant anisotropically rescales the clothoid to hit a
+                prescribed ``(length, offset)`` — see the ``sbend`` module
+                docstring for the full comparison.
         """
         self._inner = _Route(
             layer,
@@ -1155,6 +1162,8 @@ class Route:
             bend_radius: Default bend radius
             bend_profile: Corner bend shape — ``"circular"`` (default) or
                 ``"euler"`` (clothoid corner, linearly-varying curvature).
+                See :class:`Route` for notes on how this differs from
+                :func:`rosette.components.sbend` with ``bend_type="euler"``.
 
         Returns:
             A Route that can be converted to a Cell with to_cell()
