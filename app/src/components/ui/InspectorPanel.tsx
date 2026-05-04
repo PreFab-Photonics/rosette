@@ -1054,15 +1054,16 @@ function useSelectedElementData(): {
         const rotationDeg = (rotationRad * 180) / Math.PI;
         const scale = Math.sqrt(a * a + c * c);
 
-        // Read array repetition parameters
-        const arrayRaw = library.get_cell_ref_array(firstId);
+        // Read array repetition parameters (lattice vectors).
+        // Payload: [columns, rows, col_x, col_y, row_x, row_y].
+        const arrayRaw = library.get_cell_ref_array_vectors(firstId);
         let arrayParams: ArrayParams | null = null;
-        if (arrayRaw && arrayRaw.length === 4) {
+        if (arrayRaw && arrayRaw.length === 6) {
           arrayParams = {
             columns: arrayRaw[0],
             rows: arrayRaw[1],
-            colSpacing: arrayRaw[2],
-            rowSpacing: arrayRaw[3],
+            colVector: { x: arrayRaw[2], y: arrayRaw[3] },
+            rowVector: { x: arrayRaw[4], y: arrayRaw[5] },
           };
         }
 
@@ -2099,14 +2100,19 @@ export function InspectorPanel() {
     const cellPathLengthDisplay =
       cellPathLength != null ? formatCoordinate(cellPathLength, unitInfo) : null;
 
-    // Array params (default to 1x1 with 0 spacing)
+    // Array params (default to 1x1 with zero lattice vectors).
+    // Lattice vectors are in the AREF's local (pre-transform) world-unit frame.
     const arrayCols = inst.array?.columns ?? 1;
     const arrayRows = inst.array?.rows ?? 1;
-    const arrayColSpacing = inst.array?.colSpacing ?? 0;
-    const arrayRowSpacing = inst.array?.rowSpacing ?? 0;
+    const colVec = inst.array?.colVector ?? { x: 0, y: 0 };
+    const rowVec = inst.array?.rowVector ?? { x: 0, y: 0 };
     const isArrayed = arrayCols > 1 || arrayRows > 1;
-    const colSpacingDisplay = formatCoordinate(arrayColSpacing / GRID_SIZE, unitInfo);
-    const rowSpacingDisplay = formatCoordinate(arrayRowSpacing / GRID_SIZE, unitInfo);
+    // Vector component displays. Y is negated for display (screen Y-up →
+    // world Y-down), matching polygon vertex / position fields.
+    const colXDisplay = formatCoordinate(colVec.x / GRID_SIZE, unitInfo);
+    const colYDisplay = formatCoordinate(-colVec.y / GRID_SIZE, unitInfo);
+    const rowXDisplay = formatCoordinate(rowVec.x / GRID_SIZE, unitInfo);
+    const rowYDisplay = formatCoordinate(-rowVec.y / GRID_SIZE, unitInfo);
 
     // Detect whether the original transform is mirrored (negative determinant).
     // A mirrored CellRef has det(linear) = a*d - b*c < 0.
@@ -2173,15 +2179,15 @@ export function InspectorPanel() {
     };
 
     const handleInstanceArrayChange = (
-      field: "columns" | "rows" | "colSpacing" | "rowSpacing",
+      field: "columns" | "rows" | "colX" | "colY" | "rowX" | "rowY",
       displayValue: number,
     ) => {
       if (!library || !renderer) return;
       const oldParams = inst.array;
       let cols = arrayCols;
       let rows = arrayRows;
-      let cSpacing = arrayColSpacing;
-      let rSpacing = arrayRowSpacing;
+      let newColVec = { ...colVec };
+      let newRowVec = { ...rowVec };
 
       switch (field) {
         case "columns":
@@ -2190,19 +2196,34 @@ export function InspectorPanel() {
         case "rows":
           rows = Math.max(1, Math.round(displayValue));
           break;
-        case "colSpacing":
-          cSpacing = displayValue * unitInfo.scale * GRID_SIZE;
+        case "colX": {
+          const world = displayValue * unitInfo.scale * GRID_SIZE;
+          newColVec = { x: world, y: newColVec.y };
           break;
-        case "rowSpacing":
-          rSpacing = displayValue * unitInfo.scale * GRID_SIZE;
+        }
+        case "colY": {
+          // Display Y is screen-up; world Y is screen-down, so negate.
+          const world = -displayValue * unitInfo.scale * GRID_SIZE;
+          newColVec = { x: newColVec.x, y: world };
           break;
+        }
+        case "rowX": {
+          const world = displayValue * unitInfo.scale * GRID_SIZE;
+          newRowVec = { x: world, y: newRowVec.y };
+          break;
+        }
+        case "rowY": {
+          const world = -displayValue * unitInfo.scale * GRID_SIZE;
+          newRowVec = { x: newRowVec.x, y: world };
+          break;
+        }
       }
 
       const newParams: ArrayParams = {
         columns: cols,
         rows: rows,
-        colSpacing: cSpacing,
-        rowSpacing: rSpacing,
+        colVector: newColVec,
+        rowVector: newRowVec,
       };
       const cmd = new SetInstanceArrayCommand(inst.refId, oldParams, newParams);
       useHistoryStore.getState().execute(cmd, { library, renderer });
@@ -2280,19 +2301,35 @@ export function InspectorPanel() {
         />
         {isArrayed && (
           <>
+            {/* Full lattice vectors. A rectangular AREF has Col ΔY = 0 and
+                Row ΔX = 0; hex / oblique lattices use the off-axis components. */}
             <NumberField
-              label="Col pitch"
-              value={colSpacingDisplay}
+              label="Col ΔX"
+              value={colXDisplay}
               unit={unitInfo.unit}
               isDark={isDark}
-              onChange={(v) => handleInstanceArrayChange("colSpacing", v)}
+              onChange={(v) => handleInstanceArrayChange("colX", v)}
             />
             <NumberField
-              label="Row pitch"
-              value={rowSpacingDisplay}
+              label="Col ΔY"
+              value={colYDisplay}
               unit={unitInfo.unit}
               isDark={isDark}
-              onChange={(v) => handleInstanceArrayChange("rowSpacing", v)}
+              onChange={(v) => handleInstanceArrayChange("colY", v)}
+            />
+            <NumberField
+              label="Row ΔX"
+              value={rowXDisplay}
+              unit={unitInfo.unit}
+              isDark={isDark}
+              onChange={(v) => handleInstanceArrayChange("rowX", v)}
+            />
+            <NumberField
+              label="Row ΔY"
+              value={rowYDisplay}
+              unit={unitInfo.unit}
+              isDark={isDark}
+              onChange={(v) => handleInstanceArrayChange("rowY", v)}
             />
           </>
         )}

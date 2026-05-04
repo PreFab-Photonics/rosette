@@ -157,12 +157,12 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
 
       const refInfo = library.get_cell_ref_info(id);
       if (refInfo) {
-        const arrayParams = library.get_cell_ref_array(id);
+        const arrayVectors = library.get_cell_ref_array_vectors(id);
         snapshots.push({
           type: "cell-ref",
           cellName: refInfo.cell_name,
           transform: new Float64Array(refInfo.transform),
-          repetition: arrayParams ? new Float64Array(arrayParams) : null,
+          repetition: arrayVectors ? new Float64Array(arrayVectors) : null,
         });
         refInfo.free();
       }
@@ -172,12 +172,12 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
     // Regular UUID - check if it's actually a CellRef with a real UUID
     const refInfo = library.get_cell_ref_info(id);
     if (refInfo) {
-      const arrayParams = library.get_cell_ref_array(id);
+      const arrayVectors = library.get_cell_ref_array_vectors(id);
       snapshots.push({
         type: "cell-ref",
         cellName: refInfo.cell_name,
         transform: new Float64Array(refInfo.transform),
-        repetition: arrayParams ? new Float64Array(arrayParams) : null,
+        repetition: arrayVectors ? new Float64Array(arrayVectors) : null,
       });
       refInfo.free();
       continue;
@@ -251,14 +251,17 @@ function restoreSnapshots(library: WasmLibrary, snapshots: ClipboardSnapshot[]):
     if (snapshot.type === "cell-ref") {
       const id = library.add_cell_ref_with_transform(snapshot.cellName, snapshot.transform);
       if (id) {
-        // Restore AREF repetition if the original was an array reference
-        if (snapshot.repetition) {
-          library.set_cell_ref_array(
+        // Restore AREF repetition if the original was an array reference.
+        // The 6-element vector payload covers rectangular and skewed lattices.
+        if (snapshot.repetition && snapshot.repetition.length === 6) {
+          library.set_cell_ref_array_vectors(
             id,
             snapshot.repetition[0], // columns
             snapshot.repetition[1], // rows
-            snapshot.repetition[2], // col_spacing
-            snapshot.repetition[3], // row_spacing
+            snapshot.repetition[2], // col_x
+            snapshot.repetition[3], // col_y
+            snapshot.repetition[4], // row_x
+            snapshot.repetition[5], // row_y
           );
         }
         newIds.push(id);
@@ -660,10 +663,11 @@ function offsetSnapshot(snapshot: ClipboardSnapshot, dx: number, dy: number): Cl
  * Command to create an array of duplicated elements.
  *
  * Duplicates the given elements in a grid pattern with the specified
- * number of columns, rows, and pitch (center-to-center distance
- * between adjacent copies). The original elements remain at position
- * (0,0) in the grid; copies are created for all other grid positions.
- * Pitch values are in world coordinates.
+ * number of columns, rows, and lattice vectors (column and row
+ * displacement vectors, in world coordinates). The original elements
+ * remain at grid position (0, 0); copies are created for all other grid
+ * positions. Supports skewed/hex lattices via non-orthogonal vectors —
+ * a rectangular array has `colVector.y === 0` and `rowVector.x === 0`.
  */
 export class CreateArrayCommand implements Command {
   readonly type = "create-array";
@@ -682,10 +686,10 @@ export class CreateArrayCommand implements Command {
     private readonly elementIds: string[],
     private readonly columns: number,
     private readonly rows: number,
-    /** Column pitch in world units (center-to-center). */
-    private readonly colSpacing: number,
-    /** Row pitch in world units (center-to-center). */
-    private readonly rowSpacing: number,
+    /** Column displacement vector in world units (step from column k to k+1). */
+    private readonly colVector: { x: number; y: number },
+    /** Row displacement vector in world units (step from row k to k+1). */
+    private readonly rowVector: { x: number; y: number },
   ) {
     const copies = columns * rows - 1;
     this.description = copies === 1 ? "Create array (1 copy)" : `Create array (${copies} copies)`;
@@ -705,8 +709,8 @@ export class CreateArrayCommand implements Command {
         // Skip the origin position (that's where the original elements already are)
         if (row === 0 && col === 0) continue;
 
-        const dx = col * this.colSpacing;
-        const dy = row * this.rowSpacing;
+        const dx = col * this.colVector.x + row * this.rowVector.x;
+        const dy = col * this.colVector.y + row * this.rowVector.y;
 
         const offsetSnaps = this.snapshots.map((s) => offsetSnapshot(s, dx, dy));
         const ids = restoreSnapshots(ctx.library, offsetSnaps);
@@ -1860,18 +1864,30 @@ export class SetInstanceTransformCommand implements Command {
   }
 }
 
-/** Array repetition parameters for an instance. */
+/**
+ * Array repetition parameters for an instance.
+ *
+ * The lattice is described by two displacement vectors (columns, rows) in the
+ * CellRef's local (pre-transform) coordinate space. A rectangular (axis-aligned)
+ * AREF has `colVector.y === 0` and `rowVector.x === 0`; anything else is a
+ * skewed/hex lattice.
+ */
 export interface ArrayParams {
   columns: number;
   rows: number;
-  colSpacing: number;
-  rowSpacing: number;
+  /** Column displacement vector (step from one column to the next). */
+  colVector: { x: number; y: number };
+  /** Row displacement vector (step from one row to the next). */
+  rowVector: { x: number; y: number };
 }
 
 /**
  * Command to set the array repetition on a CellRef instance.
  *
- * The `refId` must be a synthetic ref UUID (e.g. "ref:3:0").
+ * The `refId` must be a synthetic ref UUID (e.g. "ref:3:0"). Always writes
+ * through `set_cell_ref_array_vectors` so skewed/hex lattices round-trip
+ * faithfully — the scalar shim collapses off-axis components and is only
+ * kept for display in status-bar-style summaries.
  */
 export class SetInstanceArrayCommand implements Command {
   readonly type = "set-instance-array";
@@ -1895,16 +1911,18 @@ export class SetInstanceArrayCommand implements Command {
 
   private applyParams(ctx: CommandContext, params: ArrayParams | null): void {
     if (params && (params.columns > 1 || params.rows > 1)) {
-      ctx.library.set_cell_ref_array(
+      ctx.library.set_cell_ref_array_vectors(
         this.refId,
         params.columns,
         params.rows,
-        params.colSpacing,
-        params.rowSpacing,
+        params.colVector.x,
+        params.colVector.y,
+        params.rowVector.x,
+        params.rowVector.y,
       );
     } else {
       // Revert to single instance
-      ctx.library.set_cell_ref_array(this.refId, 1, 1, 0, 0);
+      ctx.library.set_cell_ref_array_vectors(this.refId, 1, 1, 0, 0, 0, 0);
     }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
@@ -1918,10 +1936,10 @@ interface AreFlattenSnapshot {
   transform: Float64Array;
   columns: number;
   rows: number;
-  /** Column pitch in the AREF's local (pre-transform) frame. */
-  colSpacing: number;
-  /** Row pitch in the AREF's local (pre-transform) frame. */
-  rowSpacing: number;
+  /** Column displacement vector in the AREF's local (pre-transform) frame. */
+  colVector: { x: number; y: number };
+  /** Row displacement vector in the AREF's local (pre-transform) frame. */
+  rowVector: { x: number; y: number };
 }
 
 /**
@@ -1933,10 +1951,11 @@ interface AreFlattenSnapshot {
  *
  * Transform composition matches the renderer/flattener in
  * `rosette-core::flatten` and `rosette-core::cell`: each copy's transform is
- * `original.then(Transform::translate(col * col_spacing, row * row_spacing))`,
- * i.e. the pitch is applied in the AREF's local coordinate space BEFORE the
- * CellRef transform. This preserves rotation, mirroring, and scaling of the
- * resulting lattice.
+ * `original.then(Transform::translate(col·col_vector + row·row_vector))`,
+ * i.e. the lattice displacement is applied in the AREF's local coordinate
+ * space BEFORE the CellRef transform. This preserves rotation, mirroring,
+ * and scaling of the resulting lattice and handles skewed/hex lattices
+ * correctly.
  *
  * Preconditions:
  * - All `refIds` must refer to AREFs in the active cell. The WASM
@@ -2007,18 +2026,18 @@ export class FlattenArrayCommand implements Command {
     if (this.snapshots.length === 0) {
       const keptIds: string[] = [];
       for (const id of this.liveIds) {
-        const arrayParams = ctx.library.get_cell_ref_array(id);
-        if (!arrayParams || arrayParams.length !== 4) continue;
+        const arrayVectors = ctx.library.get_cell_ref_array_vectors(id);
+        if (!arrayVectors || arrayVectors.length !== 6) continue;
         const refInfo = ctx.library.get_cell_ref_info(id);
         if (!refInfo) continue;
 
         this.snapshots.push({
           cellName: refInfo.cell_name,
           transform: new Float64Array(refInfo.transform),
-          columns: arrayParams[0],
-          rows: arrayParams[1],
-          colSpacing: arrayParams[2],
-          rowSpacing: arrayParams[3],
+          columns: arrayVectors[0],
+          rows: arrayVectors[1],
+          colVector: { x: arrayVectors[2], y: arrayVectors[3] },
+          rowVector: { x: arrayVectors[4], y: arrayVectors[5] },
         });
         keptIds.push(id);
         this.flattenedIds.add(id);
@@ -2039,8 +2058,9 @@ export class FlattenArrayCommand implements Command {
       const [a, b, c, d, tx, ty] = snap.transform;
       for (let row = 0; row < snap.rows; row++) {
         for (let col = 0; col < snap.columns; col++) {
-          const dx = col * snap.colSpacing;
-          const dy = row * snap.rowSpacing;
+          // Lattice displacement in the AREF's local frame — may be skewed.
+          const dx = col * snap.colVector.x + row * snap.rowVector.x;
+          const dy = col * snap.colVector.y + row * snap.rowVector.y;
           // original.then(translate(dx, dy)): linear part unchanged,
           // translation becomes (a*dx + b*dy + tx, c*dx + d*dy + ty).
           const copyTransform = new Float64Array([
@@ -2077,17 +2097,19 @@ export class FlattenArrayCommand implements Command {
       ctx.library.remove_elements(this.liveIds);
     }
 
-    // Recreate the original AREFs with their repetition.
+    // Recreate the original AREFs with their repetition (preserves skew).
     const restoredIds: string[] = [];
     for (const snap of this.snapshots) {
       const id = ctx.library.add_cell_ref_with_transform(snap.cellName, snap.transform);
       if (id) {
-        ctx.library.set_cell_ref_array(
+        ctx.library.set_cell_ref_array_vectors(
           id,
           snap.columns,
           snap.rows,
-          snap.colSpacing,
-          snap.rowSpacing,
+          snap.colVector.x,
+          snap.colVector.y,
+          snap.rowVector.x,
+          snap.rowVector.y,
         );
         restoredIds.push(id);
       }

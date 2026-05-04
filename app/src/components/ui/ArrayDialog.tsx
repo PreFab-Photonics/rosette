@@ -3,6 +3,7 @@ import { useArrayDialogStore } from "@/stores/array-dialog";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 import { useUIStore } from "@/stores/ui";
+import { useStatusMessageStore } from "@/stores/status-message";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { CreateArrayCommand } from "@/lib/commands";
 import { GRID_SIZE } from "@/stores/viewport";
@@ -148,15 +149,23 @@ export function ArrayDialog() {
 
   // Form state — both React state (for rendering) and refs (for synchronous
   // reads in handleConfirm, which may fire in the same event as a state update).
+  //
+  // The dialog exposes full lattice vectors (four ΔX/ΔY fields) so the user
+  // can author rectangular, hex, or oblique arrays from one UI. Rectangular
+  // arrays have Col ΔY = 0 and Row ΔX = 0, which is the default seed below.
   const [columns, _setColumns] = useState(2);
   const [rows, _setRows] = useState(1);
-  const [colSpacing, _setColSpacing] = useState(0); // in µm
-  const [rowSpacing, _setRowSpacing] = useState(0); // in µm
+  const [colX, _setColX] = useState(0); // µm (display)
+  const [colY, _setColY] = useState(0);
+  const [rowX, _setRowX] = useState(0);
+  const [rowY, _setRowY] = useState(0);
 
   const columnsRef = useRef(columns);
   const rowsRef = useRef(rows);
-  const colSpacingRef = useRef(colSpacing);
-  const rowSpacingRef = useRef(rowSpacing);
+  const colXRef = useRef(colX);
+  const colYRef = useRef(colY);
+  const rowXRef = useRef(rowX);
+  const rowYRef = useRef(rowY);
 
   const setColumns = useCallback((v: number) => {
     columnsRef.current = v;
@@ -166,18 +175,28 @@ export function ArrayDialog() {
     rowsRef.current = v;
     _setRows(v);
   }, []);
-  const setColSpacing = useCallback((v: number) => {
-    colSpacingRef.current = v;
-    _setColSpacing(v);
+  const setColX = useCallback((v: number) => {
+    colXRef.current = v;
+    _setColX(v);
   }, []);
-  const setRowSpacing = useCallback((v: number) => {
-    rowSpacingRef.current = v;
-    _setRowSpacing(v);
+  const setColY = useCallback((v: number) => {
+    colYRef.current = v;
+    _setColY(v);
+  }, []);
+  const setRowX = useCallback((v: number) => {
+    rowXRef.current = v;
+    _setRowX(v);
+  }, []);
+  const setRowY = useCallback((v: number) => {
+    rowYRef.current = v;
+    _setRowY(v);
   }, []);
 
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Compute default spacing from the bounding box of the selected elements
+  // Compute default spacing from the bounding box of the selected elements.
+  // Seeds a rectangular lattice (Col along +X, Row along +Y) sized to
+  // edge-to-edge tile the selection.
   useEffect(() => {
     if (!isOpen || !library || elementIds.length === 0) return;
 
@@ -191,14 +210,18 @@ export function ArrayDialog() {
       const heightUm = height / GRID_SIZE / UM_SCALE;
 
       // Round to 3 decimals for cleaner display
-      setColSpacing(Math.round(widthUm * 1000) / 1000);
-      setRowSpacing(Math.round(heightUm * 1000) / 1000);
+      const wRounded = Math.round(widthUm * 1000) / 1000;
+      const hRounded = Math.round(heightUm * 1000) / 1000;
+      setColX(wRounded);
+      setColY(0);
+      setRowX(0);
+      setRowY(hRounded);
     }
 
     // Reset grid to defaults
     setColumns(2);
     setRows(1);
-  }, [isOpen, library, elementIds, setColumns, setRows, setColSpacing, setRowSpacing]);
+  }, [isOpen, library, elementIds, setColumns, setRows, setColX, setColY, setRowX, setRowY]);
 
   // Close on click outside
   useEffect(() => {
@@ -218,8 +241,6 @@ export function ArrayDialog() {
     if (!library || !renderer) return;
     const cols = columnsRef.current;
     const rws = rowsRef.current;
-    const csp = colSpacingRef.current;
-    const rsp = rowSpacingRef.current;
 
     if (cols < 1 || rws < 1) return;
     if (cols === 1 && rws === 1) {
@@ -228,12 +249,54 @@ export function ArrayDialog() {
       return;
     }
 
-    // Convert µm spacing → world units
-    const colSpacingWorld = csp * UM_SCALE * GRID_SIZE;
-    // Row spacing: positive µm means "downward on screen" = negative Y in world coords
-    const rowSpacingWorld = -(rsp * UM_SCALE * GRID_SIZE);
+    // Convert µm → world units. Y is negated (display is screen-up; world
+    // is screen-down), matching the polygon vertex / position conventions.
+    const colVector = {
+      x: colXRef.current * UM_SCALE * GRID_SIZE,
+      y: -colYRef.current * UM_SCALE * GRID_SIZE,
+    };
+    const rowVector = {
+      x: rowXRef.current * UM_SCALE * GRID_SIZE,
+      y: -rowYRef.current * UM_SCALE * GRID_SIZE,
+    };
 
-    const cmd = new CreateArrayCommand(elementIds, cols, rws, colSpacingWorld, rowSpacingWorld);
+    // Reject degenerate lattices — they'd stack every copy on top of the
+    // original, silently burning undo history on a no-op. We keep the dialog
+    // open so the user can correct the offending field instead of having to
+    // reopen and re-enter everything. Checks (in order):
+    //   - active axis with zero length (e.g. cols>1 but colVec ≈ 0)
+    //   - two active axes whose vectors are parallel (collinear lattice)
+    // The tolerance matches the grid quantum, since sub-nanometre offsets
+    // are indistinguishable on screen and in GDS anyway.
+    const EPS = 1e-6;
+    const colActive = cols > 1;
+    const rowActive = rws > 1;
+    const colLen = Math.hypot(colVector.x, colVector.y);
+    const rowLen = Math.hypot(rowVector.x, rowVector.y);
+    if (colActive && colLen < EPS) {
+      useStatusMessageStore
+        .getState()
+        .show("Column vector is zero — enter Col ΔX or Col ΔY", "warn");
+      return;
+    }
+    if (rowActive && rowLen < EPS) {
+      useStatusMessageStore
+        .getState()
+        .show("Row vector is zero — enter Row ΔX or Row ΔY", "warn");
+      return;
+    }
+    if (colActive && rowActive) {
+      // Parallel iff the cross product vanishes.
+      const cross = colVector.x * rowVector.y - colVector.y * rowVector.x;
+      if (Math.abs(cross) < EPS * colLen * rowLen) {
+        useStatusMessageStore
+          .getState()
+          .show("Column and row vectors are parallel — copies would overlap", "warn");
+        return;
+      }
+    }
+
+    const cmd = new CreateArrayCommand(elementIds, cols, rws, colVector, rowVector);
     useHistoryStore.getState().execute(cmd, { library, renderer });
     close();
   }, [library, renderer, elementIds, close]);
@@ -299,19 +362,40 @@ export function ArrayDialog() {
               integer
               onSubmit={handleConfirm}
             />
+            {/* Full lattice vectors. A rectangular array has Col ΔY = 0 and
+                Row ΔX = 0 (the seeded default); hex / oblique arrays use the
+                off-axis components. */}
             <DialogField
-              label="Col pitch"
-              value={colSpacing}
-              onChange={setColSpacing}
+              label="Col ΔX"
+              value={colX}
+              onChange={setColX}
               isDark={isDark}
               unit={"\u00B5m"}
               step={0.1}
               onSubmit={handleConfirm}
             />
             <DialogField
-              label="Row pitch"
-              value={rowSpacing}
-              onChange={setRowSpacing}
+              label="Col ΔY"
+              value={colY}
+              onChange={setColY}
+              isDark={isDark}
+              unit={"\u00B5m"}
+              step={0.1}
+              onSubmit={handleConfirm}
+            />
+            <DialogField
+              label="Row ΔX"
+              value={rowX}
+              onChange={setRowX}
+              isDark={isDark}
+              unit={"\u00B5m"}
+              step={0.1}
+              onSubmit={handleConfirm}
+            />
+            <DialogField
+              label="Row ΔY"
+              value={rowY}
+              onChange={setRowY}
               isDark={isDark}
               unit={"\u00B5m"}
               step={0.1}

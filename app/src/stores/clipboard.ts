@@ -46,7 +46,16 @@ export interface CellRefSnapshot {
   cellName: string;
   /** Full affine transform [a, b, c, d, tx, ty]. */
   transform: Float64Array;
-  /** AREF repetition params [columns, rows, col_spacing, row_spacing], or null for SREF. */
+  /**
+   * AREF repetition params as lattice vectors, or null for SREF.
+   *
+   * Layout: `[columns, rows, col_x, col_y, row_x, row_y]` where
+   * `(col_x, col_y)` is the column displacement vector and
+   * `(row_x, row_y)` is the row displacement vector, both in the
+   * CellRef's local (pre-transform) coordinate space. Rectangular AREFs
+   * have `col_y === 0` and `row_x === 0`; skewed/hex lattices use the
+   * full off-axis components.
+   */
   repetition: Float64Array | null;
 }
 
