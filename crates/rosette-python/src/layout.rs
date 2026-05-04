@@ -467,6 +467,20 @@ impl PyCell {
         self.0.polygon_count()
     }
 
+    /// Get all polygons (and their layers) stored directly on this cell.
+    ///
+    /// Does not descend into referenced cells; only returns polygons added
+    /// via ``add_polygon``. Cell references and paths are excluded.
+    ///
+    /// Returns:
+    ///     List of ``(Polygon, Layer)`` tuples.
+    fn polygons(&self) -> Vec<(PyPolygon, PyLayer)> {
+        self.0
+            .polygons()
+            .map(|(polygon, layer)| (PyPolygon(polygon.clone()), PyLayer(*layer)))
+            .collect()
+    }
+
     /// Number of cell references.
     fn ref_count(&self) -> usize {
         self.0.ref_count()

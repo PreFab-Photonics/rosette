@@ -1398,15 +1398,23 @@ class TestBraggGrating:
         assert cell.polygon_count() == 1  # single sidewall polygon
 
     def test_port_positions_and_widths(self, layer):
-        """Ports sit at (0, 0) and (length, 0) with mean waveguide width."""
+        """Ports sit at (0, 0) and (length, 0) with mean waveguide width.
+
+        ``length`` includes the trailing wide-half terminator added after
+        the main period loop, so ``port("out").position.x`` is
+        ``num_periods * period + duty_cycle * period`` for the default
+        duty cycle.
+        """
         num_periods = 100
         period = 0.32
         width = 0.5
+        duty_cycle = 0.5
         cell = bragg_grating(
             layer,
             waveguide_width=width,
             period=period,
             num_periods=num_periods,
+            duty_cycle=duty_cycle,
         )
         port_in = cell.port("in")
         port_out = cell.port("out")
@@ -1417,16 +1425,31 @@ class TestBraggGrating:
         assert port_in.direction.y == pytest.approx(0.0)
         assert port_in.width == pytest.approx(width)
 
-        assert port_out.position.x == pytest.approx(num_periods * period)
+        expected_length = num_periods * period + duty_cycle * period
+        assert port_out.position.x == pytest.approx(expected_length)
         assert port_out.position.y == pytest.approx(0.0)
         assert port_out.direction.x == pytest.approx(1.0)
         assert port_out.direction.y == pytest.approx(0.0)
         assert port_out.width == pytest.approx(width)
 
     def test_path_length_matches_total_length(self, layer):
-        """path_length equals num_periods * period for a plain grating."""
-        cell = bragg_grating(layer, period=0.32, num_periods=100)
-        assert cell.path_length == pytest.approx(100 * 0.32)
+        """path_length equals num_periods * period + duty_cycle * period.
+
+        The trailing wide-half terminator added after the main loop makes
+        the grating end on a wide segment (avoiding a short narrow-to-port
+        sliver that would fail ``min_edge_length`` DRC), and extends the
+        total length by ``duty_cycle * period``.
+        """
+        num_periods = 100
+        period = 0.32
+        duty_cycle = 0.5
+        cell = bragg_grating(layer, period=period, num_periods=num_periods, duty_cycle=duty_cycle)
+        assert cell.path_length == pytest.approx(num_periods * period + duty_cycle * period)
+
+        # A non-trivial duty cycle scales the trailing-half contribution.
+        duty = 0.7
+        cell2 = bragg_grating(layer, period=period, num_periods=num_periods, duty_cycle=duty)
+        assert cell2.path_length == pytest.approx(num_periods * period + duty * period)
 
     def test_phase_shift_extends_length(self, layer):
         """pi phase shift adds period/2 to the total length."""
@@ -1486,8 +1509,10 @@ class TestBraggGrating:
             corrugation_width=0.2,
             apodization="gaussian",
             apodization_sigma=0.05,
+            duty_cycle=0.5,
         )
-        assert tight.path_length == pytest.approx(201 * 0.32)
+        # num_periods * period + duty_cycle * period (trailing wide half).
+        assert tight.path_length == pytest.approx(201 * 0.32 + 0.5 * 0.32)
         # Peak in the middle still reaches the full amplitude.
         assert tight.bbox().max.y == pytest.approx((0.5 + 0.2) / 2.0)
 
@@ -1504,6 +1529,107 @@ class TestBraggGrating:
         expected_half = (0.5 + 0.1) / 2.0
         assert bb.max.y == pytest.approx(expected_half)
         assert bb.min.y == pytest.approx(-expected_half)
+
+    def test_terminal_edge_steps_from_half_wide(self, layer):
+        """Regression for ROS-545: grating ends on a wide half.
+
+        The closing top/bottom sidewall edges at ``x = total_length``
+        must step from ``half_wide`` down/up to ``half_port``, **not**
+        from ``half_narrow``. The latter produces an isolated thin
+        feature (for the default parameters a 0.025 um sliver at each
+        sidewall) that violates typical ``min_edge_length`` DRC rules.
+
+        The grating is constructed as a single polygon whose vertex
+        sequence is ``top (left->right) + bottom (right->left)``. We
+        inspect the vertices at the maximum x and verify:
+
+        1. Two top-sidewall vertices at ``x = total_length``: one at
+           ``+half_wide`` (end of trailing wide half) and one at
+           ``+half_port`` (closing edge to the output port).
+        2. Two mirrored bottom-sidewall vertices at the same x with
+           ``-half_wide`` and ``-half_port``.
+        3. No vertex at ``x = total_length`` with ``y == +half_narrow``
+           (the old, bad case).
+        """
+        waveguide_width = 0.5
+        corrugation_width = 0.05
+        period = 0.32
+        num_periods = 80  # matches the gallery default
+        cell = bragg_grating(
+            layer,
+            waveguide_width=waveguide_width,
+            corrugation_width=corrugation_width,
+            period=period,
+            num_periods=num_periods,
+            apodization="uniform",
+        )
+
+        half_port = waveguide_width / 2.0
+        half_wide = (waveguide_width + corrugation_width) / 2.0
+        half_narrow = (waveguide_width - corrugation_width) / 2.0
+
+        polys = cell.polygons()
+        assert len(polys) == 1
+        poly, _ = polys[0]
+        vertices = list(poly.vertices())
+
+        x_end = cell.port("out").position.x
+        tol = 1e-9
+        end_ys = sorted(v.y for v in vertices if abs(v.x - x_end) < tol)
+
+        # Expected multiset of y values at x = total_length.
+        expected = sorted([+half_wide, +half_port, -half_port, -half_wide])
+        assert end_ys == pytest.approx(expected), (
+            f"Terminal-edge y-values at x={x_end}: got {end_ys}, "
+            f"expected {expected}. The grating should close on a wide "
+            "half to avoid a short narrow-to-port sliver."
+        )
+
+        # Explicit negative: no narrow-half vertex sits on the closing
+        # facet (that was the ROS-545 regression).
+        assert not any(
+            abs(v.x - x_end) < tol and abs(abs(v.y) - half_narrow) < tol for v in vertices
+        ), "Found a half_narrow vertex on the closing facet (ROS-545)."
+
+    def test_terminal_edge_with_phase_shift(self, layer):
+        """Trailing wide-half terminator also holds when ``phase_shift`` is set.
+
+        Regression for ROS-545: the grating must still close on a wide
+        half when a phase shift is inserted mid-grating. The stub is
+        placed inside the loop (between periods), so the closing facet
+        at ``x = total_length`` is unaffected by the stub and must still
+        step from ``half_wide`` to ``half_port``.
+        """
+        waveguide_width = 0.5
+        corrugation_width = 0.05
+        period = 0.32
+        num_periods = 80
+        cell = bragg_grating(
+            layer,
+            waveguide_width=waveguide_width,
+            corrugation_width=corrugation_width,
+            period=period,
+            num_periods=num_periods,
+            apodization="uniform",
+            phase_shift=math.pi,
+            phase_shift_position=0.5,
+        )
+
+        half_port = waveguide_width / 2.0
+        half_wide = (waveguide_width + corrugation_width) / 2.0
+        half_narrow = (waveguide_width - corrugation_width) / 2.0
+
+        poly, _ = cell.polygons()[0]
+        vertices = list(poly.vertices())
+        x_end = cell.port("out").position.x
+        tol = 1e-9
+        end_ys = sorted(v.y for v in vertices if abs(v.x - x_end) < tol)
+
+        expected = sorted([+half_wide, +half_port, -half_port, -half_wide])
+        assert end_ys == pytest.approx(expected)
+        assert not any(
+            abs(v.x - x_end) < tol and abs(abs(v.y) - half_narrow) < tol for v in vertices
+        ), "half_narrow vertex on the closing facet with phase shift (ROS-545)."
 
     @pytest.mark.parametrize(
         "kwargs,match",

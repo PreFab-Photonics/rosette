@@ -817,6 +817,14 @@ class Cell:
         """Number of polygons in the cell."""
         return self._inner.polygon_count()
 
+    def polygons(self) -> list[tuple[Polygon, Layer]]:
+        """Get all polygons (and their layers) stored directly on this cell.
+
+        Does not descend into referenced cells; only returns polygons added
+        via ``add_polygon``. Cell references and paths are excluded.
+        """
+        return self._inner.polygons()
+
     def path_count(self) -> int:
         """Number of paths in the cell."""
         return self._inner.path_count()

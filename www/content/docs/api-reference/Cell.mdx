@@ -240,6 +240,21 @@ Number of polygons in the cell (not counting child cells).
 
 </PyFunction>
 
+<PyFunction name={"polygons"} type={"() -> list[tuple[Polygon, Layer]]"}>
+
+Get all polygons (and their layers) stored directly on this cell.
+
+Does not descend into referenced cells; only returns polygons added via
+`add_polygon`. Cell references and paths are excluded.
+
+<PyFunctionReturn type={"list[tuple[Polygon, Layer]]"}>
+
+List of `(polygon, layer)` tuples, in insertion order.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
 <PyFunction name={"path_count"} type={"() -> int"}>
 
 Number of paths in the cell.

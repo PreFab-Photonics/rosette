@@ -19,18 +19,23 @@ peak-to-peak sidewall modulation is ``corrugation_width``.
 
 Geometry (viewed along +X, exaggerated)::
 
-      _   _   _   _          _   _
-     | |_| |_| |_| |   ...  | |_| |
-      _   _   _   _          _   _
-     | |_| |_| |_| |   ...  | |_| |
+      _   _   _   _          _   _   _
+     | |_| |_| |_| |   ...  | |_| |_| |
+      _   _   _   _          _   _   _
+     | |_| |_| |_| |   ...  | |_| |_| |
+
+The grating starts and ends on a **wide half** so the transitions to
+the port width are adjacent to an outward-facing corrugation edge
+rather than producing an isolated thin sliver at the port.
 
 Ports:
     - ``"in"``  at ``(0, 0)``,          facing **-X**, width = *waveguide_width*
     - ``"out"`` at ``(length, 0)``,     facing **+X**, width = *waveguide_width*
 
-where ``length = num_periods * period`` (+ an extra un-corrugated
-stub of length ``phase_shift / (2*pi) * period`` if *phase_shift* is
-set).
+where ``length = num_periods * period + duty_cycle * period`` (the
+extra ``duty_cycle * period`` is the trailing wide half) plus an
+un-corrugated stub of length ``phase_shift / (2*pi) * period`` if
+*phase_shift* is set.
 """
 
 import math
@@ -72,12 +77,22 @@ def bragg_grating(
     ``period = 0.32 um`` targets ~1550 nm on a typical silicon
     photonics platform (n_eff ~ 2.4).
 
+    The grating **starts and ends on a wide half**: the main loop emits
+    ``(wide, narrow)`` for each period, and one extra wide half of length
+    ``duty_cycle * period`` is appended after the last period. This keeps
+    the port-width transitions adjacent to outward-facing corrugation
+    edges (avoiding an isolated short sliver at the output port that
+    would fail a typical ``min_edge_length`` DRC rule).
+
     Ports:
         - ``"in"``  at ``(0, 0)``,      facing **-X**, width = *waveguide_width*
         - ``"out"`` at ``(length, 0)``, facing **+X**, width = *waveguide_width*
 
-    where ``length = num_periods * period`` when *phase_shift* is ``None``,
-    or ``num_periods * period + phase_shift / (2*pi) * period`` otherwise.
+    where
+    ``length = num_periods * period + duty_cycle * period`` when
+    *phase_shift* is ``None``, or
+    ``num_periods * period + duty_cycle * period + phase_shift / (2*pi) * period``
+    otherwise.
 
     Apodization:
 
@@ -139,7 +154,8 @@ def bragg_grating(
     Returns:
         Cell with ports ``"in"`` and ``"out"``.
         ``path_length`` = total physical length along +X
-        (``num_periods * period`` + optional phase-shift stub).
+        (``num_periods * period + duty_cycle * period`` + optional
+        phase-shift stub).
 
     Raises:
         ValueError: If *waveguide_width*, *period*, or *apodization_sigma*
@@ -261,14 +277,21 @@ def bragg_grating(
         stub_length = 0.0
         stub_index = num_periods  # never reached inside the loop
 
-    total_length = num_periods * period + stub_length
+    wide_frac = duty_cycle
+    trailing_wide_length = wide_frac * period
+    total_length = num_periods * period + trailing_wide_length + stub_length
 
     # Build the outline as two polylines (top sidewall, bottom sidewall)
     # then close them into a single polygon.
     # We walk left-to-right building the top sidewall; for each period we
     # emit a wide half then a narrow half (the per-period amplitude sets
     # how far the sidewall is offset from the centerline on that half).
-    # The bottom sidewall mirrors the top about y = 0.
+    # After the main loop we append one extra wide half so the grating
+    # terminates on a wide segment (see module docstring); otherwise the
+    # polygon would close with a ``half_narrow -> half_port`` step that
+    # shows up as an isolated thin sliver at the output port and fails a
+    # typical ``min_edge_length`` DRC rule. The bottom sidewall mirrors
+    # the top about y = 0.
     top: list[Point] = []
     bottom: list[Point] = []
 
@@ -277,8 +300,6 @@ def bragg_grating(
     half_port = waveguide_width / 2.0
     top.append(Point(x, half_port))
     bottom.append(Point(x, -half_port))
-
-    wide_frac = duty_cycle
 
     for i, amp in enumerate(amplitudes):
         # Insert the phase-shift stub before period `stub_index`.
@@ -308,6 +329,18 @@ def bragg_grating(
         bottom.append(Point(x_end, -half_narrow))
 
         x = x_end
+
+    # Trailing wide half so the grating ends on an outward corrugation
+    # edge rather than an isolated narrow-to-port step. Reuses the
+    # amplitude of the last period so Gaussian apodization continues
+    # smoothly into the terminator.
+    trailing_amp = amplitudes[-1]
+    trailing_half_wide = (waveguide_width + trailing_amp) / 2.0
+    top.append(Point(x, trailing_half_wide))
+    bottom.append(Point(x, -trailing_half_wide))
+    x += trailing_wide_length
+    top.append(Point(x, trailing_half_wide))
+    bottom.append(Point(x, -trailing_half_wide))
 
     # Handle a phase-shift stub placed at the very end (stub_index == num_periods).
     if stub_length > 0.0 and stub_index == num_periods:
