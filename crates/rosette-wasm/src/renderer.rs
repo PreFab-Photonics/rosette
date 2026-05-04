@@ -1824,8 +1824,12 @@ impl WasmRenderer {
             .shape_manager
             .get_hover_segments(zoom, offset_x, offset_y);
 
-        // Append instance bbox outline segments for hovered ref UUIDs
-        let hovered_ids = self.shape_manager.get_hover_ids();
+        // Append instance bbox outline segments for hovered ref UUIDs, excluding
+        // those that are also selected so the selection (green) outline takes
+        // precedence over the hover (black/white) outline — matching how plain
+        // shapes handle this precedence in `get_hover_segments`.
+        let mut hovered_ids = self.shape_manager.get_hover_ids();
+        hovered_ids.retain(|id| !selected_ids.contains(id));
         self.append_instance_bbox_outlines(
             &hovered_ids,
             zoom,
