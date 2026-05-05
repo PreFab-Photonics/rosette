@@ -88,6 +88,17 @@ pub enum RuleType {
     /// An inner-layer polygon is fully contained inside an outer (exclusion)
     /// region, violating a `not_inside` rule.
     NotInside,
+    /// A density window falls outside the allowed `[min, max]` range.
+    Density {
+        /// Minimum required density fraction (0.0..=1.0), if any.
+        min: Option<f64>,
+        /// Maximum allowed density fraction (0.0..=1.0), if any.
+        max: Option<f64>,
+        /// Actual measured density fraction in the window (0.0..=1.0).
+        actual: f64,
+        /// Window side length (design units).
+        window: f64,
+    },
 }
 
 /// A single DRC violation.

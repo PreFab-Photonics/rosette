@@ -1459,6 +1459,61 @@ class DrcRules:
         flags any overlap at all.
         """
         ...
+    def density(
+        self,
+        layer: Layer | int | tuple[int, int],
+        window: float,
+        step: float,
+        min: float | None = None,
+        max: float | None = None,
+        region_layer: Layer | int | tuple[int, int] | None = None,
+        name: str | None = None,
+    ) -> DrcRules:
+        """Add a layer density (CMP uniformity) check.
+
+        Tiles a region with a sliding ``window`` x ``window`` square, stepping
+        by ``step``, and flags every window position where the area fraction
+        covered by ``layer`` falls outside ``[min, max]``.
+
+        Foundries require density within a band for CMP (chemical-mechanical
+        planarization) uniformity. Typical photonic-PDK values: silicon
+        device layer 0.20-0.80 fill over a 100 µm window.
+
+        At least one of ``min`` or ``max`` must be provided.
+
+        If ``region_layer`` is set, the union of polygons on that layer
+        defines the region over which density is measured. Otherwise the
+        bounding box of all placed geometry in the design is used (which
+        matches ``Library.cell_bbox`` for the top cell). Designs with no
+        geometry at all skip the check silently.
+
+        In TOML config, use the ``[drc.layers.<layer>.density]`` subtable::
+
+            [drc.layers.silicon.density]
+            min = 0.20
+            max = 0.80
+            window = 100.0
+            step = 50.0
+            region_layer = "prbnd"   # optional
+
+        Args:
+            layer: Target layer whose density is measured.
+            window: Window side length in design units.
+            step: Stride between window positions in design units. Typically
+                ``window / 2`` for sliding-window hot-spot detection.
+            min: Minimum required density fraction in [0, 1], or None for no
+                lower bound.
+            max: Maximum allowed density fraction in [0, 1], or None for no
+                upper bound.
+            region_layer: Optional marker layer whose union defines the
+                region over which density is measured.
+            name: Optional rule name for violation reporting.
+
+        Raises:
+            ValueError: If both ``min`` and ``max`` are None, if ``window``
+                or ``step`` is not positive, or if ``min > max``.
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class DrcViolation:

@@ -497,3 +497,84 @@ A new DrcRules with the rule added.
 </PyFunctionReturn>
 
 </PyFunction>
+
+<PyFunction name={"density"} type={"(layer, window, step, min=None, max=None, region_layer=None, name=None) -> DrcRules"}>
+
+Add a layer density (CMP uniformity) check.
+
+Tiles a region with a sliding `window` × `window` square, stepping by `step`,
+and flags every window position where the area fraction covered by `layer`
+falls outside `[min, max]`.
+
+Foundries require density within a band for CMP (chemical-mechanical
+planarization) uniformity — a likely tape-out blocker if omitted. Typical
+photonic-PDK values: silicon device layer `min=0.20, max=0.80` over a 100 µm
+window with 50 µm step.
+
+At least one of `min` or `max` must be provided. If `region_layer` is set, the
+union of polygons on that layer defines the region over which density is
+measured; otherwise the bounding box of all placed geometry in the design is
+used (equivalent to `Library.cell_bbox` on the top cell). Designs with no
+geometry at all skip the check silently.
+
+In TOML config, use the grouped `[drc.layers.<layer>.density]` subtable:
+
+```toml
+[drc.layers.silicon.density]
+min = 0.20
+max = 0.80
+window = 100.0
+step = 50.0         # optional; defaults to window / 2
+# region_layer = "prbnd"   # optional; defaults to placed-geometry bbox
+```
+
+<div>
+
+<PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
+
+Target layer whose area fraction is measured.
+
+</PyParameter>
+<PyParameter name={"window"} type={"float"}>
+
+Window side length in design units.
+
+</PyParameter>
+<PyParameter name={"step"} type={"float"}>
+
+Stride between window positions in design units. Typically `window / 2` for
+sliding-window hot-spot detection.
+
+</PyParameter>
+<PyParameter name={"min"} type={"float | None"} value={"None"}>
+
+Minimum required density fraction in `[0, 1]`, or `None` for no lower bound.
+
+</PyParameter>
+<PyParameter name={"max"} type={"float | None"} value={"None"}>
+
+Maximum allowed density fraction in `[0, 1]`, or `None` for no upper bound.
+
+</PyParameter>
+<PyParameter name={"region_layer"} type={"Layer | int | tuple[int, int] | None"} value={"None"}>
+
+Optional marker layer whose union defines the region over which density is
+measured. If omitted, the bounding box of all placed geometry in the design
+is used.
+
+</PyParameter>
+<PyParameter name={"name"} type={"str | None"} value={"None"}>
+
+Optional rule name for violation reporting.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the rule added.
+
+</PyFunctionReturn>
+
+</PyFunction>
