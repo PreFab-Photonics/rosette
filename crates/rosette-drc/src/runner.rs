@@ -35,14 +35,40 @@ pub struct DrcResult {
 }
 
 impl DrcResult {
-    /// Check if DRC passed (no violations).
+    /// Whether the DRC check passed.
+    ///
+    /// Returns `true` if there are no error-severity violations. Warnings (see
+    /// [`DrcRules::warning_margin`]) do not cause the check to fail, so a
+    /// result containing only warnings still passes.
     pub fn passed(&self) -> bool {
-        self.violations.is_empty()
+        !self
+            .violations
+            .iter()
+            .any(|v| v.severity == Severity::Error)
     }
 
-    /// Number of violations found.
+    /// Total number of violations (errors **plus** warnings).
+    ///
+    /// Use [`Self::error_count`] if you want to gate pass/fail, since
+    /// warnings do not cause [`Self::passed`] to return `false`.
     pub fn violation_count(&self) -> usize {
         self.violations.len()
+    }
+
+    /// Number of error-severity violations.
+    pub fn error_count(&self) -> usize {
+        self.violations
+            .iter()
+            .filter(|v| v.severity == Severity::Error)
+            .count()
+    }
+
+    /// Number of warning-severity violations.
+    pub fn warning_count(&self) -> usize {
+        self.violations
+            .iter()
+            .filter(|v| v.severity == Severity::Warning)
+            .count()
     }
 }
 
@@ -184,6 +210,18 @@ impl DrcRunner {
             }
         } else {
             polygons_checked = self.count_polygons(cell, library);
+        }
+
+        // Downgrade near-threshold violations to warnings if a global
+        // `warning_margin` is configured. This is a single post-processing
+        // pass over the collected violations so individual checks stay
+        // ignorant of severity policy.
+        if let Some(margin) = self.rules.warning_margin_value() {
+            for v in &mut violations {
+                if is_near_threshold(&v.rule_type, margin) {
+                    v.severity = Severity::Warning;
+                }
+            }
         }
 
         DrcResult {
@@ -956,6 +994,40 @@ impl DrcRunner {
 /// Convenience function to run DRC.
 pub fn run_drc(cell: &Cell, rules: &DrcRules, library: Option<&Library>) -> DrcResult {
     DrcRunner::new(rules.clone()).check(cell, library)
+}
+
+/// Return `true` if `rule_type` represents a numeric-threshold violation whose
+/// `actual` value is within `margin` of the `required` threshold.
+///
+/// Only **length-unit** numeric threshold variants are eligible. `MinArea` is
+/// deliberately excluded even though it has a numeric threshold: its values
+/// are in squared user units (typically µm²), which cannot meaningfully be
+/// compared against a length-unit `margin`. Categorical / binary violations
+/// (`ForbiddenAngle`, `ForbiddenOverlap`, `SelfIntersection`, `OffGrid`,
+/// `NotInside`, `AcuteAngle`, `MissingOverlap`) are never "near-threshold" —
+/// they are binary.
+fn is_near_threshold(rule_type: &RuleType, margin: f64) -> bool {
+    if margin <= 0.0 {
+        return false;
+    }
+    match rule_type {
+        RuleType::MinWidth { required, actual }
+        | RuleType::MinSpacing { required, actual }
+        | RuleType::Enclosure { required, actual }
+        | RuleType::MinEdgeLength { required, actual } => *required - *actual <= margin,
+        RuleType::MaxWidth { limit, actual } => *actual - *limit <= margin,
+        // MinArea is numeric but in squared units — mixing it with a
+        // length-unit margin would silently widen the warning band far
+        // beyond what a designer configuring `warning_margin = 0.01` expects.
+        RuleType::MinArea { .. }
+        | RuleType::ForbiddenOverlap
+        | RuleType::MissingOverlap
+        | RuleType::ForbiddenAngle { .. }
+        | RuleType::SelfIntersection
+        | RuleType::OffGrid { .. }
+        | RuleType::AcuteAngle { .. }
+        | RuleType::NotInside => false,
+    }
 }
 
 #[cfg(test)]
@@ -1783,5 +1855,201 @@ mod tests {
         let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
 
         assert!(result.passed(), "On-grid translation should pass");
+    }
+
+    // --- warning_margin tests (ROS-521) ---
+
+    #[test]
+    fn test_warning_margin_off_by_default_min_width() {
+        // With no warning_margin, a near-threshold width is an error.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 0.115, 10.0),
+            Layer::new(1, 0),
+        );
+
+        let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.12, Some("W"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(!result.passed(), "Legacy: any violation fails");
+        assert_eq!(result.error_count(), 1);
+        assert_eq!(result.warning_count(), 0);
+        assert_eq!(result.violations[0].severity, Severity::Error);
+    }
+
+    #[test]
+    fn test_warning_margin_downgrades_near_threshold_width() {
+        // 0.115 < 0.12 (violation) but within margin 0.01 of 0.12 → warning.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 0.115, 10.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new()
+                .warning_margin(0.01)
+                .min_width(Layer::new(1, 0), 0.12, Some("W"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(result.passed(), "Warnings should not cause the run to fail");
+        assert_eq!(result.error_count(), 0);
+        assert_eq!(result.warning_count(), 1);
+        assert_eq!(result.violations[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn test_warning_margin_keeps_far_violations_as_errors() {
+        // 0.05 is far below 0.12 (well outside margin 0.01) → still an error.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(Polygon::rect(Point::origin(), 0.05, 10.0), Layer::new(1, 0));
+
+        let rules =
+            DrcRules::new()
+                .warning_margin(0.01)
+                .min_width(Layer::new(1, 0), 0.12, Some("W"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(!result.passed(), "Far-below-threshold should still error");
+        assert_eq!(result.error_count(), 1);
+        assert_eq!(result.warning_count(), 0);
+    }
+
+    #[test]
+    fn test_warning_margin_applies_to_min_spacing() {
+        // Two polygons with a 0.11 gap, min_spacing=0.12, margin=0.02.
+        // Gap 0.11 is within [0.10, 0.12) → warning.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(1.11, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+
+        let rules = DrcRules::new().warning_margin(0.02).min_spacing(
+            Layer::new(1, 0),
+            Layer::new(1, 0),
+            0.12,
+            Some("S"),
+        );
+        let result = run_drc(&cell, &rules, None);
+
+        assert_eq!(result.violation_count(), 1);
+        assert_eq!(result.violations[0].severity, Severity::Warning);
+        assert!(result.passed());
+    }
+
+    #[test]
+    fn test_warning_margin_applies_to_max_width() {
+        // max_width = 5.0, actual = 5.05, margin = 0.1 → warning.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(Polygon::rect(Point::origin(), 5.05, 10.0), Layer::new(1, 0));
+
+        let rules =
+            DrcRules::new()
+                .warning_margin(0.1)
+                .max_width(Layer::new(1, 0), 5.0, Some("MW"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert_eq!(result.violation_count(), 1);
+        assert_eq!(result.violations[0].severity, Severity::Warning);
+        assert!(result.passed());
+    }
+
+    #[test]
+    fn test_warning_margin_does_not_downgrade_categorical() {
+        // Forbidden-overlap is binary — a warning_margin must not silence it.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let rules = DrcRules::new()
+            .warning_margin(999.0) // huge — must not matter
+            .forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(!result.passed());
+        assert_eq!(result.error_count(), 1);
+        assert_eq!(result.warning_count(), 0);
+    }
+
+    #[test]
+    fn test_warning_margin_mixed_result() {
+        // Two rules: one produces a warning, one produces an error.
+        // Overall `passed()` should be false because of the error.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 0.115, 10.0),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(100.0, 0.0), 0.02, 10.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new()
+                .warning_margin(0.01)
+                .min_width(Layer::new(1, 0), 0.12, Some("W"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(
+            !result.passed(),
+            "Should fail because at least one error remains"
+        );
+        assert_eq!(result.error_count(), 1);
+        assert_eq!(result.warning_count(), 1);
+    }
+
+    #[test]
+    fn test_warning_margin_zero_disables() {
+        // Explicit zero should behave identically to `None`.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 0.115, 10.0),
+            Layer::new(1, 0),
+        );
+
+        let rules =
+            DrcRules::new()
+                .warning_margin(0.0)
+                .min_width(Layer::new(1, 0), 0.12, Some("W"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(!result.passed());
+        assert_eq!(result.error_count(), 1);
+    }
+
+    #[test]
+    fn test_warning_margin_does_not_apply_to_min_area() {
+        // `warning_margin` is expressed in length units (typically µm).
+        // `MinArea` thresholds are in µm², so mixing them would silently
+        // downgrade huge area violations for a small length-unit margin.
+        // The policy is: `MinArea` violations are never downgraded.
+        let mut cell = Cell::new("test");
+        // Area = 0.0099 µm²; threshold = 0.01 µm²; shortfall = 0.0001 µm².
+        // With a 0.01-µm margin, a naive comparison would downgrade to a
+        // warning — which we explicitly do NOT want.
+        cell.add_polygon(Polygon::rect(Point::origin(), 0.099, 0.1), Layer::new(1, 0));
+
+        let rules =
+            DrcRules::new()
+                .warning_margin(0.01)
+                .min_area(Layer::new(1, 0), 0.01, Some("A"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(!result.passed(), "MinArea violations must stay errors");
+        assert_eq!(result.error_count(), 1);
+        assert_eq!(result.warning_count(), 0);
+        assert_eq!(result.violations[0].severity, Severity::Error);
     }
 }

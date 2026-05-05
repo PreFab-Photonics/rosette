@@ -48,6 +48,11 @@ description = "Text annotations"
 #
 # Example:
 #
+# [drc]
+# warning_margin = 0.01   # Near-threshold violations (within this margin of the
+#                         # rule) are reported as warnings instead of errors.
+#                         # Omit or set to 0 to treat every violation as an error.
+#
 # [drc.layers.silicon]
 # min_width = 0.12
 # min_spacing = 0.13

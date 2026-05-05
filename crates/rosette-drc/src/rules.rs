@@ -106,6 +106,20 @@ pub enum Rule {
 #[derive(Debug, Clone, Default)]
 pub struct DrcRules {
     rules: Vec<Rule>,
+    /// Optional global warning margin, in user units (typically µm).
+    ///
+    /// When set, near-threshold violations on length-based numeric rules
+    /// (`MinWidth`, `MinSpacing`, `Enclosure`, `MinEdgeLength`, `MaxWidth`)
+    /// are reported as [`crate::Severity::Warning`] instead of
+    /// [`crate::Severity::Error`]. A violation is "near-threshold" when the
+    /// measured value is within `warning_margin` of the required threshold.
+    ///
+    /// `MinArea` is intentionally excluded since its threshold is in squared
+    /// units.
+    ///
+    /// `None` (the default) preserves legacy behavior: every violation is
+    /// reported as an error.
+    warning_margin: Option<f64>,
 }
 
 impl DrcRules {
@@ -117,6 +131,38 @@ impl DrcRules {
     /// Get all configured rules.
     pub fn rules(&self) -> &[Rule] {
         &self.rules
+    }
+
+    /// Configured warning margin, if any. See [`Self::warning_margin`].
+    pub fn warning_margin_value(&self) -> Option<f64> {
+        self.warning_margin
+    }
+
+    /// Set a global warning margin (in user units, typically µm).
+    ///
+    /// When a length-based numeric threshold rule is violated but the
+    /// measured value is within this margin of the required threshold, the
+    /// resulting violation is downgraded from [`crate::Severity::Error`] to
+    /// [`crate::Severity::Warning`].
+    ///
+    /// For example, with `min_width = 0.12` and `warning_margin = 0.01`:
+    ///
+    /// - width `< 0.11` → error
+    /// - width in `[0.11, 0.12)` → warning
+    /// - width `>= 0.12` → no violation
+    ///
+    /// Applies to `MinWidth`, `MinSpacing`, `Enclosure`, `MinEdgeLength`, and
+    /// `MaxWidth` — all of which compare in length units.
+    ///
+    /// **Excluded:** `MinArea` thresholds are in *squared* user units, which
+    /// are not commensurate with a length-unit margin; they remain strict
+    /// errors. Categorical rules (angles, overlap, self-intersection,
+    /// snap-to-grid, not-inside, acute-angle) are also unaffected.
+    ///
+    /// Pass a non-positive value or `0.0` to disable (behaves as `None`).
+    pub fn warning_margin(mut self, margin: f64) -> Self {
+        self.warning_margin = if margin > 0.0 { Some(margin) } else { None };
+        self
     }
 
     /// Add a minimum width rule for polygons on a layer.
