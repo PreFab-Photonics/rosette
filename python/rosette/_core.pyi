@@ -1459,6 +1459,24 @@ class DrcRules:
         flags any overlap at all.
         """
         ...
+    def warning_margin(self, margin: float) -> DrcRules:
+        """Set a global warning margin (in user units, typically µm).
+
+        Near-threshold violations on length-based numeric rules
+        (``min_width``, ``min_spacing``, ``min_enclosure``,
+        ``min_edge_length``, ``max_width``) whose measured value is within
+        ``margin`` of the required threshold are reported as
+        ``severity == "warning"`` instead of ``"error"``. Warnings do not
+        cause :attr:`DrcResult.passed` to be ``False`` and do not fail
+        ``rosette check`` / ``rosette drc``.
+
+        ``min_area`` is intentionally excluded (its thresholds are in squared
+        units, not length units) and remains a strict error.
+
+        Pass ``0.0`` to disable (the default behavior — every violation is an
+        error).
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class DrcViolation:
@@ -1482,10 +1500,26 @@ class DrcResult:
 
     violations: list[DrcViolation]
     passed: bool
+    """``True`` when no error-severity violations were found.
+
+    Warnings (see :meth:`DrcRules.warning_margin`) do not cause this to be
+    ``False`` — a run with only warnings still passes.
+    """
     polygons_checked: int
     rules_checked: int
     elapsed_ms: float
-    def __len__(self) -> int: ...
+    error_count: int
+    """Number of error-severity violations."""
+    warning_count: int
+    """Number of warning-severity violations."""
+    def __len__(self) -> int:
+        """Total number of violations — errors **plus** warnings.
+
+        Use ``error_count`` / ``warning_count`` (or :attr:`passed`) to gate
+        pass/fail decisions; ``len(result) > 0`` does not imply failure when
+        a warning margin is configured.
+        """
+        ...
     def __repr__(self) -> str: ...
 
 def run_drc(

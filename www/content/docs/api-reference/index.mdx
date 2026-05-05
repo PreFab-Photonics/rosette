@@ -257,6 +257,9 @@ Rules are defined per-layer in the `[drc.layers]` section (supporting
 `max_width`, `no_self_intersection`, and `no_overlap`), and inter-layer rules in the
 `[[drc.rules]]` array.
 
+An optional top-level `[drc].warning_margin` knob downgrades near-threshold
+numeric violations to warnings (see [`DrcRules.warning_margin`](./DrcRules)).
+
 Layer keys can use semantic names from the `[layers]` section (e.g.
 `[drc.layers.silicon]`) or the traditional `"number/datatype"` format
 (e.g. `[drc.layers."1/0"]`). Inter-layer rules also accept semantic names

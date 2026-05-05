@@ -11,23 +11,41 @@ about the check. Use the `passed` attribute for a quick pass/fail check.
 result = run_drc(cell, rules)
 if result.passed:
     print(f"DRC passed ({result.polygons_checked} polygons, {result.rules_checked} rules)")
+    if result.warning_count:
+        print(f"  ({result.warning_count} warnings — review recommended)")
 else:
-    print(f"DRC failed with {len(result.violations)} violations")
+    print(f"DRC failed with {result.error_count} errors, {result.warning_count} warnings")
     for v in result.violations:
-        print(f"  {v.message}")
+        print(f"  [{v.severity}] {v.message}")
 ```
 
 ## Attributes
 
 <PyAttribute name={"violations"} type={"list[DrcViolation]"}>
 
-List of all DRC violations found.
+List of all DRC violations found, including both errors and warnings.
 
 </PyAttribute>
 
 <PyAttribute name={"passed"} type={"bool"}>
 
-`True` if no violations were found.
+`True` if no error-severity violations were found.
+
+Warnings (see [`DrcRules.warning_margin`](./DrcRules)) do not cause this to
+be `False` — a run with only warnings still passes. `rosette drc` and
+`rosette check` use this attribute for their exit code.
+
+</PyAttribute>
+
+<PyAttribute name={"error_count"} type={"int"}>
+
+Number of error-severity violations.
+
+</PyAttribute>
+
+<PyAttribute name={"warning_count"} type={"int"}>
+
+Number of warning-severity violations.
 
 </PyAttribute>
 

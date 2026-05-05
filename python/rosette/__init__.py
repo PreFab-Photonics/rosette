@@ -1600,6 +1600,15 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
     drc_config = config.get("drc", {})
     layers_config = drc_config.get("layers", {})
 
+    # Optional global warning margin: near-threshold numeric violations are
+    # downgraded to severity="warning" when this is set. Pass-through to the
+    # Rust builder; value <= 0 disables.
+    if "warning_margin" in drc_config:
+        margin = drc_config["warning_margin"]
+        if not isinstance(margin, (int, float)) or isinstance(margin, bool):
+            raise ValueError(f"[drc].warning_margin must be a number (got {type(margin).__name__})")
+        rules = rules.warning_margin(float(margin))
+
     # Collect known (number, datatype) pairs from [layers] for cross-validation
     known_layer_pairs = {(ly.number, ly.datatype) for ly in layer_lookup.values()}
 

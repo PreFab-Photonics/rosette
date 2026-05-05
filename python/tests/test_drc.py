@@ -747,7 +747,7 @@ class TestDrcResult:
         result = run_drc(cell, rules)
 
         assert "FAILED" in repr(result)
-        assert "1 violations" in repr(result)
+        assert "1 errors" in repr(result)
 
 
 class TestDrcViolation:
@@ -1658,3 +1658,155 @@ class TestDrcCli:
 
         captured = capsys.readouterr()
         assert "passed" in captured.out
+
+
+class TestWarningMargin:
+    """Tests for the DRC warning margin (ROS-521)."""
+
+    def _cell_with_width(self, width: float) -> Cell:
+        c = Cell("test")
+        c.add_polygon(Polygon.rect(Point.origin(), width, 10.0), Layer(1, 0))
+        return c
+
+    def test_off_by_default(self):
+        """With no warning_margin, near-threshold violations are still errors."""
+        cell = self._cell_with_width(0.115)
+        rules = DrcRules().min_width(Layer(1, 0), 0.12, name="W")
+
+        result = run_drc(cell, rules)
+        assert not result.passed
+        assert result.error_count == 1
+        assert result.warning_count == 0
+        assert result.violations[0].severity == "error"
+
+    def test_downgrades_near_threshold(self):
+        """Within-margin violation becomes a warning and the run passes."""
+        cell = self._cell_with_width(0.115)
+        rules = DrcRules().warning_margin(0.01).min_width(Layer(1, 0), 0.12, name="W")
+
+        result = run_drc(cell, rules)
+        assert result.passed, "warnings alone should not fail"
+        assert result.error_count == 0
+        assert result.warning_count == 1
+        assert result.violations[0].severity == "warning"
+
+    def test_far_violation_stays_error(self):
+        """A violation outside the margin remains an error."""
+        cell = self._cell_with_width(0.05)
+        rules = DrcRules().warning_margin(0.01).min_width(Layer(1, 0), 0.12, name="W")
+
+        result = run_drc(cell, rules)
+        assert not result.passed
+        assert result.error_count == 1
+        assert result.warning_count == 0
+
+    def test_zero_margin_disables(self):
+        """Passing 0.0 is equivalent to not setting it."""
+        cell = self._cell_with_width(0.115)
+        rules = DrcRules().warning_margin(0.0).min_width(Layer(1, 0), 0.12, name="W")
+
+        result = run_drc(cell, rules)
+        assert not result.passed
+        assert result.error_count == 1
+
+    def test_does_not_downgrade_categorical_violations(self):
+        """Binary checks (forbid_overlap, etc.) are unaffected by warning_margin."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 5.0, 5.0), Layer(1, 0))
+        cell.add_polygon(Polygon.rect(Point(3.0, 0.0), 5.0, 5.0), Layer(1, 0))
+
+        rules = (
+            DrcRules()
+            .warning_margin(999.0)  # huge — must not silence binary rules
+            .forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        )
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert result.error_count == 1
+        assert result.warning_count == 0
+
+    def test_does_not_apply_to_min_area(self):
+        """min_area is excluded — its thresholds are squared units."""
+        # Area = 0.0099 µm² vs. 0.01 µm² threshold. A naive comparison with a
+        # length-unit margin of 0.01 µm would silently downgrade this.
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 0.099, 0.1), Layer(1, 0))
+
+        rules = DrcRules().warning_margin(0.01).min_area(Layer(1, 0), 0.01, name="A")
+        result = run_drc(cell, rules)
+
+        assert not result.passed, "min_area violations must remain strict errors"
+        assert result.error_count == 1
+        assert result.warning_count == 0
+        assert result.violations[0].severity == "error"
+
+    def test_mixed_errors_and_warnings(self):
+        """A run with both error- and warning-severity violations fails overall."""
+        cell = Cell("test")
+        # Near-threshold → warning
+        cell.add_polygon(Polygon.rect(Point.origin(), 0.115, 10.0), Layer(1, 0))
+        # Far below threshold → error
+        cell.add_polygon(Polygon.rect(Point(100.0, 0.0), 0.02, 10.0), Layer(1, 0))
+
+        rules = DrcRules().warning_margin(0.01).min_width(Layer(1, 0), 0.12, name="W")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert result.error_count == 1
+        assert result.warning_count == 1
+
+    def test_toml_config(self, tmp_path):
+        """``warning_margin`` under ``[drc]`` is picked up by load_drc_rules."""
+        config = tmp_path / "rosette.toml"
+        config.write_text('[drc]\nwarning_margin = 0.01\n\n[drc.layers."1/0"]\nmin_width = 0.12\n')
+
+        cell = self._cell_with_width(0.115)
+        rules = load_drc_rules(str(config))
+        result = run_drc(cell, rules)
+
+        assert result.passed
+        assert result.warning_count == 1
+
+    def test_toml_rejects_non_numeric(self, tmp_path):
+        """A non-numeric ``warning_margin`` surfaces a clear ValueError."""
+        config = tmp_path / "rosette.toml"
+        config.write_text('[drc]\nwarning_margin = "oops"\n')
+
+        with pytest.raises(ValueError, match="warning_margin must be a number"):
+            load_drc_rules(str(config))
+
+    def test_cli_does_not_exit_on_warnings_only(self, tmp_path, capsys):
+        """``rosette drc`` passes (exit 0) when only warnings are produced."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette import Cell, Layer, Point, Polygon\n"
+            'design = Cell("test")\n'
+            "design.add_polygon(Polygon.rect(Point.origin(), 0.115, 10.0), Layer(1, 0))\n"
+        )
+        config = tmp_path / "rosette.toml"
+        config.write_text('[drc]\nwarning_margin = 0.01\n\n[drc.layers."1/0"]\nmin_width = 0.12\n')
+
+        # Must NOT raise SystemExit — warnings-only is a pass.
+        drc_design(str(design_py), str(config))
+
+        captured = capsys.readouterr()
+        assert "WARN" in captured.out
+        assert "passed" in captured.out
+
+    def test_cli_exits_on_error_even_with_warnings(self, tmp_path):
+        """``rosette drc`` still exits 1 if any error remains, alongside warnings."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette import Cell, Layer, Point, Polygon\n"
+            'design = Cell("test")\n'
+            # One near-threshold (warning) + one far-below (error)
+            "design.add_polygon(Polygon.rect(Point.origin(), 0.115, 10.0), Layer(1, 0))\n"
+            "design.add_polygon(Polygon.rect(Point(100.0, 0.0), 0.02, 10.0), Layer(1, 0))\n"
+        )
+        config = tmp_path / "rosette.toml"
+        config.write_text('[drc]\nwarning_margin = 0.01\n\n[drc.layers."1/0"]\nmin_width = 0.12\n')
+
+        with pytest.raises(SystemExit) as exc_info:
+            drc_design(str(design_py), str(config))
+        assert exc_info.value.code == 1

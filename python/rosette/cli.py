@@ -1113,18 +1113,23 @@ def _run_drc_check(
 
 
 def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
-    """Print DRC results. Returns True if passed."""
+    """Print DRC results. Returns True if passed (no error-severity violations).
+
+    Warnings (see ``DrcRules.warning_margin``) are shown but do not cause
+    this function to return ``False``.
+    """
     # Header
     print(
         f"{_bold('drc')}  {file_path}  "
         f"{_dim(f'{result.rules_checked} rules, {result.polygons_checked} polygons')}"
     )
 
-    if result.passed:
+    # No violations at all: clean pass.
+    if not result.violations:
         print(f"\n  {_green('passed')} {_dim(f'({result.elapsed_ms:.1f}ms)')}")
         return True
 
-    # Print violations
+    # Print violations (errors first visually via color, but in original order).
     print()
     errors = 0
     warnings = 0
@@ -1161,7 +1166,16 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
                 f" {_dim(f'to ({bbox[1][0]:.3f}, {bbox[1][1]:.3f})')}"
             )
 
-    # Summary
+    # Warnings-only run: the overall check still passes.
+    if result.passed:
+        print(
+            f"\n  {_green('passed')} "
+            f"{_yellow(f'{warnings} warning' + ('s' if warnings != 1 else ''))} "
+            f"{_dim(f'({result.elapsed_ms:.1f}ms)')}"
+        )
+        return True
+
+    # Errors present (possibly with warnings).
     parts = []
     if errors:
         parts.append(f"{errors} error{'s' if errors != 1 else ''}")

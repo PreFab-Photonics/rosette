@@ -32,6 +32,12 @@ description = "Text annotations"
 # Numeric "layer/datatype" format (e.g., "1/0") also works.
 # All dimensions in micrometers (um)
 
+# Near-threshold violations (within `warning_margin` of the rule) are reported
+# as warnings instead of errors. Warnings do not fail `rosette check` or
+# `rosette drc`. Omit or set to 0 to treat every violation as an error.
+# [drc]
+# warning_margin = 0.01
+
 # -----------------------------------------------------------------------------
 # Silicon Layer (waveguides)
 # -----------------------------------------------------------------------------

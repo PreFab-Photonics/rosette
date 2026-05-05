@@ -190,6 +190,25 @@ impl PyDrcRules {
         Ok(PyDrcRules(self.0.clone().not_inside(inner, outer, name)))
     }
 
+    /// Set a global warning margin (in user units, typically µm).
+    ///
+    /// Near-threshold violations on length-based numeric rules (``min_width``,
+    /// ``min_spacing``, ``min_enclosure``, ``min_edge_length``, ``max_width``)
+    /// whose measured value is within ``margin`` of the required threshold
+    /// are reported as ``severity == "warning"`` instead of ``"error"``.
+    /// Warnings do not cause ``DrcResult.passed`` to be ``False`` and do not
+    /// fail ``rosette check`` / ``rosette drc``.
+    ///
+    /// ``min_area`` is intentionally excluded (its thresholds are in squared
+    /// units, not length units) and remains a strict error.
+    ///
+    /// Pass ``0.0`` to disable (the default behavior — every violation is an
+    /// error).
+    #[pyo3(signature = (margin))]
+    fn warning_margin(&self, margin: f64) -> Self {
+        PyDrcRules(self.0.clone().warning_margin(margin))
+    }
+
     fn __repr__(&self) -> String {
         format!("DrcRules({} rules)", self.0.rules().len())
     }
@@ -307,12 +326,19 @@ impl PyDrcResult {
             .collect()
     }
 
-    /// Number of violations.
+    /// Total number of violations (errors plus warnings).
+    ///
+    /// Use ``error_count`` / ``warning_count`` or ``passed`` to gate
+    /// pass/fail decisions — warnings do not cause ``passed`` to be
+    /// ``False``.
     fn __len__(&self) -> usize {
         self.0.violations.len()
     }
 
-    /// True if no violations were found.
+    /// True if no error-severity violations were found.
+    ///
+    /// Warnings (see ``DrcRules.warning_margin``) do not cause this to be
+    /// ``False``.
     #[getter]
     fn passed(&self) -> bool {
         self.0.passed()
@@ -336,17 +362,41 @@ impl PyDrcResult {
         self.0.stats.elapsed.as_secs_f64() * 1000.0
     }
 
+    /// Number of error-severity violations.
+    #[getter]
+    fn error_count(&self) -> usize {
+        self.0.error_count()
+    }
+
+    /// Number of warning-severity violations.
+    #[getter]
+    fn warning_count(&self) -> usize {
+        self.0.warning_count()
+    }
+
     fn __repr__(&self) -> String {
+        let errors = self.0.error_count();
+        let warnings = self.0.warning_count();
         if self.0.passed() {
-            format!(
-                "DrcResult(PASSED, {} polygons, {:.1}ms)",
-                self.0.stats.polygons_checked,
-                self.elapsed_ms()
-            )
+            if warnings == 0 {
+                format!(
+                    "DrcResult(PASSED, {} polygons, {:.1}ms)",
+                    self.0.stats.polygons_checked,
+                    self.elapsed_ms()
+                )
+            } else {
+                format!(
+                    "DrcResult(PASSED, {} warnings, {} polygons, {:.1}ms)",
+                    warnings,
+                    self.0.stats.polygons_checked,
+                    self.elapsed_ms()
+                )
+            }
         } else {
             format!(
-                "DrcResult(FAILED, {} violations, {} polygons, {:.1}ms)",
-                self.0.violations.len(),
+                "DrcResult(FAILED, {} errors, {} warnings, {} polygons, {:.1}ms)",
+                errors,
+                warnings,
                 self.0.stats.polygons_checked,
                 self.elapsed_ms()
             )

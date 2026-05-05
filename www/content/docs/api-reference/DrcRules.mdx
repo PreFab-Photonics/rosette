@@ -497,3 +497,54 @@ A new DrcRules with the rule added.
 </PyFunctionReturn>
 
 </PyFunction>
+
+<PyFunction name={"warning_margin"} type={"(margin) -> DrcRules"}>
+
+Set a global warning margin (in design units, typically µm). Near-threshold
+violations on length-based numeric rules whose measured value is within
+`margin` of the required threshold are reported as `severity == "warning"`
+instead of `"error"`. Warnings do not cause [`DrcResult.passed`](./DrcResult)
+to be `False` and do not fail `rosette check` / `rosette drc`.
+
+For example, with `min_width = 0.12` and `warning_margin = 0.01`:
+
+- width `< 0.11` → error
+- width in `[0.11, 0.12)` → warning
+- width `≥ 0.12` → no violation
+
+Applies to `min_width`, `min_spacing`, `min_enclosure`, `min_edge_length`,
+and `max_width` — all of which compare in length units.
+
+**Excluded:** `min_area` thresholds are in *squared* units, which are not
+commensurate with a length-unit margin, so they remain strict errors.
+Categorical / binary checks (`allowed_angles`, `require_overlap`,
+`forbid_overlap`, `no_self_intersection`, `snap_to_grid`, `acute_angle`,
+`not_inside`) are also unaffected.
+
+Pass `0.0` (or any non-positive value) to disable. The default behavior —
+every violation is an error — is preserved until you opt in.
+
+In TOML config:
+
+```toml
+[drc]
+warning_margin = 0.01
+```
+
+<div>
+
+<PyParameter name={"margin"} type={"float"}>
+
+Margin in design units (typically µm). Pass `0.0` to disable.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"DrcRules"}>
+
+A new DrcRules with the margin set.
+
+</PyFunctionReturn>
+
+</PyFunction>
