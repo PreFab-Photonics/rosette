@@ -431,30 +431,58 @@ impl PyDrcResult {
         self.0.warning_count()
     }
 
+    /// Number of violations suppressed by `drc_skip` post-filtering.
+    ///
+    /// A violation is suppressed if every cell it names has ``drc_skip =
+    /// True`` (or is within the subtree of a trusted cell). Violations with
+    /// unknown cell-name provenance are always kept.
+    #[getter]
+    fn suppressed_violations(&self) -> usize {
+        self.0.stats.suppressed_violations
+    }
+
+    /// Number of unique cells in the skipped-cell closure for this run.
+    ///
+    /// This is the count of cells that either have ``drc_skip = True`` or
+    /// are reachable from such a cell via ``CellRef``.
+    #[getter]
+    fn skipped_cells(&self) -> usize {
+        self.0.stats.skipped_cells
+    }
+
     fn __repr__(&self) -> String {
         let errors = self.0.error_count();
         let warnings = self.0.warning_count();
+        let suppressed = self.0.stats.suppressed_violations;
+        let suppressed_suffix = if suppressed > 0 {
+            format!(", {} suppressed", suppressed)
+        } else {
+            String::new()
+        };
         if self.0.passed() {
             if warnings == 0 {
                 format!(
-                    "DrcResult(PASSED, {} polygons, {:.1}ms)",
+                    "DrcResult(PASSED, {} polygons{}, {:.1}ms)",
                     self.0.stats.polygons_checked,
+                    suppressed_suffix,
                     self.elapsed_ms()
                 )
             } else {
                 format!(
-                    "DrcResult(PASSED, {} warnings, {} polygons, {:.1}ms)",
+                    "DrcResult(PASSED, {} warnings, {} polygons{}, {:.1}ms)",
                     warnings,
                     self.0.stats.polygons_checked,
+                    suppressed_suffix,
                     self.elapsed_ms()
                 )
             }
         } else {
             format!(
-                "DrcResult(FAILED, {} errors, {} warnings, {} polygons, {:.1}ms)",
+                "DrcResult(FAILED, {} errors, {} warnings, {} polygons{}, {:.1}ms)",
                 errors,
                 warnings,
                 self.0.stats.polygons_checked,
+                suppressed_suffix,
                 self.elapsed_ms()
             )
         }

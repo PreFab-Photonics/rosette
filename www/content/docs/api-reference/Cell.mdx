@@ -34,9 +34,48 @@ via `to_cell()`. Can also be set manually for component cells.
 
 </PyAttribute>
 
+<PyAttribute name={"drc_skip"} type={"bool"}>
+
+Whether this cell is marked as trusted for DRC. When `True`, DRC violations
+attributed entirely to this cell (or to cells in its subtree) are suppressed
+from the final `DrcResult`. Inter-cell violations between this cell and an
+untrusted cell are still reported.
+
+Use this to silence noise from PDK components or vendor IP that you trust:
+
+```python
+pd = Cell("PD_A", drc_skip=True)
+# ... or set later
+pd.drc_skip = True
+```
+
+The skipped-cell counts and number of suppressed violations are surfaced on
+[`DrcResult.skipped_cells`](./DrcResult) and
+[`DrcResult.suppressed_violations`](./DrcResult).
+
+**Known v1 limitations.**
+
+- **Per-polygon rules** (e.g. `MinWidth`, `MinArea`, `AllowedAngles`) and
+  **cross-layer pairwise rules** (e.g. `Enclosure`, `RequireOverlap`, and
+  cross-layer `MinSpacing`) currently produce violations without cell-name
+  provenance and so are not suppressed. This is a runner-side gap that will
+  be closed by a follow-up; once it lands, `drc_skip` will strengthen
+  automatically with no API change.
+- **Placement is also trusted, not just interior.** If two trusted cells (or
+  two instances of the same trusted cell) are placed by an untrusted parent
+  in a way that violates a same-layer rule between them, the violation is
+  still suppressed because both endpoint cells are trusted. If you need to
+  catch placement mistakes against trusted blocks, place at least one of the
+  participants in an untrusted cell.
+- **Not persisted to GDS.** GDS has no standard place to store this flag, so
+  round-tripping a design through `write_gds` / `read_gds` clears `drc_skip`
+  on every cell.
+
+</PyAttribute>
+
 ## Methods
 
-<PyFunction name={"__init__"} type={"(name) -> None"}>
+<PyFunction name={"__init__"} type={"(name, *, drc_skip=False) -> None"}>
 
 Create a new empty cell.
 
@@ -46,6 +85,12 @@ Create a new empty cell.
 
 Name of the cell. Must be unique within a design, non-empty, at most 32
 characters, and contain only printable ASCII (no spaces or Unicode).
+
+</PyParameter>
+<PyParameter name={"drc_skip"} type={"bool"} default={"False"}>
+
+If `True`, mark this cell as trusted for DRC. See the `drc_skip` attribute
+above for full semantics.
 
 </PyParameter>
 

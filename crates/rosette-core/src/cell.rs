@@ -317,6 +317,11 @@ pub struct Cell {
     metadata: CellMetadata,
     /// Cell origin point, used as the reference for cell instancing.
     origin: Point,
+    /// If true, DRC violations attributed entirely to this cell (or cells in
+    /// its subtree) are suppressed from the final DRC result. Used to mark
+    /// trusted cells such as PDK components. See `rosette-drc` for the exact
+    /// suppression predicate.
+    drc_skip: bool,
 }
 
 impl Cell {
@@ -328,6 +333,7 @@ impl Cell {
             ports: Vec::new(),
             metadata: CellMetadata::default(),
             origin: Point::origin(),
+            drc_skip: false,
         }
     }
 
@@ -401,6 +407,23 @@ impl Cell {
     /// Get the path length metadata.
     pub fn path_length(&self) -> Option<f64> {
         self.metadata.path_length
+    }
+
+    /// Returns true if this cell is marked as trusted for DRC.
+    ///
+    /// When true, DRC violations attributed entirely to this cell (or to cells
+    /// in its subtree) are suppressed from the final DRC result. Inter-cell
+    /// violations between a trusted cell and an untrusted cell are still
+    /// reported.
+    pub fn drc_skip(&self) -> bool {
+        self.drc_skip
+    }
+
+    /// Set whether this cell is marked as trusted for DRC.
+    ///
+    /// See [`Cell::drc_skip`] for the exact suppression semantics.
+    pub fn set_drc_skip(&mut self, drc_skip: bool) {
+        self.drc_skip = drc_skip;
     }
 
     /// Add a bend info entry to the cell metadata.
@@ -935,6 +958,21 @@ mod tests {
         let cell = Cell::new("test_cell");
         assert_eq!(cell.name(), "test_cell");
         assert!(cell.is_empty());
+    }
+
+    #[test]
+    fn test_drc_skip_default_false() {
+        let cell = Cell::new("trusted");
+        assert!(!cell.drc_skip());
+    }
+
+    #[test]
+    fn test_drc_skip_setter() {
+        let mut cell = Cell::new("trusted");
+        cell.set_drc_skip(true);
+        assert!(cell.drc_skip());
+        cell.set_drc_skip(false);
+        assert!(!cell.drc_skip());
     }
 
     #[test]
