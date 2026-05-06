@@ -4,9 +4,20 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Design Rule Checking for rosette photonic layouts"
+# Disable bench auto-discovery — we want `fixtures.rs` to be a module of the
+# `drc` bench, not a separate top-level bench binary. Explicit `[[bench]]`
+# below replaces auto-discovery.
+autobenches = false
 
 [dependencies]
 rosette-core.workspace = true
 thiserror.workspace = true
 geo.workspace = true
 rstar = "0.12"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
+
+[[bench]]
+name = "drc"
+harness = false
