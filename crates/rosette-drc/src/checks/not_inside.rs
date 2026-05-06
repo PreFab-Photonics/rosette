@@ -48,7 +48,7 @@ pub fn check_not_inside(
     let outer_union = union_polygons(outers);
 
     let mut violations = Vec::new();
-    for (inner_poly, _) in inners {
+    for (inner_poly, orig_idx) in inners {
         let geo_inner = MultiPolygon::new(vec![polygon_to_geo(inner_poly)]);
 
         // Degenerate inner polygons (collinear vertices, sub-epsilon slivers)
@@ -77,7 +77,8 @@ pub fn check_not_inside(
                 ),
             )
             .with_layer2(outer_layer)
-            .with_severity(Severity::Error);
+            .with_severity(Severity::Error)
+            .with_polygon_idx(*orig_idx);
 
             if let Some(name) = rule_name {
                 violation = violation.with_name(name);

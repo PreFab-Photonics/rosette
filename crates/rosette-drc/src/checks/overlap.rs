@@ -56,7 +56,10 @@ pub fn check_forbid_overlap_bulk(
             }
 
             let (poly2, _) = &polygons2[candidate.index];
-            if let Some(v) = check_forbid_overlap(poly1, layer1, poly2, layer2, rule_name) {
+            if let Some(mut v) = check_forbid_overlap(poly1, layer1, poly2, layer2, rule_name) {
+                v = v
+                    .with_polygon_idx(*orig_idx1)
+                    .with_polygon_idx2(candidate.orig_index);
                 violations.push(v);
             }
         }
@@ -141,7 +144,7 @@ pub fn check_require_overlap_bulk(
     if polygons2.is_empty() {
         return polygons1
             .iter()
-            .map(|(poly1, _)| {
+            .map(|(poly1, orig_idx1)| {
                 let mut violation = DrcViolation::new(
                     RuleType::MissingOverlap,
                     poly1.bbox(),
@@ -152,7 +155,8 @@ pub fn check_require_overlap_bulk(
                     ),
                 )
                 .with_layer2(layer2)
-                .with_severity(Severity::Error);
+                .with_severity(Severity::Error)
+                .with_polygon_idx(*orig_idx1);
 
                 if let Some(name) = rule_name {
                     violation = violation.with_name(name);
@@ -210,7 +214,8 @@ pub fn check_require_overlap_bulk(
                 ),
             )
             .with_layer2(layer2)
-            .with_severity(Severity::Error);
+            .with_severity(Severity::Error)
+            .with_polygon_idx(*orig_idx1);
 
             if let Some(name) = rule_name {
                 violation = violation.with_name(name);

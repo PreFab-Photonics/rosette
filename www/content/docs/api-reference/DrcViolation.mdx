@@ -57,20 +57,37 @@ spacing, enclosure). `None` for single-layer rules.
 
 Bounding box of the violation as `((min_x, min_y), (max_x, max_y))`.
 
+**Coordinate frame:** top-level (flattened, global) coordinates — the same
+frame as the final GDS output. Violations raised inside a nested cell are
+reported at the cell's placed position, not in its local coordinate system.
+This contract holds for every rule type.
+
 </PyAttribute>
 
 <PyAttribute name={"cell_name"} type={"str | None"}>
 
-Name of the cell containing the first polygon involved in the violation.
-Set for pairwise rules (overlap, spacing) where the source cell is known.
-`None` for per-polygon rules (min\_width, min\_area, etc.).
+Name of the cell containing the polygon that triggered the violation.
+
+Populated for every attributable violation: all per-polygon rules
+(`min_width`, `min_area`, `allowed_angles`, `min_edge_length`,
+`self_intersection`, `max_width`, `acute_angle`, `snap_to_grid`), all
+same-layer and cross-layer pairwise rules, and `not_inside` (set to the
+inner-layer cell). The only rule type that leaves `cell_name` as `None` by
+design is `density`, which is a window-level check with no single source
+polygon.
 
 </PyAttribute>
 
 <PyAttribute name={"cell_name2"} type={"str | None"}>
 
 Name of the cell containing the second polygon involved in the violation.
-For intra-cell violations, this equals `cell_name`. For inter-instance
-violations, it identifies the other cell. `None` for per-polygon rules.
+
+For intra-cell same-layer pairwise violations (both polygons inside the
+same cell definition), this equals `cell_name`. For inter-instance or
+cross-layer pairwise rules, it identifies the other cell. `None` for
+per-polygon rules and for cases where the second side is undefined — e.g.
+an `enclosure` violation with no outer polygon on the layer, a
+`require_overlap` miss (no matching polygon), or a `not_inside` violation
+(which unions all outer polygons before testing).
 
 </PyAttribute>

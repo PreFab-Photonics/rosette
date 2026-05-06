@@ -71,16 +71,17 @@ Elapsed time in milliseconds.
 
 Number of violations suppressed by `drc_skip` post-filtering.
 
-A violation is suppressed iff every cell it names has `drc_skip = True`
-(or is within the subtree of a trusted cell). Violations with unknown
-cell-name provenance are always kept (safe default). See
-[`Cell.drc_skip`](./Cell).
+A violation is suppressed when every cell it names is within the
+skipped-cell closure (a cell with `drc_skip = True` or any cell reachable
+from it via `CellRef`). Violations with unknown cell-name provenance are
+kept as a safe default. See [`Cell.drc_skip`](./Cell).
 
-**Known v1 limitation.** Per-polygon rules (`MinWidth`, `MinArea`, etc.)
-and cross-layer pairwise rules (e.g. `Enclosure`, `RequireOverlap`,
-cross-layer `MinSpacing`) currently produce violations without cell-name
-provenance and are not counted here. This will improve as runner
-provenance is filled in.
+As of the provenance work in ROS-552, per-polygon rules (`MinWidth`,
+`MinArea`, etc.), cross-layer pairwise rules (`Enclosure`,
+`RequireOverlap`, cross-layer `MinSpacing`/`ForbidOverlap`) and
+`NotInside` all carry cell-name provenance and therefore participate in
+suppression. The only rule that does not is `Density`, whose window-level
+check has no single source cell.
 
 </PyAttribute>
 

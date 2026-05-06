@@ -28,9 +28,10 @@ pub struct DrcStats {
     /// A violation is suppressed iff every cell it names
     /// (`cell_name`, `cell_name2`) is within the skipped-cell closure
     /// (a cell with `drc_skip = true` or any cell reachable from it via
-    /// `CellRef`). Violations with unknown provenance (e.g., per-polygon
-    /// rules and cross-layer pairwise rules that currently lose cell
-    /// attribution) are kept as a safe default.
+    /// `CellRef`). As of ROS-552, per-polygon rules and cross-layer
+    /// pairwise rules also carry cell-name provenance and therefore
+    /// participate in suppression. The only rule that doesn't is
+    /// `Density`, whose window-based check has no single source cell.
     pub suppressed_violations: usize,
     /// Number of unique cell names in the skipped-cell closure for this
     /// run.
@@ -196,6 +197,11 @@ fn apply_drc_skip_filter(
     for v in violations {
         let should_suppress = match (&v.cell_name, &v.cell_name2) {
             (Some(a), Some(b)) => skipped.contains(a) && skipped.contains(b),
+            // Single-side attribution (e.g. per-polygon rules, one-sided
+            // Enclosure/NotInside): suppress iff the only named cell is
+            // trusted. This is what makes drc_skip work for per-polygon
+            // violations after ROS-552 populated provenance.
+            (Some(a), None) => skipped.contains(a),
             _ => false,
         };
         if should_suppress {
@@ -205,6 +211,34 @@ fn apply_drc_skip_filter(
         }
     }
     (kept, suppressed)
+}
+
+/// Map internal `polygon_idx`/`polygon_idx2` fields on each violation to
+/// `cell_name`/`cell_name2` using a side-table built during flattening.
+///
+/// Cell names that were already set (by Phase 1/2 per-instance emission or
+/// by the same-layer inter-instance pass) are left untouched. Empty strings
+/// in the side-table (which would indicate an unclaimed index slot — in
+/// practice this should never happen) are skipped rather than written
+/// through, so a violation with truly unknown provenance keeps `None`
+/// instead of becoming `Some("")`.
+fn attach_cell_names(violations: &mut [DrcViolation], global_cell_names: &[String]) {
+    for v in violations {
+        if v.cell_name.is_none()
+            && let Some(idx) = v.polygon_idx
+            && let Some(name) = global_cell_names.get(idx)
+            && !name.is_empty()
+        {
+            v.cell_name = Some(name.clone());
+        }
+        if v.cell_name2.is_none()
+            && let Some(idx) = v.polygon_idx2
+            && let Some(name) = global_cell_names.get(idx)
+            && !name.is_empty()
+        {
+            v.cell_name2 = Some(name.clone());
+        }
+    }
 }
 
 impl DrcRunner {
@@ -264,17 +298,17 @@ impl DrcRunner {
 
         let mut violations = Vec::new();
 
-        // Phase 1: Per-polygon rules — check each unique cell once.
-        // These rules examine individual polygon properties (width, area, angles,
-        // etc.) which are invariant under rigid transforms (rotation + translation).
-        let mut checked_cells: HashSet<String> = HashSet::new();
+        // Phase 1: Per-polygon rules — detect each unique cell once, emit
+        // per-instance with `location` transformed into top-level global
+        // coords and `cell_name` set to the owning cell.
+        let mut per_polygon_cache: HashMap<String, Vec<DrcViolation>> = HashMap::new();
         if !per_polygon_rules.is_empty() {
             self.check_per_polygon_hierarchical(
                 cell,
                 library,
                 &per_polygon_rules,
                 &Transform::identity(),
-                &mut checked_cells,
+                &mut per_polygon_cache,
                 &mut violations,
             );
         }
@@ -283,14 +317,16 @@ impl DrcRunner {
         let needs_flatten = !pairwise_rules.is_empty() || !transform_dep_rules.is_empty();
         let polygons_checked: usize;
         if needs_flatten {
-            // Phase 2: Intra-cell pairwise checks (each unique cell once)
+            // Phase 2: Intra-cell same-layer pairwise — same detect-once,
+            // emit-per-instance model as Phase 1.
             if !pairwise_rules.is_empty() {
-                let mut intra_checked: HashSet<String> = HashSet::new();
+                let mut intra_cache: HashMap<String, Vec<DrcViolation>> = HashMap::new();
                 self.check_intra_cell_pairwise(
                     cell,
                     library,
                     &pairwise_rules,
-                    &mut intra_checked,
+                    &Transform::identity(),
+                    &mut intra_cache,
                     &mut violations,
                 );
             }
@@ -311,22 +347,35 @@ impl DrcRunner {
                 .map(|g| g.polygons_by_layer.values().map(|v| v.len()).sum::<usize>())
                 .sum();
 
+            // Build a side-table mapping global polygon index to its owning
+            // cell name. `check_rule` emits violations with `polygon_idx`
+            // (and `polygon_idx2` for pairwise) populated; we map those
+            // indices to cell names at the end.
+            let global_cell_names = Self::build_global_cell_names(&instance_groups, global_index);
+
             let merged = Self::merge_instance_groups(&instance_groups);
 
             // Transform-dependent per-polygon rules run on flattened geometry
             // so they see final world coordinates (e.g., snap-to-grid depends
             // on the actual vertex positions after all transforms).
+            let mut transform_dep_violations = Vec::new();
             for rule in &transform_dep_rules {
-                let rule_violations = self.check_rule(rule, &merged);
-                violations.extend(rule_violations);
+                transform_dep_violations.extend(self.check_rule(rule, &merged));
             }
+            attach_cell_names(&mut transform_dep_violations, &global_cell_names);
+            violations.extend(transform_dep_violations);
 
             // Phase 3: Inter-instance pairwise checks
+            let mut pairwise_violations = Vec::new();
             for rule in &pairwise_rules {
-                let rule_violations =
-                    self.check_pairwise_rule_inter_instance(rule, &instance_groups, &merged);
-                violations.extend(rule_violations);
+                pairwise_violations.extend(self.check_pairwise_rule_inter_instance(
+                    rule,
+                    &instance_groups,
+                    &merged,
+                ));
             }
+            attach_cell_names(&mut pairwise_violations, &global_cell_names);
+            violations.extend(pairwise_violations);
         } else {
             polygons_checked = self.count_polygons(cell, library);
         }
@@ -365,34 +414,62 @@ impl DrcRunner {
     /// Check per-polygon rules hierarchically, visiting each unique cell once.
     ///
     /// For cells referenced only through rigid transforms (rotation, translation,
-    /// reflection), per-polygon properties are invariant so we check local
-    /// (untransformed) geometry once. For non-rigid transforms (non-uniform scale),
-    /// the transformed geometry is checked per instance since width/area/angles
-    /// change under such transforms.
+    /// reflection), per-polygon properties are invariant so we detect once on
+    /// local (untransformed) geometry. Each detected violation is then cloned
+    /// for every rigid instance of that cell, with `location` transformed into
+    /// top-level global coordinates and `cell_name` set.
+    ///
+    /// For non-rigid transforms (non-uniform scale), the transformed geometry
+    /// is checked per instance since width/area/angles change under such
+    /// transforms — those violations are emitted directly in global coords.
     fn check_per_polygon_hierarchical(
         &self,
         cell: &Cell,
         library: Option<&Library>,
         rules: &[&Rule],
         transform: &Transform,
-        checked_cells: &mut HashSet<String>,
+        detection_cache: &mut HashMap<String, Vec<DrcViolation>>,
         violations: &mut Vec<DrcViolation>,
     ) {
         if transform.is_rigid() {
-            // Rigid transform: per-polygon properties are invariant, check once
-            if checked_cells.insert(cell.name().to_string()) {
-                let local_polygons = self.collect_local_polygons(cell);
-                for rule in rules {
-                    let rule_violations = self.check_rule(rule, &local_polygons);
-                    violations.extend(rule_violations);
-                }
+            // Rigid transform: per-polygon properties are invariant. Detect
+            // once per unique cell, cache the local-frame violations.
+            let cached = detection_cache
+                .entry(cell.name().to_string())
+                .or_insert_with(|| {
+                    let local_polygons = self.collect_local_polygons(cell);
+                    let mut out = Vec::new();
+                    for rule in rules {
+                        out.extend(self.check_rule(rule, &local_polygons));
+                    }
+                    out
+                });
+            // Emit one violation per rigid instance with transformed location.
+            for template in cached.iter() {
+                let mut v = template.clone();
+                v.location = v.location.transform(transform);
+                v.cell_name = Some(cell.name().to_string());
+                // Per-polygon violations have no second side.
+                v.cell_name2 = None;
+                // Polygon idx was relative to the local (per-cell) run; it
+                // no longer maps to anything meaningful in the global
+                // side-table, so clear it to avoid confusing downstream code.
+                v.polygon_idx = None;
+                v.polygon_idx2 = None;
+                violations.push(v);
             }
         } else {
-            // Non-rigid transform: must check transformed geometry per instance
+            // Non-rigid transform: check transformed geometry for this
+            // specific instance. Violations already land in global coords.
             let transformed_polygons = self.collect_transformed_polygons(cell, transform);
             for rule in rules {
-                let rule_violations = self.check_rule(rule, &transformed_polygons);
-                violations.extend(rule_violations);
+                for mut v in self.check_rule(rule, &transformed_polygons) {
+                    v.cell_name = Some(cell.name().to_string());
+                    v.cell_name2 = None;
+                    v.polygon_idx = None;
+                    v.polygon_idx2 = None;
+                    violations.push(v);
+                }
             }
         }
 
@@ -409,7 +486,7 @@ impl DrcRunner {
                         Some(lib),
                         rules,
                         &combined,
-                        checked_cells,
+                        detection_cache,
                         violations,
                     );
                 }
@@ -419,36 +496,65 @@ impl DrcRunner {
 
     /// Check intra-cell pairwise rules (same-layer spacing and overlap only).
     ///
-    /// Each unique cell is checked once. This catches overlapping polygons and
-    /// spacing violations within a cell definition without needing to flatten.
-    /// Only same-layer rules benefit from this optimization; cross-layer rules
-    /// (enclosure, require_overlap) are handled in the full merged pass.
+    /// For rigid transforms, detect once per unique cell on local geometry
+    /// and emit per instance with `location` transformed into top-level
+    /// global coordinates (the reported `actual` distance is distance-
+    /// preserving under rigid transforms).
+    ///
+    /// For non-rigid transforms (non-uniform scale), detect on transformed
+    /// geometry per-instance so the reported `actual` and `location` land
+    /// in global coordinates — same pattern as
+    /// [`Self::check_per_polygon_hierarchical`]. Phase 3 only cross-compares
+    /// polygons from *different* instances, so intra-instance same-layer
+    /// violations under non-rigid scaling would otherwise be lost.
+    ///
+    /// Only same-layer rules benefit from this path; cross-layer rules
+    /// (enclosure, require_overlap) are handled in Phase 3's merged pass.
     fn check_intra_cell_pairwise(
         &self,
         cell: &Cell,
         library: Option<&Library>,
         rules: &[&Rule],
-        checked_cells: &mut HashSet<String>,
+        transform: &Transform,
+        detection_cache: &mut HashMap<String, Vec<DrcViolation>>,
         violations: &mut Vec<DrcViolation>,
     ) {
-        if checked_cells.insert(cell.name().to_string()) {
-            let local_polygons = self.collect_local_polygons(cell);
-            // Only run same-layer forbid_overlap and same-layer spacing rules
-            for rule in rules {
-                let is_same_layer_pairwise = match rule {
-                    Rule::MinSpacing { layer1, layer2, .. } => layer1 == layer2,
-                    Rule::ForbidOverlap { layer1, layer2, .. } => layer1 == layer2,
-                    _ => false,
-                };
-                if is_same_layer_pairwise {
-                    let rule_violations = self.check_rule(rule, &local_polygons);
-                    // Annotate intra-cell violations with the cell name
-                    let cell_name = cell.name().to_string();
-                    for mut v in rule_violations {
-                        v.cell_name = Some(cell_name.clone());
-                        v.cell_name2 = Some(cell_name.clone());
-                        violations.push(v);
+        let cell_name = cell.name().to_string();
+        if transform.is_rigid() {
+            // Rigid: distances are invariant, cache per unique cell.
+            let cached = detection_cache.entry(cell_name.clone()).or_insert_with(|| {
+                let local_polygons = self.collect_local_polygons(cell);
+                let mut out = Vec::new();
+                for rule in rules {
+                    if Self::is_same_layer_pairwise(rule) {
+                        out.extend(self.check_rule(rule, &local_polygons));
                     }
+                }
+                out
+            });
+            for template in cached.iter() {
+                let mut v = template.clone();
+                v.location = v.location.transform(transform);
+                v.cell_name = Some(cell_name.clone());
+                v.cell_name2 = Some(cell_name.clone());
+                v.polygon_idx = None;
+                v.polygon_idx2 = None;
+                violations.push(v);
+            }
+        } else {
+            // Non-rigid: re-detect on transformed geometry. The violation's
+            // `location` and `actual` value both reflect the scaled shape.
+            let transformed_polygons = self.collect_transformed_polygons(cell, transform);
+            for rule in rules {
+                if !Self::is_same_layer_pairwise(rule) {
+                    continue;
+                }
+                for mut v in self.check_rule(rule, &transformed_polygons) {
+                    v.cell_name = Some(cell_name.clone());
+                    v.cell_name2 = Some(cell_name.clone());
+                    v.polygon_idx = None;
+                    v.polygon_idx2 = None;
+                    violations.push(v);
                 }
             }
         }
@@ -458,14 +564,31 @@ impl DrcRunner {
                 && let Some(lib) = library
                 && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
             {
-                self.check_intra_cell_pairwise(
-                    ref_cell,
-                    Some(lib),
-                    rules,
-                    checked_cells,
-                    violations,
-                );
+                let transforms = Self::expand_cellref_transforms(cell_ref);
+                for copy_transform in transforms {
+                    let combined = transform.then(&copy_transform);
+                    self.check_intra_cell_pairwise(
+                        ref_cell,
+                        Some(lib),
+                        rules,
+                        &combined,
+                        detection_cache,
+                        violations,
+                    );
+                }
             }
+        }
+    }
+
+    /// Returns true iff `rule` is a same-layer pairwise rule (same-layer
+    /// `MinSpacing` or `ForbidOverlap`). Same-layer pairwise rules are the
+    /// only ones checked intra-cell in Phase 2; cross-layer and non-pairwise
+    /// rules fall through to Phase 3's merged pass.
+    fn is_same_layer_pairwise(rule: &Rule) -> bool {
+        match rule {
+            Rule::MinSpacing { layer1, layer2, .. } => layer1 == layer2,
+            Rule::ForbidOverlap { layer1, layer2, .. } => layer1 == layer2,
+            _ => false,
         }
     }
 
@@ -569,6 +692,29 @@ impl DrcRunner {
         merged
     }
 
+    /// Build a `global_index`-indexed side-table of cell names.
+    ///
+    /// `total` is the count returned by `flatten_into_groups` in its
+    /// `global_index` out-parameter — the next unused index. Every
+    /// `global_index` actually assigned to a polygon is strictly less than
+    /// `total`, so the returned `Vec` has length `total`.
+    ///
+    /// Entries for indices that weren't assigned to a polygon (shouldn't
+    /// happen in practice but kept for safety) are filled with empty strings.
+    fn build_global_cell_names(groups: &[InstancePolygons], total: usize) -> Vec<String> {
+        let mut names = vec![String::new(); total];
+        for group in groups {
+            for polys in group.polygons_by_layer.values() {
+                for (_, idx) in polys {
+                    if let Some(slot) = names.get_mut(*idx) {
+                        *slot = group.cell_name.clone();
+                    }
+                }
+            }
+        }
+        names
+    }
+
     /// Check a pairwise rule with inter-instance optimization.
     ///
     /// For same-layer spacing and forbid_overlap, intra-cell checks are already
@@ -651,10 +797,17 @@ impl DrcRunner {
                     rule_name,
                     false, // not same-layer dedup — these are from different instances
                 );
-                // Annotate violations with source cell names
+                // Annotate violations with source cell names.
+                // Clear polygon_idx/polygon_idx2 set by check_spacing — we've
+                // set cell_name/cell_name2 directly here, so the side-table
+                // mapping in attach_cell_names would be redundant (it skips
+                // already-set names anyway, but clearing keeps the indices
+                // consistent with Phase 1/2 conventions).
                 for mut v in inter_violations {
                     v.cell_name = Some(group_i.cell_name.clone());
                     v.cell_name2 = Some(group_j.cell_name.clone());
+                    v.polygon_idx = None;
+                    v.polygon_idx2 = None;
                     violations.push(v);
                 }
             }
@@ -696,10 +849,13 @@ impl DrcRunner {
                     polys_i, layer, polys_j, layer, rule_name,
                     false, // not same-layer dedup — these are from different instances
                 );
-                // Annotate violations with source cell names
+                // Annotate violations with source cell names; clear polygon
+                // indices (see note in check_inter_instance_spacing).
                 for mut v in inter_violations {
                     v.cell_name = Some(group_i.cell_name.clone());
                     v.cell_name2 = Some(group_j.cell_name.clone());
+                    v.polygon_idx = None;
+                    v.polygon_idx2 = None;
                     violations.push(v);
                 }
             }
@@ -848,7 +1004,10 @@ impl DrcRunner {
 
                 polys
                     .iter()
-                    .filter_map(|(poly, _)| check_width(poly, *layer, *width, name.as_deref()))
+                    .filter_map(|(poly, idx)| {
+                        check_width(poly, *layer, *width, name.as_deref())
+                            .map(|v| v.with_polygon_idx(*idx))
+                    })
                     .collect()
             }
 
@@ -859,7 +1018,10 @@ impl DrcRunner {
 
                 polys
                     .iter()
-                    .filter_map(|(poly, _)| check_area(poly, *layer, *area, name.as_deref()))
+                    .filter_map(|(poly, idx)| {
+                        check_area(poly, *layer, *area, name.as_deref())
+                            .map(|v| v.with_polygon_idx(*idx))
+                    })
                     .collect()
             }
 
@@ -874,8 +1036,10 @@ impl DrcRunner {
 
                 polys
                     .iter()
-                    .flat_map(|(poly, _)| {
+                    .flat_map(|(poly, idx)| {
                         check_angles(poly, *layer, allowed_angles, name.as_deref())
+                            .into_iter()
+                            .map(|v| v.with_polygon_idx(*idx))
                     })
                     .collect()
             }
@@ -917,11 +1081,11 @@ impl DrcRunner {
                         let mut violations = Vec::new();
                         // For each inner polygon, check if ANY outer polygon encloses it.
                         // Only report a violation if no outer polygon provides sufficient enclosure.
-                        for (inner_poly, _) in ip {
+                        for (inner_poly, inner_idx) in ip {
                             let mut best_violation: Option<DrcViolation> = None;
                             let mut is_enclosed = false;
 
-                            for (outer_poly, _) in op {
+                            for (outer_poly, outer_idx) in op {
                                 match check_enclosure(
                                     inner_poly,
                                     *inner,
@@ -935,7 +1099,10 @@ impl DrcRunner {
                                         is_enclosed = true;
                                         break;
                                     }
-                                    Some(v) => {
+                                    Some(mut v) => {
+                                        v = v
+                                            .with_polygon_idx(*inner_idx)
+                                            .with_polygon_idx2(*outer_idx);
                                         // Keep the closest near-miss (largest actual value).
                                         // This gives the most actionable report: "you need 0.1
                                         // more enclosure" is more useful than "no enclosure
@@ -970,7 +1137,7 @@ impl DrcRunner {
                     (Some(ip), None) => {
                         // Inner polygons exist but no outer polygons — every inner is unenclosed
                         let mut violations = Vec::new();
-                        for (inner_poly, _) in ip {
+                        for (inner_poly, inner_idx) in ip {
                             let mut violation = DrcViolation::new(
                                 RuleType::Enclosure {
                                     required: *enclosure,
@@ -984,7 +1151,8 @@ impl DrcRunner {
                                 ),
                             )
                             .with_layer2(*outer)
-                            .with_severity(Severity::Error);
+                            .with_severity(Severity::Error)
+                            .with_polygon_idx(*inner_idx);
 
                             if let Some(name) = name {
                                 violation = violation.with_name(name);
@@ -1048,7 +1216,11 @@ impl DrcRunner {
 
                 polys
                     .iter()
-                    .flat_map(|(poly, _)| check_edge_length(poly, *layer, *length, name.as_deref()))
+                    .flat_map(|(poly, idx)| {
+                        check_edge_length(poly, *layer, *length, name.as_deref())
+                            .into_iter()
+                            .map(|v| v.with_polygon_idx(*idx))
+                    })
                     .collect()
             }
 
@@ -1059,7 +1231,10 @@ impl DrcRunner {
 
                 polys
                     .iter()
-                    .filter_map(|(poly, _)| check_self_intersection(poly, *layer, name.as_deref()))
+                    .filter_map(|(poly, idx)| {
+                        check_self_intersection(poly, *layer, name.as_deref())
+                            .map(|v| v.with_polygon_idx(*idx))
+                    })
                     .collect()
             }
 
@@ -1070,7 +1245,10 @@ impl DrcRunner {
 
                 polys
                     .iter()
-                    .filter_map(|(poly, _)| check_max_width(poly, *layer, *width, name.as_deref()))
+                    .filter_map(|(poly, idx)| {
+                        check_max_width(poly, *layer, *width, name.as_deref())
+                            .map(|v| v.with_polygon_idx(*idx))
+                    })
                     .collect()
             }
 
@@ -1085,8 +1263,10 @@ impl DrcRunner {
 
                 polys
                     .iter()
-                    .flat_map(|(poly, _)| {
+                    .flat_map(|(poly, idx)| {
                         check_snap_to_grid(poly, *layer, *grid_pitch, name.as_deref())
+                            .into_iter()
+                            .map(|v| v.with_polygon_idx(*idx))
                     })
                     .collect()
             }
@@ -1102,8 +1282,10 @@ impl DrcRunner {
 
                 polys
                     .iter()
-                    .flat_map(|(poly, _)| {
+                    .flat_map(|(poly, idx)| {
                         check_acute_angle(poly, *layer, *threshold_deg, name.as_deref())
+                            .into_iter()
+                            .map(|v| v.with_polygon_idx(*idx))
                     })
                     .collect()
             }
@@ -1926,9 +2108,10 @@ mod tests {
     }
 
     #[test]
-    fn test_rigid_transform_deduplicates() {
-        // Multiple rigid instances of the same cell should only be checked once
-        // (no duplicate violations).
+    fn test_rigid_transform_detects_once_emits_per_instance() {
+        // Per ROS-552: per-polygon rules detect each unique cell once but
+        // emit one violation per rigid instance, carrying the owning
+        // `cell_name` and a `location` in top-level global coordinates.
         let mut child = Cell::new("tiny");
         // 0.05 wide polygon — fails min_width=0.15
         child.add_polygon(
@@ -1950,12 +2133,25 @@ mod tests {
         let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
 
         assert!(!result.passed());
-        // Should report 1 violation (from the cell definition), not 3
+        // One violation per rigid instance (3), each attributed to the child
+        // cell with a distinct global-coord bbox.
         assert_eq!(
             result.violations.len(),
-            1,
-            "Rigid instances should deduplicate per-polygon violations"
+            3,
+            "Per-polygon violations should be emitted once per rigid instance"
         );
+        let xs: Vec<f64> = result
+            .violations
+            .iter()
+            .map(|v| v.location.min().x)
+            .collect();
+        assert!(xs.contains(&0.0));
+        assert!(xs.contains(&100.0));
+        assert!(xs.contains(&200.0));
+        for v in &result.violations {
+            assert_eq!(v.cell_name.as_deref(), Some("tiny"));
+            assert!(v.cell_name2.is_none());
+        }
     }
 
     #[test]
@@ -2656,11 +2852,10 @@ mod tests {
     }
 
     #[test]
-    fn test_drc_skip_does_not_suppress_unattributed_violation() {
-        // Per-polygon rules (e.g., MinWidth) currently produce violations
-        // without cell_name attribution. Those MUST NOT be suppressed by
-        // drc_skip — the safe default is to keep violations we can't
-        // attribute. This test documents the v1 limitation.
+    fn test_drc_skip_suppresses_per_polygon_violation() {
+        // Regression for ROS-552: per-polygon rules now carry cell-name
+        // provenance, so drc_skip suppresses them. Previously (v1 of
+        // drc_skip) this was a documented gap — the violation was kept.
         let mut trusted = Cell::new("trusted");
         // A polygon with a thin neck that violates min_width.
         trusted.add_polygon(
@@ -2672,12 +2867,13 @@ mod tests {
         let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, Some("MIN_W"));
         let result = run_drc(&trusted, &rules, None);
 
-        // Per-polygon violation has cell_name=None, so it's NOT suppressed.
+        // With ROS-552 in place, the per-polygon violation is attributed to
+        // "trusted" and therefore suppressed.
         assert!(
-            !result.passed(),
-            "per-polygon violation without provenance should not be suppressed by drc_skip (v1 limitation)"
+            result.passed(),
+            "per-polygon violation attributed to trusted cell should be suppressed"
         );
-        assert_eq!(result.stats.suppressed_violations, 0);
+        assert_eq!(result.stats.suppressed_violations, 1);
         assert_eq!(result.stats.skipped_cells, 1);
     }
 
@@ -2702,5 +2898,550 @@ mod tests {
         assert_eq!(result.violations.len(), 1);
         assert_eq!(result.stats.suppressed_violations, 0);
         assert_eq!(result.stats.skipped_cells, 0);
+    }
+
+    // ==================================================================
+    // ROS-552: Per-rule hierarchical provenance tests.
+    //
+    // Each rule type gets a test that:
+    //   1. Puts violating geometry in a leaf cell.
+    //   2. Instances that leaf in a parent at a non-identity transform.
+    //   3. Asserts `cell_name` is set and `location` is in top-level
+    //      global coordinates.
+    // ==================================================================
+
+    fn two_level_hierarchy(leaf: Cell) -> (Library, String) {
+        // Parent places the leaf translated by (100, 50) — chosen so that
+        // local-frame and global-frame are trivially distinguishable.
+        let leaf_name = leaf.name().to_string();
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new(&leaf_name).at(100.0, 50.0));
+        let mut lib = Library::new("prov_lib");
+        lib.add_cell(leaf).unwrap();
+        lib.add_cell(top).unwrap();
+        (lib, "top".to_string())
+    }
+
+    #[test]
+    fn prov_min_width_attributed_and_global() {
+        let mut leaf = Cell::new("thin_wire");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+            Layer::new(1, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert_eq!(result.violations.len(), 1);
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("thin_wire"));
+        // Global-frame bbox: local (0,0)-(10,0.05) -> (100,50)-(110,50.05).
+        assert!((v.location.min().x - 100.0).abs() < 1e-9);
+        assert!((v.location.min().y - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prov_min_area_attributed_and_global() {
+        let mut leaf = Cell::new("tiny_sq");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().min_area(Layer::new(1, 0), 10.0, None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert_eq!(result.violations.len(), 1);
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("tiny_sq"));
+        assert!((v.location.min().x - 100.0).abs() < 1e-9);
+        assert!((v.location.min().y - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prov_allowed_angles_attributed_and_global() {
+        // Triangle has 60° interior angles; allow only {0, 90} -> violation.
+        let mut leaf = Cell::new("tri");
+        leaf.add_polygon(
+            Polygon::new(vec![
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 0.0),
+                Point::new(0.5, 1.0),
+            ]),
+            Layer::new(1, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().allowed_angles(Layer::new(1, 0), &[0.0, 90.0], None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert!(!result.violations.is_empty());
+        for v in &result.violations {
+            assert_eq!(v.cell_name.as_deref(), Some("tri"));
+            assert!(v.cell_name2.is_none());
+            assert!(v.location.min().x >= 100.0 - 1e-9);
+            assert!(v.location.min().y >= 50.0 - 1e-9);
+        }
+    }
+
+    #[test]
+    fn prov_min_edge_length_attributed_and_global() {
+        // A polygon with one tiny edge (0.01 long).
+        let mut leaf = Cell::new("short_edge");
+        leaf.add_polygon(
+            Polygon::new(vec![
+                Point::new(0.0, 0.0),
+                Point::new(10.0, 0.0),
+                Point::new(10.0, 10.0),
+                Point::new(10.0 - 0.01, 10.0),
+                Point::new(0.0, 10.0),
+            ]),
+            Layer::new(1, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().min_edge_length(Layer::new(1, 0), 0.5, None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert!(!result.violations.is_empty());
+        for v in &result.violations {
+            assert_eq!(v.cell_name.as_deref(), Some("short_edge"));
+        }
+    }
+
+    #[test]
+    fn prov_self_intersection_attributed_and_global() {
+        // Bowtie polygon (self-intersecting).
+        let mut leaf = Cell::new("bowtie");
+        leaf.add_polygon(
+            Polygon::new(vec![
+                Point::new(0.0, 0.0),
+                Point::new(10.0, 10.0),
+                Point::new(10.0, 0.0),
+                Point::new(0.0, 10.0),
+            ]),
+            Layer::new(1, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().no_self_intersection(Layer::new(1, 0), None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert_eq!(result.violations.len(), 1);
+        assert_eq!(result.violations[0].cell_name.as_deref(), Some("bowtie"));
+    }
+
+    #[test]
+    fn prov_max_width_attributed_and_global() {
+        let mut leaf = Cell::new("fat");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0),
+            Layer::new(1, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().max_width(Layer::new(1, 0), 5.0, None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert_eq!(result.violations.len(), 1);
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("fat"));
+        assert!((v.location.min().x - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prov_acute_angle_attributed_and_global() {
+        // Thin triangle has a very small apex angle.
+        let mut leaf = Cell::new("sharp");
+        leaf.add_polygon(
+            Polygon::new(vec![
+                Point::new(0.0, 0.0),
+                Point::new(10.0, 0.01),
+                Point::new(10.0, -0.01),
+            ]),
+            Layer::new(1, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().acute_angle(Layer::new(1, 0), 30.0, None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert!(!result.violations.is_empty());
+        for v in &result.violations {
+            assert_eq!(v.cell_name.as_deref(), Some("sharp"));
+        }
+    }
+
+    #[test]
+    fn prov_snap_to_grid_attributed_and_global() {
+        // Leaf is on-grid; but the parent translates by an off-grid offset
+        // so the final global coords are off-grid — forces snap-to-grid
+        // to find violations in the flattened geometry.
+        let mut leaf = Cell::new("ongrid");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.5),
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new("top");
+        // Translate by (0.0003, 0) — off 1nm grid since 0.0003 / 0.001 = 0.3.
+        top.add_ref(CellRef::new("ongrid").at(0.0003, 0.0));
+        let mut lib = Library::new("prov_lib");
+        lib.add_cell(leaf).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules = DrcRules::new().snap_to_grid(Layer::new(1, 0), 0.001, None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert!(!result.violations.is_empty());
+        for v in &result.violations {
+            assert_eq!(
+                v.cell_name.as_deref(),
+                Some("ongrid"),
+                "snap-to-grid violation should be attributed to the owning cell"
+            );
+        }
+    }
+
+    #[test]
+    fn prov_min_spacing_same_layer_intra_cell() {
+        // Two close polygons in the leaf on the same layer -> intra-cell
+        // same-layer min-spacing violation. Phase 2 emits per-instance
+        // with cell_name == cell_name2 == leaf.
+        let mut leaf = Cell::new("pair");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        leaf.add_polygon(
+            Polygon::rect(Point::new(1.05, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().min_spacing(Layer::new(1, 0), Layer::new(1, 0), 0.2, None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert!(!result.violations.is_empty());
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("pair"));
+        assert_eq!(v.cell_name2.as_deref(), Some("pair"));
+        // Global: at least one coord should be at the shifted position.
+        assert!(v.location.min().x >= 100.0 - 1e-9);
+    }
+
+    #[test]
+    fn prov_min_spacing_cross_layer() {
+        // Two layers, cross-layer spacing violation across instances.
+        let mut a = Cell::new("layer_a");
+        a.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        let mut b = Cell::new("layer_b");
+        b.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+            Layer::new(2, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("layer_a").at(0.0, 0.0));
+        top.add_ref(CellRef::new("layer_b").at(1.05, 0.0));
+        let mut lib = Library::new("prov_lib");
+        lib.add_cell(a).unwrap();
+        lib.add_cell(b).unwrap();
+        lib.add_cell(top).unwrap();
+        let rules = DrcRules::new().min_spacing(Layer::new(1, 0), Layer::new(2, 0), 0.5, None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert!(!result.violations.is_empty());
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("layer_a"));
+        assert_eq!(v.cell_name2.as_deref(), Some("layer_b"));
+    }
+
+    #[test]
+    fn prov_enclosure_cross_layer() {
+        // Inner on layer 2 in cell `inner_cell`; outer on layer 1 in cell
+        // `outer_cell`. Parent places them so inner is barely enclosed
+        // (margin < required).
+        let mut inner_cell = Cell::new("inner_cell");
+        inner_cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 4.0, 4.0),
+            Layer::new(2, 0),
+        );
+        let mut outer_cell = Cell::new("outer_cell");
+        outer_cell.add_polygon(
+            Polygon::rect(Point::new(-0.5, -0.5), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("inner_cell").at(0.0, 0.0));
+        top.add_ref(CellRef::new("outer_cell").at(0.0, 0.0));
+        let mut lib = Library::new("prov_lib");
+        lib.add_cell(inner_cell).unwrap();
+        lib.add_cell(outer_cell).unwrap();
+        lib.add_cell(top).unwrap();
+        let rules = DrcRules::new().min_enclosure(Layer::new(2, 0), Layer::new(1, 0), 2.0, None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert!(!result.violations.is_empty());
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("inner_cell"));
+        assert_eq!(v.cell_name2.as_deref(), Some("outer_cell"));
+    }
+
+    #[test]
+    fn prov_enclosure_no_outer() {
+        // Inner polygon with no outer on layer 1 — cell_name set,
+        // cell_name2 = None (there's no outer polygon to attribute to).
+        let mut leaf = Cell::new("orphan_inner");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 4.0, 4.0),
+            Layer::new(2, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().min_enclosure(Layer::new(2, 0), Layer::new(1, 0), 2.0, None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert_eq!(result.violations.len(), 1);
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("orphan_inner"));
+        assert!(v.cell_name2.is_none());
+    }
+
+    #[test]
+    fn prov_require_overlap_cross_layer() {
+        // layer_a polygon has no overlapping layer_b polygon.
+        let mut a = Cell::new("layer_a");
+        a.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        let mut b = Cell::new("layer_b");
+        b.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+            Layer::new(2, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("layer_a").at(0.0, 0.0));
+        top.add_ref(CellRef::new("layer_b").at(50.0, 0.0)); // far away
+        let mut lib = Library::new("prov_lib");
+        lib.add_cell(a).unwrap();
+        lib.add_cell(b).unwrap();
+        lib.add_cell(top).unwrap();
+        let rules = DrcRules::new().require_overlap(Layer::new(1, 0), Layer::new(2, 0), None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert!(!result.violations.is_empty());
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("layer_a"));
+        // cell_name2 is None — require_overlap's "no match" violation can't
+        // attribute to a specific outer polygon.
+        assert!(v.cell_name2.is_none());
+    }
+
+    #[test]
+    fn prov_forbid_overlap_cross_layer() {
+        let mut a = Cell::new("cell_a");
+        a.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
+            Layer::new(1, 0),
+        );
+        let mut b = Cell::new("cell_b");
+        b.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
+            Layer::new(2, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("cell_a").at(0.0, 0.0));
+        top.add_ref(CellRef::new("cell_b").at(1.0, 0.0)); // overlapping
+        let mut lib = Library::new("prov_lib");
+        lib.add_cell(a).unwrap();
+        lib.add_cell(b).unwrap();
+        lib.add_cell(top).unwrap();
+        let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(2, 0), None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert!(!result.violations.is_empty());
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("cell_a"));
+        assert_eq!(v.cell_name2.as_deref(), Some("cell_b"));
+    }
+
+    #[test]
+    fn prov_not_inside_cross_layer() {
+        // Inner polygon fully inside exclusion zone from another cell.
+        let mut inner_cell = Cell::new("inner_cell");
+        inner_cell.add_polygon(
+            Polygon::rect(Point::new(2.0, 2.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        let mut zone_cell = Cell::new("zone_cell");
+        zone_cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0),
+            Layer::new(2, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("inner_cell").at(0.0, 0.0));
+        top.add_ref(CellRef::new("zone_cell").at(0.0, 0.0));
+        let mut lib = Library::new("prov_lib");
+        lib.add_cell(inner_cell).unwrap();
+        lib.add_cell(zone_cell).unwrap();
+        lib.add_cell(top).unwrap();
+        let rules = DrcRules::new().not_inside(Layer::new(1, 0), Layer::new(2, 0), None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert_eq!(result.violations.len(), 1);
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("inner_cell"));
+        // cell_name2 None here: not_inside unions outers, so we can't
+        // attribute to a single outer polygon.
+        assert!(v.cell_name2.is_none());
+    }
+
+    #[test]
+    fn prov_density_leaves_cell_name_none_by_design() {
+        // Density is a window-based check with no single source polygon,
+        // so cell_name is documented as intentionally None.
+        let mut leaf = Cell::new("sparse");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules =
+            DrcRules::new().density(Layer::new(1, 0), Some(0.5), None, 10.0, 5.0, None, None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        // There's some density violations since the 1x1 square in a 10x10
+        // window is < 0.5. The contract: cell_name is None.
+        if let Some(v) = result.violations.first() {
+            assert!(
+                v.cell_name.is_none(),
+                "Density violations have no cell attribution by design"
+            );
+        }
+    }
+
+    #[test]
+    fn prov_drc_skip_suppresses_per_polygon_in_nested_cell() {
+        // Regression: a trusted leaf with per-polygon violation, placed in
+        // an untrusted parent. ROS-552 lets drc_skip suppress it.
+        let mut leaf = Cell::new("trusted_leaf");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+            Layer::new(1, 0),
+        );
+        leaf.set_drc_skip(true);
+        let (lib, top) = two_level_hierarchy(leaf);
+        let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+        let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+        assert!(result.passed());
+        assert_eq!(result.stats.suppressed_violations, 1);
+    }
+
+    #[test]
+    fn prov_drc_skip_suppresses_cross_layer_when_both_trusted() {
+        // Two trusted leaves in cross-layer forbid_overlap — now
+        // suppressed since both cell_name and cell_name2 are populated.
+        let mut a = Cell::new("a");
+        a.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
+            Layer::new(1, 0),
+        );
+        a.set_drc_skip(true);
+        let mut b = Cell::new("b");
+        b.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
+            Layer::new(2, 0),
+        );
+        b.set_drc_skip(true);
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("a").at(0.0, 0.0));
+        top.add_ref(CellRef::new("b").at(1.0, 0.0));
+        let mut lib = Library::new("prov_lib");
+        lib.add_cell(a).unwrap();
+        lib.add_cell(b).unwrap();
+        lib.add_cell(top).unwrap();
+        let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(2, 0), None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert!(result.passed());
+        assert!(result.stats.suppressed_violations >= 1);
+    }
+
+    #[test]
+    fn prov_non_rigid_intra_cell_spacing_reflects_scaled_geometry() {
+        // Regression for the ROS-552 review: under non-rigid (non-uniform
+        // or uniform-but-non-1.0) scaling, Phase 2 intra-cell pairwise must
+        // re-detect on transformed geometry so the reported `actual` and
+        // `location` reflect scaled world coordinates.
+        //
+        // Leaf has two same-layer polygons 0.05 apart. Under 2× scale, the
+        // spacing becomes 0.10, which passes min_spacing=0.08 — the runner
+        // must see the scaled geometry to reach that conclusion.
+        let mut leaf = Cell::new("pair");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        leaf.add_polygon(
+            Polygon::rect(Point::new(1.05, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("pair").scale(2.0));
+        let mut lib = Library::new("nr_lib");
+        lib.add_cell(leaf).unwrap();
+        lib.add_cell(top).unwrap();
+
+        // Spacing threshold sits between 0.05 (local) and 0.10 (2× scaled):
+        // local detection would flag a violation, but the scaled geometry
+        // is fine. Expect 0 violations.
+        let rules = DrcRules::new().min_spacing(Layer::new(1, 0), Layer::new(1, 0), 0.08, None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert!(
+            result.passed(),
+            "2x-scaled geometry should not trigger a 0.08 min-spacing violation"
+        );
+
+        // Tight threshold: both local (0.05) and scaled (0.10) fail. The
+        // violation must be in global coords and carry cell_name set.
+        let rules_tight =
+            DrcRules::new().min_spacing(Layer::new(1, 0), Layer::new(1, 0), 0.2, None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules_tight, Some(&lib));
+        assert!(!result.violations.is_empty());
+        let v = &result.violations[0];
+        assert_eq!(v.cell_name.as_deref(), Some("pair"));
+        assert_eq!(v.cell_name2.as_deref(), Some("pair"));
+        if let RuleType::MinSpacing { actual, .. } = v.rule_type {
+            assert!(
+                (actual - 0.1).abs() < 1e-6,
+                "scaled actual should be 0.10, got {}",
+                actual
+            );
+        } else {
+            panic!("expected MinSpacing");
+        }
+    }
+
+    #[test]
+    fn prov_detection_cache_dedupes_rigid_instances() {
+        // Regression guard for the per-unique-cell detection cache: N rigid
+        // instances of the same leaf must produce exactly N identical
+        // violation templates (one detection, cloned N times). If the
+        // cache were ever removed, the runner would still emit the right
+        // number of violations but every one would carry subtly different
+        // float noise from re-running the detection. Asserting identical
+        // rule_type payloads locks in the cache invariant.
+        let mut leaf = Cell::new("leaf");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new("top");
+        for i in 0..5 {
+            top.add_ref(CellRef::new("leaf").at(100.0 * i as f64, 0.0));
+        }
+        let mut lib = Library::new("dedup_lib");
+        lib.add_cell(leaf).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert_eq!(result.violations.len(), 5);
+
+        // All violations share the same detection payload (same `actual`
+        // width measurement). Any drift would indicate per-instance
+        // re-detection rather than cached detection.
+        let first_actual = match result.violations[0].rule_type {
+            RuleType::MinWidth { actual, .. } => actual,
+            _ => panic!("expected MinWidth"),
+        };
+        for v in &result.violations[1..] {
+            if let RuleType::MinWidth { actual, .. } = v.rule_type {
+                assert_eq!(
+                    actual, first_actual,
+                    "cached detection should produce bit-identical `actual` per instance"
+                );
+            }
+        }
     }
 }

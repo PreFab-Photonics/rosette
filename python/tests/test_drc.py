@@ -6,7 +6,7 @@ Core algorithm correctness is tested in Rust.
 
 import pytest
 
-from rosette import Cell, DrcRules, Layer, Point, Polygon, load_drc_rules, run_drc
+from rosette import Cell, CellRef, DrcRules, Layer, Library, Point, Polygon, load_drc_rules, run_drc
 from rosette.cli import _print_drc_result, _run_drc_check, check_design, drc_design
 
 
@@ -553,18 +553,17 @@ class TestDrcSkip:
         )
         assert result.skipped_cells == 2  # parent_b and shared
 
-    def test_per_polygon_violation_not_suppressed(self):
-        """Per-polygon rules without cell provenance are not suppressed (v1 limitation)."""
+    def test_per_polygon_violation_suppressed_via_provenance(self):
+        """Per ROS-552, per-polygon rules carry cell-name provenance so
+        drc_skip now suppresses them."""
         trusted = Cell("trusted", drc_skip=True)
         trusted.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
 
         rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
         result = run_drc(trusted, rules)
 
-        # Per-polygon violation has no cell provenance, so the post-filter
-        # cannot safely suppress it. Documented v1 limitation.
-        assert not result.passed
-        assert result.suppressed_violations == 0
+        assert result.passed
+        assert result.suppressed_violations == 1
         assert result.skipped_cells == 1
 
     def test_no_skipped_cells_default(self):
@@ -1097,8 +1096,8 @@ class TestDrcViolation:
         assert v.layer2 is None
         assert isinstance(v.message, str)
         assert isinstance(v.bbox, tuple)
-        # Per-polygon rules don't have cell names
-        assert v.cell_name is None
+        # Per ROS-552, per-polygon rules carry cell-name provenance.
+        assert v.cell_name == "test"
         assert v.cell_name2 is None
 
     def test_violation_layer2_for_spacing(self):
@@ -1140,6 +1139,50 @@ class TestDrcViolation:
         v = result.violations[0]
         assert "DrcViolation" in repr(v)
         assert "AREA" in repr(v)
+
+    def test_violation_hierarchical_provenance_per_polygon(self):
+        """Per ROS-552: per-polygon violations in a nested cell carry the
+        owning cell_name and a global-frame bbox."""
+        leaf = Cell("leaf")
+        leaf.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
+        top = Cell("top")
+        top.add_ref(CellRef("leaf").at(100.0, 50.0))
+        lib = Library("prov_py")
+        lib.add_cell(leaf)
+        lib.add_cell(top)
+
+        rules = DrcRules().min_width(Layer(1, 0), 0.5)
+        result = run_drc(lib.cell("top"), rules, library=lib)
+
+        assert len(result.violations) == 1
+        v = result.violations[0]
+        assert v.cell_name == "leaf"
+        assert v.cell_name2 is None
+        (min_x, min_y), (_max_x, _max_y) = v.bbox
+        assert abs(min_x - 100.0) < 1e-9
+        assert abs(min_y - 50.0) < 1e-9
+
+    def test_violation_hierarchical_provenance_cross_layer_pairwise(self):
+        """Cross-layer pairwise violations carry both cell_name fields."""
+        a = Cell("cell_a")
+        a.add_polygon(Polygon.rect(Point(0, 0), 2.0, 2.0), Layer(1, 0))
+        b = Cell("cell_b")
+        b.add_polygon(Polygon.rect(Point(0, 0), 2.0, 2.0), Layer(2, 0))
+        top = Cell("top")
+        top.add_ref(CellRef("cell_a").at(0, 0))
+        top.add_ref(CellRef("cell_b").at(1.0, 0.0))  # overlapping
+        lib = Library("prov_py2")
+        lib.add_cell(a)
+        lib.add_cell(b)
+        lib.add_cell(top)
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(2, 0))
+        result = run_drc(lib.cell("top"), rules, library=lib)
+
+        assert len(result.violations) >= 1
+        v = result.violations[0]
+        assert v.cell_name == "cell_a"
+        assert v.cell_name2 == "cell_b"
 
 
 class TestLoadDrcRules:
