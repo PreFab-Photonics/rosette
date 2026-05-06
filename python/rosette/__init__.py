@@ -904,13 +904,18 @@ class Cell:
 
     __slots__ = ("_child_cells", "_inner")
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, *, drc_skip: bool = False) -> None:
         """Create a new empty cell.
 
         Args:
             name: Name of the cell (must be unique within a design)
+            drc_skip: If True, mark this cell as trusted for DRC. Violations
+                attributed entirely to this cell (or cells in its subtree)
+                are suppressed from the final DRC result. Inter-cell
+                violations between this cell and an untrusted cell are
+                still reported.
         """
-        self._inner = _Cell(name)
+        self._inner = _Cell(name, drc_skip=drc_skip)
         self._child_cells: set[Cell] = set()
 
     @classmethod
@@ -936,6 +941,30 @@ class Cell:
     @path_length.setter
     def path_length(self, value: float) -> None:
         self._inner.path_length = value
+
+    @property
+    def drc_skip(self) -> bool:
+        """Whether this cell is marked as trusted for DRC.
+
+        When True, DRC violations attributed entirely to this cell (or
+        cells in its subtree) are suppressed from the final DRC result.
+        Inter-cell violations between a trusted cell and an untrusted
+        cell are still reported.
+
+        Known v1 limitations:
+
+        - Per-polygon rules (e.g. ``MinWidth``, ``MinArea``) and
+          cross-layer pairwise rules (e.g. ``Enclosure``, cross-layer
+          ``MinSpacing``) currently produce violations without cell-name
+          provenance and are not suppressed.
+        - The flag is not persisted to GDS — round-tripping a design
+          through ``write_gds`` / ``read_gds`` clears ``drc_skip``.
+        """
+        return self._inner.drc_skip
+
+    @drc_skip.setter
+    def drc_skip(self, value: bool) -> None:
+        self._inner.drc_skip = value
 
     def add_bend(
         self,

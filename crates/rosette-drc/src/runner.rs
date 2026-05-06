@@ -23,6 +23,18 @@ pub struct DrcStats {
     pub rules_checked: usize,
     /// Total elapsed time.
     pub elapsed: Duration,
+    /// Number of violations suppressed by `drc_skip` post-filtering.
+    ///
+    /// A violation is suppressed iff every cell it names
+    /// (`cell_name`, `cell_name2`) is within the skipped-cell closure
+    /// (a cell with `drc_skip = true` or any cell reachable from it via
+    /// `CellRef`). Violations with unknown provenance (e.g., per-polygon
+    /// rules and cross-layer pairwise rules that currently lose cell
+    /// attribution) are kept as a safe default.
+    pub suppressed_violations: usize,
+    /// Number of unique cell names in the skipped-cell closure for this
+    /// run.
+    pub skipped_cells: usize,
 }
 
 /// Result of running DRC.
@@ -86,6 +98,113 @@ struct InstancePolygons {
     bbox: BBox,
     /// Name of the cell this instance comes from.
     cell_name: String,
+}
+
+/// Compute the set of cell names whose violations should be suppressed.
+///
+/// This is the "skipped closure": every cell with `drc_skip = true` that is
+/// reachable from the top cell (via `CellRef` through the optional library),
+/// plus every cell reachable from any such cell via `CellRef`.
+///
+/// The top cell itself is considered if it has `drc_skip = true`.
+///
+/// Implementation note: uses two passes rather than a single DFS with an
+/// "ancestor trusted" flag, because the latter is visit-order-dependent in
+/// diamond hierarchies — a shared cell reached first via an untrusted parent
+/// would be marked visited before a later visit via a trusted parent could
+/// add it to the closure.
+fn collect_skipped_closure(top: &Cell, library: Option<&Library>) -> HashSet<String> {
+    // Pass 1: find every cell with drc_skip = true that is reachable from
+    // the top cell.
+    let mut roots: Vec<String> = Vec::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    collect_skipped_roots(top, library, &mut roots, &mut visited);
+
+    // Pass 2: expand each root into the full subtree of reachable cells.
+    let mut closure: HashSet<String> = HashSet::new();
+    for root in &roots {
+        if closure.contains(root) {
+            continue;
+        }
+        match library.and_then(|lib| lib.cell(root).map(|c| (lib, c))) {
+            Some((lib, cell)) => expand_subtree(cell, lib, &mut closure),
+            None => {
+                // Root cell not in the library (e.g. the top cell with no
+                // library). Just add the name itself.
+                closure.insert(root.clone());
+            }
+        }
+    }
+    closure
+}
+
+/// Walk the hierarchy and collect names of every cell with `drc_skip = true`.
+fn collect_skipped_roots(
+    cell: &Cell,
+    library: Option<&Library>,
+    roots: &mut Vec<String>,
+    visited: &mut HashSet<String>,
+) {
+    if !visited.insert(cell.name().to_string()) {
+        return;
+    }
+    if cell.drc_skip() {
+        roots.push(cell.name().to_string());
+    }
+    for element in cell.elements() {
+        if let Element::CellRef(cell_ref) = element
+            && let Some(lib) = library
+            && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
+        {
+            collect_skipped_roots(ref_cell, Some(lib), roots, visited);
+        }
+    }
+}
+
+/// Recursively add `cell` and every cell reachable from it (via the library)
+/// to `closure`. The visited set is `closure` itself.
+fn expand_subtree(cell: &Cell, library: &Library, closure: &mut HashSet<String>) {
+    if !closure.insert(cell.name().to_string()) {
+        return;
+    }
+    for element in cell.elements() {
+        if let Element::CellRef(cell_ref) = element
+            && let Some(ref_cell) = library.cell(&cell_ref.cell_name)
+        {
+            expand_subtree(ref_cell, library, closure);
+        }
+    }
+}
+
+/// Apply the `drc_skip` suppression predicate to a list of violations.
+///
+/// A violation is suppressed iff `cell_name` and `cell_name2` are both
+/// `Some(name)` with both names in `skipped`. Violations with any `None`
+/// attribution are kept (safe default — we don't hide violations we can't
+/// attribute).
+///
+/// Returns `(kept, suppressed_count)`.
+fn apply_drc_skip_filter(
+    violations: Vec<DrcViolation>,
+    skipped: &HashSet<String>,
+) -> (Vec<DrcViolation>, usize) {
+    if skipped.is_empty() {
+        return (violations, 0);
+    }
+    let mut kept = Vec::with_capacity(violations.len());
+    let mut suppressed = 0usize;
+    for v in violations {
+        let should_suppress = match (&v.cell_name, &v.cell_name2) {
+            (Some(a), Some(b)) => skipped.contains(a) && skipped.contains(b),
+            _ => false,
+        };
+        if should_suppress {
+            suppressed += 1;
+        } else {
+            kept.push(v);
+        }
+    }
+    (kept, suppressed)
 }
 
 impl DrcRunner {
@@ -224,12 +343,21 @@ impl DrcRunner {
             }
         }
 
+        // Post-filter: suppress violations attributed entirely to trusted
+        // (drc_skip) cells. The runner itself stays ignorant of trust; we
+        // just drop the violations afterwards.
+        let skipped_closure = collect_skipped_closure(cell, library);
+        let (kept_violations, suppressed_count) =
+            apply_drc_skip_filter(violations, &skipped_closure);
+
         DrcResult {
-            violations,
+            violations: kept_violations,
             stats: DrcStats {
                 polygons_checked,
                 rules_checked: self.rules.rules().len(),
                 elapsed: start.elapsed(),
+                suppressed_violations: suppressed_count,
+                skipped_cells: skipped_closure.len(),
             },
         }
     }
@@ -2309,5 +2437,270 @@ mod tests {
         } else {
             panic!("expected Density rule type");
         }
+    }
+
+    // ---- drc_skip suppression tests ----
+
+    #[test]
+    fn test_drc_skip_suppresses_intra_cell_violation() {
+        // A cell has two overlapping polygons on the same layer.
+        // With drc_skip=true, the intra-cell violation should be suppressed.
+        let mut trusted = Cell::new("trusted");
+        trusted.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        trusted.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        trusted.set_drc_skip(true);
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(&trusted, &rules, None);
+
+        assert!(
+            result.passed(),
+            "trusted cell should suppress its own violation"
+        );
+        assert_eq!(result.violations.len(), 0);
+        assert_eq!(result.stats.suppressed_violations, 1);
+        assert_eq!(result.stats.skipped_cells, 1);
+    }
+
+    #[test]
+    fn test_drc_skip_keeps_inter_cell_violation() {
+        // Trusted child cell has a polygon that overlaps a polygon in an
+        // untrusted top cell. The inter-cell violation MUST survive — trust
+        // is about interior, not about placement.
+        let mut child = Cell::new("child");
+        child.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        child.set_drc_skip(true);
+
+        let mut top = Cell::new("top");
+        top.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        top.add_ref(CellRef::new("child"));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(
+            !result.passed(),
+            "inter-cell violation against a trusted cell must still be reported"
+        );
+        assert_eq!(result.violations.len(), 1);
+        assert_eq!(result.stats.suppressed_violations, 0);
+        assert_eq!(result.stats.skipped_cells, 1);
+    }
+
+    #[test]
+    fn test_drc_skip_suppresses_when_both_cells_trusted() {
+        // Two trusted cells overlap each other. With both trusted, the
+        // inter-cell violation should be suppressed too.
+        let mut a = Cell::new("a");
+        a.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        a.set_drc_skip(true);
+
+        let mut b = Cell::new("b");
+        b.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        b.set_drc_skip(true);
+
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("a"));
+        top.add_ref(CellRef::new("b"));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(a).unwrap();
+        lib.add_cell(b).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(
+            result.passed(),
+            "overlap between two trusted cells should be suppressed"
+        );
+        assert_eq!(result.violations.len(), 0);
+        assert_eq!(result.stats.suppressed_violations, 1);
+        assert_eq!(result.stats.skipped_cells, 2);
+    }
+
+    #[test]
+    fn test_drc_skip_propagates_to_subtree() {
+        // Trusted parent contains an untrusted child. The child's own
+        // intra-cell violation should still be suppressed because the child
+        // is reachable from a trusted ancestor.
+        let mut grandchild = Cell::new("grandchild");
+        grandchild.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        grandchild.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let mut parent = Cell::new("parent");
+        parent.add_ref(CellRef::new("grandchild"));
+        parent.set_drc_skip(true);
+
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("parent"));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(grandchild).unwrap();
+        lib.add_cell(parent).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        assert!(
+            result.passed(),
+            "grandchild's intra-cell violation should be suppressed via trusted ancestor"
+        );
+        assert_eq!(result.stats.suppressed_violations, 1);
+        assert_eq!(
+            result.stats.skipped_cells, 2,
+            "closure should include parent and grandchild"
+        );
+    }
+
+    #[test]
+    fn test_drc_skip_diamond_hierarchy() {
+        // Regression: a "shared" cell reachable via BOTH a trusted and an
+        // untrusted parent must be in the skipped closure regardless of
+        // traversal order. Earlier single-pass DFS with a visited-set would
+        // miss this because `shared` was marked visited via the untrusted
+        // path before the trusted path had a chance to add it.
+        //
+        //        top (untrusted)
+        //       /               \
+        //   parent_a          parent_b  (drc_skip=true)
+        //   (untrusted)           |
+        //       \                /
+        //          shared (untrusted) — has an internal overlap
+        let mut shared = Cell::new("shared");
+        shared.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        shared.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        let mut parent_a = Cell::new("parent_a");
+        parent_a.add_ref(CellRef::new("shared"));
+
+        let mut parent_b = Cell::new("parent_b");
+        parent_b.add_ref(CellRef::new("shared"));
+        parent_b.set_drc_skip(true);
+
+        let mut top = Cell::new("top");
+        // Order matters for reproducing the old bug: put the untrusted
+        // parent first so `shared` is visited via it first.
+        top.add_ref(CellRef::new("parent_a"));
+        top.add_ref(CellRef::new("parent_b"));
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(shared).unwrap();
+        lib.add_cell(parent_a).unwrap();
+        lib.add_cell(parent_b).unwrap();
+        lib.add_cell(top).unwrap();
+
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+        // `shared` must be in the closure via `parent_b`, so its intra-cell
+        // violation is suppressed.
+        assert!(
+            result.passed(),
+            "shared's intra-cell violation must be suppressed via trusted parent_b, \
+             even though it's also reachable via untrusted parent_a"
+        );
+        // Multiple suppressed violations are expected here (intra-cell in
+        // `shared` plus inter-instance overlaps between the two instances of
+        // `shared`). The important invariant is that nothing survives.
+        assert!(
+            result.stats.suppressed_violations >= 1,
+            "at least one violation should be suppressed via the trusted subtree"
+        );
+        assert_eq!(result.violations.len(), 0);
+        assert_eq!(
+            result.stats.skipped_cells, 2,
+            "closure should include parent_b and shared"
+        );
+    }
+
+    #[test]
+    fn test_drc_skip_does_not_suppress_unattributed_violation() {
+        // Per-polygon rules (e.g., MinWidth) currently produce violations
+        // without cell_name attribution. Those MUST NOT be suppressed by
+        // drc_skip — the safe default is to keep violations we can't
+        // attribute. This test documents the v1 limitation.
+        let mut trusted = Cell::new("trusted");
+        // A polygon with a thin neck that violates min_width.
+        trusted.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+            Layer::new(1, 0),
+        );
+        trusted.set_drc_skip(true);
+
+        let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, Some("MIN_W"));
+        let result = run_drc(&trusted, &rules, None);
+
+        // Per-polygon violation has cell_name=None, so it's NOT suppressed.
+        assert!(
+            !result.passed(),
+            "per-polygon violation without provenance should not be suppressed by drc_skip (v1 limitation)"
+        );
+        assert_eq!(result.stats.suppressed_violations, 0);
+        assert_eq!(result.stats.skipped_cells, 1);
+    }
+
+    #[test]
+    fn test_drc_skip_zero_skipped_cells_when_none_marked() {
+        // Sanity: with no cells marked, stats reflect zero skipped cells
+        // and zero suppressions, and behavior is unchanged.
+        let mut cell = Cell::new("plain");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+        let rules =
+            DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
+        let result = run_drc(&cell, &rules, None);
+
+        assert!(!result.passed());
+        assert_eq!(result.violations.len(), 1);
+        assert_eq!(result.stats.suppressed_violations, 0);
+        assert_eq!(result.stats.skipped_cells, 0);
     }
 }

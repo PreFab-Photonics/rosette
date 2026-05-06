@@ -346,14 +346,25 @@ pub struct PyCell(pub Cell);
 impl PyCell {
     /// Create a new empty cell.
     ///
+    /// Args:
+    ///     name: Cell name. Must be non-empty, <=32 characters, and printable ASCII.
+    ///     drc_skip: If True, mark this cell as trusted for DRC. Violations
+    ///         attributed entirely to this cell (or cells in its subtree) are
+    ///         suppressed from the final DRC result. Defaults to False.
+    ///
     /// Raises:
     ///     ValueError: If the name is empty, longer than 32 characters,
     ///         or contains non-printable ASCII characters (spaces, Unicode, etc.)
     #[new]
-    fn new(name: String) -> PyResult<Self> {
+    #[pyo3(signature = (name, *, drc_skip=false))]
+    fn new(name: String, drc_skip: bool) -> PyResult<Self> {
         rosette_core::validate_cell_name(&name)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        Ok(PyCell(Cell::new(name)))
+        let mut cell = Cell::new(name);
+        if drc_skip {
+            cell.set_drc_skip(true);
+        }
+        Ok(PyCell(cell))
     }
 
     /// Cell name.
@@ -524,6 +535,23 @@ impl PyCell {
     #[setter]
     fn set_path_length(&mut self, length: f64) {
         self.0.set_path_length(length);
+    }
+
+    /// Whether this cell is marked as trusted for DRC.
+    ///
+    /// When True, DRC violations attributed entirely to this cell (or to
+    /// cells in its subtree) are suppressed from the final DRC result.
+    /// Inter-cell violations between a trusted cell and an untrusted cell
+    /// are still reported.
+    #[getter]
+    fn drc_skip(&self) -> bool {
+        self.0.drc_skip()
+    }
+
+    /// Set whether this cell is marked as trusted for DRC.
+    #[setter]
+    fn set_drc_skip(&mut self, drc_skip: bool) {
+        self.0.set_drc_skip(drc_skip);
     }
 
     /// Add a bend info entry.

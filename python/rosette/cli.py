@@ -1124,9 +1124,21 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
         f"{_dim(f'{result.rules_checked} rules, {result.polygons_checked} polygons')}"
     )
 
+    suppressed = result.suppressed_violations
+    skipped = result.skipped_cells
+
+    def _print_suppressed_line() -> None:
+        if suppressed > 0:
+            cell_word = "cell" if skipped == 1 else "cells"
+            viol_word = "violation" if suppressed == 1 else "violations"
+            print(
+                f"  {_dim(f'{suppressed} {viol_word} suppressed across {skipped} trusted {cell_word} (drc_skip)')}"
+            )
+
     # No violations at all: clean pass.
     if not result.violations:
         print(f"\n  {_green('passed')} {_dim(f'({result.elapsed_ms:.1f}ms)')}")
+        _print_suppressed_line()
         return True
 
     # Print violations (errors first visually via color, but in original order).
@@ -1173,6 +1185,7 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
             f"{_yellow(f'{warnings} warning' + ('s' if warnings != 1 else ''))} "
             f"{_dim(f'({result.elapsed_ms:.1f}ms)')}"
         )
+        _print_suppressed_line()
         return True
 
     # Errors present (possibly with warnings).
@@ -1187,6 +1200,7 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
         f"\n  {_red(f'{count} violation' + ('s' if count != 1 else ''))} "
         f"({summary}) {_dim(f'in {result.elapsed_ms:.1f}ms')}"
     )
+    _print_suppressed_line()
     return False
 
 

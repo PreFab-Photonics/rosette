@@ -66,3 +66,28 @@ Number of rules evaluated.
 Elapsed time in milliseconds.
 
 </PyAttribute>
+
+<PyAttribute name={"suppressed_violations"} type={"int"}>
+
+Number of violations suppressed by `drc_skip` post-filtering.
+
+A violation is suppressed iff every cell it names has `drc_skip = True`
+(or is within the subtree of a trusted cell). Violations with unknown
+cell-name provenance are always kept (safe default). See
+[`Cell.drc_skip`](./Cell).
+
+**Known v1 limitation.** Per-polygon rules (`MinWidth`, `MinArea`, etc.)
+and cross-layer pairwise rules (e.g. `Enclosure`, `RequireOverlap`,
+cross-layer `MinSpacing`) currently produce violations without cell-name
+provenance and are not counted here. This will improve as runner
+provenance is filled in.
+
+</PyAttribute>
+
+<PyAttribute name={"skipped_cells"} type={"int"}>
+
+Number of unique cells in the skipped-cell closure for this run — that is,
+cells with `drc_skip = True` plus every cell reachable from them via
+`CellRef`. See [`Cell.drc_skip`](./Cell).
+
+</PyAttribute>

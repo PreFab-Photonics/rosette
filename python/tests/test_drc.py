@@ -433,6 +433,155 @@ class TestRunDrc:
         assert result.polygons_checked == 2
 
 
+class TestDrcSkip:
+    """Tests for the per-cell ``drc_skip`` suppression mechanism."""
+
+    def test_default_is_false(self):
+        """Cells default to ``drc_skip = False``."""
+        cell = Cell("c")
+        assert cell.drc_skip is False
+
+    def test_constructor_kwarg(self):
+        """``drc_skip`` can be set via constructor kwarg."""
+        cell = Cell("c", drc_skip=True)
+        assert cell.drc_skip is True
+
+    def test_setter(self):
+        """``drc_skip`` can be toggled via the property setter."""
+        cell = Cell("c")
+        cell.drc_skip = True
+        assert cell.drc_skip is True
+        cell.drc_skip = False
+        assert cell.drc_skip is False
+
+    def test_intra_cell_violation_suppressed(self):
+        """Internal violation in a trusted cell is suppressed."""
+        trusted = Cell("trusted", drc_skip=True)
+        trusted.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+        trusted.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(trusted, rules)
+
+        assert result.passed
+        assert len(result.violations) == 0
+        assert result.suppressed_violations == 1
+        assert result.skipped_cells == 1
+
+    def test_inter_cell_violation_kept(self):
+        """A trusted cell still gets checked against untrusted neighbors."""
+        child = Cell("child", drc_skip=True)
+        child.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+
+        top = Cell("top")
+        top.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+        top.add_ref(child.at(0, 0))
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(top, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 1
+        assert result.suppressed_violations == 0
+        assert result.skipped_cells == 1
+
+    def test_both_cells_trusted_suppressed(self):
+        """Overlap between two trusted cells is suppressed."""
+        a = Cell("a", drc_skip=True)
+        a.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+
+        b = Cell("b", drc_skip=True)
+        b.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+
+        top = Cell("top")
+        top.add_ref(a.at(0, 0))
+        top.add_ref(b.at(0, 0))
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(top, rules)
+
+        assert result.passed
+        assert len(result.violations) == 0
+        assert result.suppressed_violations == 1
+        assert result.skipped_cells == 2
+
+    def test_skip_propagates_to_subtree(self):
+        """A trusted parent suppresses its untrusted children's violations too."""
+        grandchild = Cell("grandchild")
+        grandchild.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+        grandchild.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+
+        parent = Cell("parent", drc_skip=True)
+        parent.add_ref(grandchild.at(0, 0))
+
+        top = Cell("top")
+        top.add_ref(parent.at(0, 0))
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(top, rules)
+
+        assert result.passed
+        assert result.suppressed_violations == 1
+        assert result.skipped_cells == 2
+
+    def test_diamond_hierarchy(self):
+        """Cell reachable via both trusted and untrusted parents is in the closure."""
+        # Regression: traversal order must not matter. A shared cell reached
+        # first via an untrusted parent must still be added to the skipped
+        # closure when later reached via a trusted parent.
+        shared = Cell("shared")
+        shared.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+        shared.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+
+        parent_a = Cell("parent_a")
+        parent_a.add_ref(shared.at(0, 0))
+
+        parent_b = Cell("parent_b", drc_skip=True)
+        parent_b.add_ref(shared.at(0, 0))
+
+        top = Cell("top")
+        # Untrusted parent first to reproduce the visit-order bug pattern.
+        top.add_ref(parent_a.at(0, 0))
+        top.add_ref(parent_b.at(20, 0))
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(top, rules)
+
+        assert result.passed, (
+            "shared's intra-cell violation must be suppressed via the trusted parent_b, "
+            "even when reached first via the untrusted parent_a"
+        )
+        assert result.skipped_cells == 2  # parent_b and shared
+
+    def test_per_polygon_violation_not_suppressed(self):
+        """Per-polygon rules without cell provenance are not suppressed (v1 limitation)."""
+        trusted = Cell("trusted", drc_skip=True)
+        trusted.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
+
+        rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
+        result = run_drc(trusted, rules)
+
+        # Per-polygon violation has no cell provenance, so the post-filter
+        # cannot safely suppress it. Documented v1 limitation.
+        assert not result.passed
+        assert result.suppressed_violations == 0
+        assert result.skipped_cells == 1
+
+    def test_no_skipped_cells_default(self):
+        """Without any drc_skip cells, both new stats are 0 and behavior is unchanged."""
+        cell = Cell("plain")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
+        cell.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+
+        rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 1
+        assert result.suppressed_violations == 0
+        assert result.skipped_cells == 0
+
+
 class TestSnapToGrid:
     """Tests for snap-to-grid DRC check."""
 

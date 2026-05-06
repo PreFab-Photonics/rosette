@@ -599,8 +599,19 @@ class Cell:
     """Bend info entries as list of dicts with keys: radius, x, y, and optionally requested_radius."""
     cell_warnings: list[str]
     """Warnings from cell construction."""
-    def __init__(self, name: str) -> None:
+    drc_skip: bool
+    """Whether this cell is marked as trusted for DRC.
+
+    When True, DRC violations attributed entirely to this cell (or cells in
+    its subtree) are suppressed from the final DRC result. Inter-cell
+    violations against an untrusted cell are still reported.
+    """
+    def __init__(self, name: str, *, drc_skip: bool = False) -> None:
         """Create a new empty cell.
+
+        Args:
+            name: Cell name.
+            drc_skip: If True, mark this cell as trusted for DRC.
 
         Raises:
             ValueError: If the name is empty, longer than 32 characters,
@@ -1567,6 +1578,15 @@ class DrcResult:
     """Number of error-severity violations."""
     warning_count: int
     """Number of warning-severity violations."""
+    suppressed_violations: int
+    """Number of violations suppressed by ``drc_skip`` post-filtering.
+
+    A violation is suppressed iff every cell it names has ``drc_skip =
+    True`` (or is within the subtree of a trusted cell). Violations with
+    unknown cell-name provenance are always kept.
+    """
+    skipped_cells: int
+    """Number of unique cells in the skipped-cell closure for this run."""
     def __len__(self) -> int:
         """Total number of violations — errors **plus** warnings.
 
