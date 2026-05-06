@@ -7,9 +7,9 @@ use rosette_core::cell::Element;
 use rosette_core::{BBox, Cell, Layer, Library, Point, Polygon, Transform, offset_polygon};
 
 use crate::checks::{
-    check_acute_angle, check_angles, check_area, check_edge_length, check_enclosure,
+    check_acute_angle, check_angles, check_area, check_density, check_edge_length, check_enclosure,
     check_forbid_overlap_bulk, check_max_width, check_not_inside, check_require_overlap_bulk,
-    check_self_intersection, check_snap_to_grid, check_spacing, check_width,
+    check_self_intersection, check_snap_to_grid, check_spacing, check_width, compute_region_bbox,
 };
 use crate::rules::{DrcRules, Rule};
 use crate::violation::{DrcViolation, RuleType, Severity};
@@ -134,7 +134,7 @@ impl DrcRunner {
                 | Rule::SelfIntersection { .. }
                 | Rule::MaxWidth { .. }
                 | Rule::AcuteAngle { .. } => per_polygon_rules.push(rule),
-                Rule::SnapToGrid { .. } => transform_dep_rules.push(rule),
+                Rule::SnapToGrid { .. } | Rule::Density { .. } => transform_dep_rules.push(rule),
                 Rule::MinSpacing { .. }
                 | Rule::Enclosure { .. }
                 | Rule::RequireOverlap { .. }
@@ -987,8 +987,68 @@ impl DrcRunner {
 
                 check_not_inside(inner_polys, *inner, outer_polys, *outer, name.as_deref())
             }
+
+            Rule::Density {
+                layer,
+                min,
+                max,
+                window,
+                step,
+                region_layer,
+                name,
+            } => {
+                // Fallback region: union of bboxes of all flattened geometry
+                // across every layer. This is the bbox of the design as
+                // actually placed — equivalent to `Library::cell_bbox` on the
+                // top cell, computed here from the already-flattened polygon
+                // map without re-walking the hierarchy. When `region_layer`
+                // is set, that layer's union drives the bbox instead.
+                //
+                // If the design is truly empty (no geometry anywhere), the
+                // check cannot run — density is undefined without a region.
+                // Users who want density checked over a specific extent
+                // (e.g. reticle floor-plan with empty corners) must declare
+                // a `region_layer`.
+                let fallback = placed_geometry_bbox(polygons_by_layer);
+                let region = match compute_region_bbox(*region_layer, polygons_by_layer, fallback) {
+                    Some(r) => r,
+                    None => return Vec::new(),
+                };
+                let empty = Vec::new();
+                let target_polys = polygons_by_layer.get(layer).unwrap_or(&empty);
+                check_density(
+                    target_polys,
+                    region,
+                    *layer,
+                    *min,
+                    *max,
+                    *window,
+                    *step,
+                    name.as_deref(),
+                )
+            }
         }
     }
+}
+
+/// Union bbox of every polygon across every layer in the merged map.
+///
+/// Returns `None` if no polygons exist. Used as the fallback region for
+/// density checks when no `region_layer` is specified. Equivalent in value
+/// to `Library::cell_bbox` on the top cell, since both describe the extent
+/// of all geometry as placed.
+fn placed_geometry_bbox(polygons_by_layer: &HashMap<Layer, Vec<(Polygon, usize)>>) -> Option<BBox> {
+    let mut bb: Option<BBox> = None;
+    for polys in polygons_by_layer.values() {
+        for (poly, _) in polys {
+            let pb = poly.bbox();
+            bb = Some(match bb {
+                Some(b) => b.merge(&pb),
+                None => pb,
+            });
+        }
+    }
+    bb
 }
 
 /// Convenience function to run DRC.
@@ -1002,10 +1062,11 @@ pub fn run_drc(cell: &Cell, rules: &DrcRules, library: Option<&Library>) -> DrcR
 /// Only **length-unit** numeric threshold variants are eligible. `MinArea` is
 /// deliberately excluded even though it has a numeric threshold: its values
 /// are in squared user units (typically µm²), which cannot meaningfully be
-/// compared against a length-unit `margin`. Categorical / binary violations
-/// (`ForbiddenAngle`, `ForbiddenOverlap`, `SelfIntersection`, `OffGrid`,
-/// `NotInside`, `AcuteAngle`, `MissingOverlap`) are never "near-threshold" —
-/// they are binary.
+/// compared against a length-unit `margin`. `Density` is excluded for the
+/// same reason — its values are dimensionless fractions. Categorical / binary
+/// violations (`ForbiddenAngle`, `ForbiddenOverlap`, `SelfIntersection`,
+/// `OffGrid`, `NotInside`, `AcuteAngle`, `MissingOverlap`) are never
+/// "near-threshold" — they are binary.
 fn is_near_threshold(rule_type: &RuleType, margin: f64) -> bool {
     if margin <= 0.0 {
         return false;
@@ -1019,7 +1080,9 @@ fn is_near_threshold(rule_type: &RuleType, margin: f64) -> bool {
         // MinArea is numeric but in squared units — mixing it with a
         // length-unit margin would silently widen the warning band far
         // beyond what a designer configuring `warning_margin = 0.01` expects.
+        // Density is a dimensionless fraction — same unit-mismatch concern.
         RuleType::MinArea { .. }
+        | RuleType::Density { .. }
         | RuleType::ForbiddenOverlap
         | RuleType::MissingOverlap
         | RuleType::ForbiddenAngle { .. }
@@ -1829,7 +1892,7 @@ mod tests {
         );
         // All 4 rect vertices are shifted by 0.003 in x, so all are off-grid
         assert!(
-            result.violations.len() >= 1,
+            !result.violations.is_empty(),
             "Expected violations for off-grid translated vertices"
         );
     }
@@ -2051,5 +2114,200 @@ mod tests {
         assert_eq!(result.error_count(), 1);
         assert_eq!(result.warning_count(), 0);
         assert_eq!(result.violations[0].severity, Severity::Error);
+    }
+
+    // --- Density check tests (ROS-520) ---
+
+    #[test]
+    fn test_density_passes_uniform_fill() {
+        // Region = cell's own 100x100 fill. Single big polygon gives density=1.0.
+        // Rule: max=None (no upper), min=0.5 — passes everywhere.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0),
+            Layer::new(1, 0),
+        );
+        let rules = DrcRules::new().density(
+            Layer::new(1, 0),
+            Some(0.5),
+            None,
+            50.0,
+            50.0,
+            None,
+            Some("DENS"),
+        );
+        let result = run_drc(&cell, &rules, None);
+        assert!(result.passed(), "Full fill should pass min=0.5");
+    }
+
+    #[test]
+    fn test_density_fails_above_max() {
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0),
+            Layer::new(1, 0),
+        );
+        let rules = DrcRules::new().density(
+            Layer::new(1, 0),
+            None,
+            Some(0.8),
+            50.0,
+            50.0,
+            None,
+            Some("DENS"),
+        );
+        let result = run_drc(&cell, &rules, None);
+        assert!(!result.passed(), "Full fill should fail max=0.8");
+        // Windows at (0,0), (50,0), (0,50), (50,50) -> 4 violations
+        assert!(!result.violations.is_empty());
+        assert_eq!(result.violations[0].rule_name.as_deref(), Some("DENS"));
+        if let RuleType::Density { actual, .. } = result.violations[0].rule_type {
+            assert!(actual > 0.99);
+        } else {
+            panic!("expected Density rule type");
+        }
+    }
+
+    #[test]
+    fn test_density_region_layer_limits_scope() {
+        // Target polygon on layer 1 fills the right half.
+        // Region layer (99) only covers the left half — where there's nothing.
+        // So measured density in the region is 0 -> fails min=0.2.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(50.0, 0.0), 50.0, 100.0),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 50.0, 100.0),
+            Layer::new(99, 0),
+        );
+        let rules = DrcRules::new().density(
+            Layer::new(1, 0),
+            Some(0.2),
+            None,
+            25.0,
+            25.0,
+            Some(Layer::new(99, 0)),
+            None,
+        );
+        let result = run_drc(&cell, &rules, None);
+        assert!(
+            !result.passed(),
+            "Density inside region (left half) is 0, should fail min=0.2"
+        );
+    }
+
+    #[test]
+    fn test_density_aggregates_across_array() {
+        // A small filled cell arrayed across a region. Verify density
+        // aggregates across instances (hierarchical flattening).
+        let mut child = Cell::new("child");
+        // 5x5 filled tile
+        child.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+            Layer::new(1, 0),
+        );
+
+        // 10 columns x 10 rows at pitch 10.0 -> tiles at x=0, 10, ..., 90.
+        // Fill spans [0, 95] x [0, 95]. Use region_layer explicitly so the
+        // bbox is a clean [0, 100] x [0, 100].
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("child").array(10, 10, 10.0, 10.0));
+        top.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0),
+            Layer::new(99, 0),
+        );
+
+        let mut lib = Library::new("test_lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top).unwrap();
+
+        // 100 tiles, each 5x5 = 25 area, total = 2500. Region = 10000.
+        // Density = 2500 / 10000 = 0.25
+        let rules = DrcRules::new().density(
+            Layer::new(1, 0),
+            Some(0.5), // density is 0.25, below min=0.5 -> fail
+            None,
+            100.0,
+            100.0,
+            Some(Layer::new(99, 0)),
+            Some("DENS_ARR"),
+        );
+        let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+        assert!(
+            !result.passed(),
+            "Arrayed 25% fill should fail min=0.5, got {} violations",
+            result.violations.len()
+        );
+
+        // Flip: same fill should pass min=0.2
+        let rules_ok = DrcRules::new().density(
+            Layer::new(1, 0),
+            Some(0.2),
+            None,
+            100.0,
+            100.0,
+            Some(Layer::new(99, 0)),
+            None,
+        );
+        let result_ok = run_drc(lib.cell("top").unwrap(), &rules_ok, Some(&lib));
+        assert!(
+            result_ok.passed(),
+            "Arrayed 25% fill should pass min=0.2, got {} violations",
+            result_ok.violations.len()
+        );
+    }
+
+    #[test]
+    fn test_density_empty_design_skips_silently() {
+        // Truly empty design: no geometry anywhere. Density is undefined
+        // (no region to measure over), so the check is a silent no-op.
+        // Users who want density enforced over an explicit floor-plan must
+        // declare a region_layer.
+        let cell = Cell::new("empty");
+        let rules = DrcRules::new().density(
+            Layer::new(1, 0),
+            Some(0.2),
+            Some(0.8),
+            100.0,
+            100.0,
+            None,
+            None,
+        );
+        let result = run_drc(&cell, &rules, None);
+        assert!(result.passed());
+    }
+
+    #[test]
+    fn test_density_empty_target_layer_inside_populated_design() {
+        // Target layer has no geometry, but the design has geometry on
+        // another layer. Fallback region = bbox of placed geometry.
+        // Measured density on the empty target = 0 everywhere -> fails min.
+        let mut cell = Cell::new("test");
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0),
+            Layer::new(2, 0),
+        );
+        let rules = DrcRules::new().density(
+            Layer::new(1, 0), // target layer: no polygons
+            Some(0.2),
+            None,
+            50.0,
+            50.0,
+            None, // no region_layer -> fallback to placed-geometry bbox
+            Some("DENS"),
+        );
+        let result = run_drc(&cell, &rules, None);
+        assert!(
+            !result.passed(),
+            "Empty target layer inside populated design should fail min=0.2"
+        );
+        assert!(!result.violations.is_empty());
+        if let RuleType::Density { actual, .. } = result.violations[0].rule_type {
+            assert_eq!(actual, 0.0);
+        } else {
+            panic!("expected Density rule type");
+        }
     }
 }

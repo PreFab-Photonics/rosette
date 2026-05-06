@@ -706,6 +706,183 @@ inner = "1/0"
             load_drc_rules(config_file)
 
 
+class TestDensity:
+    """Tests for layer density (CMP uniformity) DRC check."""
+
+    def test_full_fill_fails_max(self):
+        """Region fully covered by a single polygon fails max=0.8."""
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 100.0, 100.0), Layer(1, 0))
+
+        rules = DrcRules().density(Layer(1, 0), window=50.0, step=50.0, max=0.8, name="DENS")
+        result = run_drc(cell, rules)
+        assert not result.passed
+        v = result.violations[0]
+        assert v.rule_type == "density"
+        assert v.rule_name == "DENS"
+        assert "above maximum" in v.message
+
+    def test_empty_fails_min(self):
+        """Empty region fails min=0.2."""
+        cell = Cell("test")
+        # Use a region layer so the density check has something to scope to.
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 100.0, 100.0), Layer(99, 0))
+
+        rules = DrcRules().density(
+            Layer(1, 0),
+            window=50.0,
+            step=50.0,
+            min=0.2,
+            region_layer=Layer(99, 0),
+            name="DENS",
+        )
+        result = run_drc(cell, rules)
+        assert not result.passed
+        v = result.violations[0]
+        assert v.rule_type == "density"
+        assert "below minimum" in v.message
+
+    def test_requires_min_or_max(self):
+        """density() requires at least one of min/max."""
+        with pytest.raises(ValueError, match="at least one of min or max"):
+            DrcRules().density(Layer(1, 0), window=100.0, step=50.0)
+
+    def test_rejects_non_positive_window(self):
+        """density() rejects window <= 0."""
+        with pytest.raises(ValueError, match="window must be positive"):
+            DrcRules().density(Layer(1, 0), window=0.0, step=50.0, min=0.2)
+
+    def test_rejects_min_greater_than_max(self):
+        """density() rejects min > max."""
+        with pytest.raises(ValueError, match=r"min .* must be <= max"):
+            DrcRules().density(Layer(1, 0), window=100.0, step=50.0, min=0.9, max=0.1)
+
+    def test_layer_accepts_int_and_tuple(self):
+        """density() accepts int and tuple layer forms."""
+        rules_int = DrcRules().density(1, window=100.0, step=50.0, min=0.2)
+        rules_tup = DrcRules().density((1, 0), window=100.0, step=50.0, min=0.2)
+        assert "1 rules" in repr(rules_int)
+        assert "1 rules" in repr(rules_tup)
+
+    def test_region_layer_scopes_measurement(self):
+        """region_layer limits where density is measured."""
+        cell = Cell("test")
+        # Target fill on the right half only.
+        cell.add_polygon(Polygon.rect(Point(50.0, 0.0), 50.0, 100.0), Layer(1, 0))
+        # Region marker covers only the left half — so density in the region is 0.
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 50.0, 100.0), Layer(99, 0))
+
+        rules = DrcRules().density(
+            Layer(1, 0),
+            window=25.0,
+            step=25.0,
+            min=0.2,
+            region_layer=Layer(99, 0),
+            name="DENS_RL",
+        )
+        result = run_drc(cell, rules)
+        assert not result.passed
+        for v in result.violations:
+            assert v.rule_type == "density"
+
+    def test_toml_config(self, tmp_path):
+        """Density config loads from TOML."""
+        toml_content = """
+[drc.layers."1/0".density]
+min = 0.2
+max = 0.8
+window = 50.0
+step = 50.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+        # Full-fill cell fails max=0.8
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 100.0, 100.0), Layer(1, 0))
+        result = run_drc(cell, rules)
+        assert not result.passed
+        assert result.violations[0].rule_type == "density"
+        # Auto-generated name prefix
+        assert result.violations[0].rule_name.endswith(".density")
+
+    def test_toml_config_region_layer_semantic(self, tmp_path):
+        """Density config supports semantic region_layer names."""
+        toml_content = """
+[layers.silicon]
+number = 1
+datatype = 0
+
+[layers.prbnd]
+number = 99
+datatype = 0
+
+[drc.layers.silicon.density]
+min = 0.2
+window = 50.0
+step = 50.0
+region_layer = "prbnd"
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        rules = load_drc_rules(config_file)
+        assert "1 rules" in repr(rules)
+
+        # Empty target layer inside a prbnd region -> fails min=0.2
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 100.0, 100.0), Layer(99, 0))
+        result = run_drc(cell, rules)
+        assert not result.passed
+
+    def test_toml_missing_min_max_raises(self, tmp_path):
+        """Density block without min/max raises clear error."""
+        toml_content = """
+[drc.layers."1/0".density]
+window = 50.0
+step = 50.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        with pytest.raises(ValueError, match="at least one of 'min' or 'max'"):
+            load_drc_rules(config_file)
+
+    def test_toml_missing_window_raises(self, tmp_path):
+        """Density block without window raises clear error."""
+        toml_content = """
+[drc.layers."1/0".density]
+min = 0.2
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        with pytest.raises(ValueError, match="missing required 'window'"):
+            load_drc_rules(config_file)
+
+    def test_toml_step_defaults_to_half_window(self, tmp_path):
+        """When step is omitted, it defaults to window / 2."""
+        toml_content = """
+[drc.layers."1/0".density]
+min = 0.2
+window = 100.0
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        # Loads without error; actual step is implementation detail but the
+        # rule should fire on an empty design.
+        rules = load_drc_rules(config_file)
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point(0.0, 0.0), 200.0, 200.0), Layer(99, 0))
+        # No polygons on target layer (1/0) -> density=0 everywhere -> fails
+        result = run_drc(cell, rules)
+        assert not result.passed
+
+
 class TestDrcResult:
     """Tests for DrcResult class."""
 

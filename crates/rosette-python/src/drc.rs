@@ -190,6 +190,62 @@ impl PyDrcRules {
         Ok(PyDrcRules(self.0.clone().not_inside(inner, outer, name)))
     }
 
+    /// Add layer-density (CMP uniformity) check.
+    ///
+    /// At least one of `min` or `max` must be provided. Window/step are in
+    /// design units. `region_layer` is an optional marker whose union
+    /// defines the region — if not given, the bbox of all placed geometry
+    /// in the design is used.
+    #[pyo3(signature = (layer, window, step, min=None, max=None, region_layer=None, name=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn density(
+        &self,
+        layer: &Bound<'_, PyAny>,
+        window: f64,
+        step: f64,
+        min: Option<f64>,
+        max: Option<f64>,
+        region_layer: Option<&Bound<'_, PyAny>>,
+        name: Option<&str>,
+    ) -> PyResult<Self> {
+        let layer = extract_layer(layer)?;
+        if min.is_none() && max.is_none() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "density: at least one of min or max must be provided",
+            ));
+        }
+        if window <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "density: window must be positive",
+            ));
+        }
+        if step <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "density: step must be positive",
+            ));
+        }
+        if let (Some(lo), Some(hi)) = (min, max)
+            && lo > hi
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "density: min ({lo}) must be <= max ({hi})"
+            )));
+        }
+        let region_layer = match region_layer {
+            Some(rl) => Some(extract_layer(rl)?),
+            None => None,
+        };
+        Ok(PyDrcRules(self.0.clone().density(
+            layer,
+            min,
+            max,
+            window,
+            step,
+            region_layer,
+            name,
+        )))
+    }
+
     /// Set a global warning margin (in user units, typically µm).
     ///
     /// Near-threshold violations on length-based numeric rules (``min_width``,
@@ -199,8 +255,8 @@ impl PyDrcRules {
     /// Warnings do not cause ``DrcResult.passed`` to be ``False`` and do not
     /// fail ``rosette check`` / ``rosette drc``.
     ///
-    /// ``min_area`` is intentionally excluded (its thresholds are in squared
-    /// units, not length units) and remains a strict error.
+    /// ``min_area`` and ``density`` are intentionally excluded (their values
+    /// are not in length units) and remain strict errors.
     ///
     /// Pass ``0.0`` to disable (the default behavior — every violation is an
     /// error).
@@ -259,6 +315,7 @@ impl PyDrcViolation {
             RuleType::OffGrid { .. } => "off_grid".to_string(),
             RuleType::AcuteAngle { .. } => "acute_angle".to_string(),
             RuleType::NotInside => "not_inside".to_string(),
+            RuleType::Density { .. } => "density".to_string(),
         }
     }
 

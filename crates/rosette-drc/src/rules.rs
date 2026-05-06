@@ -88,6 +88,39 @@ pub enum Rule {
         outer: Layer,
         name: Option<String>,
     },
+    /// Layer area-density check (CMP uniformity).
+    ///
+    /// Tiles the layout with a sliding window of `window` x `window` across
+    /// a region (either the union of `region_layer` polygons or, if that is
+    /// `None`, the bounding box of all placed geometry in the design)
+    /// stepping by `step` between window positions. For each window, the
+    /// area fraction covered by `layer` is computed and compared against
+    /// the `[min, max]` range. Windows that don't fully fit inside the
+    /// region are skipped.
+    ///
+    /// If the design contains no geometry at all, density is undefined and
+    /// the check is skipped silently. Declare a `region_layer` if you need
+    /// density measured over an explicit floor-plan extent that may contain
+    /// empty regions.
+    ///
+    /// At least one of `min` or `max` must be `Some`.
+    Density {
+        layer: Layer,
+        /// Minimum required density fraction (0.0..=1.0). `None` = no lower bound.
+        min: Option<f64>,
+        /// Maximum allowed density fraction (0.0..=1.0). `None` = no upper bound.
+        max: Option<f64>,
+        /// Window side length (design units).
+        window: f64,
+        /// Step between window positions (design units). Typically `<= window`.
+        step: f64,
+        /// Optional region layer. If `Some`, the union of polygons on this
+        /// layer defines the region over which density is measured. If
+        /// `None`, the bounding box of all placed geometry in the design
+        /// is used.
+        region_layer: Option<Layer>,
+        name: Option<String>,
+    },
 }
 
 /// Builder for DRC rule sets.
@@ -375,6 +408,55 @@ impl DrcRules {
         self.rules.push(Rule::NotInside {
             inner: inner.into(),
             outer: outer.into(),
+            name: name.map(String::from),
+        });
+        self
+    }
+
+    /// Add a layer-density (CMP uniformity) check.
+    ///
+    /// Tiles a region with a sliding `window` × `window` square, stepping by
+    /// `step`, and flags every window position where the area fraction
+    /// covered by `layer` falls outside `[min, max]`. If `region_layer` is
+    /// `Some`, the union of polygons on that layer defines the region;
+    /// otherwise the bounding box of all placed geometry in the design is
+    /// used.
+    ///
+    /// Foundries require density to be within a band for CMP (chemical-
+    /// mechanical planarization) uniformity. Typical photonic-PDK values:
+    /// silicon device layer 0.20-0.80 fill, 100 µm window.
+    ///
+    /// # Panics
+    ///
+    /// Panics if both `min` and `max` are `None` (no-op rule), if `window`
+    /// is not positive, or if `step` is not positive.
+    #[allow(clippy::too_many_arguments)]
+    pub fn density(
+        mut self,
+        layer: impl Into<Layer>,
+        min: Option<f64>,
+        max: Option<f64>,
+        window: f64,
+        step: f64,
+        region_layer: Option<Layer>,
+        name: Option<&str>,
+    ) -> Self {
+        assert!(
+            min.is_some() || max.is_some(),
+            "density: at least one of min or max must be set"
+        );
+        assert!(window > 0.0, "density: window must be positive");
+        assert!(step > 0.0, "density: step must be positive");
+        if let (Some(lo), Some(hi)) = (min, max) {
+            assert!(lo <= hi, "density: min ({lo}) must be <= max ({hi})");
+        }
+        self.rules.push(Rule::Density {
+            layer: layer.into(),
+            min,
+            max,
+            window,
+            step,
+            region_layer,
             name: name.map(String::from),
         });
         self

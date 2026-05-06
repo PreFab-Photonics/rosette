@@ -1525,6 +1525,11 @@ def _collect_all_cells(cell: Cell, collected: set[Cell]) -> None:
                 _collect_all_cells(child, collected)
 
 
+# Recognized keys in a [drc.layers.<layer>.density] subtable. Defined at
+# module scope so it's built once rather than per layer-loop iteration.
+_KNOWN_DENSITY_KEYS = frozenset({"min", "max", "window", "step", "region_layer"})
+
+
 def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
     """Load DRC rules from rosette.toml.
 
@@ -1562,6 +1567,14 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
             # Numeric format still works:
             # [drc.layers."2/0"]
             # min_width = 0.5
+
+            # Layer density (CMP uniformity) check:
+            [drc.layers.silicon.density]
+            min = 0.20
+            max = 0.80
+            window = 100.0
+            step = 50.0
+            # region_layer = "prbnd"   # optional
 
             [[drc.rules]]
             type = "spacing"
@@ -1669,6 +1682,50 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
         if "acute_angle" in layer_rules:
             rules = rules.acute_angle(layer, layer_rules["acute_angle"], f"{prefix}.acute_angle")
 
+        if "density" in layer_rules:
+            density_cfg = layer_rules["density"]
+            if not isinstance(density_cfg, dict):
+                raise ValueError(
+                    f"[drc.layers.{layer_str}.density] must be a table "
+                    f"with min/max/window/step keys, got {type(density_cfg).__name__}"
+                )
+            density_min = density_cfg.get("min")
+            density_max = density_cfg.get("max")
+            if density_min is None and density_max is None:
+                raise ValueError(
+                    f"[drc.layers.{layer_str}.density] must set at least one of 'min' or 'max'"
+                )
+            if "window" not in density_cfg:
+                raise ValueError(
+                    f"[drc.layers.{layer_str}.density] is missing required 'window' key"
+                )
+            density_window = density_cfg["window"]
+            density_step = density_cfg.get("step", density_window / 2.0)
+            density_region_layer_str = density_cfg.get("region_layer")
+            density_region_layer = None
+            if density_region_layer_str is not None:
+                density_region_layer, _ = _resolve_layer(
+                    density_region_layer_str,
+                    layer_lookup,
+                    context=f"[drc.layers.{layer_str}.density].region_layer",
+                )
+            unknown_density_keys = set(density_cfg.keys()) - _KNOWN_DENSITY_KEYS
+            for key in sorted(unknown_density_keys):
+                warnings.warn(
+                    f"Unknown DRC density key '{key}' for layer {display_name} in rosette.toml "
+                    f"(known keys: {', '.join(sorted(_KNOWN_DENSITY_KEYS))})",
+                    stacklevel=2,
+                )
+            rules = rules.density(
+                layer,
+                density_window,
+                density_step,
+                min=density_min,
+                max=density_max,
+                region_layer=density_region_layer,
+                name=f"{prefix}.density",
+            )
+
         # Warn about unrecognized keys that might be typos
         _KNOWN_LAYER_KEYS = {
             "min_width",
@@ -1681,6 +1738,7 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
             "no_overlap",
             "snap_to_grid",
             "acute_angle",
+            "density",
         }
         unknown_keys = set(layer_rules.keys()) - _KNOWN_LAYER_KEYS
         for key in sorted(unknown_keys):
