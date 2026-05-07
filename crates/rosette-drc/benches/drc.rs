@@ -5,8 +5,8 @@
 //!   in three density regimes (separated / dense / very_dense).
 //! - `pairwise_overlap` — `forbid_overlap` + `require_overlap` cross-layer,
 //!   same N sweep.
-//! - `pairwise_enclosure` — `enclosure` at N ∈ {100, 1K} (O(inner × outer),
-//!   no R-tree yet — baseline for ROS-496; 10K omitted for runtime).
+//! - `pairwise_enclosure` — `enclosure` at N ∈ {100, 1K, 10K} with R-tree
+//!   spatial indexing (ROS-496).
 //! - `per_polygon` — `min_width` + `self_intersection` + `min_edge_length` on
 //!   a single polygon with V ∈ {100, 1000} vertices.
 //! - `self_intersection` — dedicated sweep-line check (ROS-549) across
@@ -155,15 +155,15 @@ fn bench_pairwise_enclosure(c: &mut Criterion) {
     // inner inside the 3x3 outer (margin 1.0 on each side).
     let rules = DrcRules::new().min_enclosure(L1, L2, 0.5, Some("L2_L1.ENC"));
 
-    // Enclosure has no spatial index yet (ROS-496). O(I*O) makes 10K
-    // impractical to benchmark (~100M boolean checks = minutes per sample).
-    // Cap at 1K; once ROS-496 lands, extend back up to 10K to confirm the
-    // scaling win.
-    let enclosure_sizes = &PAIRWISE_SIZES[..2];
-    for &n in enclosure_sizes {
+    // Enclosure uses R-tree spatial indexing (ROS-496) — the full N sweep
+    // (including 10K) runs in reasonable time. Pre-ROS-496 the 1K case was
+    // already ~480 ms on an O(I×O) nested loop and 10K was impractical.
+    for &n in PAIRWISE_SIZES {
         group.throughput(Throughput::Elements(n as u64));
-        if n >= 1_000 {
+        if n >= 10_000 {
             group.sample_size(10);
+        } else if n >= 1_000 {
+            group.sample_size(15);
         }
 
         let cell = fixtures::build_paired_layers(n, PAIRED_PITCH);

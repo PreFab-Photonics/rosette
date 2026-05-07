@@ -7,4 +7,5 @@ description = "Design checks for rosette photonic layouts"
 
 [dependencies]
 rosette-core.workspace = true
+rstar = "0.12"
 thiserror.workspace = true

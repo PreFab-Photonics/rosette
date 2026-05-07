@@ -7,9 +7,10 @@ use rosette_core::cell::Element;
 use rosette_core::{BBox, Cell, Layer, Library, Point, Polygon, Transform, offset_polygon};
 
 use crate::checks::{
-    check_acute_angle, check_angles, check_area, check_density, check_edge_length, check_enclosure,
-    check_forbid_overlap_bulk, check_max_width, check_not_inside, check_require_overlap_bulk,
-    check_self_intersection, check_snap_to_grid, check_spacing, check_width, compute_region_bbox,
+    check_acute_angle, check_angles, check_area, check_density, check_edge_length,
+    check_enclosure_bulk, check_forbid_overlap_bulk, check_max_width, check_not_inside,
+    check_require_overlap_bulk, check_self_intersection, check_snap_to_grid, check_spacing,
+    check_width, compute_region_bbox,
 };
 use crate::rules::{DrcRules, Rule};
 use crate::violation::{DrcViolation, RuleType, Severity};
@@ -1073,97 +1074,22 @@ impl DrcRunner {
                 enclosure,
                 name,
             } => {
-                let inner_polys = polygons_by_layer.get(inner);
-                let outer_polys = polygons_by_layer.get(outer);
+                let empty = Vec::new();
+                let inner_polys = polygons_by_layer.get(inner).unwrap_or(&empty);
+                let outer_polys = polygons_by_layer.get(outer).unwrap_or(&empty);
 
-                match (inner_polys, outer_polys) {
-                    (Some(ip), Some(op)) => {
-                        let mut violations = Vec::new();
-                        // For each inner polygon, check if ANY outer polygon encloses it.
-                        // Only report a violation if no outer polygon provides sufficient enclosure.
-                        for (inner_poly, inner_idx) in ip {
-                            let mut best_violation: Option<DrcViolation> = None;
-                            let mut is_enclosed = false;
-
-                            for (outer_poly, outer_idx) in op {
-                                match check_enclosure(
-                                    inner_poly,
-                                    *inner,
-                                    outer_poly,
-                                    *outer,
-                                    *enclosure,
-                                    name.as_deref(),
-                                ) {
-                                    None => {
-                                        // This outer polygon encloses the inner one — no violation
-                                        is_enclosed = true;
-                                        break;
-                                    }
-                                    Some(mut v) => {
-                                        v = v
-                                            .with_polygon_idx(*inner_idx)
-                                            .with_polygon_idx2(*outer_idx);
-                                        // Keep the closest near-miss (largest actual value).
-                                        // This gives the most actionable report: "you need 0.1
-                                        // more enclosure" is more useful than "no enclosure
-                                        // at all" from a distant unrelated outer polygon.
-                                        let dominated = best_violation.as_ref().is_none_or(|bv| {
-                                            match (&bv.rule_type, &v.rule_type) {
-                                                (
-                                                    RuleType::Enclosure {
-                                                        actual: best_actual,
-                                                        ..
-                                                    },
-                                                    RuleType::Enclosure {
-                                                        actual: new_actual, ..
-                                                    },
-                                                ) => *new_actual > *best_actual,
-                                                _ => false,
-                                            }
-                                        });
-                                        if dominated {
-                                            best_violation = Some(v);
-                                        }
-                                    }
-                                }
-                            }
-
-                            if !is_enclosed && let Some(v) = best_violation {
-                                violations.push(v);
-                            }
-                        }
-                        violations
-                    }
-                    (Some(ip), None) => {
-                        // Inner polygons exist but no outer polygons — every inner is unenclosed
-                        let mut violations = Vec::new();
-                        for (inner_poly, inner_idx) in ip {
-                            let mut violation = DrcViolation::new(
-                                RuleType::Enclosure {
-                                    required: *enclosure,
-                                    actual: 0.0,
-                                },
-                                inner_poly.bbox(),
-                                *inner,
-                                format!(
-                                    "Inner layer ({}, {}) has no enclosing geometry on outer layer ({}, {})",
-                                    inner.number, inner.datatype, outer.number, outer.datatype
-                                ),
-                            )
-                            .with_layer2(*outer)
-                            .with_severity(Severity::Error)
-                            .with_polygon_idx(*inner_idx);
-
-                            if let Some(name) = name {
-                                violation = violation.with_name(name);
-                            }
-
-                            violations.push(violation);
-                        }
-                        violations
-                    }
-                    _ => Vec::new(),
-                }
+                // `check_enclosure_bulk` handles the empty-outer case (emits
+                // "no enclosing geometry" per inner) and uses an R-tree so
+                // each inner only compares against nearby outers — much
+                // faster than the prior O(I×O) nested loop on large designs.
+                check_enclosure_bulk(
+                    inner_polys,
+                    *inner,
+                    outer_polys,
+                    *outer,
+                    *enclosure,
+                    name.as_deref(),
+                )
             }
 
             Rule::RequireOverlap {

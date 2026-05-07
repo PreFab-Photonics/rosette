@@ -3675,6 +3675,7 @@ name = "rosette-checks"
 version = "0.3.0"
 dependencies = [
  "rosette-core",
+ "rstar",
  "thiserror 1.0.69",
 ]
 

@@ -20,7 +20,7 @@ pub use angle::check_angles;
 pub use area::check_area;
 pub use density::{check_density, compute_region_bbox};
 pub use edge_length::check_edge_length;
-pub use enclosure::check_enclosure;
+pub use enclosure::check_enclosure_bulk;
 pub use grid::check_snap_to_grid;
 pub use max_width::check_max_width;
 pub use not_inside::check_not_inside;

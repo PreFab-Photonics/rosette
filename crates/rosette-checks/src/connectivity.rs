@@ -7,8 +7,13 @@
 //!
 //! Ports on the top-level cell are treated as external I/O and are
 //! exempt from unconnected-port checks.
+//!
+//! Uses an R-tree spatial index keyed on port position so each port's
+//! partner search is O(log P + k) on the number of nearby ports rather
+//! than O(P). Drops the previous O(P²) matching to O(P log P) in practice.
 
 use rosette_core::{BBox, Cell, Library, Point, Port, Transform};
+use rstar::{AABB, PointDistance, RTree, RTreeObject};
 
 use crate::config::ChecksConfig;
 use crate::violation::{CheckViolation, CheckViolationType, Severity};
@@ -90,6 +95,31 @@ pub struct ConnectivityStats {
     pub connections_found: usize,
 }
 
+/// Wraps a port's absolute position for R-tree indexing. The `index` field
+/// is the position within `flat_ports`.
+#[derive(Clone, Copy, Debug)]
+struct IndexedPort {
+    index: usize,
+    x: f64,
+    y: f64,
+}
+
+impl RTreeObject for IndexedPort {
+    type Envelope = AABB<[f64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        AABB::from_point([self.x, self.y])
+    }
+}
+
+impl PointDistance for IndexedPort {
+    fn distance_2(&self, point: &[f64; 2]) -> f64 {
+        let dx = self.x - point[0];
+        let dy = self.y - point[1];
+        dx * dx + dy * dy
+    }
+}
+
 /// Run connectivity checks on a cell.
 ///
 /// Returns violations and stats. Called by the unified runner.
@@ -107,14 +137,50 @@ pub fn check_connectivity(
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     let mut violations = Vec::new();
 
-    // O(n^2) pairwise matching — fine for typical port counts (10s-100s)
+    // Build an R-tree of port positions so partner lookup is O(log P + k)
+    // rather than O(P) per port. Without the index, a design with thousands
+    // of ports across many components spends almost all its time in this
+    // pairwise loop.
+    //
+    // `IndexedPort::envelope()` is a point (`AABB::from_point`), which means
+    // the `locate_in_envelope` queries below are semantically equivalent to
+    // `locate_in_envelope_intersecting`. If the envelope ever changes to a
+    // non-degenerate bbox, switch the queries to `*_intersecting` — otherwise
+    // candidates on the window boundary would be silently skipped.
+    let indexed: Vec<IndexedPort> = flat_ports
+        .iter()
+        .enumerate()
+        .map(|(i, fp)| IndexedPort {
+            index: i,
+            x: fp.port.position.x,
+            y: fp.port.position.y,
+        })
+        .collect();
+    let tree = RTree::bulk_load(indexed);
+
+    // Squared tolerance avoids a sqrt on every candidate.
+    let tol = config.position_tolerance;
+    let tol_sq = tol * tol;
+
     for i in 0..n {
-        for j in (i + 1)..n {
-            let dist = flat_ports[i]
-                .port
-                .position
-                .distance_to(flat_ports[j].port.position);
-            if dist > config.position_tolerance {
+        let pos = flat_ports[i].port.position;
+        // Query all ports within `position_tolerance` of this one. Use a
+        // bbox envelope (not nearest-neighbour) so we visit every candidate
+        // in the window; the distance² filter below prunes the corners.
+        let envelope = AABB::from_corners([pos.x - tol, pos.y - tol], [pos.x + tol, pos.y + tol]);
+
+        for candidate in tree.locate_in_envelope(&envelope) {
+            let j = candidate.index;
+            // Pair each (i, j) once. `j > i` mirrors the upper-triangular
+            // loop used previously so deduping the connection list and
+            // self-pair skipping happen with one comparison.
+            if j <= i {
+                continue;
+            }
+
+            let dx = flat_ports[j].port.position.x - pos.x;
+            let dy = flat_ports[j].port.position.y - pos.y;
+            if dx * dx + dy * dy > tol_sq {
                 continue;
             }
 
@@ -145,15 +211,16 @@ pub fn check_connectivity(
         if matched[i] || flat_ports[i].is_top_level {
             continue;
         }
-        for j in 0..n {
-            if i == j || !flat_ports[j].is_top_level {
+        let pos = flat_ports[i].port.position;
+        let envelope = AABB::from_corners([pos.x - tol, pos.y - tol], [pos.x + tol, pos.y + tol]);
+        for candidate in tree.locate_in_envelope(&envelope) {
+            let j = candidate.index;
+            if j == i || !flat_ports[j].is_top_level {
                 continue;
             }
-            let dist = flat_ports[i]
-                .port
-                .position
-                .distance_to(flat_ports[j].port.position);
-            if dist <= config.position_tolerance {
+            let dx = flat_ports[j].port.position.x - pos.x;
+            let dy = flat_ports[j].port.position.y - pos.y;
+            if dx * dx + dy * dy <= tol_sq {
                 matched[i] = true;
                 break;
             }
