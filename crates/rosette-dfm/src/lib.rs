@@ -512,7 +512,6 @@ mod tests {
             keep_raster: false,
             tolerances: None,
             layer_configs,
-            ..Default::default()
         };
 
         let result = run_dfm(&cell, None, &[l1, l2], &model, &config);
@@ -560,7 +559,6 @@ mod tests {
                 severity: Severity::Error,
             }),
             layer_configs,
-            ..Default::default()
         };
 
         let result = run_dfm(&cell, None, &[l1, l2], &model, &config);
