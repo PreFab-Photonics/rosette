@@ -109,6 +109,13 @@ pub struct DrcViolation {
     /// Type of violation with details.
     pub rule_type: RuleType,
     /// Bounding box of the violation location.
+    ///
+    /// **Coordinate frame:** top-level (flattened, global) coordinates — the
+    /// same frame as the final GDS output. This is guaranteed for every
+    /// `RuleType` emitted by [`crate::DrcRunner::check`]. Individual
+    /// `check_*` helpers called directly with already-local polygons emit
+    /// local-frame locations; the runner is responsible for transforming
+    /// those into global coordinates before returning.
     pub location: BBox,
     /// Primary layer involved.
     pub layer: Layer,
@@ -118,10 +125,25 @@ pub struct DrcViolation {
     pub message: String,
     /// Severity level.
     pub severity: Severity,
-    /// Name of the cell containing the first polygon (for pairwise violations).
+    /// Name of the cell containing the first (primary) polygon.
+    ///
+    /// Populated by the runner for every attributable violation. The only
+    /// `RuleType` that leaves this `None` by design is [`RuleType::Density`],
+    /// which is a window-level check with no single source polygon.
     pub cell_name: Option<String>,
-    /// Name of the cell containing the second polygon (for pairwise violations).
+    /// Name of the cell containing the second polygon (for pairwise
+    /// violations). `Some` whenever a violation has a meaningful second
+    /// side; equal to `cell_name` for intra-cell pairwise violations.
     pub cell_name2: Option<String>,
+    /// Index of the primary polygon in the flattened polygon map. Used
+    /// internally by the runner to map violations back to source cells.
+    /// Not exposed to Python.
+    #[doc(hidden)]
+    pub polygon_idx: Option<usize>,
+    /// Index of the secondary polygon (for pairwise violations). Used
+    /// internally by the runner. Not exposed to Python.
+    #[doc(hidden)]
+    pub polygon_idx2: Option<usize>,
 }
 
 impl DrcViolation {
@@ -142,6 +164,8 @@ impl DrcViolation {
             severity: Severity::Error,
             cell_name: None,
             cell_name2: None,
+            polygon_idx: None,
+            polygon_idx2: None,
         }
     }
 
@@ -160,6 +184,21 @@ impl DrcViolation {
     /// Set the severity level.
     pub fn with_severity(mut self, severity: Severity) -> Self {
         self.severity = severity;
+        self
+    }
+
+    /// Set the primary polygon index (internal; used by the runner to map
+    /// back to owning cell names).
+    #[doc(hidden)]
+    pub fn with_polygon_idx(mut self, idx: usize) -> Self {
+        self.polygon_idx = Some(idx);
+        self
+    }
+
+    /// Set the secondary polygon index (internal).
+    #[doc(hidden)]
+    pub fn with_polygon_idx2(mut self, idx: usize) -> Self {
+        self.polygon_idx2 = Some(idx);
         self
     }
 }

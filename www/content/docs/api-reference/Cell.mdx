@@ -53,14 +53,12 @@ The skipped-cell counts and number of suppressed violations are surfaced on
 [`DrcResult.skipped_cells`](./DrcResult) and
 [`DrcResult.suppressed_violations`](./DrcResult).
 
-**Known v1 limitations.**
+**Limitations.**
 
-- **Per-polygon rules** (e.g. `MinWidth`, `MinArea`, `AllowedAngles`) and
-  **cross-layer pairwise rules** (e.g. `Enclosure`, `RequireOverlap`, and
-  cross-layer `MinSpacing`) currently produce violations without cell-name
-  provenance and so are not suppressed. This is a runner-side gap that will
-  be closed by a follow-up; once it lands, `drc_skip` will strengthen
-  automatically with no API change.
+- **Density rules are not suppressed.** `density` is a window-level check
+  with no single source cell, so its violations carry no cell-name
+  provenance and always pass through the filter. All other rule types do
+  have provenance and are suppressed when attributed to trusted cells.
 - **Placement is also trusted, not just interior.** If two trusted cells (or
   two instances of the same trusted cell) are placed by an untrusted parent
   in a way that violates a same-layer rule between them, the violation is

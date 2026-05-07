@@ -3,7 +3,7 @@
 //! A [`BBox`] represents the smallest axis-aligned rectangle that contains
 //! a set of points or geometry.
 
-use super::Point;
+use super::{Point, Transform};
 
 /// An axis-aligned bounding box.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -131,6 +131,24 @@ impl BBox {
             max: Point::new(self.max.x.min(other.max.x), self.max.y.min(other.max.y)),
         })
     }
+
+    /// Return the tight axis-aligned bounding box of this box after applying
+    /// `transform`.
+    ///
+    /// Computes the AABB of the four transformed corners. For rotations that
+    /// are not multiples of 90° the result is slightly inflated versus the
+    /// true geometric bbox — this matches the behaviour of `Polygon::bbox()`
+    /// called after `Polygon::transform()` and is the standard AABB result
+    /// under affine transforms.
+    pub fn transform(&self, transform: &Transform) -> Self {
+        let corners = [
+            transform.apply(self.min),
+            transform.apply(Point::new(self.max.x, self.min.y)),
+            transform.apply(self.max),
+            transform.apply(Point::new(self.min.x, self.max.y)),
+        ];
+        Self::from_points(&corners)
+    }
 }
 
 #[cfg(test)]
@@ -207,5 +225,37 @@ mod tests {
     #[should_panic]
     fn test_empty_points() {
         BBox::from_points(&[]);
+    }
+
+    #[test]
+    fn test_transform_translate() {
+        let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(10.0, 5.0));
+        let t = Transform::translate(3.0, -2.0);
+        let out = bbox.transform(&t);
+        assert!(approx_eq(out.min().x, 3.0));
+        assert!(approx_eq(out.min().y, -2.0));
+        assert!(approx_eq(out.max().x, 13.0));
+        assert!(approx_eq(out.max().y, 3.0));
+    }
+
+    #[test]
+    fn test_transform_rotate_90() {
+        // 10x5 rect at origin -> rotated 90° should become 5x10 at origin
+        let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(10.0, 5.0));
+        let t = Transform::rotate(std::f64::consts::FRAC_PI_2);
+        let out = bbox.transform(&t);
+        assert!(approx_eq(out.width(), 5.0));
+        assert!(approx_eq(out.height(), 10.0));
+    }
+
+    #[test]
+    fn test_transform_rotate_45_inflates() {
+        // Axis-aligned unit square rotated 45° has AABB side sqrt(2).
+        let bbox = BBox::new(Point::new(-0.5, -0.5), Point::new(0.5, 0.5));
+        let t = Transform::rotate(std::f64::consts::FRAC_PI_4);
+        let out = bbox.transform(&t);
+        let diag = std::f64::consts::SQRT_2;
+        assert!(approx_eq(out.width(), diag));
+        assert!(approx_eq(out.height(), diag));
     }
 }

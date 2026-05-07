@@ -88,7 +88,9 @@ pub fn check_spacing(
                     ),
                 )
                 .with_layer2(layer2)
-                .with_severity(Severity::Error);
+                .with_severity(Severity::Error)
+                .with_polygon_idx(*orig_idx1)
+                .with_polygon_idx2(candidate.orig_index);
 
                 if let Some(name) = rule_name {
                     violation = violation.with_name(name);
