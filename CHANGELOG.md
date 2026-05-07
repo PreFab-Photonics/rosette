@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-07
+
+### Added
+
+- Ruler family: Super Ruler (angle badge, endpoint coord badges, per-ruler auto/nm/um/mm unit override, Alt-Manhattan), Polyline Ruler, Angle Ruler, and Radius Ruler; the existing simple ruler is preserved
+- Ruler toolbar submenu (mirrors shape ops), command palette entries per kind, `Shift+U` shortcut for Super Ruler, and `Enter`/`Backspace` to finalize/pop points during polyline creation
+- Global "Show rulers" toggle and last-used ruler kind, both persisted; auto-enabled when a ruler tool is activated
+- Skewed / non-orthogonal AREF column and row vectors: `CellRef.array_vectors` / `Instance.array_vectors` support hex and angled lattices that survive GDS round-trip
+- Edit skewed AREF lattice vectors in Inspector and ArrayDialog
+- Iterate individual copies of an arrayed `Instance` without dropping the AREF: `copies()`, `__iter__`, `__len__`, `array_shape`, and optional `(col, row)` on `port()`
+- Palette command to flatten an AREF into individual SREFs, with a confirm prompt above 1000 copies
+- AREF copy count in the status bar selection summary (`cols × rows = N copies`, plus aggregated totals for multi- and mixed selections)
+- `Cell.polygons() -> list[tuple[Polygon, Layer]]` Python binding for enumerating a cell's polygons
+- Negative `col_spacing` / `row_spacing` in `.array()` are documented and tested across the stack (place copies along local -X/-Y)
+- DRC density (CMP uniformity) check: sliding-window area-fraction measurement with `[drc.layers.<layer>.density]` config (min/max/window/step/region_layer)
+- DRC not-inside / exclusion-zone rule: flags inner-layer polygons fully contained in the union of outer-layer polygons
+- DRC acute interior angle check with configurable threshold (defaults documented at 60°)
+- DRC `warning_margin`: opt-in knob that downgrades length-unit violations within the margin to "warning"; `DrcResult.passed` now means no errors, with `error_count` / `warning_count` helpers
+- Per-cell `drc_skip=True` suppression for DRC, plus `suppressed_violations` and `skipped_cells` counters on `DrcStats`
+- Cell-name and location provenance on all DRC violations (per-polygon, pairwise, cross-layer, NotInside, SnapToGrid) in top-level flattened coordinates; a failing cell instanced N times now emits N violations, one per placement
+- DRC performance benchmark harness (Criterion) with six groups: `pairwise_spacing`, `pairwise_overlap`, `pairwise_enclosure`, `per_polygon`, `array_expansion`, `full_deck_realistic`
+- Euler (clothoid) bend profile on `Route`: `bend_profile="euler"` replaces each corner with a pair of mirrored clothoid halves for lower loss on high-index-contrast platforms
+- `bragg_grating` component: sidewall-corrugated teeth, uniform or Gaussian apodization, optional quarter-wave phase-shift stub
+- `edge_coupler` (inverse taper) component: linear / parabolic / exponential taper profiles with optional cladding overlay
+- Layers panel fades rows for layers not in use in the current cell
+- Blank template ships a minimal `components/` scaffold so `from components import ...` works before any components are added
+
+### Changed
+
+- MMI: `mmi_1x2` / `mmi_2x1` / `mmi_2x2` consolidated into a single `mmi(n_in, n_out, ...)` with keyword-only `Literal[1, 2]` arguments. **Breaking change** — migration guidance in the docstring
+- MMI cell names now include `port_width` and `taper_width`; grating coupler cell names include `fill_factor`, `num_periods`, `grating_type`, `focusing_angle`, `grating_width`, and `taper_length` — fixes name collisions between configured variants
+- Grating coupler: `grating_width` default changes from `12.0` to `None`; setting both `grating_width` and `focusing_angle` now emits a `UserWarning` instead of raising
+- Grating coupler apodized envelope center shifts from `N/2` to `(N-1)/2` to match `bragg_grating` convention
+- Enclosure DRC check uses R-tree spatial indexing: ~29× faster at N=100, ~247× at N=1000, and tractable at N=10000 (O(I·O) → ~O(N log N))
+- Connectivity port matching uses R-tree envelope queries with squared-distance comparison, replacing O(P) partner scans
+- Self-intersection check switched from O(V²) pairwise edges to Bentley–Ottmann sweep-line (`geo::sweep::Intersections`): ~175× faster at V=1K, ~1500× at V=10K
+- Overlap check hoists `polygon_to_geo` conversion out of the candidate loop; non-bulk variants downgraded to `#[cfg(test)]`
+- `rosette-drc` runner tests split into a `runner/tests.rs` submodule
+- Directional coupler validates `port_spacing > gap + waveguide_width` explicitly; `crossing` rejects `center_width` when `crossing_type='simple'`; `sbend` short-circuits `offset=0` to a single rectangle
+- Standardized component docstrings (sbend, crossing, directional_coupler, mmi, _curves) with ASCII diagrams, port tables, placement warnings, and worked examples
+- `taper_polygon` extracted into a shared helper supporting linear / parabolic / exponential profiles; mmi and grating_coupler delegate to it
+- Selection outline takes precedence over hover outline for cell instances
+- Ruler hit-test and shared constants consolidated into `lib/ruler-hittest.ts`, removing duplicated copies in move/selection hooks
+
+### Fixed
+
+- Euler Route setback formula: corrected `C(t_max) + S(t_max)·tan(phi)` (was `C − S·cot(phi)`), eliminating the centerline jump that rendered as self-intersecting "arrowhead" spikes at every corner. At phi=π/4, R=5 the old formula gave 5.42 vs the correct 9.35
+- Short-edge sliver at `bragg_grating` output port: polygon terminates on a wide half so adjacent edges are outward corrugations, clearing foundry `min_edge_length ≥ 0.05 um`. `path_length` grows by `duty_cycle · period` (~0.16 µm at defaults)
+- AREF pitch applied in the CellRef local frame for `flatten`, `cell_bbox`, DRC, and the WASM viewer, matching the GDS writer (rotated/mirrored/scaled AREFs no longer diverge between viewer and `.gds`)
+- Enclosure check now reports unenclosed inners when the outer layer is registered but empty (previously emitted no violations in this case)
+- `rosette init` components scaffolding: copied `components/__init__.py` re-exports are rewritten to relative imports so `from components import ...` resolves against the local copy instead of the installed package
+
+### Removed
+
+- `rosette-drc` non-bulk `check_forbid_overlap` / `check_require_overlap` are no longer public (test-only); the runner only calls the bulk variants
+
 ## [0.3.0] - 2026-04-29
 
 ### Added
@@ -224,7 +280,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `rosette serve` to use installed Rosette.app on macOS
 
-[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.9...v0.2.0
 [0.1.9]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.8...v0.1.9
