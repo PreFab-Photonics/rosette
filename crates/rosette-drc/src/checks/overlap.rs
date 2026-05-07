@@ -61,6 +61,9 @@ pub fn check_forbid_overlap_bulk(
             }
 
             let (poly2, _) = &polygons2[candidate.index];
+            // `get_or_insert_with` returns &mut T; inits on first use, memoized
+            // thereafter. Inner shadow binds the deref so later uses read
+            // the converted polygon, not the Option wrapper.
             let geo1 = geo1.get_or_insert_with(|| polygon_to_geo(poly1));
             let geo2 = polygon_to_geo(poly2);
             let intersection = geo1.intersection(&geo2);
