@@ -1,6 +1,7 @@
 //! Self-intersection check for polygon validity.
 
-use rosette_core::{Layer, Point, Polygon};
+use geo::{Coord, Line, line_intersection::LineIntersection, sweep::Intersections};
+use rosette_core::{Layer, Polygon};
 
 use crate::violation::{DrcViolation, RuleType, Severity};
 
@@ -10,8 +11,11 @@ use crate::violation::{DrcViolation, RuleType, Severity};
 /// results in boolean operations, area calculations, and fabrication. Foundries
 /// will reject designs containing self-intersecting geometry.
 ///
-/// Uses an O(n^2) edge-pair intersection test. This is acceptable because
-/// photonic layout polygons rarely have more than a few hundred vertices.
+/// Uses `geo::sweep::Intersections`, which runs the Bentley–Ottmann sweep-line
+/// algorithm in `O((V + K) log V)` where `V` is the vertex count and `K` is
+/// the number of crossings. Reports only *proper* crossings (where the two
+/// edges' interiors meet) — shared endpoints between adjacent edges and
+/// collinear overlaps are ignored, matching the previous O(V²) implementation.
 pub fn check_self_intersection(
     polygon: &Polygon,
     layer: Layer,
@@ -20,71 +24,53 @@ pub fn check_self_intersection(
     let vertices = polygon.vertices();
     let n = vertices.len();
 
+    // A triangle (or shorter) cannot self-intersect.
     if n < 4 {
-        // A triangle cannot self-intersect
         return None;
     }
 
-    for i in 0..n {
-        let a1 = vertices[i];
-        let a2 = vertices[(i + 1) % n];
+    // Collect polygon edges as `geo::Line` segments. The closing edge wraps
+    // from the last vertex back to the first.
+    let edges = (0..n).map(|i| {
+        let a = vertices[i];
+        let b = vertices[(i + 1) % n];
+        Line::new(Coord { x: a.x, y: a.y }, Coord { x: b.x, y: b.y })
+    });
 
-        // Only compare with non-adjacent edges to avoid shared-vertex false positives.
-        // Edge j starts at j+2 from i (skip i and i+1 which are adjacent).
-        // Also skip the edge that ends at i (which is edge n-1 when i==0).
-        for j in (i + 2)..n {
-            // Skip the last edge when checking the first edge (they share a vertex)
-            if i == 0 && j == n - 1 {
-                continue;
+    // Walk the sweep iterator until we find a proper crossing. Adjacent edges
+    // share an endpoint; the sweep reports those as
+    // `SinglePoint { is_proper: false }`, which we skip. Collinear overlaps
+    // (`Collinear`) are also skipped to match the prior behavior.
+    let has_proper_crossing = Intersections::<Line<f64>>::from_iter(edges).any(|(_, _, kind)| {
+        matches!(
+            kind,
+            LineIntersection::SinglePoint {
+                is_proper: true,
+                ..
             }
+        )
+    });
 
-            let b1 = vertices[j];
-            let b2 = vertices[(j + 1) % n];
-
-            if segments_intersect(a1, a2, b1, b2) {
-                let mut violation = DrcViolation::new(
-                    RuleType::SelfIntersection,
-                    polygon.bbox(),
-                    layer,
-                    format!(
-                        "Polygon on Layer({}, {}) has self-intersecting edges",
-                        layer.number, layer.datatype
-                    ),
-                )
-                .with_severity(Severity::Error);
-
-                if let Some(name) = rule_name {
-                    violation = violation.with_name(name);
-                }
-
-                return Some(violation);
-            }
-        }
+    if !has_proper_crossing {
+        return None;
     }
 
-    None
-}
+    let mut violation = DrcViolation::new(
+        RuleType::SelfIntersection,
+        polygon.bbox(),
+        layer,
+        format!(
+            "Polygon on Layer({}, {}) has self-intersecting edges",
+            layer.number, layer.datatype
+        ),
+    )
+    .with_severity(Severity::Error);
 
-/// Test if two line segments properly intersect (cross each other).
-///
-/// Returns true only for proper crossings, not for shared endpoints or
-/// collinear overlaps, which would produce false positives on adjacent edges.
-fn segments_intersect(a1: Point, a2: Point, b1: Point, b2: Point) -> bool {
-    let d1 = cross_product(b1, b2, a1);
-    let d2 = cross_product(b1, b2, a2);
-    let d3 = cross_product(a1, a2, b1);
-    let d4 = cross_product(a1, a2, b2);
+    if let Some(name) = rule_name {
+        violation = violation.with_name(name);
+    }
 
-    // Proper crossing: the endpoints of each segment are on opposite sides
-    // of the line defined by the other segment.
-    ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
-        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
-}
-
-/// Cross product of vectors (p2-p1) x (p3-p1).
-/// Positive if p3 is to the left of p1->p2.
-fn cross_product(p1: Point, p2: Point, p3: Point) -> f64 {
-    (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x)
+    Some(violation)
 }
 
 #[cfg(test)]
@@ -171,5 +157,36 @@ mod tests {
         ]);
         let result = check_self_intersection(&poly, Layer::new(1, 0), None);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_high_vertex_simple_polygon_terminates_quickly() {
+        // 10 000-vertex regular polygon. Must terminate without timing out
+        // and must not flag a violation. The previous O(V^2) implementation
+        // costed several seconds at this scale (extrapolated from the 44 ms
+        // measured at V=1000); the sweep-line implementation should be in
+        // the low milliseconds.
+        let poly = Polygon::regular(Point::origin(), 10.0, 10_000);
+        let result = check_self_intersection(&poly, Layer::new(1, 0), None);
+        assert!(
+            result.is_none(),
+            "Regular 10 000-gon must not flag self-intersection"
+        );
+    }
+
+    #[test]
+    fn test_high_vertex_self_crossing_terminates_quickly() {
+        // 10 000-vertex polygon with one deliberate twist near the start.
+        // Construct it from a regular polygon with two vertices swapped to
+        // introduce exactly one X-crossing.
+        let mut poly = Polygon::regular(Point::origin(), 10.0, 10_000);
+        let verts = poly.vertices_mut();
+        verts.swap(1, 2_000);
+
+        let result = check_self_intersection(&poly, Layer::new(1, 0), None);
+        assert!(
+            result.is_some(),
+            "Polygon with a swapped pair of vertices must flag self-intersection"
+        );
     }
 }

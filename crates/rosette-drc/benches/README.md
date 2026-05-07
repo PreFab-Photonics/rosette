@@ -51,6 +51,7 @@ flags statistically significant shifts.
 | `pairwise_overlap`   | `forbid_overlap` + `require_overlap` at same N sweep     | R-tree-backed overlap checks                     |
 | `pairwise_enclosure` | `enclosure` at {100, 1K} (capped low; see below)         | **Baseline for ROS-496** (enclosure is O(I·O) today) |
 | `per_polygon`        | `min_width` + self-int + edge-length, V ∈ {100, 1K}      | Per-polygon scaling (ray-casting, etc.)          |
+| `self_intersection`  | dedicated sweep-line check, V ∈ {100, 1K, 10K}           | Sweep-line scaling (ROS-549) isolated from stack |
 | `array_expansion`    | Full deck on an AREF (10², 30², 100² copies)             | **Baseline for ROS-511** (AREF flattening cost)  |
 | `full_deck_realistic`| 1K polygons, 3 layers, 2-level hierarchy, mixed deck     | Overall throughput number                        |
 
@@ -76,7 +77,7 @@ rate alongside wall-clock. What "element" means varies:
 
 - `pairwise_spacing`, `pairwise_enclosure`: polygons on layer 1 (or inner layer).
 - `pairwise_overlap`: pair count (total polygons = 2 × n).
-- `per_polygon`: vertices in the polygon.
+- `per_polygon`, `self_intersection`: vertices in the polygon.
 - `array_expansion`: AREF copies. Each copy has 5 polygons, so the 100×100
   case flattens to 50K polygons.
 - `full_deck_realistic`: hardcoded to 1000 (approximate polygon count after

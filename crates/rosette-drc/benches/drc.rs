@@ -9,6 +9,9 @@
 //!   no R-tree yet — baseline for ROS-496; 10K omitted for runtime).
 //! - `per_polygon` — `min_width` + `self_intersection` + `min_edge_length` on
 //!   a single polygon with V ∈ {100, 1000} vertices.
+//! - `self_intersection` — dedicated sweep-line check (ROS-549) across
+//!   V ∈ {100, 1K, 10K}; isolates the scaling from the other per-polygon
+//!   checks.
 //! - `array_expansion` — AREF 10×10 / 30×30 / 100×100, full deck (baseline
 //!   for ROS-511).
 //! - `full_deck_realistic` — ~1K polygons, 3 layers, 2-level hierarchy,
@@ -31,6 +34,10 @@ const PAIRWISE_SIZES: &[usize] = &[100, 1_000, 10_000];
 
 // Vertices for the per-polygon sweep.
 const VERTEX_COUNTS: &[usize] = &[100, 1_000];
+
+// Vertices for the dedicated self-intersection sweep. Extended to 10K to
+// cement the O(V^2) -> O(V log V) scaling win landed in ROS-549.
+const SELF_INTERSECTION_VERTEX_COUNTS: &[usize] = &[100, 1_000, 10_000];
 
 // AREF dimensions: (rows, cols, label). Stored as strings to avoid formatting
 // in the hot path. MUST be listed in ascending size — Criterion's
@@ -183,8 +190,34 @@ fn bench_per_polygon(c: &mut Criterion) {
 
     for &v in VERTEX_COUNTS {
         group.throughput(Throughput::Elements(v as u64));
-        // Self-intersection is O(V^2). V=1000 makes a single iter ~40ms.
+        // `min_width` and `min_edge_length` combined are roughly O(V^2) at
+        // this scale (ray casting on high-vertex polygons). V=1K is ~45 ms
+        // per iter, so reduce sample count to keep bench time reasonable.
         if v >= 1_000 {
+            group.sample_size(10);
+        }
+        let cell = fixtures::build_high_vertex_polygon(v);
+        group.bench_with_input(BenchmarkId::from_parameter(v), &v, |b, _| {
+            b.iter(|| run_drc(black_box(&cell), black_box(&rules), None));
+        });
+    }
+
+    group.finish();
+}
+
+// --- self_intersection -------------------------------------------------------
+
+fn bench_self_intersection(c: &mut Criterion) {
+    let mut group = c.benchmark_group("self_intersection");
+    configure_group(&mut group);
+    // Dedicated self-intersection-only bench across V ∈ {100, 1K, 10K} to
+    // characterize the sweep-line scaling independently of the other
+    // per-polygon checks (min_width is O(V^2) and would dominate at 10K).
+    let rules = DrcRules::new().no_self_intersection(L1, Some("M1.SI"));
+
+    for &v in SELF_INTERSECTION_VERTEX_COUNTS {
+        group.throughput(Throughput::Elements(v as u64));
+        if v >= 10_000 {
             group.sample_size(10);
         }
         let cell = fixtures::build_high_vertex_polygon(v);
@@ -270,6 +303,7 @@ criterion_group!(
     bench_pairwise_overlap,
     bench_pairwise_enclosure,
     bench_per_polygon,
+    bench_self_intersection,
     bench_array_expansion,
     bench_full_deck_realistic,
 );
