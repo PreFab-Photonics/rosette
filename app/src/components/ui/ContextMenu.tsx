@@ -19,6 +19,7 @@ import {
   AddCellCommand,
   DeleteCellCommand,
   FlattenCellCommand,
+  UpdateRulerPropsCommand,
   snapshotElements,
 } from "@/lib/commands";
 import { isImageId, imageIdToKey } from "@/stores/image";
@@ -190,7 +191,12 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
     }
 
     if (variant === "ruler") {
-      // Ruler context menu: Paste, Delete, Select All
+      // Ruler context menu: Paste, Delete, Select All.
+      // Super rulers also get Rename and Unit override entries.
+      const rulerStore = useRulerStore.getState();
+      const targetRuler = targetId ? rulerStore.rulers.get(targetId) : undefined;
+      const isSuper = targetRuler?.kind === "super";
+
       const deleteRulers = (): void => {
         if (!library || !renderer) return;
         const { selectedRulerIds } = useRulerStore.getState();
@@ -201,7 +207,73 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
         close();
       };
 
-      return [
+      const renameRuler = (): void => {
+        if (!targetRuler || targetRuler.kind !== "super") return;
+        // Trigger inline editing on the canvas. The SuperRuler graphic
+        // observes `editingRulerId` and replaces the label row with a
+        // text input; the actual UpdateRulerPropsCommand is dispatched
+        // from there on commit so undo history stays clean (no command
+        // is pushed when the label is unchanged).
+        useRulerStore.getState().setEditingRulerId(targetRuler.id);
+        close();
+      };
+
+      const setUnit = (unit: "auto" | "nm" | "um" | "mm"): void => {
+        if (!library || !renderer || !targetRuler || targetRuler.kind !== "super") return;
+        const oldUnit = targetRuler.unitOverride ?? "auto";
+        close();
+        if (unit === oldUnit) return;
+        const cmd = new UpdateRulerPropsCommand(
+          targetRuler.id,
+          { unitOverride: oldUnit },
+          { unitOverride: unit },
+        );
+        useHistoryStore.getState().execute(cmd, { library, renderer });
+      };
+
+      const currentUnit =
+        targetRuler?.kind === "super" ? (targetRuler.unitOverride ?? "auto") : "auto";
+      const unitCheck = (u: "auto" | "nm" | "um" | "mm") =>
+        currentUnit === u ? "\u2713  " : "     ";
+
+      const items: MenuEntry[] = [];
+      if (isSuper) {
+        items.push(
+          {
+            id: "rename",
+            label: "Rename…",
+            action: renameRuler,
+            disabled: false,
+          },
+          { id: "sep-rename", separator: true },
+          {
+            id: "unit-auto",
+            label: `${unitCheck("auto")}Unit: Auto`,
+            action: () => setUnit("auto"),
+            disabled: false,
+          },
+          {
+            id: "unit-nm",
+            label: `${unitCheck("nm")}Unit: nm`,
+            action: () => setUnit("nm"),
+            disabled: false,
+          },
+          {
+            id: "unit-um",
+            label: `${unitCheck("um")}Unit: µm`,
+            action: () => setUnit("um"),
+            disabled: false,
+          },
+          {
+            id: "unit-mm",
+            label: `${unitCheck("mm")}Unit: mm`,
+            action: () => setUnit("mm"),
+            disabled: false,
+          },
+          { id: "sep-unit", separator: true },
+        );
+      }
+      items.push(
         {
           id: "paste",
           label: "Paste",
@@ -225,7 +297,9 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
           action: selectAll,
           disabled: true,
         },
-      ];
+      );
+
+      return items;
     }
 
     if (variant === "image") {

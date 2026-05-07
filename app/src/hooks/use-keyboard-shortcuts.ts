@@ -16,6 +16,7 @@ import {
 } from "@/lib/constants";
 import {
   AddCellCommand,
+  CreateRulerCommand,
   DeleteElementsCommand,
   DeleteRulersCommand,
   RemoveImageCommand,
@@ -245,6 +246,25 @@ export function useKeyboardShortcuts(
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
 
+        // If a polyline ruler is being created, Backspace removes the
+        // last committed vertex instead of deleting anything else. Falls
+        // through to a cancel-creation when only one vertex is left.
+        if (e.key === "Backspace") {
+          const rulerState = useRulerStore.getState();
+          const activeId = rulerState.activeRulerId;
+          if (activeId) {
+            const active = rulerState.rulers.get(activeId);
+            if (active && active.kind === "polyline") {
+              const removed = rulerState.popPolylinePoint(activeId);
+              if (!removed) {
+                // Only one committed vertex left — cancel creation.
+                rulerState.cancelCreation();
+              }
+              return;
+            }
+          }
+        }
+
         // First check for selected rulers
         const { selectedRulerIds } = useRulerStore.getState();
         if (selectedRulerIds.size > 0 && library && renderer) {
@@ -347,6 +367,35 @@ export function useKeyboardShortcuts(
         return;
       }
 
+      // Enter: Finalize a polyline ruler that's currently being created.
+      // This takes precedence over the "place shape in viewport" Enter
+      // handler below (which only fires shortly after a tool switch).
+      if (e.key === "Enter") {
+        const rulerState = useRulerStore.getState();
+        const activeId = rulerState.activeRulerId;
+        if (activeId) {
+          const active = rulerState.rulers.get(activeId);
+          if (active && active.kind === "polyline" && active.points.length >= 3) {
+            e.preventDefault();
+            // The last point is the preview vertex at the current cursor.
+            // Finalize in-place by replacing it with itself so the ruler
+            // ends up with at least two committed segments.
+            const lastPoint = active.points[active.points.length - 1];
+            const finalized = rulerState.finalizeRuler(lastPoint);
+            if (finalized && library && renderer) {
+              const command = new CreateRulerCommand(finalized);
+              useHistoryStore.getState().pushCommand(command);
+            }
+            return;
+          }
+          if (active && active.kind === "polyline") {
+            // Not enough points yet — do nothing; let the user click more.
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+
       // Enter: Place a shape centered in viewport shortly after switching to a drawing tool
       if (
         e.key === "Enter" &&
@@ -437,10 +486,16 @@ export function useKeyboardShortcuts(
           e.preventDefault();
           setTool("text");
           break;
-        case "u":
-        case "U":
+        case "w":
           e.preventDefault();
           setTool("ruler");
+          useUIStore.getState().setLastRulerKind("ruler");
+          break;
+        case "W":
+          // Shift+W → Super Ruler (ROS-560).
+          e.preventDefault();
+          setTool("ruler-super");
+          useUIStore.getState().setLastRulerKind("ruler-super");
           break;
         case "i":
           // Open command palette pre-filled with "add instance " search

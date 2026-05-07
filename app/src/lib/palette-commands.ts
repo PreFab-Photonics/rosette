@@ -261,6 +261,16 @@ export function getCommands(): CommandItem[] {
       searchableText: "Toggle grid show hide dots points",
     },
     {
+      id: "view-toggle-rulers",
+      type: "command",
+      name: "View: Toggle Rulers",
+      action: () => {
+        useUIStore.getState().toggleRulers();
+        close();
+      },
+      searchableText: "Toggle rulers show hide measurements simple super polyline angle radius",
+    },
+    {
       id: "view-toggle-zen-mode",
       type: "command",
       name: "View: Toggle Zen Mode",
@@ -493,12 +503,59 @@ export function getCommands(): CommandItem[] {
       id: "tool-ruler",
       type: "tool",
       name: "Tool: Ruler",
-      shortcut: { key: "U" },
+      shortcut: { key: "W" },
       action: () => {
         setTool("ruler");
+        useUIStore.getState().setLastRulerKind("ruler");
         close();
       },
-      searchableText: "Tool ruler measure distance",
+      searchableText: "Tool ruler measure distance simple",
+    },
+    {
+      id: "tool-ruler-super",
+      type: "tool",
+      name: "Tool: Super Ruler",
+      shortcut: { modifiers: [keys.shift], key: "W" },
+      action: () => {
+        setTool("ruler-super");
+        useUIStore.getState().setLastRulerKind("ruler-super");
+        close();
+      },
+      searchableText:
+        "Tool super ruler measure distance angle theta label coordinates endpoint unit override",
+    },
+    {
+      id: "tool-ruler-polyline",
+      type: "tool",
+      name: "Tool: Polyline Ruler",
+      action: () => {
+        setTool("ruler-polyline");
+        useUIStore.getState().setLastRulerKind("ruler-polyline");
+        close();
+      },
+      searchableText: "Tool polyline ruler measure distance multi segment chain total length",
+    },
+    {
+      id: "tool-ruler-angle",
+      type: "tool",
+      name: "Tool: Angle Ruler",
+      action: () => {
+        setTool("ruler-angle");
+        useUIStore.getState().setLastRulerKind("ruler-angle");
+        close();
+      },
+      searchableText: "Tool angle ruler protractor theta vertex arms",
+    },
+    {
+      id: "tool-ruler-radius",
+      type: "tool",
+      name: "Tool: Radius Ruler",
+      action: () => {
+        setTool("ruler-radius");
+        useUIStore.getState().setLastRulerKind("ruler-radius");
+        close();
+      },
+      searchableText: "Tool radius ruler diameter circle ring waveguide",
     },
     {
       id: "tool-rectangle",

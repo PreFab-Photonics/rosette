@@ -13,7 +13,14 @@ import {
   type ElementSnapshot,
   type TextSnapshot,
 } from "@/stores/clipboard";
-import { useRulerStore, type Ruler, type Point, type RulerEndpoint } from "@/stores/ruler";
+import {
+  useRulerStore,
+  type Ruler,
+  type Point,
+  type RulerEndpoint,
+  type RulerUnit,
+} from "@/stores/ruler";
+import { translateRuler } from "@/stores/ruler-geometry";
 import { useLayerStore, hexToRgba, FILL_PATTERN_IDS, type Layer } from "@/stores/layer";
 import { useExplorerStore } from "@/stores/explorer";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
@@ -1099,8 +1106,10 @@ export class CreateRulerCommand implements Command {
       this.ruler = rulerOrStart;
       this.alreadyCreated = true;
     } else {
-      // Start/end points - will create on execute
-      this.ruler = { id: "", start: rulerOrStart, end: end! };
+      // Start/end points - will create a simple ruler on execute.
+      // Future kinds should construct the Ruler object directly and pass
+      // it via the first branch above.
+      this.ruler = { id: "", kind: "simple", start: rulerOrStart, end: end! };
       this.alreadyCreated = false;
     }
   }
@@ -1119,9 +1128,14 @@ export class CreateRulerCommand implements Command {
       }
       // If ruler exists, this is initial push - do nothing
     } else {
-      // Create new ruler
-      const id = useRulerStore.getState().addRuler(this.ruler.start, this.ruler.end);
-      this.ruler = { ...this.ruler, id };
+      // Create new ruler. Only the two-point "simple" fallback path
+      // reaches here (the constructor narrows to `SimpleRuler`); all
+      // other kinds must be created via the Ruler-object constructor
+      // overload and therefore go through the `alreadyCreated` branch.
+      if (this.ruler.kind === "simple" || this.ruler.kind === "super") {
+        const id = useRulerStore.getState().addRuler(this.ruler.start, this.ruler.end);
+        this.ruler = { ...this.ruler, id };
+      }
     }
   }
 
@@ -1219,11 +1233,9 @@ export class MoveRulersCommand implements Command {
       for (const id of this.rulerIds) {
         const ruler = newRulers.get(id);
         if (ruler) {
-          newRulers.set(id, {
-            ...ruler,
-            start: { x: ruler.start.x + dx, y: ruler.start.y + dy },
-            end: { x: ruler.end.x + dx, y: ruler.end.y + dy },
-          });
+          // Kind-aware translation; polylines and future ruler kinds need
+          // to move every control point, not just a two-point start/end.
+          newRulers.set(id, translateRuler(ruler, dx, dy));
         }
       }
       return { rulers: newRulers };
@@ -1251,6 +1263,65 @@ export class MoveRulerEndpointCommand implements Command {
 
   undo(_ctx: CommandContext): void {
     useRulerStore.getState().updateEndpoint(this.rulerId, this.endpoint, this.oldPosition);
+  }
+}
+
+/**
+ * Command to move a single ruler control point by index (kind-agnostic).
+ *
+ * Used for polyline / angle / radius vertex drags where the two-point
+ * `endpoint` vocabulary doesn't apply.
+ */
+export class MoveRulerPointCommand implements Command {
+  readonly type = "move-ruler-point";
+  readonly description = "Move ruler vertex";
+
+  constructor(
+    private readonly rulerId: string,
+    private readonly pointIndex: number,
+    private readonly oldPosition: Point,
+    private readonly newPosition: Point,
+  ) {}
+
+  execute(_ctx: CommandContext): void {
+    useRulerStore.getState().updateRulerPoint(this.rulerId, this.pointIndex, this.newPosition);
+  }
+
+  undo(_ctx: CommandContext): void {
+    useRulerStore.getState().updateRulerPoint(this.rulerId, this.pointIndex, this.oldPosition);
+  }
+}
+
+/** Non-geometric ruler properties editable via commands. */
+export interface RulerPropsPatch {
+  /** New user-editable label. `undefined` means "don't change". */
+  label?: string;
+  /** New display-unit override. `undefined` means "don't change". */
+  unitOverride?: RulerUnit;
+}
+
+/**
+ * Command to update non-geometric ruler properties (label, unit override).
+ *
+ * Intended to be pushed *once per commit* — e.g. on blur of a rename field
+ * — not on every keystroke.
+ */
+export class UpdateRulerPropsCommand implements Command {
+  readonly type = "update-ruler-props";
+  readonly description = "Update ruler";
+
+  constructor(
+    private readonly rulerId: string,
+    private readonly oldProps: RulerPropsPatch,
+    private readonly newProps: RulerPropsPatch,
+  ) {}
+
+  execute(_ctx: CommandContext): void {
+    useRulerStore.getState().updateRulerProps(this.rulerId, this.newProps);
+  }
+
+  undo(_ctx: CommandContext): void {
+    useRulerStore.getState().updateRulerProps(this.rulerId, this.oldProps);
   }
 }
 

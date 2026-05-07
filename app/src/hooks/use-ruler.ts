@@ -1,181 +1,66 @@
 import { useCallback, useEffect } from "react";
-import { useToolStore } from "@/stores/tool";
+import { isRulerTool, useToolStore } from "@/stores/tool";
 import { useHistoryStore } from "@/stores/history";
-import { useRulerStore, type Point, type Ruler, type RulerEndpoint } from "@/stores/ruler";
-import { CreateRulerCommand, MoveRulersCommand, MoveRulerEndpointCommand } from "@/lib/commands";
+import { useRulerStore, type Point, type Ruler } from "@/stores/ruler";
+import { useUIStore } from "@/stores/ui";
+import {
+  CreateRulerCommand,
+  MoveRulersCommand,
+  MoveRulerEndpointCommand,
+  MoveRulerPointCommand,
+} from "@/lib/commands";
 import { calculateSnappedPoint, getSnapVertices } from "@/lib/snap";
+import {
+  findRulerAtScreenPoint,
+  findRulerEndpointAtScreenPoint,
+  findRulerVertexAtScreenPoint,
+} from "@/lib/ruler-hittest";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
-/** Screen pixel threshold for detecting endpoint hover/click. */
-const ENDPOINT_HIT_THRESHOLD_PX = 12;
-
-/** Screen pixel threshold for detecting ruler line hover/click. */
-const LINE_HIT_THRESHOLD_PX = 8;
-
-/** Measurement box dimensions in screen pixels (must match RulerOverlay). */
-const BOX_WIDTH = 140;
-const BOX_HEIGHT = 56;
+/**
+ * Angles (radians) Manhattan-snap to the nearest multiple of π/4 (45°)
+ * when Alt is held during creation / endpoint drag.
+ *
+ * Matches the path tool's `MANHATTAN_SNAP_ANGLE_DEG = 45` convention.
+ */
+const MANHATTAN_SNAP_RAD = Math.PI / 4;
 
 /**
- * Check if a screen point is near a world point.
+ * Constrain `end` so that the segment `start → end` lies on the nearest
+ * 0°/45°/90°/… direction while preserving its original length.
+ *
+ * Used when the Super Ruler is created/dragged with Alt held. Returns the
+ * constrained point; if `start` and `end` coincide, returns `end` unchanged.
  */
-function isNearPoint(
-  screenPoint: { x: number; y: number },
-  worldPoint: Point,
-  zoom: number,
-  offset: { x: number; y: number },
-  thresholdPx: number,
-): boolean {
-  const worldScreenX = worldPoint.x * zoom + offset.x;
-  const worldScreenY = worldPoint.y * zoom + offset.y;
-  const dx = screenPoint.x - worldScreenX;
-  const dy = screenPoint.y - worldScreenY;
-  return dx * dx + dy * dy <= thresholdPx * thresholdPx;
+function manhattanConstrain(start: Point, end: Point): Point {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (length === 0) return end;
+  const rawAngle = Math.atan2(dy, dx);
+  const snapped = Math.round(rawAngle / MANHATTAN_SNAP_RAD) * MANHATTAN_SNAP_RAD;
+  return {
+    x: start.x + Math.cos(snapped) * length,
+    y: start.y + Math.sin(snapped) * length,
+  };
 }
 
-/**
- * Calculate distance from a point to a line segment.
- */
-function pointToSegmentDistance(
-  px: number,
-  py: number,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-): number {
-  const A = px - x1;
-  const B = py - y1;
-  const C = x2 - x1;
-  const D = y2 - y1;
-
-  const dot = A * C + B * D;
-  const lenSq = C * C + D * D;
-
-  // Handle degenerate case where start === end
-  if (lenSq === 0) {
-    return Math.sqrt(A * A + B * B);
+/** Map a ruler sub-tool to the `Ruler["kind"]` it creates. */
+function rulerKindForTool(tool: string): Ruler["kind"] | null {
+  switch (tool) {
+    case "ruler":
+      return "simple";
+    case "ruler-super":
+      return "super";
+    case "ruler-polyline":
+      return "polyline";
+    case "ruler-angle":
+      return "angle";
+    case "ruler-radius":
+      return "radius";
+    default:
+      return null;
   }
-
-  const param = Math.max(0, Math.min(1, dot / lenSq));
-  const closestX = x1 + param * C;
-  const closestY = y1 + param * D;
-
-  const dx = px - closestX;
-  const dy = py - closestY;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-/**
- * Check if a screen point is near a ruler's line segment.
- */
-function isNearRulerLine(
-  screenX: number,
-  screenY: number,
-  ruler: Ruler,
-  zoom: number,
-  offset: { x: number; y: number },
-  thresholdPx: number,
-): boolean {
-  const startScreenX = ruler.start.x * zoom + offset.x;
-  const startScreenY = ruler.start.y * zoom + offset.y;
-  const endScreenX = ruler.end.x * zoom + offset.x;
-  const endScreenY = ruler.end.y * zoom + offset.y;
-
-  const distance = pointToSegmentDistance(
-    screenX,
-    screenY,
-    startScreenX,
-    startScreenY,
-    endScreenX,
-    endScreenY,
-  );
-
-  return distance <= thresholdPx;
-}
-
-/**
- * Check if a screen point is inside a ruler's measurement box.
- */
-function isInsideRulerBox(
-  screenX: number,
-  screenY: number,
-  ruler: Ruler,
-  zoom: number,
-  offset: { x: number; y: number },
-): boolean {
-  const startScreenX = ruler.start.x * zoom + offset.x;
-  const startScreenY = ruler.start.y * zoom + offset.y;
-  const endScreenX = ruler.end.x * zoom + offset.x;
-  const endScreenY = ruler.end.y * zoom + offset.y;
-
-  const midX = (startScreenX + endScreenX) / 2;
-  const midY = (startScreenY + endScreenY) / 2;
-
-  const halfWidth = BOX_WIDTH / 2;
-  const halfHeight = BOX_HEIGHT / 2;
-
-  return (
-    screenX >= midX - halfWidth &&
-    screenX <= midX + halfWidth &&
-    screenY >= midY - halfHeight &&
-    screenY <= midY + halfHeight
-  );
-}
-
-/**
- * Find which ruler endpoint (if any) is near a screen point.
- */
-function findNearEndpoint(
-  screenX: number,
-  screenY: number,
-  rulers: Map<string, Ruler>,
-  zoom: number,
-  offset: { x: number; y: number },
-  excludeRulerId?: string,
-): { rulerId: string; endpoint: RulerEndpoint } | null {
-  const screenPoint = { x: screenX, y: screenY };
-
-  for (const ruler of rulers.values()) {
-    if (ruler.id === excludeRulerId) continue;
-
-    if (isNearPoint(screenPoint, ruler.start, zoom, offset, ENDPOINT_HIT_THRESHOLD_PX)) {
-      return { rulerId: ruler.id, endpoint: "start" };
-    }
-    if (isNearPoint(screenPoint, ruler.end, zoom, offset, ENDPOINT_HIT_THRESHOLD_PX)) {
-      return { rulerId: ruler.id, endpoint: "end" };
-    }
-  }
-
-  return null;
-}
-
-/**
- * Find which ruler (if any) is at a screen point (line or box).
- */
-function findRulerAtPoint(
-  screenX: number,
-  screenY: number,
-  rulers: Map<string, Ruler>,
-  zoom: number,
-  offset: { x: number; y: number },
-  excludeRulerId?: string,
-): string | null {
-  for (const ruler of rulers.values()) {
-    if (ruler.id === excludeRulerId) continue;
-
-    // Check box first (higher priority)
-    if (isInsideRulerBox(screenX, screenY, ruler, zoom, offset)) {
-      return ruler.id;
-    }
-
-    // Check line
-    if (isNearRulerLine(screenX, screenY, ruler, zoom, offset, LINE_HIT_THRESHOLD_PX)) {
-      return ruler.id;
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -203,18 +88,26 @@ export function useRuler(
   const {
     rulers,
     activeRulerId,
+    creationStep,
     selectedRulerIds,
     hoveredRulerId,
     draggingEndpoint,
+    draggingVertex,
     isMovingRuler,
     startRuler,
     updatePreview,
     finalizeRuler,
     cancelCreation,
     updateEndpoint,
+    updateRulerPoint,
+    appendPolylinePoint,
+    commitAngleArmA,
     setHoveredEndpoint,
+    setHoveredVertex,
     setDraggingEndpoint,
+    setDraggingVertex,
     endDraggingEndpoint,
+    endDraggingVertex,
     selectRuler,
     toggleSelection,
     addToSelection,
@@ -226,17 +119,22 @@ export function useRuler(
     setSnapPoint,
   } = useRulerStore();
 
-  // Reset state when tool changes away from ruler
+  // Reset state when tool changes away from any ruler tool.
+  // Also auto-reveal rulers when a ruler tool becomes active so the user
+  // doesn't accidentally try to draw onto a hidden overlay.
   useEffect(() => {
-    if (activeTool !== "ruler") {
-      // Cancel any in-progress creation
-      if (activeRulerId) {
-        cancelCreation();
-      }
-      // Clear hover state but keep selection
-      setHoveredEndpoint(null);
-      setHoveredRuler(null);
+    if (isRulerTool(activeTool)) {
+      const { showRulers, setShowRulers } = useUIStore.getState();
+      if (!showRulers) setShowRulers(true);
+      return;
     }
+    // Cancel any in-progress creation
+    if (activeRulerId) {
+      cancelCreation();
+    }
+    // Clear hover state but keep selection
+    setHoveredEndpoint(null);
+    setHoveredRuler(null);
   }, [activeTool, activeRulerId, cancelCreation, setHoveredEndpoint, setHoveredRuler]);
 
   /**
@@ -270,8 +168,12 @@ export function useRuler(
       );
       const snappedPoint = snapResult.point;
 
-      // Check if clicking near an existing endpoint (to drag it)
-      const nearEndpoint = findNearEndpoint(
+      // Check for polyline-vertex hit first (any ruler kind that has
+      // vertices). For two-point rulers this also fires, but the
+      // endpoint-based hit test below is preferred so the result can feed
+      // the `draggingEndpoint` path (which carries endpoint-specific
+      // undo logic).
+      const nearEndpoint = findRulerEndpointAtScreenPoint(
         screenX,
         screenY,
         rulers,
@@ -292,8 +194,30 @@ export function useRuler(
         return;
       }
 
+      // Fall through to kind-agnostic vertex hit-test (for polyline and
+      // future kinds whose vertices don't fit the start/end mold).
+      const nearVertex = findRulerVertexAtScreenPoint(
+        screenX,
+        screenY,
+        rulers,
+        zoom,
+        offset,
+        activeRulerId ?? undefined,
+      );
+      if (nearVertex) {
+        if (e.shiftKey) {
+          addToSelection([nearVertex.rulerId]);
+        } else if (e.metaKey || e.ctrlKey) {
+          toggleSelection(nearVertex.rulerId);
+        } else {
+          selectRuler(nearVertex.rulerId);
+        }
+        setDraggingVertex(nearVertex);
+        return;
+      }
+
       // Check if clicking on an existing ruler (to select or move it)
-      const clickedRulerId = findRulerAtPoint(
+      const clickedRulerId = findRulerAtScreenPoint(
         screenX,
         screenY,
         rulers,
@@ -321,8 +245,63 @@ export function useRuler(
 
       // Clicking on empty space
       if (activeRulerId) {
-        // Second click - finalize the ruler
-        const finalizedRuler = finalizeRuler(snappedPoint);
+        const active = rulers.get(activeRulerId);
+
+        if (active && active.kind === "polyline") {
+          // Polyline: click appends a new committed vertex. Finalization
+          // happens on double-click (below) or via the Enter shortcut.
+          // If this mousedown is the second half of a double-click, skip
+          // the append — we'll finalize instead.
+          if (e.detail >= 2) {
+            const finalized = finalizeRuler(snappedPoint);
+            setSnapPoint(null);
+            if (finalized && library && renderer) {
+              const command = new CreateRulerCommand(finalized);
+              useHistoryStore.getState().pushCommand(command);
+            }
+          } else {
+            appendPolylinePoint(activeRulerId, snappedPoint);
+            setSnapPoint(null);
+          }
+          return;
+        }
+
+        if (active && active.kind === "angle") {
+          // Click 2 commits armA; click 3 finalizes with armB at the
+          // current position.
+          if (creationStep === 1) {
+            commitAngleArmA(activeRulerId, snappedPoint);
+            setSnapPoint(null);
+          } else {
+            const finalized = finalizeRuler(snappedPoint);
+            setSnapPoint(null);
+            if (finalized && library && renderer) {
+              const command = new CreateRulerCommand(finalized);
+              useHistoryStore.getState().pushCommand(command);
+            }
+          }
+          return;
+        }
+
+        if (active && active.kind === "radius") {
+          // Click 2 finalizes the radius ruler.
+          const finalized = finalizeRuler(snappedPoint);
+          setSnapPoint(null);
+          if (finalized && library && renderer) {
+            const command = new CreateRulerCommand(finalized);
+            useHistoryStore.getState().pushCommand(command);
+          }
+          return;
+        }
+
+        // Two-point rulers (simple / super): second click finalizes.
+        // Apply Alt-Manhattan constraint for super rulers on commit,
+        // matching the preview snapping below.
+        const finalPoint =
+          e.altKey && active && active.kind === "super"
+            ? manhattanConstrain(active.start, snappedPoint)
+            : snappedPoint;
+        const finalizedRuler = finalizeRuler(finalPoint);
         // Clear snap indicator
         setSnapPoint(null);
         // Record creation for undo
@@ -334,8 +313,10 @@ export function useRuler(
         // Plain click on empty space with rulers selected - deselect
         clearRulerSelection();
       } else if (selectedRulerIds.size === 0) {
-        // No ruler selected, start a new one
-        startRuler(snappedPoint);
+        // No ruler selected, start a new one. The discriminator comes from
+        // the active tool; unknown ruler tools fall back to "simple".
+        const kind = rulerKindForTool(activeTool) ?? "simple";
+        startRuler(snappedPoint, kind);
       }
     },
     [
@@ -345,11 +326,16 @@ export function useRuler(
       rulers,
       zoom,
       offset,
+      activeTool,
       activeRulerId,
+      creationStep,
       selectedRulerIds,
       startRuler,
       finalizeRuler,
+      appendPolylinePoint,
+      commitAngleArmA,
       setDraggingEndpoint,
+      setDraggingVertex,
       selectRuler,
       toggleSelection,
       addToSelection,
@@ -394,34 +380,64 @@ export function useRuler(
         return;
       }
 
-      // Handle endpoint dragging (with geometry snapping)
+      // Handle endpoint dragging (with geometry snapping).
+      // For super rulers with Alt held, constrain the segment to Manhattan
+      // directions anchored at the *opposite* endpoint.
       if (draggingEndpoint) {
-        updateEndpoint(draggingEndpoint.rulerId, draggingEndpoint.endpoint, snappedPoint);
+        const dragged = rulers.get(draggingEndpoint.rulerId);
+        let point = snappedPoint;
+        if (e.altKey && dragged && dragged.kind === "super") {
+          const anchor = draggingEndpoint.endpoint === "start" ? dragged.end : dragged.start;
+          point = manhattanConstrain(anchor, snappedPoint);
+        }
+        updateEndpoint(draggingEndpoint.rulerId, draggingEndpoint.endpoint, point);
         // Update snap indicator for visual feedback
         setSnapPoint(snapResult.isGeometrySnap ? snappedPoint : null);
         return;
       }
 
-      // Handle ruler creation preview (with geometry snapping)
+      // Handle polyline vertex drag.
+      if (draggingVertex) {
+        updateRulerPoint(draggingVertex.rulerId, draggingVertex.pointIndex, snappedPoint);
+        setSnapPoint(snapResult.isGeometrySnap ? snappedPoint : null);
+        return;
+      }
+
+      // Handle ruler creation preview (with geometry snapping).
+      // Alt constrains super-ruler preview to Manhattan directions.
       if (activeRulerId) {
-        updatePreview(snappedPoint);
+        const active = rulers.get(activeRulerId);
+        let point = snappedPoint;
+        if (e.altKey && active && active.kind === "super") {
+          point = manhattanConstrain(active.start, snappedPoint);
+        }
+        updatePreview(point);
         // Update snap indicator for visual feedback
         setSnapPoint(snapResult.isGeometrySnap ? snappedPoint : null);
         return;
       }
 
-      // Handle hover detection for existing endpoints and rulers
-      const nearEndpoint = findNearEndpoint(screenX, screenY, rulers, zoom, offset);
+      // Handle hover detection for existing endpoints and rulers.
+      // Endpoint hit-test takes priority (two-point-only); then vertex
+      // hit-test covers polylines / future kinds; then line/box hit-test.
+      const nearEndpoint = findRulerEndpointAtScreenPoint(screenX, screenY, rulers, zoom, offset);
       setHoveredEndpoint(nearEndpoint);
+
+      const nearVertex = nearEndpoint
+        ? null
+        : findRulerVertexAtScreenPoint(screenX, screenY, rulers, zoom, offset);
+      setHoveredVertex(nearVertex);
 
       const hoveredId = nearEndpoint
         ? nearEndpoint.rulerId
-        : findRulerAtPoint(screenX, screenY, rulers, zoom, offset);
+        : nearVertex
+          ? nearVertex.rulerId
+          : findRulerAtScreenPoint(screenX, screenY, rulers, zoom, offset);
       setHoveredRuler(hoveredId);
 
       // Show snap indicator before first click (when ready to place first point)
       // Only when not hovering over existing rulers/endpoints and no selection
-      if (!nearEndpoint && !hoveredId && selectedRulerIds.size === 0) {
+      if (!nearEndpoint && !nearVertex && !hoveredId && selectedRulerIds.size === 0) {
         // Ready to place first point - show snap indicator
         setSnapPoint(snapResult.isGeometrySnap ? snappedPoint : null);
       } else {
@@ -437,12 +453,15 @@ export function useRuler(
       offset,
       activeRulerId,
       draggingEndpoint,
+      draggingVertex,
       isMovingRuler,
       selectedRulerIds,
       updatePreview,
       updateEndpoint,
+      updateRulerPoint,
       moveRuler,
       setHoveredEndpoint,
+      setHoveredVertex,
       setHoveredRuler,
       setSnapPoint,
     ],
@@ -467,6 +486,19 @@ export function useRuler(
         useHistoryStore.getState().pushCommand(command);
       }
     }
+    if (draggingVertex) {
+      const vertexResult = endDraggingVertex();
+      setSnapPoint(null);
+      if (vertexResult && library && renderer) {
+        const command = new MoveRulerPointCommand(
+          vertexResult.rulerId,
+          vertexResult.pointIndex,
+          vertexResult.oldPosition,
+          vertexResult.newPosition,
+        );
+        useHistoryStore.getState().pushCommand(command);
+      }
+    }
     if (isMovingRuler) {
       const moveResult = endMoveRuler();
       // Create undo command for the move if there was actual movement
@@ -482,8 +514,10 @@ export function useRuler(
     }
   }, [
     draggingEndpoint,
+    draggingVertex,
     isMovingRuler,
     endDraggingEndpoint,
+    endDraggingVertex,
     endMoveRuler,
     library,
     renderer,
@@ -496,10 +530,20 @@ export function useRuler(
   const cancelDrawing = useCallback(() => {
     cancelCreation();
     setHoveredEndpoint(null);
+    setHoveredVertex(null);
     setHoveredRuler(null);
     setDraggingEndpoint(null);
+    setDraggingVertex(null);
     setSnapPoint(null);
-  }, [cancelCreation, setHoveredEndpoint, setHoveredRuler, setDraggingEndpoint, setSnapPoint]);
+  }, [
+    cancelCreation,
+    setHoveredEndpoint,
+    setHoveredVertex,
+    setHoveredRuler,
+    setDraggingEndpoint,
+    setDraggingVertex,
+    setSnapPoint,
+  ]);
 
   return {
     handleMouseDown,

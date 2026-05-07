@@ -280,9 +280,7 @@ export function ArrayDialog() {
       return;
     }
     if (rowActive && rowLen < EPS) {
-      useStatusMessageStore
-        .getState()
-        .show("Row vector is zero — enter Row ΔX or Row ΔY", "warn");
+      useStatusMessageStore.getState().show("Row vector is zero — enter Row ΔX or Row ΔY", "warn");
       return;
     }
     if (colActive && rowActive) {

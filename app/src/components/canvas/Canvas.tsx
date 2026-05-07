@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useRenderer } from "./use-renderer";
 import { useViewportStore, GRID_SIZE, type WorldBounds } from "@/stores/viewport";
 import { useUIStore } from "@/stores/ui";
-import { useToolStore } from "@/stores/tool";
+import { isRulerTool, useToolStore } from "@/stores/tool";
 import { useSelectionStore } from "@/stores/selection";
 import { useContextMenuStore } from "@/stores/context-menu";
 import type { ZoomBox as ZoomBoxType } from "@/stores/zoom";
@@ -30,6 +30,7 @@ import { useWasm } from "@/hooks/use-wasm";
 import { useRuler } from "@/hooks/use-ruler";
 import { AddCellRefCommand } from "@/lib/commands";
 import { getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
+import { findRulerAtScreenPoint } from "@/lib/ruler-hittest";
 import { LaserCursor } from "@/components/canvas/LaserCursor";
 import { ZoomBox } from "@/components/canvas/ZoomBox";
 import { MarqueeBox } from "@/components/canvas/MarqueeBox";
@@ -427,8 +428,8 @@ export function Canvas() {
         return;
       }
 
-      // Handle ruler tool
-      if (activeTool === "ruler" && e.button === 0) {
+      // Handle ruler tool (any ruler kind)
+      if (isRulerTool(activeTool) && e.button === 0) {
         handleRulerMouseDown(e);
         return;
       }
@@ -546,8 +547,8 @@ export function Canvas() {
         handlePathMouseMove(e);
       }
 
-      // Handle ruler tool movement
-      if (activeTool === "ruler") {
+      // Handle ruler tool movement (any ruler kind)
+      if (isRulerTool(activeTool)) {
         handleRulerMouseMove(e);
       }
 
@@ -673,7 +674,7 @@ export function Canvas() {
     if (activeTool === "move") {
       handleMoveMouseUp();
     }
-    if (activeTool === "ruler") {
+    if (isRulerTool(activeTool)) {
       handleRulerMouseUp();
     }
     setIsDragging(false);
@@ -746,58 +747,18 @@ export function Canvas() {
 
       if (!worldPos) return;
 
-      // Check for ruler hit first (rulers are rendered on top)
+      // Check for ruler hit first (rulers are rendered on top).
+      // Uses the shared hit-test so all ruler kinds are picked up consistently.
       const { rulers, selectedRulerIds, selectRuler } = useRulerStore.getState();
-      for (const ruler of rulers.values()) {
-        // Check if click is near the ruler line or inside the measurement box
-        const startScreenX = ruler.start.x * zoom + offset.x;
-        const startScreenY = ruler.start.y * zoom + offset.y;
-        const endScreenX = ruler.end.x * zoom + offset.x;
-        const endScreenY = ruler.end.y * zoom + offset.y;
-
-        // Check measurement box (140x56 centered at midpoint)
-        const midX = (startScreenX + endScreenX) / 2;
-        const midY = (startScreenY + endScreenY) / 2;
-        const boxHalfWidth = 70;
-        const boxHalfHeight = 28;
-
-        if (
-          screenX >= midX - boxHalfWidth &&
-          screenX <= midX + boxHalfWidth &&
-          screenY >= midY - boxHalfHeight &&
-          screenY <= midY + boxHalfHeight
-        ) {
-          // Only change selection if the ruler isn't already selected
-          // (preserves multi-selection when right-clicking a selected ruler)
-          if (!selectedRulerIds.has(ruler.id)) {
-            selectRuler(ruler.id);
-          }
-          openContextMenu("ruler", { x: e.clientX, y: e.clientY }, ruler.id);
-          return;
+      const hitRulerId = findRulerAtScreenPoint(screenX, screenY, rulers, zoom, offset);
+      if (hitRulerId) {
+        // Only change selection if the ruler isn't already selected
+        // (preserves multi-selection when right-clicking a selected ruler)
+        if (!selectedRulerIds.has(hitRulerId)) {
+          selectRuler(hitRulerId);
         }
-
-        // Check line proximity (8px threshold)
-        const A = screenX - startScreenX;
-        const B = screenY - startScreenY;
-        const C = endScreenX - startScreenX;
-        const D = endScreenY - startScreenY;
-        const dot = A * C + B * D;
-        const lenSq = C * C + D * D;
-        if (lenSq > 0) {
-          const param = Math.max(0, Math.min(1, dot / lenSq));
-          const closestX = startScreenX + param * C;
-          const closestY = startScreenY + param * D;
-          const dx = screenX - closestX;
-          const dy = screenY - closestY;
-          if (Math.sqrt(dx * dx + dy * dy) <= 8) {
-            // Only change selection if the ruler isn't already selected
-            if (!selectedRulerIds.has(ruler.id)) {
-              selectRuler(ruler.id);
-            }
-            openContextMenu("ruler", { x: e.clientX, y: e.clientY }, ruler.id);
-            return;
-          }
-        }
+        openContextMenu("ruler", { x: e.clientX, y: e.clientY }, hitRulerId);
+        return;
       }
 
       // Hit test: WASM elements first, then images
@@ -976,7 +937,7 @@ export function Canvas() {
     if (activeTool === "rectangle" || activeTool === "polygon" || activeTool === "path")
       return "cursor-crosshair";
     if (activeTool === "text") return isEditingText ? "cursor-text" : "cursor-crosshair";
-    if (activeTool === "ruler") {
+    if (isRulerTool(activeTool)) {
       if (isDraggingRulerEndpoint) return "cursor-grabbing";
       if (isCreatingRuler) return "cursor-crosshair";
       if (hoveredRulerId) return "cursor-pointer";

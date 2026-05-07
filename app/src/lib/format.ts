@@ -29,6 +29,31 @@ export function getDisplayUnit(zoom: number): UnitInfo {
 }
 
 /**
+ * Resolve a `RulerUnit` override (stored in the ruler) to a `UnitInfo`
+ * suitable for `formatCoordinate`.
+ *
+ * - `"auto"` or `undefined`: defer to the zoom-driven default.
+ * - `"nm"` / `"um"` / `"mm"`: force the fixed unit regardless of zoom.
+ *
+ * Kept here (rather than in the ruler store) so any display code that
+ * already formats a length in nm can opt into per-ruler overrides by
+ * passing a different `UnitInfo`.
+ */
+export function resolveDisplayUnit(zoom: number, override?: "auto" | "nm" | "um" | "mm"): UnitInfo {
+  switch (override) {
+    case "nm":
+      return { unit: "nm", scale: 1 };
+    case "um":
+      return { unit: "µm", scale: UM_THRESHOLD };
+    case "mm":
+      return { unit: "mm", scale: MM_THRESHOLD };
+    case "auto":
+    case undefined:
+      return getDisplayUnit(zoom);
+  }
+}
+
+/**
  * Safely convert a value to a finite number, defaulting to 0.
  */
 function toFinite(value: number): number {

@@ -2,11 +2,13 @@ import { useCallback, useRef, useState } from "react";
 import { useSelectionStore } from "@/stores/selection";
 import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
-import { useRulerStore, type Ruler } from "@/stores/ruler";
+import { useRulerStore } from "@/stores/ruler";
+import { translateRuler } from "@/stores/ruler-geometry";
 import { useImageStore, hitTestImages, isImageId, imageIdToKey } from "@/stores/image";
 import { useViewportStore } from "@/stores/viewport";
 import { MoveElementsCommand, MoveRulersCommand, MoveImagesCommand } from "@/lib/commands";
 import { usePathStore } from "@/stores/path";
+import { findRulerAtScreenPoint } from "@/lib/ruler-hittest";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
 /**
@@ -15,94 +17,6 @@ import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 interface Point {
   x: number;
   y: number;
-}
-
-/** Screen pixel threshold for detecting ruler line hover/click. */
-const RULER_LINE_HIT_THRESHOLD_PX = 8;
-
-/** Measurement box dimensions in screen pixels. */
-const RULER_BOX_WIDTH = 140;
-const RULER_BOX_HEIGHT = 56;
-
-/**
- * Calculate distance from a point to a line segment.
- */
-function pointToSegmentDistance(
-  px: number,
-  py: number,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-): number {
-  const A = px - x1;
-  const B = py - y1;
-  const C = x2 - x1;
-  const D = y2 - y1;
-
-  const dot = A * C + B * D;
-  const lenSq = C * C + D * D;
-
-  if (lenSq === 0) {
-    return Math.sqrt(A * A + B * B);
-  }
-
-  const param = Math.max(0, Math.min(1, dot / lenSq));
-  const closestX = x1 + param * C;
-  const closestY = y1 + param * D;
-
-  const dx = px - closestX;
-  const dy = py - closestY;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-/**
- * Find which ruler (if any) is at a screen point.
- */
-function findRulerAtScreenPoint(
-  screenX: number,
-  screenY: number,
-  rulers: Map<string, Ruler>,
-  zoom: number,
-  offset: { x: number; y: number },
-): string | null {
-  for (const ruler of rulers.values()) {
-    const startScreenX = ruler.start.x * zoom + offset.x;
-    const startScreenY = ruler.start.y * zoom + offset.y;
-    const endScreenX = ruler.end.x * zoom + offset.x;
-    const endScreenY = ruler.end.y * zoom + offset.y;
-
-    // Check box first
-    const midX = (startScreenX + endScreenX) / 2;
-    const midY = (startScreenY + endScreenY) / 2;
-    const halfWidth = RULER_BOX_WIDTH / 2;
-    const halfHeight = RULER_BOX_HEIGHT / 2;
-
-    if (
-      screenX >= midX - halfWidth &&
-      screenX <= midX + halfWidth &&
-      screenY >= midY - halfHeight &&
-      screenY <= midY + halfHeight
-    ) {
-      return ruler.id;
-    }
-
-    // Check line
-    const distance = pointToSegmentDistance(
-      screenX,
-      screenY,
-      startScreenX,
-      startScreenY,
-      endScreenX,
-      endScreenY,
-    );
-
-    if (distance <= RULER_LINE_HIT_THRESHOLD_PX) {
-      return ruler.id;
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -295,18 +209,18 @@ export function useMove(
       // Apply the incremental translation for real-time feedback
       if (incrementalDeltaX !== 0 || incrementalDeltaY !== 0) {
         if (state.rulerId) {
-          // Moving a ruler - get fresh state to avoid stale closure
-          const ruler = useRulerStore.getState().rulers.get(state.rulerId);
-          if (ruler) {
-            useRulerStore.getState().updateEndpoint(state.rulerId, "start", {
-              x: ruler.start.x + incrementalDeltaX,
-              y: ruler.start.y + incrementalDeltaY,
-            });
-            useRulerStore.getState().updateEndpoint(state.rulerId, "end", {
-              x: ruler.end.x + incrementalDeltaX,
-              y: ruler.end.y + incrementalDeltaY,
-            });
-          }
+          // Moving a ruler — translate every control point. Works for any
+          // ruler kind (simple/super/polyline/etc.) via the kind-aware
+          // helper.
+          const targetId = state.rulerId;
+          useRulerStore.setState((s) => {
+            const newRulers = new Map(s.rulers);
+            const r = newRulers.get(targetId);
+            if (r) {
+              newRulers.set(targetId, translateRuler(r, incrementalDeltaX, incrementalDeltaY));
+            }
+            return { rulers: newRulers };
+          });
         } else if (state.elementIds.length > 0 && isImageId(state.elementIds[0])) {
           // Moving images — update image store directly
           const imgStore = useImageStore.getState();
@@ -402,18 +316,16 @@ export function useMove(
     const state = moveState.current;
     if (state && (state.currentDelta.x !== 0 || state.currentDelta.y !== 0)) {
       if (state.rulerId) {
-        // Undo ruler move - get fresh state to avoid stale closure
-        const ruler = useRulerStore.getState().rulers.get(state.rulerId);
-        if (ruler) {
-          useRulerStore.getState().updateEndpoint(state.rulerId, "start", {
-            x: ruler.start.x - state.currentDelta.x,
-            y: ruler.start.y - state.currentDelta.y,
-          });
-          useRulerStore.getState().updateEndpoint(state.rulerId, "end", {
-            x: ruler.end.x - state.currentDelta.x,
-            y: ruler.end.y - state.currentDelta.y,
-          });
-        }
+        // Undo ruler move — translate every control point by `-delta`.
+        const targetId = state.rulerId;
+        const dx = -state.currentDelta.x;
+        const dy = -state.currentDelta.y;
+        useRulerStore.setState((s) => {
+          const newRulers = new Map(s.rulers);
+          const r = newRulers.get(targetId);
+          if (r) newRulers.set(targetId, translateRuler(r, dx, dy));
+          return { rulers: newRulers };
+        });
       } else if (state.elementIds.length > 0 && isImageId(state.elementIds[0])) {
         // Undo image moves
         const imgStore = useImageStore.getState();

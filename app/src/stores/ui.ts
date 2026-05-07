@@ -71,6 +71,14 @@ interface UIState {
   inspectorFocusField: string | null;
   /** Whether the grid is visible on the canvas. */
   showGrid: boolean;
+  /** Whether rulers (all kinds) are rendered on the canvas. */
+  showRulers: boolean;
+  /**
+   * Last-used ruler sub-tool id, used by the toolbar's `RulerOpsButton` so
+   * clicking the main button re-runs the previously chosen sub-tool.
+   * Stored as the `ToolType` string to avoid a new enum.
+   */
+  lastRulerKind: "ruler" | "ruler-super" | "ruler-polyline" | "ruler-angle" | "ruler-radius";
   /** Right-click behavior on canvas: context menu or zoom out. */
   rightClickMode: RightClickMode;
   /** Whether zen mode is active (hides Toolbar, Explorer, Sidebar). */
@@ -106,6 +114,12 @@ interface UIState {
   clearInspectorFocus: () => void;
   /** Toggle grid visibility. */
   toggleGrid: () => void;
+  /** Toggle ruler visibility globally. */
+  toggleRulers: () => void;
+  /** Set ruler visibility directly (used by auto-reveal on ruler tool activation). */
+  setShowRulers: (visible: boolean) => void;
+  /** Remember the last-used ruler sub-tool. */
+  setLastRulerKind: (kind: UIState["lastRulerKind"]) => void;
   /** Toggle right-click mode between context menu and zoom. */
   toggleRightClickMode: () => void;
   /** Set right-click mode directly. */
@@ -137,6 +151,8 @@ export const useUIStore = create<UIState>()(
       inspectorFocusRequested: false,
       inspectorFocusField: null,
       showGrid: true,
+      showRulers: true,
+      lastRulerKind: "ruler",
       rightClickMode: "context-menu" as RightClickMode,
       zenMode: false,
       explorerCollapsed: false,
@@ -167,6 +183,9 @@ export const useUIStore = create<UIState>()(
         set({ sidebarTab: "inspector", inspectorFocusRequested: true, inspectorFocusField: field }),
       clearInspectorFocus: () => set({ inspectorFocusRequested: false, inspectorFocusField: null }),
       toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
+      toggleRulers: () => set((state) => ({ showRulers: !state.showRulers })),
+      setShowRulers: (visible) => set({ showRulers: visible }),
+      setLastRulerKind: (kind) => set({ lastRulerKind: kind }),
       toggleRightClickMode: () =>
         set((state) => ({
           rightClickMode: state.rightClickMode === "context-menu" ? "zoom" : "context-menu",
@@ -192,6 +211,8 @@ export const useUIStore = create<UIState>()(
       partialize: (state) => ({
         themeSetting: state.themeSetting,
         showGrid: state.showGrid,
+        showRulers: state.showRulers,
+        lastRulerKind: state.lastRulerKind,
         rightClickMode: state.rightClickMode,
         zenMode: state.zenMode,
         explorerCollapsed: state.explorerCollapsed,

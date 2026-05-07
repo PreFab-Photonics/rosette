@@ -13,10 +13,14 @@ import {
   Exclude,
   Intersect,
   MoreHoriz,
+  OnePointCircle,
   Pentagon,
   PlusSquare,
   PositionAlign,
   Ruler,
+  RulerArrows,
+  RulerCombine,
+  RulerPlus,
   SlashSquare,
   Square3dCornerToCorner,
   Substract,
@@ -57,7 +61,6 @@ const BASE_TOOLS: ToolDef[] = [
   { id: "pan", icon: HandRaisedIcon, label: "Pan", shortcut: "P" },
   { id: "move", icon: Drag, label: "Move", shortcut: "M" },
   { id: "zoom", icon: ZoomIn, label: "Zoom", shortcut: "Z" },
-  { id: "ruler", icon: Ruler, label: "Ruler", shortcut: "U" },
 ];
 
 /** Shape drawing tools. */
@@ -82,7 +85,22 @@ const PRIMARY_BASE_TOOLS: ToolDef[] = [
 /** Overflow tools at the md breakpoint (shown in dropdown). */
 const OVERFLOW_BASE_TOOLS: ToolDef[] = [
   { id: "laser", icon: EaseIn, label: "Laser Pointer", shortcut: "Q" },
-  { id: "ruler", icon: Ruler, label: "Ruler", shortcut: "U" },
+];
+
+/**
+ * Ruler sub-tools exposed through `RulerOpsButton` and the overflow menu.
+ *
+ * The submenu order doubles as the visual order of the grid. Shortcut
+ * strings are informational — they're registered in
+ * `use-keyboard-shortcuts.ts` / `palette-commands.ts`. Ruler kinds without
+ * a shortcut leave `shortcut` empty.
+ */
+const RULER_TOOLS: ToolDef[] = [
+  { id: "ruler", icon: Ruler, label: "Ruler", shortcut: "W" },
+  { id: "ruler-super", icon: RulerPlus, label: "Super Ruler", shortcut: "⇧W" },
+  { id: "ruler-polyline", icon: RulerArrows, label: "Polyline Ruler", shortcut: "" },
+  { id: "ruler-angle", icon: RulerCombine, label: "Angle Ruler", shortcut: "" },
+  { id: "ruler-radius", icon: OnePointCircle, label: "Radius Ruler", shortcut: "" },
 ];
 
 /**
@@ -141,12 +159,14 @@ function OverflowMenuButton({
   isDark,
   overflowBaseTools,
   overflowShapeTools,
+  overflowRulerTools,
   showInstance,
   showCommands,
 }: {
   isDark: boolean;
   overflowBaseTools: ToolDef[];
   overflowShapeTools: ToolDef[];
+  overflowRulerTools: ToolDef[];
   showInstance: boolean;
   showCommands: boolean;
 }) {
@@ -154,13 +174,16 @@ function OverflowMenuButton({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const { activeTool, setTool } = useToolStore();
+  const lastRulerKind = useUIStore((s) => s.lastRulerKind);
   const open = useCommandPaletteStore((s) => s.open);
   const toggle = useCommandPaletteStore((s) => s.toggle);
 
   // Highlight if any overflow tool is active
-  const isOverflowActive = [...overflowBaseTools, ...overflowShapeTools].some(
-    (t) => t.id === activeTool,
-  );
+  const isOverflowActive = [
+    ...overflowBaseTools,
+    ...overflowShapeTools,
+    ...overflowRulerTools,
+  ].some((t) => t.id === activeTool);
 
   // Close on click outside / Escape
   useEffect(() => {
@@ -312,6 +335,53 @@ function OverflowMenuButton({
               </>
             )}
 
+            {/* Overflow ruler tools */}
+            {overflowRulerTools.length > 0 && (
+              <>
+                <div className={cn("my-1 h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+                <div className="flex flex-col">
+                  {overflowRulerTools.map((tool) => {
+                    const Icon = tool.icon;
+                    const isActive = activeTool === tool.id;
+                    return (
+                      <button
+                        key={tool.id}
+                        onClick={() => {
+                          setTool(tool.id);
+                          useUIStore.getState().setLastRulerKind(tool.id as typeof lastRulerKind);
+                          setMenuOpen(false);
+                        }}
+                        className={cn(
+                          "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
+                          isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
+                          isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+                        )}
+                      >
+                        <Icon
+                          className={cn("h-4 w-4", isDark ? "text-white/90" : "text-black/90")}
+                        />
+                        <span className={isDark ? "text-white/90" : "text-black/90"}>
+                          {tool.label}
+                        </span>
+                        {tool.shortcut && (
+                          <kbd
+                            className={cn(
+                              "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
+                              isDark
+                                ? "border-white/15 bg-white/10 text-white/70"
+                                : "border-black/15 bg-black/10 text-black/70",
+                            )}
+                          >
+                            {tool.shortcut}
+                          </kbd>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
             {/* Instance + Commands */}
             {(showInstance || showCommands) && (
               <>
@@ -417,6 +487,7 @@ export function Toolbar({
   const inlineBaseTools = minimal ? MINIMAL_BASE_TOOLS : compact ? PRIMARY_BASE_TOOLS : BASE_TOOLS;
   const showShapeToolsInline = !compact && !minimal;
   const showShapeOpsInline = !compact && !minimal;
+  const showRulerOpsInline = !compact && !minimal;
   const showInstanceInline = !compact && !minimal;
   const showCommandsInline = !compact && !minimal;
   const showOverflow = compact || minimal;
@@ -432,6 +503,9 @@ export function Toolbar({
       ? OVERFLOW_BASE_TOOLS
       : [];
   const overflowShapeTools = compact || minimal ? SHAPE_TOOLS : [];
+  // In compact/minimal the RulerOpsButton isn't shown inline; surface the
+  // ruler sub-tools through the overflow menu instead.
+  const overflowRulerTools = compact || minimal ? RULER_TOOLS : [];
 
   return (
     <div
@@ -453,6 +527,13 @@ export function Toolbar({
           isDark={isDark}
         />
       ))}
+
+      {/*
+        Ruler sub-tools submenu (full mode only).
+        Lives in the base-tools group — the original simple-ruler button
+        was the last entry of `BASE_TOOLS`, so keep the family there.
+      */}
+      {showRulerOpsInline && <RulerOpsButton isDark={isDark} />}
 
       {/* Shape tools (full mode only) */}
       {showShapeToolsInline && (
@@ -488,6 +569,7 @@ export function Toolbar({
           isDark={isDark}
           overflowBaseTools={overflowBaseTools}
           overflowShapeTools={overflowShapeTools}
+          overflowRulerTools={overflowRulerTools}
           showInstance={true}
           showCommands={true}
         />
@@ -702,6 +784,194 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
                   </button>
                 </Tooltip>
               ))}
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+// =============================================================================
+// Ruler operations (family of ruler sub-tools)
+// =============================================================================
+
+/**
+ * Combined ruler sub-tools button with hover-activated dropdown.
+ *
+ * Click activates the last-used ruler sub-tool (persisted in the UI store
+ * as `lastRulerKind`). Hovering or right-clicking opens a grid with the
+ * five ruler kinds (simple / super / polyline / angle / radius) so the
+ * user can pick a different one, which also updates `lastRulerKind`.
+ *
+ * Mirrors `ShapeOpsButton`'s UX so the toolbar family of "ops" buttons
+ * feels consistent.
+ */
+function RulerOpsButton({ isDark }: { isDark: boolean }) {
+  const activeTool = useToolStore((s) => s.activeTool);
+  const { setTool } = useToolStore();
+  const lastRulerKind = useUIStore((s) => s.lastRulerKind);
+  const setLastRulerKind = useUIStore((s) => s.setLastRulerKind);
+
+  // Resolve the current ruler sub-tool to display on the button. Prefer the
+  // active tool when it's a ruler kind (so the button mirrors the current
+  // tool state); otherwise fall back to the last-used kind.
+  const currentTool: ToolDef =
+    RULER_TOOLS.find((t) => t.id === activeTool) ??
+    RULER_TOOLS.find((t) => t.id === lastRulerKind) ??
+    RULER_TOOLS[0];
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const Icon = currentTool.icon;
+  const isActive = RULER_TOOLS.some((t) => t.id === activeTool);
+
+  // Escape closes the menu
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [menuOpen]);
+
+  /** Schedule a close after a short grace period (matches ShapeOpsButton). */
+  const scheduleClose = useCallback(() => {
+    closeTimerRef.current = setTimeout(() => setMenuOpen(false), 150);
+  }, []);
+
+  const cancelClose = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+
+  const handleButtonEnter = useCallback(() => {
+    cancelClose();
+    setMenuOpen(true);
+  }, [cancelClose]);
+
+  const handleButtonLeave = useCallback(() => {
+    scheduleClose();
+  }, [scheduleClose]);
+
+  const handleMenuEnter = useCallback(() => {
+    cancelClose();
+  }, [cancelClose]);
+
+  const handleMenuLeave = useCallback(() => {
+    scheduleClose();
+  }, [scheduleClose]);
+
+  const handleClick = useCallback(() => {
+    setTool(currentTool.id);
+    setLastRulerKind(currentTool.id as typeof lastRulerKind);
+    // `lastRulerKind` is only referenced as a type cast (erased at runtime);
+    // the dep list intentionally omits it.
+  }, [setTool, setLastRulerKind, currentTool.id]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setMenuOpen(true);
+  }, []);
+
+  const handleToolClick = useCallback(
+    (tool: ToolDef) => {
+      setMenuOpen(false);
+      setTool(tool.id);
+      setLastRulerKind(tool.id as typeof lastRulerKind);
+    },
+    // `lastRulerKind` is only referenced as a type cast (erased at runtime).
+    [setTool, setLastRulerKind],
+  );
+
+  // Position dropdown centered on the button, measured from actual DOM sizes.
+  const positionMenu = useCallback((node: HTMLDivElement | null) => {
+    menuRef.current = node;
+    if (!node || !buttonRef.current) return;
+    const btnRect = buttonRef.current.getBoundingClientRect();
+    const menuRect = node.getBoundingClientRect();
+    const buttonCenter = btnRect.left + btnRect.width / 2;
+    let left = buttonCenter - menuRect.width / 2;
+    let top = btnRect.bottom + 9;
+    if (left + menuRect.width > window.innerWidth - 8) {
+      left = window.innerWidth - menuRect.width - 8;
+    }
+    if (left < 8) left = 8;
+    if (top + menuRect.height > window.innerHeight - 8) {
+      top = btnRect.top - menuRect.height - 8;
+    }
+    node.style.left = `${left}px`;
+    node.style.top = `${top}px`;
+    node.style.visibility = "visible";
+  }, []);
+
+  return (
+    <>
+      <Tooltip
+        label={currentTool.label}
+        className={menuOpen ? "[&>div:last-child]:hidden" : undefined}
+      >
+        <button
+          ref={buttonRef}
+          onClick={handleClick}
+          onContextMenu={handleContextMenu}
+          onMouseEnter={handleButtonEnter}
+          onMouseLeave={handleButtonLeave}
+          className={cn(
+            "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
+            isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
+            isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+          )}
+        >
+          <div className="flex h-5 w-5 items-center justify-center">
+            <Icon className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")} />
+          </div>
+        </button>
+      </Tooltip>
+
+      {menuOpen &&
+        createPortal(
+          <div
+            ref={positionMenu}
+            onMouseEnter={handleMenuEnter}
+            onMouseLeave={handleMenuLeave}
+            className={cn(
+              // ShapeOps uses `p-2` because it's a 4×3 grid where the
+              // vertical padding balances the row height. Ours is one
+              // row of 5, so `p-1` keeps the container from looking
+              // stretched relative to the buttons.
+              "fixed z-[9999] rounded-xl border p-1 backdrop-blur-xl",
+              isDark
+                ? "border-white/10 bg-[rgb(29,29,29)]"
+                : "border-black/10 bg-[rgb(241,241,241)]",
+            )}
+            style={{ visibility: "hidden" }}
+          >
+            <div className="grid grid-cols-5 gap-1">
+              {RULER_TOOLS.map((tool) => {
+                const ToolIcon = tool.icon;
+                return (
+                  <Tooltip key={tool.id} label={tool.label} className="[&>div:last-child]:mt-0.5">
+                    <button
+                      onClick={() => handleToolClick(tool)}
+                      className={cn(
+                        "cursor-pointer rounded-lg p-1.5 transition-colors",
+                        isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
+                      )}
+                    >
+                      <ToolIcon
+                        className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")}
+                      />
+                    </button>
+                  </Tooltip>
+                );
+              })}
             </div>
           </div>,
           document.body,
