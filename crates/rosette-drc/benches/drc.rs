@@ -2,13 +2,16 @@
 //!
 //! Groups:
 //! - `pairwise_spacing` — same-layer `min_spacing` at N ∈ {100, 1K, 10K}
-//!   (well-separated fast path + dense slow path).
+//!   in three density regimes (separated / dense / very_dense).
 //! - `pairwise_overlap` — `forbid_overlap` + `require_overlap` cross-layer,
 //!   same N sweep.
 //! - `pairwise_enclosure` — `enclosure` at N ∈ {100, 1K} (O(inner × outer),
 //!   no R-tree yet — baseline for ROS-496; 10K omitted for runtime).
 //! - `per_polygon` — `min_width` + `self_intersection` + `min_edge_length` on
 //!   a single polygon with V ∈ {100, 1000} vertices.
+//! - `self_intersection` — dedicated sweep-line check (ROS-549) across
+//!   V ∈ {100, 1K, 10K}; isolates the scaling from the other per-polygon
+//!   checks.
 //! - `array_expansion` — AREF 10×10 / 30×30 / 100×100, full deck (baseline
 //!   for ROS-511).
 //! - `full_deck_realistic` — ~1K polygons, 3 layers, 2-level hierarchy,
@@ -31,6 +34,10 @@ const PAIRWISE_SIZES: &[usize] = &[100, 1_000, 10_000];
 
 // Vertices for the per-polygon sweep.
 const VERTEX_COUNTS: &[usize] = &[100, 1_000];
+
+// Vertices for the dedicated self-intersection sweep. Extended to 10K to
+// cement the O(V^2) -> O(V log V) scaling win landed in ROS-549.
+const SELF_INTERSECTION_VERTEX_COUNTS: &[usize] = &[100, 1_000, 10_000];
 
 // AREF dimensions: (rows, cols, label). Stored as strings to avoid formatting
 // in the hot path. MUST be listed in ascending size — Criterion's
@@ -58,9 +65,16 @@ fn configure_group<M: criterion::measurement::Measurement>(
 const SEPARATED_PITCH: f64 = 3.0;
 
 // Pitch for dense grids where rects overlap their neighbors. Chosen so every
-// rect overlaps its four neighbors — the R-tree still returns a bounded
-// candidate set per query but each must go through full geometry.
+// rect overlaps its four cardinal neighbors but the R-tree query returns a
+// small, bounded candidate set (~8 neighbors: 3x3 grid minus self).
 const DENSE_PITCH: f64 = 0.6;
+
+// Pitch for a genuinely dense grid. At 0.25 with unit rects expanded by a
+// 0.1 spacing margin, the search envelope is ~[−0.1, 1.1] wide and reaches
+// rects up to ~4 pitches away on each axis → ~9×9 − 1 = ~80 candidates per
+// query. Stresses the slow path where the R-tree query itself returns many
+// candidates and the inner loop (distance + dedup) dominates.
+const VERY_DENSE_PITCH: f64 = 0.25;
 
 // Pitch for paired-layer fixtures: outer is 3x3, so 5.0 keeps pairs apart.
 const PAIRED_PITCH: f64 = 5.0;
@@ -88,6 +102,14 @@ fn bench_pairwise_spacing(c: &mut Criterion) {
         let cell_dense = fixtures::build_flat_grid(n, DENSE_PITCH);
         group.bench_with_input(BenchmarkId::new("dense", n), &n, |b, _| {
             b.iter(|| run_drc(black_box(&cell_dense), black_box(&rules), None));
+        });
+
+        // Very dense: tight pitch so each R-tree query returns ~80 candidates
+        // and the inner distance/dedup loop dominates. Exercises the regime
+        // where R-tree prefiltering is no longer free.
+        let cell_very_dense = fixtures::build_flat_grid(n, VERY_DENSE_PITCH);
+        group.bench_with_input(BenchmarkId::new("very_dense", n), &n, |b, _| {
+            b.iter(|| run_drc(black_box(&cell_very_dense), black_box(&rules), None));
         });
     }
 
@@ -168,8 +190,34 @@ fn bench_per_polygon(c: &mut Criterion) {
 
     for &v in VERTEX_COUNTS {
         group.throughput(Throughput::Elements(v as u64));
-        // Self-intersection is O(V^2). V=1000 makes a single iter ~40ms.
+        // `min_width` and `min_edge_length` combined are roughly O(V^2) at
+        // this scale (ray casting on high-vertex polygons). V=1K is ~45 ms
+        // per iter, so reduce sample count to keep bench time reasonable.
         if v >= 1_000 {
+            group.sample_size(10);
+        }
+        let cell = fixtures::build_high_vertex_polygon(v);
+        group.bench_with_input(BenchmarkId::from_parameter(v), &v, |b, _| {
+            b.iter(|| run_drc(black_box(&cell), black_box(&rules), None));
+        });
+    }
+
+    group.finish();
+}
+
+// --- self_intersection -------------------------------------------------------
+
+fn bench_self_intersection(c: &mut Criterion) {
+    let mut group = c.benchmark_group("self_intersection");
+    configure_group(&mut group);
+    // Dedicated self-intersection-only bench across V ∈ {100, 1K, 10K} to
+    // characterize the sweep-line scaling independently of the other
+    // per-polygon checks (min_width is O(V^2) and would dominate at 10K).
+    let rules = DrcRules::new().no_self_intersection(L1, Some("M1.SI"));
+
+    for &v in SELF_INTERSECTION_VERTEX_COUNTS {
+        group.throughput(Throughput::Elements(v as u64));
+        if v >= 10_000 {
             group.sample_size(10);
         }
         let cell = fixtures::build_high_vertex_polygon(v);
@@ -255,6 +303,7 @@ criterion_group!(
     bench_pairwise_overlap,
     bench_pairwise_enclosure,
     bench_per_polygon,
+    bench_self_intersection,
     bench_array_expansion,
     bench_full_deck_realistic,
 );

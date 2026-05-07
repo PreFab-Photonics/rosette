@@ -49,6 +49,11 @@ pub fn check_forbid_overlap_bulk(
             [bbox1.max().x, bbox1.max().y],
         );
 
+        // Lift poly1's geo conversion out of the candidate loop — an R-tree
+        // query on a dense fixture can return many candidates, and each one
+        // previously reconverted poly1.
+        let mut geo1 = None;
+
         for candidate in tree.locate_in_envelope_intersecting(&search_envelope) {
             // Same-layer: skip self-comparison and duplicate pairs
             if same_layer && candidate.orig_index <= *orig_idx1 {
@@ -56,12 +61,50 @@ pub fn check_forbid_overlap_bulk(
             }
 
             let (poly2, _) = &polygons2[candidate.index];
-            if let Some(mut v) = check_forbid_overlap(poly1, layer1, poly2, layer2, rule_name) {
-                v = v
+            // `get_or_insert_with` returns &mut T; inits on first use, memoized
+            // thereafter. Inner shadow binds the deref so later uses read
+            // the converted polygon, not the Option wrapper.
+            let geo1 = geo1.get_or_insert_with(|| polygon_to_geo(poly1));
+            let geo2 = polygon_to_geo(poly2);
+            let intersection = geo1.intersection(&geo2);
+            let overlap_area = intersection.unsigned_area();
+            if overlap_area <= 1e-10 {
+                continue;
+            }
+
+            // Use the intersection's bounding rect as the violation location
+            // (much more precise than the union of both polygons' bboxes).
+            let location = intersection
+                .bounding_rect()
+                .map(|r| {
+                    BBox::new(
+                        Point::new(r.min().x, r.min().y),
+                        Point::new(r.max().x, r.max().y),
+                    )
+                })
+                .unwrap_or_else(|| poly1.bbox().merge(&poly2.bbox()));
+
+            let message = format!(
+                "Forbidden overlap ({:.3} um²) at ({:.1}, {:.1}) to ({:.1}, {:.1})",
+                overlap_area,
+                location.min().x,
+                location.min().y,
+                location.max().x,
+                location.max().y,
+            );
+
+            let mut violation =
+                DrcViolation::new(RuleType::ForbiddenOverlap, location, layer1, message)
+                    .with_layer2(layer2)
+                    .with_severity(Severity::Error)
                     .with_polygon_idx(*orig_idx1)
                     .with_polygon_idx2(candidate.orig_index);
-                violations.push(v);
+
+            if let Some(name) = rule_name {
+                violation = violation.with_name(name);
             }
+
+            violations.push(violation);
         }
     }
 
@@ -69,7 +112,12 @@ pub fn check_forbid_overlap_bulk(
 }
 
 /// Check that two polygons do not overlap (forbidden overlap).
-pub fn check_forbid_overlap(
+///
+/// Single-pair entry point. The hot path goes through
+/// [`check_forbid_overlap_bulk`], which inlines this logic to avoid
+/// re-converting `poly1` to its `geo` representation per candidate.
+#[cfg(test)]
+fn check_forbid_overlap(
     poly1: &Polygon,
     layer1: Layer,
     poly2: &Polygon,
@@ -189,6 +237,9 @@ pub fn check_require_overlap_bulk(
         );
 
         let mut has_overlap = false;
+        // Lift poly1's geo conversion out of the candidate loop (only allocate
+        // when the R-tree query returns at least one candidate to test).
+        let mut geo1 = None;
 
         for candidate in tree.locate_in_envelope_intersecting(&search_envelope) {
             // Same-layer: skip self-comparison
@@ -197,7 +248,9 @@ pub fn check_require_overlap_bulk(
             }
 
             let (poly2, _) = &polygons2[candidate.index];
-            if check_require_overlap(poly1, layer1, poly2, layer2, rule_name).is_none() {
+            let geo1 = geo1.get_or_insert_with(|| polygon_to_geo(poly1));
+            let geo2 = polygon_to_geo(poly2);
+            if geo1.intersection(&geo2).unsigned_area() > 1e-10 {
                 has_overlap = true;
                 break;
             }
@@ -230,8 +283,12 @@ pub fn check_require_overlap_bulk(
 
 /// Check that two polygons overlap (required overlap).
 ///
-/// Returns a violation if there is NO overlap.
-pub fn check_require_overlap(
+/// Returns a violation if there is NO overlap. Single-pair entry point;
+/// the hot path goes through [`check_require_overlap_bulk`], which inlines
+/// this logic to avoid re-converting `poly1` to its `geo` representation
+/// per candidate.
+#[cfg(test)]
+fn check_require_overlap(
     poly1: &Polygon,
     layer1: Layer,
     poly2: &Polygon,

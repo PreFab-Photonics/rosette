@@ -309,14 +309,14 @@ mod tests {
             "T-shape with wide base should fail max_width=2.0"
         );
 
-        if let Some(v) = result {
-            if let RuleType::MaxWidth { actual, .. } = v.rule_type {
-                assert!(
-                    actual > 2.0,
-                    "Measured max width {} should exceed 2.0",
-                    actual
-                );
-            }
+        if let Some(v) = result
+            && let RuleType::MaxWidth { actual, .. } = v.rule_type
+        {
+            assert!(
+                actual > 2.0,
+                "Measured max width {} should exceed 2.0",
+                actual
+            );
         }
     }
 }
