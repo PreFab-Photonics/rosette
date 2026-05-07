@@ -47,12 +47,27 @@ flags statistically significant shifts.
 
 | Group                | What it measures                                         | Why it exists                                    |
 | -------------------- | -------------------------------------------------------- | ------------------------------------------------ |
-| `pairwise_spacing`   | `min_spacing` at N ∈ {100, 1K, 10K}, separated + dense   | R-tree path health; scales as N log N            |
+| `pairwise_spacing`   | `min_spacing` at N ∈ {100, 1K, 10K}, three densities     | R-tree path health; scales as N log N            |
 | `pairwise_overlap`   | `forbid_overlap` + `require_overlap` at same N sweep     | R-tree-backed overlap checks                     |
 | `pairwise_enclosure` | `enclosure` at {100, 1K} (capped low; see below)         | **Baseline for ROS-496** (enclosure is O(I·O) today) |
 | `per_polygon`        | `min_width` + self-int + edge-length, V ∈ {100, 1K}      | Per-polygon scaling (ray-casting, etc.)          |
 | `array_expansion`    | Full deck on an AREF (10², 30², 100² copies)             | **Baseline for ROS-511** (AREF flattening cost)  |
 | `full_deck_realistic`| 1K polygons, 3 layers, 2-level hierarchy, mixed deck     | Overall throughput number                        |
+
+### `pairwise_spacing` variants
+
+Three density regimes exercise different parts of the R-tree path:
+
+- `separated` (pitch 3.0): rects well apart, bbox prefilter trivially succeeds.
+  Measures the fast path — R-tree query returns 0 candidates per polygon.
+- `dense` (pitch 0.6): rects overlap their cardinal neighbors. Query returns
+  ~8 candidates per polygon (3×3 grid minus self). Typical photonic congestion.
+- `very_dense` (pitch 0.25): rects heavily overlap. Query returns ~80 candidates
+  per polygon. Exercises the regime where R-tree prefilter cost matters and
+  the inner distance/dedup loop dominates. Most inner comparisons bail early
+  on the `distance < 1e-10` skip (touching/overlapping geometry), so this
+  doesn't fully model a PDK with many near-miss violations — it models the
+  worst-case *candidate-set size*, which was the shortcoming noted in ROS-551.
 
 ### Throughput units
 

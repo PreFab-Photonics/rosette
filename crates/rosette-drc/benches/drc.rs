@@ -2,7 +2,7 @@
 //!
 //! Groups:
 //! - `pairwise_spacing` — same-layer `min_spacing` at N ∈ {100, 1K, 10K}
-//!   (well-separated fast path + dense slow path).
+//!   in three density regimes (separated / dense / very_dense).
 //! - `pairwise_overlap` — `forbid_overlap` + `require_overlap` cross-layer,
 //!   same N sweep.
 //! - `pairwise_enclosure` — `enclosure` at N ∈ {100, 1K} (O(inner × outer),
@@ -58,9 +58,16 @@ fn configure_group<M: criterion::measurement::Measurement>(
 const SEPARATED_PITCH: f64 = 3.0;
 
 // Pitch for dense grids where rects overlap their neighbors. Chosen so every
-// rect overlaps its four neighbors — the R-tree still returns a bounded
-// candidate set per query but each must go through full geometry.
+// rect overlaps its four cardinal neighbors but the R-tree query returns a
+// small, bounded candidate set (~8 neighbors: 3x3 grid minus self).
 const DENSE_PITCH: f64 = 0.6;
+
+// Pitch for a genuinely dense grid. At 0.25 with unit rects expanded by a
+// 0.1 spacing margin, the search envelope is ~[−0.1, 1.1] wide and reaches
+// rects up to ~4 pitches away on each axis → ~9×9 − 1 = ~80 candidates per
+// query. Stresses the slow path where the R-tree query itself returns many
+// candidates and the inner loop (distance + dedup) dominates.
+const VERY_DENSE_PITCH: f64 = 0.25;
 
 // Pitch for paired-layer fixtures: outer is 3x3, so 5.0 keeps pairs apart.
 const PAIRED_PITCH: f64 = 5.0;
@@ -88,6 +95,14 @@ fn bench_pairwise_spacing(c: &mut Criterion) {
         let cell_dense = fixtures::build_flat_grid(n, DENSE_PITCH);
         group.bench_with_input(BenchmarkId::new("dense", n), &n, |b, _| {
             b.iter(|| run_drc(black_box(&cell_dense), black_box(&rules), None));
+        });
+
+        // Very dense: tight pitch so each R-tree query returns ~80 candidates
+        // and the inner distance/dedup loop dominates. Exercises the regime
+        // where R-tree prefiltering is no longer free.
+        let cell_very_dense = fixtures::build_flat_grid(n, VERY_DENSE_PITCH);
+        group.bench_with_input(BenchmarkId::new("very_dense", n), &n, |b, _| {
+            b.iter(|| run_drc(black_box(&cell_very_dense), black_box(&rules), None));
         });
     }
 
