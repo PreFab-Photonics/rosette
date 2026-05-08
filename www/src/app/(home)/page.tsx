@@ -160,6 +160,12 @@ function WhyRosette() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 py-16">
       <div className="flex items-center gap-3 mb-3">
+        <span
+          aria-hidden="true"
+          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
+        >
+          ◇
+        </span>
         <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
           Principles
         </span>
@@ -234,6 +240,12 @@ function WhatsInside() {
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
       <div className="flex items-center gap-3 mb-3">
+        <span
+          aria-hidden="true"
+          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
+        >
+          ▣
+        </span>
         <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
           Features
         </span>
@@ -338,6 +350,12 @@ function RecentPosts() {
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
       <div className="flex items-center gap-3 mb-3">
+        <span
+          aria-hidden="true"
+          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
+        >
+          ›
+        </span>
         <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
           Updates
         </span>
