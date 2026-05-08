@@ -9,14 +9,14 @@ Create a new Rosette project and run it locally.
 
 Before you begin, make sure your environment meets the following requirements:
 
-- **Python 3.11 or later** — Rosette ships pre-built wheels for Python 3.11, 3.12,
+- **Python 3.11 or later:** Rosette ships pre-built wheels for Python 3.11, 3.12,
   and 3.13. You can check your version with `python --version`.
-- **Operating system** — macOS (Apple Silicon), Linux (x86_64, aarch64), or Windows
+- **Operating system:** macOS (Apple Silicon), Linux (x86_64, aarch64), or Windows
   (x86_64).
-- **Package manager** — [uv](https://docs.astral.sh/uv/) is recommended for fast
+- **Package manager:** [uv](https://docs.astral.sh/uv/) is recommended for fast
   dependency management, but `pip` works too.
 
-No Rust toolchain is required for normal use — pre-compiled native extensions are
+No Rust toolchain is required for normal use. Pre-compiled native extensions are
 included in the published wheels.
 
 ## Quick start
@@ -130,37 +130,29 @@ On Windows, activate the virtual environment with `.venv\Scripts\activate` inste
 
 Then initialize Rosette:
 
-<Tabs items={["uv", "pip"]}>
-
-<Tab value={"uv"}>
-
-```bash
-uv run rosette init
-```
-
-</Tab>
-
-<Tab value={"pip"}>
-
 ```bash
 rosette init
 ```
 
-</Tab>
-
-</Tabs>
+<Callout title={"Running rosette commands with uv"} type={"info"}>
+If you installed via `uv add librosette`, prefix every `rosette` command
+with `uv run` (for example, `uv run rosette init`). If you installed via
+`uv tool install librosette` or inside an activated `pip` venv, the
+`rosette` command is on your `PATH` directly. The rest of this page
+shows the bare form.
+</Callout>
 
 You will see the following prompts:
 
 ```txt
 Select template:
-    Blank    — Empty config, define your own layers
-    Generic  — Pre-configured silicon photonics layers & DRC
+    Blank    - Empty config, define your own layers
+    Generic  - Pre-configured silicon photonics layers & DRC
 
 Select AI tool:
-    OpenCode    — Generates AGENTS.md
-    Claude Code — Generates CLAUDE.md
-    None        — Skip AI tool setup
+    OpenCode    - Generates AGENTS.md
+    Claude Code - Generates CLAUDE.md
+    None        - Skip AI tool setup
 ```
 
 The **generic** template is a good starting point if you are working with silicon
@@ -186,89 +178,41 @@ my-chip/
 └── AGENTS.md             # AI agent instructions (if selected)
 ```
 
-- **`rosette.toml`** — The central configuration file. It defines your project name,
+- **`rosette.toml`**: the central configuration file. It defines your project name,
   layer stack, and design-rule constraints.
-- **`designs/`** — Where you write your layout scripts. Each script defines cells and
+- **`designs/`**: where you write your layout scripts. Each script defines cells and
   geometry that Rosette compiles to GDS-II.
-- **`output/`** — Build artifacts. Running `rosette build` writes GDS files here.
-- **`components/`** — A library of photonic building blocks (S-bends, MMIs, rings,
+- **`output/`**: build artifacts. Running `rosette build` writes GDS files here.
+- **`components/`**: a library of photonic building blocks (S-bends, MMIs, rings,
   couplers, and more). These are copied into your project so you can read and modify them
   freely.
-- **`.rosette/api.pyi`** — A type stub for the core Rosette API. This powers
+- **`.rosette/api.pyi`**: a type stub for the core Rosette API. This powers
   autocomplete and type checking in your editor.
 
 ## Run the dev server
 
 Start the development server to get a live preview of your designs:
 
-<Tabs items={["uv", "pip"]}>
-
-<Tab value={"uv"}>
-
-```bash
-uv run rosette serve designs/my_design.py
-```
-
-</Tab>
-
-<Tab value={"pip"}>
-
 ```bash
 rosette serve designs/my_design.py
 ```
-
-</Tab>
-
-</Tabs>
 
 This opens a browser window at `http://localhost:5173` with an interactive WebGPU
 viewer. When you edit and save your design script, the viewer reloads automatically.
 
 You can also build a design to a GDS file without the viewer:
 
-<Tabs items={["uv", "pip"]}>
-
-<Tab value={"uv"}>
-
-```bash
-uv run rosette build designs/my_design.py
-```
-
-</Tab>
-
-<Tab value={"pip"}>
-
 ```bash
 rosette build designs/my_design.py
 ```
 
-</Tab>
-
-</Tabs>
-
 The output is written to `output/` by default. Add `--check` to run DRC before building:
-
-<Tabs items={["uv", "pip"]}>
-
-<Tab value={"uv"}>
-
-```bash
-uv run rosette build designs/my_design.py --check
-```
-
-</Tab>
-
-<Tab value={"pip"}>
 
 ```bash
 rosette build designs/my_design.py --check
 ```
 
-</Tab>
-
-</Tabs>
-
-DRC results are printed but the build always proceeds — use `rosette check` separately
+DRC results are printed but the build always proceeds. Use `rosette check` separately
 if you want to enforce passing DRC.
 
 ## Building from source

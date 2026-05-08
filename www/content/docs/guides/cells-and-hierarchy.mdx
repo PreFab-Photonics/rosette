@@ -1,0 +1,197 @@
+---
+title: Cells and hierarchy
+description: Build complex designs from reusable sub-cells with add_ref, Instance, and ArrayCopy.
+---
+
+A [`Cell`](/docs/api-reference/Cell) is a named container of geometry. A
+design with only one giant cell works, but it is slow in the viewer, large
+on disk, and painful to edit. Breaking things into sub-cells and referring
+to them keeps the GDS small and the design readable.
+
+This guide covers:
+
+- Placing sub-cells with `cell.at(x, y)` and `add_ref`
+- Using [`Instance`](/docs/api-reference/Instance) for ergonomic port queries
+- Arraying cells with [`Instance.array`](/docs/api-reference/Instance) and
+  iterating with [`ArrayCopy`](/docs/api-reference/ArrayCopy)
+- Auto-collection in [`write_gds`](/docs/api-reference#write_gds) and when
+  you need a [`Library`](/docs/api-reference/Library)
+
+For the mental model behind cells and instances, see
+[Core concepts](/docs/getting-started/core-concepts).
+
+## Placing a sub-cell
+
+The usual recipe is: build a sub-cell, place it with `.at(x, y)`, and
+add it to a parent.
+
+```python
+from rosette import Cell, Layer, Point, Polygon, write_gds
+
+# A sub-cell: a 10 x 0.5 um waveguide stub.
+stub = Cell("stub")
+stub.add_polygon(Polygon.rect(Point(0, -0.25), 10, 0.5), Layer(1, 0))
+
+# A top cell that places two copies of the stub.
+top = Cell("top")
+top.add_ref(stub.at(0,   0))
+top.add_ref(stub.at(0,  20))
+
+write_gds("output.gds", top)
+```
+
+`stub.at(x, y)` returns an [`Instance`](/docs/api-reference/Instance):
+a cell plus a transform. `add_ref` wires it into the parent and silently
+registers `stub` as a child of `top` so `write_gds` knows to include it.
+
+You can rotate, mirror, and scale instances by chaining:
+
+```python
+# Rotate the stub 90 degrees, then place it at (50, 0).
+top.add_ref(stub.at(0, 0).rotate(90).at(50, 0))
+```
+
+<Callout title={"Chaining order matters"} type={"warn"}>
+Each chained call wraps the *outside* of the accumulated transform, so
+the *first* call happens first. `cell.at(10, 0).rotate(90)` translates to
+`(10, 0)` and *then* rotates around the origin, so the cell ends up at
+`(0, 10)`, not `(10, 0)`. To rotate then place, do
+`cell.at(0, 0).rotate(90).at(50, 0)`.
+</Callout>
+
+## Port queries on instances
+
+[`Instance.port(name)`](/docs/api-reference/Instance) returns the port with
+position and direction transformed into world space. No need to pass the
+underlying cell twice.
+
+```python
+from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+
+# A cell with a single output port.
+src = Cell("src")
+src.add_polygon(Polygon.rect(Point(0, -0.25), 10, 0.5), Layer(1, 0))
+src.add_port(Port("out", Point(10, 0), Vector2(1, 0), width=0.5))
+
+# Place it at (50, 0). The port moves with it.
+inst = src.at(50, 0)
+out = inst.port("out")        # position=(60, 0), direction=(1, 0)
+```
+
+This is the fundamental pattern for routing between components. See the
+[Routing guide](/docs/guides/routing).
+
+## Arrays
+
+For regular grids of the same cell, use
+[`Instance.array(cols, rows, col_spacing, row_spacing)`](/docs/api-reference/Instance).
+This emits a single GDS AREF, not `cols * rows` individual references.
+
+```python
+from rosette import Cell, Layer, Point, Polygon
+
+unit = Cell("unit")
+unit.add_polygon(Polygon.rect(Point(-2.5, -2.5), 5, 5), Layer(1, 0))
+
+grid = Cell("grid")
+# 4 columns x 3 rows with 20 um pitch in both axes.
+grid.add_ref(unit.at(0, 0).array(4, 3, 20.0, 20.0))
+```
+
+The viewer selects the whole array as one object, and the GDS stays tiny
+no matter how many copies you stamp out.
+
+### Iterating over array copies
+
+If you need per-copy labels, per-copy routing endpoints, or a netlist,
+iterate over the instance. Each yielded
+[`ArrayCopy`](/docs/api-reference/ArrayCopy) is a lightweight view: it
+does **not** add extra GDS references, so you stay compact.
+
+```python
+bank = unit.at(0, 0).array(4, 3, 20.0, 20.0)
+grid.add_ref(bank)                   # one AREF
+
+for copy in bank:                    # or bank.copies()
+    grid.add_text(
+        f"{copy.col},{copy.row}",
+        copy.position,
+        Layer(10, 0),
+    )
+```
+
+For non-orthogonal lattices (hex packings, skewed test arrays) use
+[`Instance.array_vectors`](/docs/api-reference/Instance) instead and pass
+two `Vector2` displacement vectors.
+
+## Auto-collection in write_gds
+
+You rarely need to build a [`Library`](/docs/api-reference/Library)
+explicitly. When you call
+[`write_gds(path, top)`](/docs/api-reference#write_gds) on a cell that was
+built with `add_ref(instance)`, Rosette walks the tracked child cells and
+writes them all out:
+
+```python
+write_gds("output.gds", top)   # stub, unit, grid, top are all included
+```
+
+A build summary is printed to stderr by default. Pass `quiet=True` to
+suppress it or `verbose=True` to see port positions.
+
+When do you need an explicit `Library`?
+
+- You are writing utilities that operate on collections of cells
+  programmatically.
+- You are reading GDS: [`read_gds`](/docs/api-reference#read_gds) returns
+  a `Library`, and you can iterate it with `lib.cells()`.
+- You called [`run_drc`](/docs/api-reference#run_drc),
+  [`run_checks`](/docs/api-reference#run_checks), or
+  [`run_dfm`](/docs/api-reference#run_dfm) on a cell with references. If
+  the checks can't auto-collect child cells (because you used the raw
+  [`CellRef`](/docs/api-reference/CellRef) API instead of `Instance`),
+  you must pass a `Library` explicitly via the `library=` parameter.
+
+<Callout title={"Instance vs. CellRef"} type={"info"}>
+`Instance` (returned by `cell.at(...)`) is the recommended API. It tracks
+the underlying `Cell`, supports `inst.port(name)` without passing the cell
+again, and feeds into `write_gds` auto-collection. The low-level
+[`CellRef`](/docs/api-reference/CellRef) exists for compatibility; using
+it directly will emit a warning about untracked children.
+</Callout>
+
+## Putting it together
+
+A 2x2 grid of a sub-cell, with text labels per copy:
+
+```python
+from rosette import Cell, Layer, Point, Polygon, write_gds
+
+# Sub-cell: a 5 x 5 um square.
+unit = Cell("unit")
+unit.add_polygon(Polygon.rect(Point(-2.5, -2.5), 5, 5), Layer(1, 0))
+
+# Top cell: one AREF + per-copy labels.
+top = Cell("top")
+arr = unit.at(0, 0).array(2, 2, 20.0, 20.0)
+top.add_ref(arr)
+
+for copy in arr:
+    top.add_text(
+        f"{copy.col},{copy.row}",
+        copy.position,
+        Layer(10, 0),
+        height=1.0,
+    )
+
+write_gds("output/grid.gds", top)
+```
+
+## See also
+
+- [`Cell`](/docs/api-reference/Cell): cell API reference
+- [`Instance`](/docs/api-reference/Instance): transforms, arrays, ports
+- [`ArrayCopy`](/docs/api-reference/ArrayCopy): per-copy views on arrays
+- [`Library`](/docs/api-reference/Library): explicit collections of cells
+- [`CellRef`](/docs/api-reference/CellRef): the low-level reference type
+- [Core concepts](/docs/getting-started/core-concepts): the overall mental model

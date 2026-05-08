@@ -6,7 +6,7 @@ A container for multiple cells.
 
 Libraries group cells together for GDS I/O. When using `write_gds()` with
 a single Cell built using Instance references (via `cell.at()`), child cells
-are auto-collected — you typically don't need to create a Library manually.
+are auto-collected, so you typically don't need to create a Library manually.
 
 Libraries are primarily useful when reading GDS files with `read_gds()` or
 when you need explicit control over which cells are included.

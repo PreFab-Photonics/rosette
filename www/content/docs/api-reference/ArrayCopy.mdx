@@ -9,7 +9,7 @@ an `Instance`. Exposes the copy's grid position, its world-space
 transform, and a `port(name)` helper for retrieving the transformed
 port of this specific copy.
 
-`ArrayCopy` is a lightweight **view** over its parent instance — it
+`ArrayCopy` is a lightweight **view** over its parent instance. It
 does not add geometry or a GDS reference when constructed. The parent
 AREF is the only thing written to the output. This lets you attach
 per-copy labels, compute per-copy routing endpoints, or build

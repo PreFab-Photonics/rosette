@@ -19,7 +19,10 @@ export default function Layout({ children }: LayoutProps<"/docs">) {
         sidebar={{
           collapsible: false,
           defaultOpenLevel: 1,
-          banner: <SidebarTriggerBridge />,
+          // Explicit key silences a React 19 dev-mode warning from
+          // fumadocs-ui's Sidebar, which renders `banner` inside a
+          // mixed array of static children.
+          banner: <SidebarTriggerBridge key="sidebar-trigger-bridge" />,
         }}
       >
         {children}

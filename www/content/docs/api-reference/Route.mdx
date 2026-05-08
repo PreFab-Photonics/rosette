@@ -9,11 +9,11 @@ inserting bends at corners and tapers for width transitions. The corner
 shape is controlled by the `bend_profile` parameter: `"circular"`
 (default) uses a constant-radius arc fillet, while `"euler"` uses a
 clothoid (Cornu-spiral) fillet whose curvature varies linearly with arc
-length — lower-loss on high-index-contrast platforms, at the cost of a
+length. Lower-loss on high-index-contrast platforms, at the cost of a
 longer fillet (roughly 2x the arc length of a circular bend with the
 same peak curvature).
 
-Route is **not** an auto-router — you must supply intermediate waypoints
+Route is **not** an auto-router. You must supply intermediate waypoints
 to create the path shape you want.
 
 <Callout type="info" title="Waypoints create the shape">
@@ -95,7 +95,7 @@ Length of auto-generated tapers.
 
 Corner bend shape. `"circular"` (default) inserts a constant-radius arc
 fillet. `"euler"` inserts a clothoid (Cornu-spiral) fillet whose
-curvature varies linearly with arc length — lower-loss on
+curvature varies linearly with arc length. Lower-loss on
 high-index-contrast platforms at the cost of a longer fillet.
 
 </PyParameter>
@@ -166,7 +166,7 @@ Add a waypoint to the route.
 The route draws a straight segment from the previous waypoint to
 `(x, y)`, inserting a circular bend at the corner if the direction
 changes. Provide intermediate waypoints to create L-bends and
-S-bends — the router does not infer turns on its own.
+S-bends. The router does not infer turns on its own.
 
 <div>
 
@@ -283,12 +283,12 @@ Create a route through a series of waypoints (static method).
 
 A convenience method that creates a Route, adds all waypoints, and
 returns the result. You **must** include intermediate waypoints to
-create turns — two ports alone produce a straight diagonal line
+create turns. Two ports alone produce a straight diagonal line
 regardless of port directions.
 
 Port directions are used only for the first and last waypoint
 (to set departure/arrival angle). Intermediate ports are treated
-as plain `(x, y)` positions — their direction is ignored.
+as plain `(x, y)` positions; their direction is ignored.
 
 <Callout title={"Example"} type={"example"}>
 
@@ -333,7 +333,7 @@ Default bend radius.
 </PyParameter>
 <PyParameter name={"bend_profile"} type={"Literal['circular', 'euler']"} value={"'circular'"}>
 
-Corner bend shape — `"circular"` (default) or `"euler"` (clothoid corner
+Corner bend shape: `"circular"` (default) or `"euler"` (clothoid corner
 with linearly-varying curvature).
 
 </PyParameter>

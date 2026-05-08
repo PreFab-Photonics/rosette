@@ -1,0 +1,159 @@
+---
+title: First Layout
+description: Build a working GDS in ten minutes. Cell, polygon, port, write, view.
+---
+
+This guide picks up right after [Installation](/docs/getting-started/installation).
+You already have a project created with `rosette init`. Now you will write
+your first design script, build a GDS file, and view it in the browser.
+
+If any of the concepts below feel new, skim the
+[Core Concepts](/docs/getting-started/core-concepts) page first.
+Everything on this page is explained there in more depth.
+
+## Create a design file
+
+After `rosette init` your project has an empty `designs/` directory.
+Create a new Python file there:
+
+```bash
+touch designs/hello.py
+```
+
+Open `designs/hello.py` in your editor and add the following:
+
+```python
+# designs/hello.py
+from rosette import Cell, Layer, Point, Polygon, Port, Vector2, write_gds
+
+# 1. Create a top-level cell.
+top = Cell("hello")
+
+# 2. Add a waveguide: a 50 x 0.5 um rectangle on layer 1/0.
+wg = Polygon.rect(Point(0, -0.25), 50, 0.5)
+top.add_polygon(wg, Layer(1, 0))
+
+# 3. Add a label on layer 10/0.
+top.add_text("hello", Point(0, 2), Layer(10, 0), height=1.0)
+
+# 4. Mark the waveguide endpoints as ports.
+top.add_port(Port("in",  Point(0,  0), Vector2(-1, 0), width=0.5))
+top.add_port(Port("out", Point(50, 0), Vector2( 1, 0), width=0.5))
+
+# 5. Write it to GDS.
+write_gds("output/hello.gds", top)
+```
+
+That is everything, five short steps. Let's break down what each line
+does before we run it.
+
+### What's going on
+
+- **`Cell("hello")`** creates an empty [`Cell`](/docs/api-reference/Cell)
+  named `hello`. This is your top-level design.
+- **`Polygon.rect(origin, width, height)`** builds a rectangle whose
+  lower-left corner sits at `origin`. Centering it on `y = 0` makes the
+  waveguide symmetric about the X axis.
+- **`Layer(1, 0)`** is GDS layer `1/0`. The CLI's default config treats
+  layer `1/0` as the silicon waveguide layer and layer `10/0` as text.
+- **`add_text`** writes a label on the text layer. Labels are useful for
+  debugging and are typically not fabricated.
+- **`Port(name, position, direction, width)`** marks a connection point.
+  `direction` is a unit vector pointing *outward* from the component.
+  The input faces `-X`, the output faces `+X`. Width matches the
+  waveguide.
+- **`write_gds`** serializes the cell to a GDS file.
+
+## Build and view
+
+You have two ways to see the result: build a GDS file and open it in the
+viewer, or run the dev server for live reload while you edit.
+
+<Callout title={"Running rosette commands with uv"} type={"info"}>
+If you installed Rosette via `uv add librosette`, prefix every
+`rosette` command below with `uv run` (for example,
+`uv run rosette serve designs/hello.py`). If you installed via
+`uv tool install librosette` or inside an activated `pip` venv, the
+`rosette` command is on your `PATH` directly.
+</Callout>
+
+### Live preview (recommended)
+
+```bash
+rosette serve designs/hello.py
+```
+
+The dev server opens `http://localhost:5173` in your browser with an
+interactive WebGPU viewer. Every time you save `designs/hello.py` the
+viewer reloads automatically, so you can tweak the script and see the
+result immediately.
+
+### One-shot build
+
+If you just want the GDS file:
+
+```bash
+rosette build designs/hello.py
+```
+
+The output is written to `output/hello.gds`. Open it later with
+`rosette run output/hello.gds`.
+
+## What you should see
+
+A 50 um long, 0.5 um wide pink rectangle centered on the X axis, with the
+word `hello` rendered just above it on a different layer. Two port markers
+sit at the ends of the waveguide, pointing outward.
+
+<Callout title={"Build summary"} type={"info"}>
+`rosette build` and `write_gds` print a short summary to the terminal:
+cell count, polygon count, and output path. If nothing shows up, pass
+`verbose=True` to `write_gds` for a more detailed breakdown, including
+port positions.
+</Callout>
+
+## Extend it
+
+Now that you have a working build, try a few small edits and watch them
+update live:
+
+- Change the rectangle's width to `100` to make a longer waveguide.
+- Add a second `Cell` and reference it from `top` with
+  `top.add_ref(child.at(x, y))`. See the
+  [Cells & Hierarchy guide](/docs/guides/cells-and-hierarchy).
+- Replace the hand-built rectangle with a connected
+  [`Route`](/docs/api-reference/Route) between two ports. See the
+  [Routing guide](/docs/guides/routing).
+- Define named layers in `rosette.toml` and load them with
+  [`load_layer_map()`](/docs/api-reference#load_layer_map) so you can
+  write `layers.silicon.layer` instead of `Layer(1, 0)`.
+
+## Where to next
+
+<Cards>
+
+<Card
+  href={"/docs/getting-started/core-concepts"}
+  title={"Core concepts"}
+  description={"Cells, layers, ports, routing. The mental model."}
+/>
+
+<Card
+  href={"/docs/guides/routing"}
+  title={"Routing"}
+  description={"Connect components with Route and ports."}
+/>
+
+<Card
+  href={"/docs/guides/cells-and-hierarchy"}
+  title={"Cells and hierarchy"}
+  description={"Build complex designs from reusable sub-cells."}
+/>
+
+<Card
+  href={"/docs/guides/design-rule-checking"}
+  title={"Design rule checking"}
+  description={"Catch foundry violations before tapeout."}
+/>
+
+</Cards>

@@ -1,0 +1,190 @@
+---
+title: Design rule checking
+description: Configure DRC rules in rosette.toml and catch foundry violations before tapeout.
+---
+
+Design rule checking (DRC) catches geometry that will not fabricate
+correctly: features that are too narrow, polygons that are too close
+together, illegal edge angles, overlapping shapes on a single-patterning
+layer, and so on. Every foundry publishes a DRC deck you must pass before
+taping out. Rosette lets you encode a subset of those rules in
+`rosette.toml` and check them from Python or the CLI.
+
+## When to run DRC
+
+- **While you design**, to catch mistakes early: run
+  `rosette build designs/my_design.py --check` or
+  [`run_drc`](/docs/api-reference#run_drc) in your script.
+- **Before tapeout**, to enforce the full deck: run `rosette drc` and gate
+  your build on a clean result. Foundry tools will still be the final
+  source of truth, but Rosette catches most of the cheap mistakes.
+
+## Configure rules in `rosette.toml`
+
+DRC lives under the `[drc]` table. Two shapes of rule:
+
+- **Per-layer** rules live in `[drc.layers.<name>]`, one table per layer,
+  with one key per rule.
+- **Inter-layer** rules live in `[[drc.rules]]`, an array of tables, each
+  with a `type` and rule-specific fields.
+
+Layer keys accept either a semantic name from `[layers]` (recommended) or
+the traditional `"number/datatype"` format. For example,
+`[drc.layers.silicon]` and `[drc.layers."1/0"]` are equivalent.
+
+```toml
+# rosette.toml
+
+[layers.silicon]
+number = 1
+datatype = 0
+
+[layers.p_doping]
+number = 20
+datatype = 0
+
+[layers.n_doping]
+number = 21
+datatype = 0
+
+# Per-layer rules on the silicon waveguide layer.
+[drc.layers.silicon]
+min_width = 0.12           # minimum feature width (um)
+min_spacing = 0.13         # minimum same-layer spacing (um)
+min_area = 0.01            # minimum polygon area (um^2)
+angles = [0, 90]           # allowed edge angles (degrees)
+no_overlap = true          # forbid overlapping polygons on same layer
+no_self_intersection = true
+
+# Inter-layer rule: keep P+ and N+ apart.
+[[drc.rules]]
+type = "spacing"
+layer1 = "p_doping"
+layer2 = "n_doping"
+min_spacing = 0.50
+name = "PN_SPC"
+
+[[drc.rules]]
+type = "forbid_overlap"
+layer1 = "p_doping"
+layer2 = "n_doping"
+name = "PN_NOOVLP"
+```
+
+### Supported per-layer rules
+
+| Key | Meaning |
+| --- | --- |
+| `min_width` | Minimum feature width, in um. |
+| `max_width` | Maximum feature width. |
+| `min_spacing` | Minimum same-layer spacing between polygons. |
+| `min_area` | Minimum polygon area, in um^2. |
+| `min_edge_length` | Shortest allowed polygon edge. |
+| `angles` | Allowed edge angles in degrees (e.g. `[0, 45, 90, 135]`). |
+| `acute_angle` | Minimum allowed convex interior angle in degrees. |
+| `no_overlap` | Forbid overlapping polygons on the same layer. |
+| `no_self_intersection` | Forbid self-intersecting polygons. |
+
+### Supported inter-layer rules
+
+Each `[[drc.rules]]` entry has a `type` and either a `(layer1, layer2)`
+pair or an `(inner, outer)` pair. All accept an optional `name` used in
+violation messages.
+
+| Type | Fields | Meaning |
+| --- | --- | --- |
+| `spacing` | `layer1`, `layer2`, `min_spacing` | Minimum inter-layer spacing. |
+| `enclosure` | `inner`, `outer`, `min_enclosure` | Inner layer must be enclosed by outer layer. |
+| `require_overlap` | `layer1`, `layer2` | Two layers must overlap. |
+| `forbid_overlap` | `layer1`, `layer2` | Two layers must not overlap. |
+| `not_inside` | `inner`, `outer` | Inner layer must not sit fully inside outer layer (keep-out zone). |
+
+### Near-threshold warnings
+
+The top-level `[drc]` table accepts `warning_margin` (a relative
+fraction). Numeric violations within that margin are downgraded to
+warnings instead of errors. This is useful while you iterate on a design
+and don't want to treat a 0.119 um wire (spec: 0.12) as a tapeout-blocking
+error.
+
+```toml
+[drc]
+warning_margin = 0.05   # within 5% of the threshold -> warning, not error
+```
+
+See [`DrcRules.warning_margin`](/docs/api-reference/DrcRules) for details.
+
+## Run DRC from Python
+
+```python
+from rosette import Cell, Layer, Point, Polygon, load_drc_rules, run_drc
+
+cell = Cell("top")
+cell.add_polygon(Polygon.rect(Point(0, 0), 10, 0.08), Layer(1, 0))  # too narrow
+
+rules = load_drc_rules()             # reads rosette.toml
+result = run_drc(cell, rules)
+
+if result.passed:
+    print(
+        f"DRC clean ({result.polygons_checked} polygons, "
+        f"{result.rules_checked} rules)"
+    )
+else:
+    print(f"{result.error_count} error(s), {result.warning_count} warning(s):")
+    for v in result.violations:
+        (x0, y0), (x1, y1) = v.bbox
+        print(
+            f"  [{v.severity}] {v.rule_name or v.rule_type}: {v.message} "
+            f"@ ({x0:.3f}, {y0:.3f})-({x1:.3f}, {y1:.3f})"
+        )
+```
+
+[`run_drc`](/docs/api-reference#run_drc) returns a
+[`DrcResult`](/docs/api-reference/DrcResult). Check `result.passed` for
+a quick pass/fail, and iterate `result.violations` for details. Each
+[`DrcViolation`](/docs/api-reference/DrcViolation) carries `rule_name`,
+`rule_type`, `severity`, a human-readable `message`, and a `bbox`
+(`((x0, y0), (x1, y1))` in um) pointing at the offending geometry so you
+can render it in the viewer or jump to it by coordinate.
+
+If your cell uses references to other cells *without* Instance tracking
+(for example, if you built it via the raw
+[`CellRef`](/docs/api-reference/CellRef) API), pass an explicit
+[`Library`](/docs/api-reference/Library) via `library=` so DRC can
+resolve the hierarchy.
+
+## Run DRC from the CLI
+
+Three CLI entry points hit DRC:
+
+```bash
+# Just DRC, against the cell defined in the script.
+rosette drc designs/my_design.py
+
+# All enabled design checks (DRC, connectivity, bend radius, ...).
+rosette check designs/my_design.py
+
+# Build to GDS with a DRC pre-check. The build always proceeds; DRC
+# results are printed to stderr.
+rosette build designs/my_design.py --check
+```
+
+<Callout title={"--check does not gate the build"} type={"info"}>
+`rosette build --check` runs DRC and reports violations, but it still
+writes the GDS file. If you want a hard gate for CI, run
+`rosette drc` and check the exit code, or call `run_drc` in your script
+and raise on `result.passed == False`.
+</Callout>
+
+## See also
+
+- [`DrcRules`](/docs/api-reference/DrcRules): construct and inspect rule
+  sets programmatically
+- [`DrcResult`](/docs/api-reference/DrcResult): result aggregate with
+  statistics and `passed` flag
+- [`DrcViolation`](/docs/api-reference/DrcViolation): individual
+  violations
+- [`load_drc_rules`](/docs/api-reference#load_drc_rules) / [`run_drc`](/docs/api-reference#run_drc): the main entry points
+- [Core concepts](/docs/getting-started/core-concepts): layer, cell, and
+  port fundamentals
