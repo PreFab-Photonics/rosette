@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AiForPhotonicsHero } from "./heroes/ai-for-photonics";
+import { NotesOnLayoutEditorsHero } from "./heroes/notes-on-layout-editors";
 
 /**
  * Registry of per-post hero graphics. Keys are blog post slugs; if a post is
@@ -10,6 +11,7 @@ import { AiForPhotonicsHero } from "./heroes/ai-for-photonics";
  */
 const heroes: Record<string, () => ReactNode> = {
   "ai-for-photonics": () => <AiForPhotonicsHero />,
+  "notes-on-layout-editors": () => <NotesOnLayoutEditorsHero />,
 };
 
 /**
@@ -24,11 +26,23 @@ export const blogOgImages: Record<string, string> = {
 /**
  * Wrapper that provides the shared frame for a blog post hero: aspect ratio,
  * border, rounded corners, subtle background. Individual hero SVGs go inside.
+ *
+ * The default aspect ratio is 3:1; pass `aspect` (e.g. "2/1", "5/2") to
+ * override per-hero.
  */
-export function BlogHeroFrame({ children }: { children: ReactNode }) {
+export function BlogHeroFrame({
+  children,
+  aspect = "3/1",
+}: {
+  children: ReactNode;
+  aspect?: string;
+}) {
   return (
-    <div className="relative mb-10 overflow-hidden rounded-xl border border-fd-border bg-fd-card dark:shadow-elevation">
-      <div className="aspect-[3/1] w-full">{children}</div>
+    <div
+      className="relative mb-10 w-full overflow-hidden rounded-xl border border-fd-border bg-fd-card dark:shadow-elevation"
+      style={{ aspectRatio: aspect }}
+    >
+      {children}
     </div>
   );
 }

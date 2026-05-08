@@ -1,0 +1,57 @@
+---
+title: Notes on Building a Layout Editor
+description: A few things that make Rosette nice to use.
+date: 2026-05-08
+---
+
+A lot of what makes a tool feel good has nothing to do with what it does. It's in the small moments: how it responds to your hand, how quickly it gets out of the way, whether the numbers on screen are readable, whether the thing you expected to happen is the thing that happened.
+
+We've been thinking about those moments as we build Rosette. A lot of the details below are small on their own, and most of them would feel obvious if we pointed to them one at a time. Added up, they're most of what it means for a tool to feel good.
+
+We're also building Rosette on the assumption that AI agents do a lot of the heavy lifting. Most of the script-writing, most of the iteration, most of the fix-the-DRC-violations grind belongs to an agent operating on the codebase. That changes what the editor is for. Designers drop into the viewer to inspect, review, tweak, and present, and then they go back to steering. The time spent in the editor is shorter and more deliberate than in a traditional flow, which raises the bar on every interaction inside it. Anything slow or clumsy in the editor is a hidden tax on the designer.
+
+Below are a few of the choices we've made so far. Most of them are small. None of them are finished.
+
+<Callout type="warn" title="Early days">
+  Rosette is still early. The editor is usable and improving quickly, but it's
+  far from finished. This post is a snapshot of some choices we're happy with,
+  not a tour of a complete tool. Lots of the best ideas haven't been built yet.
+</Callout>
+
+## It keeps up with you
+
+The viewer is a Rust renderer compiled to WebAssembly, drawing through WebGPU. In practice, this means the canvas responds to pans and zooms at whatever rate your mouse can produce events, and it does that even for designs with thousands of polygons. There is no "please wait" moment when you scroll across a reticle.
+
+This matters less as a benchmark and more as a feeling. When the tool is slower than your hand, you start moving in larger, more deliberate gestures to avoid triggering lag. When it keeps up, you stop thinking about it. You zoom in a little, then a little more, then back out, the way you'd flip through a stack of paper.
+
+## You can drive it from the keyboard
+
+Every tool has a single-key shortcut: `V` for select, `P` for pan, `R` for rectangle, `W` for ruler, and so on. Arrow keys pan. `+` and `-` zoom. `F` fits the design, `Shift+F` fits the selection. `[` and `]` change how deep into the hierarchy the viewer renders. Holding Shift accelerates most motion shortcuts rather than being a separate binding to remember.
+
+And behind all of it, a command palette. `Cmd+K` (or `/`) opens a search-everything prompt that covers every action in the app. Change theme, toggle the grid, jump to a coordinate, open a cell, clear rulers, export a screenshot. If you can remember the name of the thing, you can do it without leaving the keyboard.
+
+Command palettes are common in code editors and unusual in layout tools. They're a small feature with a large effect on how the tool feels to operate: you stop hunting through menus and start typing.
+
+## Small conveniences
+
+Paste centers on the viewport rather than on the original coordinates. If you copy something on one side of a reticle and paste, it lands where you're looking, not somewhere you'd have to hunt for.
+
+The ruler tool has a few variants: a simple two-point ruler, a polyline ruler for measuring routed paths, an angle ruler, and a radius ruler. Each is optimized for a measurement you'd otherwise estimate by eye or compute by hand.
+
+There's a laser pointer. Press `Q` and your cursor becomes a glowing dot with a short trail, useful for pointing at something during a call or a screen share.
+
+Destructive operations don't ask for confirmation. Delete is delete. The safety net is a solid undo stack that reaches back through every library-modifying command, including edits made from the panels and the canvas together.
+
+## It's easy on the eyes
+
+Light mode, dark mode, and a "follow system" option that tracks your OS preference and updates live. No setting to hunt for. Open the editor at midnight and it's already dark.
+
+Layer colors are configurable, and the built-in defaults are chosen to be distinguishable in both themes. Fill patterns stay fixed in screen space as you zoom so they remain legible at any scale, rather than becoming dense or sparse depending on how far you've zoomed in.
+
+Transitions and animations are mostly absent. The tool doesn't try to delight you with motion. When something changes, it just changes. In an interactive tool that you'll spend hours in, the absence of animation is its own kind of comfort.
+
+---
+
+None of these are remarkable on their own. The four above are the ones we could name in a post. There's a long tail of smaller ones, the kind you'd only notice if they were wrong, that do most of the actual work. A lot of both are table stakes in other categories of software: command palettes, dark mode, a responsive canvas, sensible defaults. They're the kinds of details we keep coming back to as we build.
+
+There's a lot we haven't gotten to yet. DRC results don't surface inside the editor, only on the command line. Hierarchical navigation is workable but not as fluid as we want. The inspector is functional but spartan. A dozen small papercuts we already know about, and presumably a few more we don't. If you try the tool and something feels off, we're building in the open on the [GitHub repo](https://github.com/prefab-photonics/rosette) and we'd like to hear about it.
