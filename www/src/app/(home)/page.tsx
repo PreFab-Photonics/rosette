@@ -425,11 +425,14 @@ function ClosingCTA() {
         <div className="h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-6 pt-16 pb-32">
+      <div className="mx-auto max-w-6xl px-6 pt-16 pb-20">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground uppercase sm:text-5xl">
             Get started in 5 minutes
           </h2>
+          <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-fd-muted-foreground">
+            Install Rosette and build your first layout today.
+          </p>
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             <div className="flex flex-col items-center gap-1.5">
               <Link

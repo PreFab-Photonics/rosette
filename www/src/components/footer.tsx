@@ -30,6 +30,15 @@ export function Footer() {
           />
           <p className="text-xs text-fd-muted-foreground">
             &copy; {new Date().getFullYear()} PreFab Photonics Inc.
+            <span className="mx-2 text-fd-border">&middot;</span>
+            <a
+              href="https://github.com/prefab-photonics/rosette/blob/main/LICENSE"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transition-colors hover:text-fd-foreground"
+            >
+              MIT License
+            </a>
           </p>
         </div>
 
