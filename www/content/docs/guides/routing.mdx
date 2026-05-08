@@ -1,0 +1,178 @@
+---
+title: Routing
+description: Connect components with Route, ports, and bends.
+---
+
+[`Route`](/docs/api-reference/Route) is Rosette's waypoint-based router.
+You hand it a sequence of points (plus optional start and end
+[`Port`](/docs/api-reference/Port)s) and it emits a waveguide polygon with
+straight segments, bends at corners, and tapers at width transitions.
+
+Route is not an auto-router. You supply the path; it fills in the geometry.
+
+## A minimal route
+
+Connect two ports with a simple S-shape:
+
+```python
+from rosette import Cell, Layer, Point, Port, Route, Vector2, write_gds
+
+# A simple source/sink pair of ports.
+src = Port("out", Point(0,  0),  Vector2( 1, 0), width=0.5)
+dst = Port("in",  Point(120, 30), Vector2(-1, 0), width=0.5)
+
+route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
+route.start_at_port(src)
+route.to(60, src.position.y)   # horizontal run out of src
+route.to(60, dst.position.y)   # vertical jog
+route.end_at_port(dst)         # arrive along dst's axis
+
+top = Cell("top")
+top.add_ref(route.to_cell("wg"))
+write_gds("output.gds", top)
+```
+
+A few things to notice:
+
+- The [`Route`](/docs/api-reference/Route) constructor takes the layer,
+  the default waveguide width, and the default bend radius. You can
+  override the width or radius on a per-waypoint basis by passing
+  `width=` / `bend_radius=` to `to()`.
+- [`start_at_port`](/docs/api-reference/Route) and
+  [`end_at_port`](/docs/api-reference/Route) use the port's outward
+  direction and width, so you do not have to re-specify them.
+- [`to_cell(name)`](/docs/api-reference/Route) returns a
+  [`Cell`](/docs/api-reference/Cell) that you can place with `add_ref`
+  like any other cell.
+
+<Callout title={"Always add intermediate waypoints between ports"} type={"warn"}>
+`start_at_port(a)` followed immediately by `end_at_port(b)` draws a
+single straight segment between `a` and `b`, ignoring their directions.
+For any bend, you need at least one `to(x, y)` in between so the route
+departs and arrives along each port's axis.
+</Callout>
+
+## Manual waypoints (no ports)
+
+If you do not have ports, use `start_at` and `end_at` with an explicit
+angle in degrees:
+
+```python
+from rosette import Layer, Route
+
+route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
+route.start_at(0, 0, angle=0)      # head in +X
+route.to(50, 0)
+route.to(50, 30)
+route.end_at(100, 30, angle=0)     # arrive heading +X
+cell = route.to_cell("manual")
+```
+
+## Bend profiles
+
+Every corner in a route is filleted by a bend. Rosette ships two profiles:
+
+- **`"circular"`** (default): constant-radius arc. Predictable footprint,
+  cheap to compute, fine for low-index-contrast platforms and design
+  exploration.
+- **`"euler"`**: a clothoid (Cornu-spiral) fillet whose curvature grows
+  linearly with arc length, reaching a minimum radius at the midpoint
+  equal to `bend_radius`. Lower-loss on high-index-contrast platforms,
+  at the cost of a longer bend (roughly 2x the arc length of a circular
+  bend at the same peak curvature).
+
+```python
+from rosette import Layer, Route
+
+# High-index platform? Prefer Euler bends.
+route = Route(
+    Layer(1, 0),
+    width=0.5,
+    bend_radius=5.0,
+    bend_profile="euler",
+)
+route.start_at(0, 0, angle=0)
+route.to(50, 0)
+route.to(50, 30)
+route.end_at(100, 30, angle=0)
+cell = route.to_cell("euler_route")
+```
+
+<Callout title={"Per-corner vs. whole-bend Euler"} type={"info"}>
+`Route(bend_profile="euler")` inserts an *isotropic clothoid fillet* at
+each corner. This keeps curvature bounded along an arbitrary path.
+It is **not** the same shape as the whole-S-bend clothoid used by
+[`rosette.components.sbend`](/docs/api-reference) with
+`bend_type="euler"`, which anisotropically rescales a clothoid to hit a
+prescribed `(length, offset)`. Use the component for a dedicated offset
+bend; use `Route` for routing.
+</Callout>
+
+## Tapers and variable width
+
+When you change width mid-route, Rosette inserts a linear taper
+automatically. You can tune or disable this from the constructor:
+
+```python
+from rosette import Layer, Route
+
+route = Route(
+    Layer(1, 0),
+    width=0.5,
+    bend_radius=5.0,
+    auto_taper=True,      # default
+    taper_length=10.0,    # default length of auto-tapers (um)
+)
+route.start_at(0, 0, angle=0)
+route.to(50, 0, width=1.5)   # widens from 0.5 to 1.5 via a 10 um taper
+route.to(100, 0)             # stays at 1.5
+route.end_at(100, 0, angle=0)
+cell = route.to_cell("taper_route")
+```
+
+If `auto_taper=False` you get abrupt width transitions, useful when you
+need to drop a taper in manually.
+
+## Common pitfalls
+
+<Callout title={"Bend radius too tight"} type={"warn"}>
+If two waypoints are closer than `2 * bend_radius`, the router
+auto-reduces the radius at that corner and prints a warning to stderr
+when you call `to_cell`. Fix it by spacing the waypoints farther apart
+or lowering `bend_radius`.
+</Callout>
+
+<Callout title={"Width mismatch at port connections"} type={"warn"}>
+If your `Route` width is `0.5` but the port you connect to is `1.0`, the
+route inherits the port's width at the start and end, but the
+[design-checks](/docs/api-reference#run_checks) pass will still flag
+*other* width mismatches on connected ports. Run
+`rosette check designs/foo.py` (or
+[`run_checks`](/docs/api-reference#run_checks)) to catch these.
+</Callout>
+
+<Callout title={"Angle mismatch at port connections"} type={"warn"}>
+Your last `to(...)` waypoint should land on the port's axis. For a port
+pointing `+X` at `(100, 5)`, the last waypoint before `end_at_port`
+should have the same `y`. Otherwise the route draws a short diagonal
+into the port and connectivity checks flag an angle mismatch.
+</Callout>
+
+<Callout title={"Straight line between two ports"} type={"warn"}>
+Always put at least one `to()` between `start_at_port` and
+`end_at_port`. The router doesn't synthesize turns on its own: two
+ports alone produce a straight diagonal between them, ignoring port
+directions.
+</Callout>
+
+## See also
+
+- [`Route`](/docs/api-reference/Route): full constructor and method
+  reference
+- [`Port`](/docs/api-reference/Port): port geometry and connectivity
+- [`PathEndType`](/docs/api-reference/PathEndType): control end caps for
+  `add_path`
+- [Core concepts](/docs/getting-started/core-concepts): the overall
+  mental model
+- [Cells and hierarchy](/docs/guides/cells-and-hierarchy): placing
+  routed cells in a design

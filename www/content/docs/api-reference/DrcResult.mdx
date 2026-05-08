@@ -12,7 +12,7 @@ result = run_drc(cell, rules)
 if result.passed:
     print(f"DRC passed ({result.polygons_checked} polygons, {result.rules_checked} rules)")
     if result.warning_count:
-        print(f"  ({result.warning_count} warnings — review recommended)")
+        print(f"  ({result.warning_count} warnings, review recommended)")
 else:
     print(f"DRC failed with {result.error_count} errors, {result.warning_count} warnings")
     for v in result.violations:
@@ -32,7 +32,7 @@ List of all DRC violations found, including both errors and warnings.
 `True` if no error-severity violations were found.
 
 Warnings (see [`DrcRules.warning_margin`](./DrcRules)) do not cause this to
-be `False` — a run with only warnings still passes. `rosette drc` and
+be `False`. A run with only warnings still passes. `rosette drc` and
 `rosette check` use this attribute for their exit code.
 
 </PyAttribute>
@@ -87,7 +87,7 @@ check has no single source cell.
 
 <PyAttribute name={"skipped_cells"} type={"int"}>
 
-Number of unique cells in the skipped-cell closure for this run — that is,
+Number of unique cells in the skipped-cell closure for this run. That is,
 cells with `drc_skip = True` plus every cell reachable from them via
 `CellRef`. See [`Cell.drc_skip`](./Cell).
 

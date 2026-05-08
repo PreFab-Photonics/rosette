@@ -57,7 +57,7 @@ spacing, enclosure). `None` for single-layer rules.
 
 Bounding box of the violation as `((min_x, min_y), (max_x, max_y))`.
 
-**Coordinate frame:** top-level (flattened, global) coordinates — the same
+**Coordinate frame:** top-level (flattened, global) coordinates, the same
 frame as the final GDS output. Violations raised inside a nested cell are
 reported at the cell's placed position, not in its local coordinate system.
 This contract holds for every rule type.
@@ -85,7 +85,7 @@ Name of the cell containing the second polygon involved in the violation.
 For intra-cell same-layer pairwise violations (both polygons inside the
 same cell definition), this equals `cell_name`. For inter-instance or
 cross-layer pairwise rules, it identifies the other cell. `None` for
-per-polygon rules and for cases where the second side is undefined — e.g.
+per-polygon rules and for cases where the second side is undefined. Examples:
 an `enclosure` violation with no outer polygon on the layer, a
 `require_overlap` miss (no matching polygon), or a `not_inside` violation
 (which unions all outer polygons before testing).

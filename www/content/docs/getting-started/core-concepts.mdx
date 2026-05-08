@@ -1,0 +1,236 @@
+---
+title: Core Concepts
+description: The mental model behind Rosette. Cells, layers, ports, geometry, and routing.
+---
+
+This page is the single spot where the core ideas of Rosette are introduced.
+If you have used other layout tools before, most of this will feel familiar.
+Skim the headings and focus on the naming and quirks. If this is your
+first layout tool, read top-to-bottom and keep the
+[API Reference](/docs/api-reference) open in another tab.
+
+Everything below is about the Python API. Units are micrometers (um) and
+angles are degrees.
+
+## Cells, instances, and libraries
+
+A [**Cell**](/docs/api-reference/Cell) is the basic unit of a design. It is
+a named container that holds polygons, paths, text labels, ports, and
+references to other cells. Cells are how you break a chip up into reusable
+pieces: a grating coupler is a cell, a ring resonator is a cell, and the
+whole chip is a cell that references the other two.
+
+```python
+from rosette import Cell, Layer, Point, Polygon, write_gds
+
+inner = Cell("ring")
+inner.add_polygon(Polygon.rect(Point(0, 0), 20, 2), Layer(1, 0))
+
+top = Cell("top")
+top.add_ref(inner.at(0, 0))
+top.add_ref(inner.at(0, 30))
+write_gds("output.gds", top)
+```
+
+An [**Instance**](/docs/api-reference/Instance) is a *placed* cell: a cell
+plus a transform (translation, rotation, mirror). You create instances
+with `cell.at(x, y)` and add them to a parent with `parent.add_ref(...)`.
+Chained calls apply in order, so `cell.at(10, 0).rotate(90)` first
+translates to `(10, 0)` and *then* rotates around the origin, landing
+the cell at `(0, 10)`. See the
+[Instance docs](/docs/api-reference/Instance) for the full transform
+order rules.
+
+For large regular grids, use [`Instance.array`](/docs/api-reference/Instance)
+or [`ArrayCopy`](/docs/api-reference/ArrayCopy). One compact GDS array
+reference replaces thousands of individual refs.
+
+A [**Library**](/docs/api-reference/Library) is a collection of cells that
+travel together when reading or writing GDS. In most designs you never
+construct a Library directly: [`write_gds`](/docs/api-reference#write_gds)
+auto-collects child cells from a top-level `Cell` built with Instance
+references.
+
+<Callout title={"When to make a sub-cell"} type={"info"}>
+If you are going to place the same shape more than once, make it a cell.
+Hierarchy keeps your GDS small, your viewer fast, and your intent clear.
+Merging everything into one giant cell works, but it scales badly.
+</Callout>
+
+## Layers
+
+A [**Layer**](/docs/api-reference/Layer) is a `(number, datatype)` pair that
+GDS uses to separate materials: silicon, metal, doping, text, and so on.
+The canonical way to construct one is:
+
+```python
+from rosette import Layer
+
+Layer(1, 0)   # number=1, datatype=0
+Layer(1)      # datatype defaults to 0
+```
+
+<Callout title={"Other accepted forms"} type={"info"}>
+Anywhere a `Layer` is expected (e.g. `cell.add_polygon`), a bare `int`
+like `1` or a tuple like `(1, 0)` is also accepted and coerced. Prefer
+the explicit `Layer(...)` constructor in design scripts. It reads more
+clearly and is the form the rest of these docs use.
+</Callout>
+
+For real designs you will want to name your layers. Define them in
+`rosette.toml` under `[layers]`:
+
+```toml
+[layers.silicon]
+number = 1
+datatype = 0
+color = "#ff69b4"
+description = "Silicon waveguides"
+
+[layers.text]
+number = 10
+datatype = 0
+color = "#607d8b"
+```
+
+Then load them in Python with
+[`load_layer_map`](/docs/api-reference#load_layer_map):
+
+```python
+from rosette import Cell, Point, Polygon, load_layer_map
+
+layers = load_layer_map()                         # reads rosette.toml
+cell = Cell("wg")
+cell.add_polygon(
+    Polygon.rect(Point(0, -0.25), 50, 0.5),
+    layers.silicon.layer,                         # Layer(1, 0)
+)
+print(layers.silicon.color)                       # "#ff69b4"
+```
+
+`load_layer_map()` returns a [`LayerMap`](/docs/api-reference/LayerMap)
+whose entries are [`LayerInfo`](/docs/api-reference/LayerInfo) objects.
+Each exposes the `Layer`, a color, and metadata used by the viewer.
+
+<Callout title={"Semantic names everywhere"} type={"info"}>
+Everywhere Rosette asks for a layer (`add_polygon`, DRC config, DFM
+config, and so on) you can use the semantic name you defined in
+`[layers]` instead of the raw `number/datatype`. Keep design scripts
+readable, keep foundry numbers in one place.
+</Callout>
+
+## Ports
+
+A [**Port**](/docs/api-reference/Port) is a named connection point on a
+cell. It has a position, an outward-facing direction (unit vector), and an
+optional width.
+
+```python
+from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+
+cell = Cell("wg_segment")
+cell.add_polygon(Polygon.rect(Point(0, -0.25), 100, 0.5), Layer(1, 0))
+cell.add_port(Port("in",  Point(0,   0), Vector2(-1, 0), width=0.5))
+cell.add_port(Port("out", Point(100, 0), Vector2( 1, 0), width=0.5))
+```
+
+Ports do three jobs:
+
+1. **Routing anchors.** The [`Route`](/docs/api-reference/Route) API uses
+   ports as start and end points. See
+   [`start_at_port`](/docs/api-reference/Route) and
+   [`end_at_port`](/docs/api-reference/Route). The route departs and
+   arrives along the port's direction, at the port's width.
+2. **Connectivity checks.** `rosette check` (the
+   [design-checks](/docs/api-reference#run_checks) feature) flags ports
+   that are supposed to connect but don't: typos in routing, width
+   mismatches, angle mismatches.
+3. **Programmatic placement.**
+   [`cell.place_at_port`](/docs/api-reference/Cell) is a lower-level
+   helper that returns a [`CellRef`](/docs/api-reference/CellRef)
+   aligning one of a child cell's ports to a target port. For most
+   designs, prefer composing ports with `Instance` and
+   [`Route`](/docs/api-reference/Route) instead.
+
+Top-level ports are treated as external I/O and are not flagged as
+unconnected. Use them to mark the chip's inputs and outputs.
+
+## Geometry primitives
+
+You rarely touch these directly (`Polygon` is the one you will use most),
+but every other API is built on top of them.
+
+- [**`Point(x, y)`**](/docs/api-reference/Point): a 2D point. Use
+  `Point.origin()` for `(0, 0)`.
+- [**`Vector2(x, y)`**](/docs/api-reference/Vector2): a 2D vector, used
+  for port directions and array lattice vectors.
+- [**`Polygon`**](/docs/api-reference/Polygon): a closed polygon. Build
+  one with `Polygon.rect(origin, width, height)`,
+  `Polygon.rect_centered(center, width, height)`, or pass a list of
+  points.
+- [**`BBox`**](/docs/api-reference/BBox): an axis-aligned bounding box,
+  returned by `cell.bbox()` and `Library.cell_bbox(name)`.
+- [**`Transform`**](/docs/api-reference/Transform): a 2D affine transform
+  (translate + rotate + scale + mirror). Instance transforms are composed
+  from these under the hood.
+
+If you need a tapered ribbon along a centerline, skip manual polygon
+construction and reach for
+[`offset_polygon`](/docs/api-reference#offset_polygon) or
+[`offset_polygon_varying`](/docs/api-reference#offset_polygon_varying).
+
+## Routing
+
+A [`Route`](/docs/api-reference/Route) connects a sequence of waypoints
+with straight segments, inserting bends at corners and tapers at width
+changes. It is **not** an auto-router. You supply the waypoints. A
+minimal route between two ports looks like:
+
+```python
+from rosette import Cell, Layer, Point, Port, Route, Vector2
+
+src = Port("out", Point(0,   0),  Vector2( 1, 0), width=0.5)
+dst = Port("in",  Point(120, 30), Vector2(-1, 0), width=0.5)
+
+route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
+route.start_at_port(src)
+route.to(60, src.position.y)
+route.to(60, dst.position.y)
+route.end_at_port(dst)
+
+top = Cell("top")
+top.add_ref(route.to_cell("wg"))
+```
+
+The full story (Euler vs. circular bends, taper control, common pitfalls)
+lives in the [Routing guide](/docs/guides/routing).
+
+## Where to next
+
+<Cards>
+
+<Card
+  href={"/docs/getting-started/first-layout"}
+  title={"First layout"}
+  description={"Build a working GDS from scratch in ten minutes."}
+/>
+
+<Card
+  href={"/docs/guides/routing"}
+  title={"Routing"}
+  description={"Connect components with Route."}
+/>
+
+<Card
+  href={"/docs/guides/cells-and-hierarchy"}
+  title={"Cells and hierarchy"}
+  description={"add_ref, Instance, ArrayCopy, and Library."}
+/>
+
+<Card
+  href={"/docs/api-reference"}
+  title={"API Reference"}
+  description={"Every class and function."}
+/>
+
+</Cards>

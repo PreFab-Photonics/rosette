@@ -1,4 +1,4 @@
 {
   "title": "Getting Started",
-  "pages": ["...index", "installation"]
+  "pages": ["...index", "installation", "core-concepts", "first-layout"]
 }

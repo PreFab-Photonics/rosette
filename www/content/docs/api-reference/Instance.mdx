@@ -74,7 +74,7 @@ meaningful without checking whether `array()` was called.
 
 Create an Instance from a Cell and optional transform.
 
-Typically you don't call this directly — use `cell.at(x, y)` instead.
+Typically you don't call this directly. Use `cell.at(x, y)` instead.
 
 <div>
 
@@ -99,7 +99,7 @@ Optional transform. Defaults to identity.
 
 Set the position (translation).
 
-Returns a new Instance — instances are immutable.
+Returns a new Instance. Instances are immutable.
 
 <div>
 
@@ -196,7 +196,7 @@ A new Instance with updated transform.
 
 Set array repetition (columns × rows rectangular grid with given pitch).
 
-Creates a GDS AREF — a single compact array reference instead of
+Creates a GDS AREF: a single compact array reference instead of
 many individual references. In the viewer, the entire array is
 selected and moved as one object.
 
@@ -227,13 +227,13 @@ Number of rows (>= 1).
 </PyParameter>
 <PyParameter name={"col_spacing"} type={"float"}>
 
-Column pitch — center-to-center distance between adjacent copies
+Column pitch: center-to-center distance between adjacent copies
 along local +X, in µm. Negative values place copies along local −X.
 
 </PyParameter>
 <PyParameter name={"row_spacing"} type={"float"}>
 
-Row pitch — center-to-center distance between adjacent copies
+Row pitch: center-to-center distance between adjacent copies
 along local +Y, in µm. Negative values place copies along local −Y.
 
 </PyParameter>
@@ -253,7 +253,7 @@ A new Instance with array repetition set.
 Set array repetition from arbitrary column and row displacement
 vectors.
 
-Lower-level constructor supporting non-orthogonal lattices — hex
+Lower-level constructor supporting non-orthogonal lattices: hex
 packings, skewed test arrays, etc. Vectors are defined in the
 instance's local (pre-transform) coordinate space, in µm.
 
@@ -289,13 +289,13 @@ Number of rows (1 to 32767).
 </PyParameter>
 <PyParameter name={"col_vector"} type={"Vector2"}>
 
-Column displacement — the offset between copy `(c, r)` and
+Column displacement: the offset between copy `(c, r)` and
 `(c+1, r)`, in µm.
 
 </PyParameter>
 <PyParameter name={"row_vector"} type={"Vector2"}>
 
-Row displacement — the offset between copy `(c, r)` and
+Row displacement: the offset between copy `(c, r)` and
 `(c, r+1)`, in µm.
 
 </PyParameter>
@@ -378,7 +378,7 @@ Iterate over the individual copies in this instance's array.
 Yields one [`ArrayCopy`](./ArrayCopy) per grid position, in
 column-major order (`col` varies fastest). Each yielded object
 exposes `col`, `row`, a world-space `transform`, and a `port(name)`
-convenience — without mutating this instance or adding any extra
+convenience, without mutating this instance or adding any extra
 GDS references.
 
 For a non-arrayed instance this yields exactly one copy at

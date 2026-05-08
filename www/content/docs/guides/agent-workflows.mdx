@@ -1,0 +1,233 @@
+---
+title: Agent workflows
+description: Drive Rosette with AI coding agents like OpenCode, Claude Code, or Cursor.
+---
+
+Most Rosette designs are written by a person and an AI coding agent working
+together. This guide is the practical playbook for that workflow:
+what `rosette init` puts in your project for the agent, how the
+prompt-build-check loop runs, and where things go wrong.
+
+For the design philosophy behind this approach, the
+[Agent-Driven Design blog post](/blog/agent-driven-design) covers the
+"why." This page is the "how."
+
+## What `rosette init` gives the agent
+
+When you run `rosette init` and pick an AI tool (OpenCode or Claude Code),
+the project layout is set up so an agent has everything it needs to read
+your code, write new designs, and verify them on its own.
+
+```txt
+my-chip/
+├── AGENTS.md            # or CLAUDE.md, agent instructions
+├── rosette.toml         # project config: layers, DRC, DFM
+├── components/          # editable component library
+├── designs/             # your design scripts
+├── output/              # GDS build artifacts
+└── .rosette/
+    └── api.pyi          # complete typed API for this version
+```
+
+Each piece plays a specific role:
+
+- **`AGENTS.md` / `CLAUDE.md`**: short instruction file the agent reads
+  on startup. Tells it to read the reference files first, build then
+  check after every change, and never hardcode layer numbers. The
+  generic template includes a `components/` line; the blank template
+  doesn't.
+- **`.rosette/api.pyi`**: complete typed stub for the installed version
+  of Rosette. Every class, every method, every type. The agent reads
+  this instead of relying on its training data, which is almost
+  certainly stale.
+- **`rosette.toml`**: layer definitions, DRC rules, DFM config. The
+  physical constraints of your design, machine-readable. Agents pick
+  semantic layer names from `[layers]` instead of guessing GDS numbers.
+- **`components/`**: editable Python source for waveguides, bends,
+  MMIs, grating couplers, ring resonators, and more. The agent reads
+  the docstrings and signatures, then composes them. Generic template
+  only.
+
+<Callout title={"Pick a tool when you init"} type={"info"}>
+`rosette init` accepts `--tool opencode` or `--tool claude` if you want
+to skip the interactive prompt. Pass `--tool none` to skip the agent
+file entirely. The choice only controls which file is generated
+(`AGENTS.md` vs `CLAUDE.md`); the contents are nearly identical, and
+nothing else differs. You can also point most agents at either file
+manually.
+</Callout>
+
+## The loop
+
+The workflow is short. You describe the design in plain language, the
+agent writes the script, and then it iterates against the build and
+check commands until they pass.
+
+```txt
+prompt -> agent reads .rosette/api.pyi, rosette.toml, components/
+       -> agent writes designs/<name>.py
+       -> rosette build designs/<name>.py
+       -> rosette check designs/<name>.py
+       -> agent reads violations, fixes, repeats
+```
+
+Every Rosette design exports a top-level `Cell` named `design`. That's
+the convention agents follow:
+
+```python
+# designs/loopback.py
+from rosette import Cell, Layer, Route, load_layer_map
+from components import grating_coupler
+
+layers = load_layer_map()
+gc = grating_coupler(layers.silicon.layer, waveguide_width=0.5)
+
+gc_in  = gc.at(0,   0)
+gc_out = gc.at(0, 127)
+
+route = Route(layers.silicon.layer, width=0.5, bend_radius=10.0)
+route.start_at_port(gc_in.port("opt"))
+route.to(40, 0)
+route.to(40, 127)
+route.end_at_port(gc_out.port("opt"))
+
+design = Cell("loopback")
+design.add_ref(gc_in)
+design.add_ref(gc_out)
+design.add_ref(route.to_cell("route"))
+```
+
+The agent then runs the verify steps:
+
+```bash
+rosette build designs/loopback.py
+rosette check designs/loopback.py
+```
+
+A passing run looks like this:
+
+```txt
+drc  designs/loopback.py  22 rules, 4 polygons
+
+  passed (0.8ms)
+
+checks  designs/loopback.py  4 ports, 1 connections
+
+  passed (0.1ms)
+```
+
+And a failing run is just as readable:
+
+```txt
+drc  designs/foo.py  22 rules, 8 polygons
+
+  FAIL  Lsilicon.no_overlap on 1/0, 1/0: Forbidden overlap (449.488 um²) at (-12.0, -12.0) to (12.0, 12.0) (within 'ring')
+  FAIL  Lsilicon.allowed_angles on 1/0: Edge angle 95.6 deg not in allowed angles [0.0, 90.0]
+  ...
+
+  65 violations (65 errors) in 2.8ms
+```
+
+That's all the agent needs. Each violation has a rule name, the offending
+geometry, and a coordinate. The agent reads the output, figures out which
+parts of the design need to change, and edits the script.
+
+<Callout title={"`rosette build` alone is not enough"} type={"warn"}>
+A passing build only means the GDS file was written. It does not mean
+the design is physically correct. Always follow up with `rosette check`
+(or use `rosette build --check` for a build with a DRC pre-check). The
+agent instructions in `AGENTS.md` already say this; it's worth knowing
+yourself so you can call it out if the agent skips the check step.
+</Callout>
+
+## Prompting tips
+
+The agent file gives the agent a baseline. A few things you can do on top
+of that to get better results.
+
+**Be specific about intent.** "Design a ring resonator" is fine. "Design
+a 10 um radius ring resonator with a 200 nm gap, single bus, with grating
+couplers on both ends of the bus" gives the agent the constraints it
+needs to make the right decisions. The more constraints you state up
+front, the fewer iterations you'll need.
+
+**Let the agent read first.** A good agent reads `.rosette/api.pyi`,
+`rosette.toml`, and the relevant `components/*.py` before writing code.
+If your agent has a habit of jumping straight to writing, prepend
+something like "Read the API stub and components first" to your prompt.
+
+**Ask for the check loop explicitly.** If the agent stops at "the build
+passed," ask it to run `rosette check` and resolve any violations.
+After a few iterations most agents pick up the pattern and run checks
+without prompting.
+
+**Surface foundry constraints in `rosette.toml`.** If your DRC rules are
+right, the agent will catch its own mistakes. Tighten your
+`[drc.layers.*]` constraints to match your actual process; vague
+defaults produce vague designs. See the
+[Design rule checking guide](/docs/guides/design-rule-checking).
+
+**Keep prompts in plain English.** Rosette's API surface is small enough
+that an agent rarely needs nudging on which class to use. Save the API
+hints for cases where you genuinely need a specific approach (for
+example, "use Euler bends" or "place the array as a single AREF").
+
+## Picking an agent tool
+
+Rosette is tool-neutral. The same `AGENTS.md` instructions, API stub,
+and verify commands work with any agent that can read files and run
+shell commands.
+
+- **[OpenCode](https://opencode.ai)** reads `AGENTS.md`. Run
+  `rosette init --tool opencode`.
+- **[Claude Code](https://docs.claude.com/en/docs/claude-code)** reads
+  `CLAUDE.md`. Run `rosette init --tool claude`.
+- **[Cursor](https://cursor.com)** and other editor-integrated agents
+  generally read either file or can be pointed at one manually.
+
+If you switch tools later, you can rename or symlink the file. The
+content is the same.
+
+## Common pitfalls
+
+<Callout title={"Hardcoded layer numbers"} type={"warn"}>
+Agents sometimes write `Layer(1, 0)` directly instead of
+`load_layer_map().silicon.layer`. This works, but it bypasses your
+project's layer stack and breaks if you renumber. The instruction file
+tells the agent not to do this; if it slips through, ask the agent to
+switch to `load_layer_map()`.
+</Callout>
+
+<Callout title={"Stopping at a passing build"} type={"warn"}>
+A green `rosette build` only means the GDS was written. The design can
+still have unconnected ports, DRC violations, or auto-reduced bends.
+Always end the loop on `rosette check`, not on `rosette build`.
+</Callout>
+
+<Callout title={"Stale API assumptions"} type={"warn"}>
+Agents trained months or years ago will confidently write APIs that
+don't exist or have moved. The agent file points them at
+`.rosette/api.pyi`; if you see hallucinated method names in generated
+code, prompt the agent to re-read the stub.
+</Callout>
+
+<Callout title={"Skipping `components/`"} type={"warn"}>
+For photonic designs, the `components/` library is where the real
+domain knowledge lives (port conventions, fiber pitch, taper lengths).
+An agent that ignores it and rolls its own waveguide will produce
+plausible but subtly wrong layouts. If your agent does this, ask it to
+read `components/` first or use the relevant component directly.
+</Callout>
+
+## See also
+
+- [Installation](/docs/getting-started/installation): set up a project
+  and pick an agent tool
+- [Core concepts](/docs/getting-started/core-concepts): the mental
+  model the agent works from
+- [Design rule checking](/docs/guides/design-rule-checking): tighten
+  your `rosette.toml` so checks catch real problems
+- [Agent-Driven Design](/blog/agent-driven-design): the philosophy
+  behind this workflow, with worked examples
+- [An Accidental Convergence](/blog/ai-for-photonics): why code-driven
+  photonic design fits LLMs well

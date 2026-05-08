@@ -120,10 +120,10 @@ condition for a flush waveguide junction.
 ```python
 a = Port("out", Point(100, 0), Vector2(1, 0), width=0.5)
 b = Port("in", Point(100, 0), Vector2(-1, 0), width=0.5)
-a.can_connect_to(b)  # True — same position, opposite directions
+a.can_connect_to(b)  # True: same position, opposite directions
 
 c = Port("in", Point(100, 1), Vector2(-1, 0), width=0.5)
-a.can_connect_to(c)  # False — positions differ
+a.can_connect_to(c)  # False: positions differ
 ```
 
 </Callout>
