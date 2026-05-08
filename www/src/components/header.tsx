@@ -58,7 +58,7 @@ export function Header({ trailing }: { trailing?: ReactNode }) {
                 href={link.href}
                 className={`text-sm transition-colors ${
                   isActive
-                    ? "text-brand-purple dark:text-brand-purple-light"
+                    ? "text-fd-foreground"
                     : "text-fd-muted-foreground hover:text-fd-foreground"
                 }`}
               >
@@ -157,7 +157,7 @@ export function Header({ trailing }: { trailing?: ReactNode }) {
           </a>
 
           <div
-            className="hidden h-8 cursor-not-allowed items-center gap-1.5 rounded-md border border-brand-purple-dark/50 bg-brand-purple px-3 text-xs font-medium text-white opacity-50 shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15 md:inline-flex"
+            className="hidden h-8 cursor-not-allowed items-center gap-1.5 rounded-md border border-fd-border bg-fd-background px-3 text-xs font-medium text-fd-muted-foreground opacity-60 shadow-sm md:inline-flex"
             title="Coming soon"
           >
             <svg

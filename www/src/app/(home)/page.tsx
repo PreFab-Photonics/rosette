@@ -47,7 +47,7 @@ function Hero() {
       <div className="mx-auto max-w-6xl px-6 pt-20 sm:pt-24">
         {/* Hero text */}
         <div className="mx-auto max-w-4xl text-center">
-          <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl lg:text-6xl">
+          <h1 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-fd-foreground uppercase sm:text-4xl lg:text-5xl">
             Chip layouts at the speed of thought
           </h1>
 
@@ -71,7 +71,7 @@ function Hero() {
 
             {/* Download — Desktop app */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white opacity-50 shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15">
+              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-6 text-sm font-medium text-fd-muted-foreground opacity-60 shadow-sm">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="16"
@@ -160,22 +160,18 @@ function WhyRosette() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 py-16">
       <div className="flex items-center gap-3 mb-3">
-        <div className="h-px w-8 bg-fd-border" />
         <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
           Principles
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground italic">
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
         Why Rosette?
       </h2>
 
       <div className="mt-10 grid gap-x-10 gap-y-6 sm:grid-cols-3">
-        {reasons.map((reason, i) => (
+        {reasons.map((reason) => (
           <div key={reason.title}>
-            <span className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
-              {String(i + 1).padStart(2, "0")}
-            </span>
-            <h3 className="mt-1 text-sm font-semibold text-fd-foreground">
+            <h3 className="text-sm font-semibold text-fd-foreground">
               {reason.title}
             </h3>
             <p className="mt-1.5 text-sm leading-relaxed text-fd-muted-foreground">
@@ -238,12 +234,11 @@ function WhatsInside() {
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
       <div className="flex items-center gap-3 mb-3">
-        <div className="h-px w-8 bg-fd-border" />
         <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
           Features
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground italic">
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
         What&rsquo;s inside
       </h2>
 
@@ -343,12 +338,11 @@ function RecentPosts() {
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
       <div className="flex items-center gap-3 mb-3">
-        <div className="h-px w-8 bg-fd-border" />
         <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
-          Blog
+          Updates
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground italic">
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
         From the blog
       </h2>
 
@@ -357,7 +351,7 @@ function RecentPosts() {
           <Link
             key={post.url}
             href={post.url}
-            className="group rounded-xl border border-fd-border p-5 shadow-sm transition-colors hover:border-fd-ring dark:shadow-elevation sm:p-6"
+            className="group rounded-xl border border-fd-border p-5 shadow-sm transition-colors hover:border-fd-foreground/30 dark:shadow-elevation sm:p-6"
           >
             <div className="flex items-center gap-3">
               <time className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
@@ -369,12 +363,12 @@ function RecentPosts() {
                 })}
               </time>
               {i === 0 && (
-                <span className="rounded-full bg-brand-purple/10 px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium text-brand-purple uppercase dark:bg-brand-purple-light/10 dark:text-brand-purple-light">
+                <span className="rounded-full bg-fd-muted px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium text-fd-muted-foreground uppercase">
                   Latest
                 </span>
               )}
             </div>
-            <h3 className="mt-2 text-base font-semibold text-fd-foreground transition-colors group-hover:text-brand-purple dark:group-hover:text-brand-purple-light">
+            <h3 className="mt-2 text-base font-semibold text-fd-foreground transition-colors group-hover:text-fd-muted-foreground">
               {post.data.title}
             </h3>
             {post.data.description && (
@@ -396,7 +390,7 @@ function RecentPosts() {
       <div className="mt-8">
         <Link
           href="/blog"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-purple transition-colors hover:text-brand-purple-dark dark:text-brand-purple-light dark:hover:text-brand-purple"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-fd-foreground transition-colors hover:text-fd-muted-foreground"
         >
           View all posts
           <svg
@@ -433,8 +427,8 @@ function ClosingCTA() {
 
       <div className="mx-auto max-w-6xl px-6 pt-16 pb-32">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl">
-            Your next GDSII layout editor
+          <h2 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground uppercase sm:text-5xl">
+            Get started in 5 minutes
           </h2>
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
             <div className="flex flex-col items-center gap-1.5">
@@ -442,7 +436,7 @@ function ClosingCTA() {
                 href="/docs/getting-started/installation"
                 className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 text-sm font-medium text-fd-foreground shadow-sm transition-colors hover:border-fd-ring"
               >
-                Get started
+                Installation
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="16"
@@ -465,7 +459,7 @@ function ClosingCTA() {
             </div>
 
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-brand-purple-dark/50 bg-brand-purple px-6 text-sm font-medium text-white opacity-50 shadow-sm shadow-brand-purple-dark/30 ring-1 ring-inset ring-white/15">
+              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-6 text-sm font-medium text-fd-muted-foreground opacity-60 shadow-sm">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="16"

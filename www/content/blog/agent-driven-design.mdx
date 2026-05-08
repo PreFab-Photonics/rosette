@@ -12,7 +12,7 @@ date: 2026-03-31
   open. Contributions, feedback, and sharp questions are all welcome.
 </Callout>
 
-## 01 The shift
+## The shift
 
 A year ago, AI-assisted coding meant tab-completing a few lines of boilerplate. Today, agent harnesses like Claude Code and OpenCode work differently. They read your codebase. They write the code. They run it, find the bugs, fix them, and commit. You steer; they build.
 
@@ -22,7 +22,7 @@ The same shift is happening in chip design. Specifically, photonic chip design, 
 
 As chip development becomes more code-driven, agent-driven workflows follow naturally. That's what we're building for.
 
-## 02 Building for agents from the ground up
+## Building for agents from the ground up
 
 When we started building Rosette, we had a choice: add AI capabilities to a traditional design tool, or design the entire system with agents in mind from day one.
 
@@ -30,7 +30,7 @@ We chose the latter. Every part of the system (the API, the project structure, t
 
 Importantly, this doesn't mean building a custom agent or a proprietary chat interface. Agent harnesses like Claude Code, OpenCode, and Cursor already handle the hard parts well: reading codebases, writing code, running commands, iterating on errors. We don't need to reinvent that. We just need to give them the right material to work with.
 
-## 03 Three things an agent needs
+## Three things an agent needs
 
 For an agent to do useful work, it needs three things:
 
@@ -60,7 +60,7 @@ The philosophy is simple: give the agent the right instructions, context, and to
 
 This same pattern is showing up elsewhere. Vercel's engineering team [found](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash) that replacing custom retrieval tooling with structured files and bash outperformed their previous approaches for agent context management. The domain is different, but the principle is the same: LLMs already know how to navigate filesystems. Give them well-structured files and they do the rest.
 
-## 04 Pure geometry
+## Pure geometry
 
 Let's start with something simple. No photonics, no components. Just shapes on a layout.
 
@@ -137,7 +137,7 @@ Twenty-two cell references, four layers, rotations, mirrors, routes, arcs, custo
 
 Worth noting: this is the extreme end of vague prompts. The output exercises the API, but it's not something you'd fabricate. More specific intent produces more useful designs, as the next examples show.
 
-## 05 A fiber loopback
+## A fiber loopback
 
 Now let's add photonics. Something like the "hello world" of photonic design is a fiber loopback: two grating couplers connected by a waveguide route. Light comes in through one fiber, travels through the chip, and comes back out through the other.
 
@@ -190,7 +190,7 @@ A few things to notice. The agent didn't hallucinate the API. It read it from `.
 
 This is what "context" does. The agent reads the API, the constraints, and the conventions before writing a line of code.
 
-## 06 A 1x16 splitter tree
+## A 1x16 splitter tree
 
 Now the slightly more complex case. A 1x16 MMI splitter tree: one input splits into 16 outputs via four stages of MMI 1x2 splitters, with grating couplers on all 17 ports, all aligned on the right side at 127 µm fiber pitch.
 
@@ -233,7 +233,7 @@ Full setup guide: [Installation](/docs/getting-started/installation)
 
 </Callout>
 
-## 07 What's hard
+## What's hard
 
 This isn't a solved problem.
 

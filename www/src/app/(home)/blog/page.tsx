@@ -21,7 +21,7 @@ export default function BlogIndex() {
     <div className="mx-auto max-w-5xl px-6 py-16 sm:py-24">
       {/* Header */}
       <div className="text-center">
-        <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground italic sm:text-5xl">
+        <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground uppercase sm:text-5xl">
           From the Blog
         </h1>
         <p className="mt-3 text-fd-muted-foreground">
@@ -33,7 +33,7 @@ export default function BlogIndex() {
       {featured && (
         <Link
           href={featured.url}
-          className="group mt-14 block rounded-xl border border-fd-border p-6 shadow-sm transition-colors hover:border-fd-ring dark:shadow-elevation sm:p-8"
+          className="group mt-14 block rounded-xl border border-fd-border p-6 shadow-sm transition-colors hover:border-fd-foreground/30 dark:shadow-elevation sm:p-8"
         >
           <div className="flex items-center gap-3">
             <time className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
@@ -44,11 +44,11 @@ export default function BlogIndex() {
                 timeZone: "UTC",
               })}
             </time>
-            <span className="rounded-full bg-brand-purple/10 px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium text-brand-purple uppercase dark:bg-brand-purple-light/10 dark:text-brand-purple-light">
+            <span className="rounded-full bg-fd-muted px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium text-fd-muted-foreground uppercase">
               Latest
             </span>
           </div>
-          <h2 className="mt-3 text-2xl font-semibold text-fd-foreground transition-colors group-hover:text-brand-purple dark:group-hover:text-brand-purple-light sm:text-3xl">
+          <h2 className="mt-3 text-2xl font-semibold text-fd-foreground transition-colors group-hover:text-fd-muted-foreground sm:text-3xl">
             {featured.data.title}
           </h2>
           {featured.data.description && (
@@ -56,7 +56,7 @@ export default function BlogIndex() {
               {featured.data.description}
             </p>
           )}
-          <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand-purple transition-colors dark:text-brand-purple-light">
+          <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-fd-foreground transition-colors">
             Read post
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -87,7 +87,7 @@ export default function BlogIndex() {
                 href={post.url}
                 className="group flex items-baseline justify-between gap-4 py-4"
               >
-                <h3 className="text-sm font-medium text-fd-foreground transition-colors group-hover:text-brand-purple dark:group-hover:text-brand-purple-light sm:text-base">
+                <h3 className="text-sm font-medium text-fd-foreground transition-colors group-hover:text-fd-muted-foreground sm:text-base">
                   {post.data.title}
                 </h3>
                 <time className="shrink-0 font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">

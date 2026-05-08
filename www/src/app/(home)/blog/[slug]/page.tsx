@@ -51,7 +51,7 @@ export default async function BlogPost(props: Props) {
             timeZone: "UTC",
           })}
         </time>
-        <h1 className="mt-2 font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-fd-foreground sm:text-4xl">
+        <h1 className="mt-2 font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-fd-foreground uppercase sm:text-4xl">
           {page.data.title}
         </h1>
         {page.data.description && (
