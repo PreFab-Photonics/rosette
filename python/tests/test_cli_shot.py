@@ -206,9 +206,7 @@ class TestProjectLocalDefault:
         design.write_text(DESIGN_SOURCE)
         return design
 
-    def test_default_lands_in_project_snapshots_dir(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_default_lands_in_project_snapshots_dir(self, tmp_path: Path, monkeypatch):
         design = self._make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         shot_design(
@@ -281,9 +279,7 @@ class TestProjectLocalDefault:
         d = _project_snapshot_dir()
         assert d == tmp_path / ".rosette" / "snapshots"
 
-    def test_project_snapshot_dir_returns_none_outside_project(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_project_snapshot_dir_returns_none_outside_project(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         assert _project_snapshot_dir() is None
 
@@ -345,9 +341,7 @@ class TestRetention:
         monkeypatch.chdir(tmp_path)
         assert _load_retain_config() == 5
 
-    def test_load_retain_config_invalid_falls_back(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_load_retain_config_invalid_falls_back(self, tmp_path: Path, monkeypatch):
         (tmp_path / "rosette.toml").write_text('[snapshots]\nretain = "bad"\n')
         monkeypatch.chdir(tmp_path)
         assert _load_retain_config() == 20

@@ -3757,7 +3757,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-raster"
-version = "0.1.9"
+version = "0.4.0"
 dependencies = [
  "rosette-core",
  "serde",

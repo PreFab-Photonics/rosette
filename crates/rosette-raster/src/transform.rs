@@ -49,9 +49,8 @@ impl ViewTransform {
         let world_w = world_max_x - world_min_x;
         let world_h = world_max_y - world_min_y;
 
-        let height_px = height_px.unwrap_or_else(|| {
-            (((width_px as f32) * world_h / world_w).round() as u32).max(1)
-        });
+        let height_px = height_px
+            .unwrap_or_else(|| (((width_px as f32) * world_h / world_w).round() as u32).max(1));
 
         let scale_x = (width_px as f32) / world_w;
         let scale_y = (height_px as f32) / world_h;

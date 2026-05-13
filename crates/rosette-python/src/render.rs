@@ -45,10 +45,7 @@ impl PyRenderResult {
         d.set_item("scale_px_per_um", self.view.scale_px_per_um as f64)?;
         d.set_item("offset_x_px", self.view.offset_x_px as f64)?;
         d.set_item("offset_y_px", self.view.offset_y_px as f64)?;
-        d.set_item(
-            "canvas_px",
-            (self.view.canvas_px.0, self.view.canvas_px.1),
-        )?;
+        d.set_item("canvas_px", (self.view.canvas_px.0, self.view.canvas_px.1))?;
         let bbox = PyDict::new(py);
         bbox.set_item(
             "min",

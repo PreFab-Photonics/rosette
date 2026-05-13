@@ -137,11 +137,10 @@ pub fn render_png(library: &Library, opts: &RenderOptions) -> Result<RenderResul
     let layers_rendered: Vec<(u16, u16)> = by_layer.keys().copied().collect();
 
     let (w, h) = view.canvas_px;
-    let mut pixmap =
-        Pixmap::new(w, h).ok_or(RenderError::InvalidCanvas {
-            width: w,
-            height: Some(h),
-        })?;
+    let mut pixmap = Pixmap::new(w, h).ok_or(RenderError::InvalidCanvas {
+        width: w,
+        height: Some(h),
+    })?;
     pixmap.fill(Color::from_rgba8(
         opts.background[0],
         opts.background[1],

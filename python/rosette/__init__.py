@@ -60,6 +60,7 @@ from rosette._core import (
     Point,
     Polygon,
     Port,
+    RenderResult,
     Transform,
     Vector2,
     # Geometry utilities (for component authoring)
@@ -74,7 +75,6 @@ from rosette._core import Cell as _Cell
 from rosette._core import CellRef as _CellRef
 from rosette._core import Library as _Library
 from rosette._core import Route as _Route
-from rosette._core import RenderResult
 from rosette._core import read_gds as _read_gds
 from rosette._core import render_png as _render_png
 from rosette._core import run_checks as _run_checks

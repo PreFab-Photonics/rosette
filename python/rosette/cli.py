@@ -16,6 +16,10 @@ import shutil
 import sys
 import tomllib
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rosette import BBox
 
 log = logging.getLogger(__name__)
 
@@ -490,9 +494,7 @@ def main():
     )
 
     # shot command - render design to PNG
-    shot_parser = subparsers.add_parser(
-        "shot", help="Render a design region to a PNG image"
-    )
+    shot_parser = subparsers.add_parser("shot", help="Render a design region to a PNG image")
     shot_parser.add_argument("design", help="Design file (path or path:target)")
     shot_parser.add_argument(
         "-o",
@@ -1667,17 +1669,13 @@ def _parse_bbox_arg(s: str) -> "BBox":
 
     parts = s.split(",")
     if len(parts) != 4:
-        raise ValueError(
-            f"--bbox must be 'XMIN,YMIN,XMAX,YMAX' (got {len(parts)} parts: {s!r})"
-        )
+        raise ValueError(f"--bbox must be 'XMIN,YMIN,XMAX,YMAX' (got {len(parts)} parts: {s!r})")
     try:
         xmin, ymin, xmax, ymax = (float(p) for p in parts)
     except ValueError as e:
         raise ValueError(f"--bbox values must be numbers: {e}") from e
     if xmax <= xmin or ymax <= ymin:
-        raise ValueError(
-            f"--bbox max must be greater than min: got {xmin},{ymin},{xmax},{ymax}"
-        )
+        raise ValueError(f"--bbox max must be greater than min: got {xmin},{ymin},{xmax},{ymax}")
     return BBox(Point(xmin, ymin), Point(xmax, ymax))
 
 
@@ -1869,7 +1867,7 @@ def shot_design(
         pruned = _prune_snapshots(snapshot_dir, retain_val)
 
     canvas = result.view["canvas_px"]
-    layer_summary = ", ".join(_format_layer(l) for l in result.layers_rendered)
+    layer_summary = ", ".join(_format_layer(lyr) for lyr in result.layers_rendered)
     size_kb = len(result.png) / 1024
     extras = f"{canvas[0]}x{canvas[1]}, {size_kb:.1f}KB, layers {layer_summary}, {elapsed:.0f}ms"
     if pruned:

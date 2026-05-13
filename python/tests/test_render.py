@@ -31,9 +31,7 @@ class TestRenderPng:
         result = render_png(two_layer_library, width=400, height=200)
         assert result.view["canvas_px"] == (400, 200)
 
-    def test_height_derived_from_aspect_when_omitted(
-        self, two_layer_library: Library
-    ):
+    def test_height_derived_from_aspect_when_omitted(self, two_layer_library: Library):
         # Design extent: 30x10 → with 10% pad: 36x12 → at width=360, height ~120
         result = render_png(two_layer_library, width=360)
         w, h = result.view["canvas_px"]
@@ -49,9 +47,7 @@ class TestRenderPng:
         result = render_png(two_layer_library, width=128, layers=[(2, 0)])
         assert result.layers_rendered == [(2, 0)]
 
-    def test_explicit_bbox_culls_outside_polygons(
-        self, two_layer_library: Library
-    ):
+    def test_explicit_bbox_culls_outside_polygons(self, two_layer_library: Library):
         # Layer 2 lives at x=20..30; this bbox + 10% pad won't reach it.
         result = render_png(
             two_layer_library,
@@ -92,9 +88,7 @@ class TestRenderPng:
         with pytest.raises(ValueError, match="no geometry"):
             render_png(Library("empty"), width=128)
 
-    def test_writes_valid_png_to_disk(
-        self, two_layer_library: Library, tmp_path
-    ):
+    def test_writes_valid_png_to_disk(self, two_layer_library: Library, tmp_path):
         result = render_png(two_layer_library, width=200, height=100)
         out = tmp_path / "shot.png"
         out.write_bytes(result.png)
@@ -193,9 +187,7 @@ class TestPaletteOverride:
         assert _has_color(result.png, (0xFF, 0x69, 0xB4))
         assert not _has_color(result.png, (0xFF, 0x98, 0x00))  # default orange not used
 
-    def test_unconfigured_layer_falls_back_to_indexed(
-        self, two_layer_library: Library
-    ):
+    def test_unconfigured_layer_falls_back_to_indexed(self, two_layer_library: Library):
         # Override only layer 1 → layer 2 should still get palette[2] = yellow.
         result = render_png(
             two_layer_library,
@@ -211,20 +203,13 @@ class TestPaletteOverride:
         with pytest.raises(ValueError, match="invalid color"):
             render_png(two_layer_library, width=64, palette={1: "not-hex"})
 
-    def test_auto_loads_from_rosette_toml(
-        self, two_layer_library: Library, tmp_path, monkeypatch
-    ):
+    def test_auto_loads_from_rosette_toml(self, two_layer_library: Library, tmp_path, monkeypatch):
         # Create a project rosette.toml with a pink layer 1.
         (tmp_path / "rosette.toml").write_text(
-            '[layers.silicon]\n'
-            'number = 1\n'
-            'datatype = 0\n'
-            'color = "#ff69b4"\n'
+            '[layers.silicon]\nnumber = 1\ndatatype = 0\ncolor = "#ff69b4"\n'
         )
         monkeypatch.chdir(tmp_path)
-        result = render_png(
-            two_layer_library, width=128, height=64, pad=0.0, fill_alpha=255
-        )
+        result = render_png(two_layer_library, width=128, height=64, pad=0.0, fill_alpha=255)
         assert _has_color(result.png, (0xFF, 0x69, 0xB4))
         assert not _has_color(result.png, (0xFF, 0x98, 0x00))  # default orange not used
 
@@ -232,10 +217,7 @@ class TestPaletteOverride:
         self, two_layer_library: Library, tmp_path, monkeypatch
     ):
         (tmp_path / "rosette.toml").write_text(
-            '[layers.silicon]\n'
-            'number = 1\n'
-            'datatype = 0\n'
-            'color = "#ff69b4"\n'
+            '[layers.silicon]\nnumber = 1\ndatatype = 0\ncolor = "#ff69b4"\n'
         )
         monkeypatch.chdir(tmp_path)
         # Explicit palette wins over the auto-loaded one.
@@ -255,7 +237,5 @@ class TestPaletteOverride:
     ):
         # Empty tmp_path, no rosette.toml. Should fall back to indexed palette.
         monkeypatch.chdir(tmp_path)
-        result = render_png(
-            two_layer_library, width=128, height=64, pad=0.0, fill_alpha=255
-        )
+        result = render_png(two_layer_library, width=128, height=64, pad=0.0, fill_alpha=255)
         assert _has_color(result.png, (0xFF, 0x98, 0x00))  # palette[1] orange
