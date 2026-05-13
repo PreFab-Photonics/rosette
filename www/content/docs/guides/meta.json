@@ -5,6 +5,7 @@
     "routing",
     "cells-and-hierarchy",
     "design-rule-checking",
-    "agent-workflows"
+    "agent-workflows",
+    "snapshots"
   ]
 }

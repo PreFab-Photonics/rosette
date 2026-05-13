@@ -1,0 +1,173 @@
+---
+title: Snapshots
+description: Render a design (or a region of one) to a PNG image with a sidecar JSON that maps pixels back to design coordinates.
+---
+
+Snapshots give you — or an AI agent helping you — an image of a design without
+opening the viewer. They are useful when text alone is not enough: an agent
+edits a layout and needs to confirm it looks right, a reviewer wants a still
+of the current state, or you want a quick PNG to drop into a doc or a chat.
+
+Every snapshot is paired with a sidecar JSON that records the world↔pixel
+transform, so any pixel position in the image can be mapped back to design
+coordinates (microns).
+
+## From the CLI
+
+The `rosette shot` command renders a design file to a PNG:
+
+```bash
+uv run rosette shot designs/foo.py
+```
+
+By default the PNG and its sidecar JSON are written to
+`<project_root>/.rosette/snapshots/` with a timestamped filename. That
+directory is gitignored, and old snapshots are pruned automatically (see
+[Retention](#retention) below).
+
+### Targeted snapshots
+
+Most useful snapshots focus on a region rather than the whole design.
+
+```bash
+# Render just one cell (and its descendants)
+uv run rosette shot designs/foo.py --cell mzi_arm
+
+# Render an explicit bounding box, in microns
+uv run rosette shot designs/foo.py --bbox -10,-5,40,15
+
+# Restrict to specific layers
+uv run rosette shot designs/foo.py --layer 1/0,10/0
+```
+
+### Common options
+
+| Flag | Default | What it does |
+| --- | --- | --- |
+| `--cell NAME` | top cell | Render only this cell and its descendants. |
+| `--bbox XMIN,YMIN,XMAX,YMAX` | full extent | Region to render, in microns. |
+| `--layer L/D[,L/D...]` | all layers | Restrict to specific `(layer, datatype)` pairs. |
+| `--width N` | `1024` | Output width in pixels. |
+| `--height N` | derived | Output height in pixels (defaults to aspect ratio). |
+| `--pad F` | `0.1` | Fractional padding around the target bbox. |
+| `--bg COLOR` | `#1a1a1a` | Background color, `#RRGGBB` or `#RRGGBBAA`. |
+| `--fill-alpha N` | `178` | Layer fill alpha, 0–255 (~70% by default). |
+| `-o PATH` | auto | Output PNG path. When set, retention pruning is skipped. |
+| `--no-sidecar` | off | Skip writing `<out>.json`. |
+| `--retain N` | `20` | Keep only the N newest snapshots; `0` disables pruning. |
+
+Run `uv run rosette shot --help` for the full list.
+
+## From Python
+
+The same renderer is exposed as `rosette.render_png`. Reach for it when you
+already have a `Cell` or `Library` in memory and want to avoid the subprocess
+hop.
+
+```python
+import json
+from pathlib import Path
+from rosette import BBox, Point, render_png
+
+result = render_png(my_cell, bbox=BBox(Point(10, 0), Point(40, 20)))
+
+Path("question.png").write_bytes(result.png)
+Path("question.png.json").write_text(json.dumps(result.view))
+```
+
+`render_png` returns a `RenderResult` with:
+
+- `png` — the PNG image as `bytes`.
+- `view` — a dict describing the world↔pixel transform; persist it as a
+  sidecar JSON next to the image.
+- `layers_rendered` — the `(layer, datatype)` pairs that ended up in the PNG.
+- `px_to_world(px, py)` — map a pixel position back to design coordinates.
+- `world_to_px(x, y)` — map a world coordinate to a pixel position.
+
+```python
+# Found something at pixel (456, 789) in the image — what is it in microns?
+x_um, y_um = result.px_to_world(456, 789)
+```
+
+The full signature mirrors the CLI flags:
+
+```python
+render_png(
+    design,
+    *,
+    bbox=None,         # BBox in microns
+    cell=None,         # name of a cell to focus on
+    layers=None,       # [(layer, datatype), ...]
+    width=1024,
+    height=None,
+    pad=0.1,
+    bg="#1a1a1a",
+    fill_alpha=178,
+    palette=None,      # {layer_number: "#RRGGBB"}
+)
+```
+
+## The sidecar JSON
+
+For every PNG, `rosette shot` writes a sibling file `<out>.png.json`. It
+contains the metadata an agent needs to act on what it sees in the image:
+
+- The world-space bounding box that was rendered.
+- The pixel dimensions of the image.
+- The affine transform from world to pixel space (and its inverse).
+- The list of layers that were rendered.
+
+The transform is the actionable part. A reviewer (human or agent) can spot a
+feature at a pixel position in the PNG, then map it back to microns through
+the sidecar — no need to reopen the design just to figure out where they are
+looking.
+
+`--no-sidecar` suppresses the JSON if you only want the image.
+
+## Layer colors
+
+Snapshots use the same layer colors as the web viewer. Colors are loaded
+automatically from the `[layers]` section of your `rosette.toml`, so a palette
+change in one place flows through to both viewer and snapshots. Layers that
+have no configured color fall back to a shared default palette.
+
+To override colors for a single render from Python, pass `palette={layer_number: "#RRGGBB"}`.
+
+## Retention
+
+Snapshots accumulate quickly when an agent is iterating. To keep
+`.rosette/snapshots/` manageable, the directory is pruned to the newest 20
+files by default after every snapshot (PNG + matching sidecar JSON).
+
+You can change the limit in two places:
+
+```toml
+# rosette.toml
+[snapshots]
+retain = 50    # keep the 50 newest snapshots; 0 disables pruning
+```
+
+Or on a single command:
+
+```bash
+uv run rosette shot designs/foo.py --retain 100
+uv run rosette shot designs/foo.py --retain 0      # keep everything
+```
+
+Pruning only runs when snapshots land in the default directory. If you pass
+`-o PATH`, the file goes exactly where you asked and the retention policy
+does not apply.
+
+## When to take a snapshot
+
+Snapshots are not a routine inspection tool — they are for the moments when
+*seeing* the geometry is what resolves an ambiguity. Specifically:
+
+- After a non-trivial geometry edit, to confirm the change matches intent.
+- When the user references the design visually ("the bend in the middle",
+  "that little stub on the right").
+- Before sharing a design in a review or doc.
+
+For data questions — polygon counts, bounding boxes, layer membership, port
+positions — read the design directly through the `Cell` / `Library` API.
+That is cheaper, more precise, and does not need an image.
