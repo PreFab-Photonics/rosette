@@ -71,6 +71,40 @@ The skipped-cell counts and number of suppressed violations are surfaced on
 
 </PyAttribute>
 
+<PyAttribute name={"drc_waive_regions"} type={"list[BBox]"}>
+
+Region waivers defined on this cell, in its **local** coordinate frame. A DRC
+violation whose location is fully contained within one of these regions is
+suppressed from the final `DrcResult`. Each region is transformed into
+top-level global coordinates for the relevant placement of this cell before
+the containment test, so a waiver defined in a child cell correctly tracks
+every placement of that child (including array references).
+
+Use this for intentional *local* violations — a taper tip that dips below
+`min_width`, a deliberate overlap in a test structure — where marking the
+whole cell `drc_skip` would be too broad.
+
+```python
+taper = Cell("taper")
+# ... geometry whose narrow tip violates min-width ...
+taper.add_drc_waive_region(BBox(Point(9, -1), Point(11, 1)))
+```
+
+The number of waived violations is surfaced on
+[`DrcResult.waived_violations`](./DrcResult).
+
+**Limitations.**
+
+- **Full containment required.** A violation that only partially overlaps a
+  waiver region is still reported. Size the region to fully cover the
+  intended violation.
+- **Local coordinates.** Regions are expressed in this cell's own frame, not
+  the global frame. The runner transforms them per placement.
+- **Not persisted to GDS.** Like `drc_skip`, region waivers are cleared by a
+  `write_gds` / `read_gds` round trip.
+
+</PyAttribute>
+
 ## Methods
 
 <PyFunction name={"__init__"} type={"(name, *, drc_skip=False) -> None"}>
@@ -530,3 +564,34 @@ Warning message string.
 Warnings from cell construction (e.g., auto-reduced bend radii).
 
 </PyAttribute>
+
+### DRC waivers
+
+<PyFunction name={"add_drc_waive_region"} type={"(region) -> None"}>
+
+Add a DRC region waiver in this cell's local coordinate frame. Any violation
+fully contained within `region` (after transforming into global coordinates
+for each placement of this cell) is suppressed. See the
+[`drc_waive_regions`](#drc_waive_regions) attribute for full semantics.
+
+<div>
+
+<PyParameter name={"region"} type={"BBox"}>
+
+Waiver bounding box, in this cell's local coordinates.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"clear_drc_waive_regions"} type={"() -> None"}>
+
+Remove all DRC region waivers from this cell.
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

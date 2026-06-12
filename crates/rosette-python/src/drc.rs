@@ -450,15 +450,31 @@ impl PyDrcResult {
         self.0.stats.skipped_cells
     }
 
+    /// Number of violations suppressed by a region waiver
+    /// (``Cell.drc_waive_regions``).
+    ///
+    /// A violation is waived if its location is fully contained within at
+    /// least one waiver region (transformed into top-level global
+    /// coordinates for the relevant placement of its owning cell). Violations
+    /// already suppressed by ``drc_skip`` are not counted here.
+    #[getter]
+    fn waived_violations(&self) -> usize {
+        self.0.stats.waived_violations
+    }
+
     fn __repr__(&self) -> String {
         let errors = self.0.error_count();
         let warnings = self.0.warning_count();
         let suppressed = self.0.stats.suppressed_violations;
-        let suppressed_suffix = if suppressed > 0 {
-            format!(", {} suppressed", suppressed)
-        } else {
-            String::new()
-        };
+        let waived = self.0.stats.waived_violations;
+        let mut extra = String::new();
+        if suppressed > 0 {
+            extra.push_str(&format!(", {} suppressed", suppressed));
+        }
+        if waived > 0 {
+            extra.push_str(&format!(", {} waived", waived));
+        }
+        let suppressed_suffix = extra;
         if self.0.passed() {
             if warnings == 0 {
                 format!(

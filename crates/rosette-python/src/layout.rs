@@ -554,6 +554,49 @@ impl PyCell {
         self.0.set_drc_skip(drc_skip);
     }
 
+    /// DRC region waivers defined on this cell, in local coordinates.
+    ///
+    /// Each waiver is an axis-aligned bounding box in this cell's local
+    /// coordinate frame. A DRC violation whose location is fully contained
+    /// within one of these regions (after the region is transformed into
+    /// top-level global coordinates for the relevant placement of this cell)
+    /// is suppressed from the final DRC result. Used for intentional local
+    /// violations such as taper tips or deliberate overlaps.
+    ///
+    /// Like ``drc_skip``, region waivers are not persisted to GDS.
+    #[getter]
+    fn drc_waive_regions(&self) -> Vec<PyBBox> {
+        self.0
+            .drc_waive_regions()
+            .iter()
+            .map(|b| PyBBox(*b))
+            .collect()
+    }
+
+    /// Replace all DRC region waivers on this cell.
+    #[setter]
+    fn set_drc_waive_regions(&mut self, regions: Vec<PyBBox>) {
+        self.0
+            .set_drc_waive_regions(regions.into_iter().map(|b| b.0).collect());
+    }
+
+    /// Add a DRC region waiver in this cell's local coordinate frame.
+    ///
+    /// Any DRC violation whose location is fully contained in ``region``
+    /// (after transforming the region into top-level global coordinates for
+    /// each placement of this cell) is suppressed from the final DRC result.
+    ///
+    /// Args:
+    ///     region: Waiver bounding box in this cell's local coordinates.
+    fn add_drc_waive_region(&mut self, region: &PyBBox) {
+        self.0.add_drc_waive_region(region.0);
+    }
+
+    /// Remove all DRC region waivers from this cell.
+    fn clear_drc_waive_regions(&mut self) {
+        self.0.clear_drc_waive_regions();
+    }
+
     /// Add a bend info entry.
     ///
     /// Args:

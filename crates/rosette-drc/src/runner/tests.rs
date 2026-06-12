@@ -2007,3 +2007,176 @@ fn prov_detection_cache_dedupes_rigid_instances() {
         }
     }
 }
+
+// ---- region waiver (drc_waive_regions) tests ----
+
+#[test]
+fn waive_region_suppresses_contained_violation() {
+    // A thin polygon violates min-width. A waiver region that fully contains
+    // the violation location suppresses it.
+    let mut cell = Cell::new("c");
+    cell.add_polygon(
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Layer::new(1, 0),
+    );
+    // Region generously covers the whole polygon (and thus the violation).
+    cell.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
+
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let result = run_drc(&cell, &rules, None);
+
+    assert!(result.passed(), "waived violation should not fail DRC");
+    assert_eq!(result.violations.len(), 0);
+    assert_eq!(result.stats.waived_violations, 1);
+    assert_eq!(result.stats.suppressed_violations, 0);
+}
+
+#[test]
+fn waive_region_keeps_partially_overlapping_violation() {
+    // A waiver region that only partially overlaps the violation location
+    // must NOT suppress it — full containment is required.
+    let mut cell = Cell::new("c");
+    cell.add_polygon(
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Layer::new(1, 0),
+    );
+    // Region covers only the left half — it does not contain the full
+    // violation bbox (which spans the whole 10-wide polygon).
+    cell.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(4.0, 1.0)));
+
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let result = run_drc(&cell, &rules, None);
+
+    assert!(
+        !result.passed(),
+        "partially-overlapping waiver must not suppress"
+    );
+    assert_eq!(result.violations.len(), 1);
+    assert_eq!(result.stats.waived_violations, 0);
+}
+
+#[test]
+fn waive_region_no_regions_unchanged() {
+    // Without any waiver regions, behavior is unchanged and the stat is 0.
+    let mut cell = Cell::new("c");
+    cell.add_polygon(
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Layer::new(1, 0),
+    );
+
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let result = run_drc(&cell, &rules, None);
+
+    assert!(!result.passed());
+    assert_eq!(result.violations.len(), 1);
+    assert_eq!(result.stats.waived_violations, 0);
+}
+
+#[test]
+fn waive_region_transformed_through_translated_ref() {
+    // The waiver lives in a child cell's local frame. The child is placed by
+    // a translated CellRef, so the region must be transformed into global
+    // coords to line up with the (also-global) violation location.
+    let mut child = Cell::new("child");
+    child.add_polygon(
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Layer::new(1, 0),
+    );
+    // Local-frame region around the violation.
+    child.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
+
+    let mut top = Cell::new("top");
+    // Place far from the origin: a region left in local coords would miss.
+    top.add_ref(CellRef::new("child").at(1000.0, 2000.0));
+
+    let mut lib = Library::new("waive_lib");
+    lib.add_cell(child).unwrap();
+    lib.add_cell(top).unwrap();
+
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+    assert!(
+        result.passed(),
+        "region defined in child-local coords must be transformed to global \
+         coords for the translated placement"
+    );
+    assert_eq!(result.stats.waived_violations, 1);
+}
+
+#[test]
+fn waive_region_local_coords_do_not_match_when_placed_far() {
+    // Same as above, but the child has NO waiver. Confirms the placement is
+    // genuinely far from the origin (so the transform in the previous test
+    // is doing real work, not coincidentally matching a local-frame box).
+    let mut child = Cell::new("child");
+    child.add_polygon(
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Layer::new(1, 0),
+    );
+    let mut top = Cell::new("top");
+    top.add_ref(CellRef::new("child").at(1000.0, 2000.0));
+    // Waiver placed on the TOP cell at the child's local coords — wrong frame,
+    // should not match the (translated) global violation location.
+    top.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
+
+    let mut lib = Library::new("waive_lib2");
+    lib.add_cell(child).unwrap();
+    lib.add_cell(top).unwrap();
+
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+    assert!(!result.passed());
+    assert_eq!(result.stats.waived_violations, 0);
+}
+
+#[test]
+fn waive_region_replicated_across_aref_copies() {
+    // A child with a local waiver placed via an AREF (repetition). Each copy
+    // gets its own transformed waiver, so every per-copy violation is waived.
+    let mut child = Cell::new("child");
+    child.add_polygon(
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Layer::new(1, 0),
+    );
+    child.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
+
+    let mut top = Cell::new("top");
+    let cref = CellRef::new("child").array(3, 1, 100.0, 0.0);
+    top.add_ref(cref);
+
+    let mut lib = Library::new("waive_aref_lib");
+    lib.add_cell(child).unwrap();
+    lib.add_cell(top).unwrap();
+
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+
+    assert!(
+        result.passed(),
+        "every AREF copy's violation should be waived"
+    );
+    assert_eq!(result.stats.waived_violations, 3);
+}
+
+#[test]
+fn waive_region_and_drc_skip_not_double_counted() {
+    // A violation suppressible by BOTH drc_skip and a region waiver is
+    // counted once, as a drc_skip suppression (applied first).
+    let mut cell = Cell::new("c");
+    cell.add_polygon(
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Layer::new(1, 0),
+    );
+    cell.set_drc_skip(true);
+    cell.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
+
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let result = run_drc(&cell, &rules, None);
+
+    assert!(result.passed());
+    assert_eq!(result.violations.len(), 0);
+    assert_eq!(result.stats.suppressed_violations, 1);
+    assert_eq!(result.stats.waived_violations, 0);
+}

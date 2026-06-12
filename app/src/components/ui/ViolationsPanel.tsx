@@ -40,6 +40,7 @@ export function ViolationsPanel() {
   const errorCount = useViolationsStore((s) => s.errorCount);
   const warningCount = useViolationsStore((s) => s.warningCount);
   const suppressed = useViolationsStore((s) => s.suppressed);
+  const waived = useViolationsStore((s) => s.waived);
   const configured = useViolationsStore((s) => s.configured);
   const selectedIndex = useViolationsStore((s) => s.selectedIndex);
   const severityFilter = useViolationsStore((s) => s.severityFilter);
@@ -137,8 +138,15 @@ export function ViolationsPanel() {
             <span className="tabular-nums">{f.count}</span>
           </button>
         ))}
-        {suppressed > 0 && (
-          <span className={cn("ml-auto", mutedText)}>{suppressed} suppressed</span>
+        {(suppressed > 0 || waived > 0) && (
+          <span className={cn("ml-auto", mutedText)}>
+            {[
+              suppressed > 0 ? `${suppressed} suppressed` : null,
+              waived > 0 ? `${waived} waived` : null,
+            ]
+              .filter(Boolean)
+              .join(", ")}
+          </span>
         )}
       </div>
 

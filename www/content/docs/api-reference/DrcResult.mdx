@@ -92,3 +92,16 @@ cells with `drc_skip = True` plus every cell reachable from them via
 `CellRef`. See [`Cell.drc_skip`](./Cell).
 
 </PyAttribute>
+
+<PyAttribute name={"waived_violations"} type={"int"}>
+
+Number of violations suppressed by a region waiver
+([`Cell.drc_waive_regions`](./Cell)).
+
+A violation is waived when it was not already suppressed by `drc_skip` and
+its location is fully contained within at least one waiver region
+(transformed into top-level global coordinates for the relevant placement of
+its owning cell). A violation suppressible by both mechanisms is counted as a
+`drc_skip` suppression, not a waiver.
+
+</PyAttribute>

@@ -6,7 +6,18 @@ Core algorithm correctness is tested in Rust.
 
 import pytest
 
-from rosette import Cell, CellRef, DrcRules, Layer, Library, Point, Polygon, load_drc_rules, run_drc
+from rosette import (
+    BBox,
+    Cell,
+    CellRef,
+    DrcRules,
+    Layer,
+    Library,
+    Point,
+    Polygon,
+    load_drc_rules,
+    run_drc,
+)
 from rosette.cli import _print_drc_result, _run_drc_check, check_design, drc_design
 
 
@@ -579,6 +590,91 @@ class TestDrcSkip:
         assert len(result.violations) == 1
         assert result.suppressed_violations == 0
         assert result.skipped_cells == 0
+
+
+class TestDrcWaiveRegions:
+    """Tests for the region-waiver (``drc_waive_regions``) suppression."""
+
+    def test_default_is_empty(self):
+        """Cells default to no waiver regions."""
+        cell = Cell("c")
+        assert cell.drc_waive_regions == []
+
+    def test_add_and_clear(self):
+        """Regions can be added, read back, and cleared."""
+        cell = Cell("c")
+        region = BBox(Point(0, 0), Point(1, 1))
+        cell.add_drc_waive_region(region)
+        assert len(cell.drc_waive_regions) == 1
+        got = cell.drc_waive_regions[0]
+        assert got.min.x == 0.0 and got.max.x == 1.0
+
+        cell.clear_drc_waive_regions()
+        assert cell.drc_waive_regions == []
+
+    def test_setter_replaces(self):
+        """Assigning the property replaces the whole list."""
+        cell = Cell("c")
+        cell.add_drc_waive_region(BBox(Point(0, 0), Point(1, 1)))
+        cell.drc_waive_regions = [BBox(Point(2, 2), Point(3, 3))]
+        assert len(cell.drc_waive_regions) == 1
+        assert cell.drc_waive_regions[0].min.x == 2.0
+
+    def test_contained_violation_waived(self):
+        """A violation fully inside a waiver region is suppressed."""
+        cell = Cell("c")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
+        cell.add_drc_waive_region(BBox(Point(-1, -1), Point(11, 1)))
+
+        rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
+        result = run_drc(cell, rules)
+
+        assert result.passed
+        assert len(result.violations) == 0
+        assert result.waived_violations == 1
+        assert result.suppressed_violations == 0
+
+    def test_partial_overlap_kept(self):
+        """Full containment is required — partial overlap does not waive."""
+        cell = Cell("c")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
+        # Covers only the left half of the polygon.
+        cell.add_drc_waive_region(BBox(Point(-1, -1), Point(4, 1)))
+
+        rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert len(result.violations) == 1
+        assert result.waived_violations == 0
+
+    def test_no_regions_default(self):
+        """Without waiver regions, behavior is unchanged and the stat is 0."""
+        cell = Cell("c")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
+
+        rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
+        result = run_drc(cell, rules)
+
+        assert not result.passed
+        assert result.waived_violations == 0
+
+    def test_region_transformed_through_placement(self):
+        """A child-local waiver tracks a translated placement (global frame)."""
+        child = Cell("child")
+        child.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
+        child.add_drc_waive_region(BBox(Point(-1, -1), Point(11, 1)))
+
+        top = Cell("top")
+        top.add_ref(child.at(1000, 2000))
+
+        rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
+        result = run_drc(top, rules)
+
+        assert result.passed, (
+            "child-local waiver must be transformed into global coords for the translated placement"
+        )
+        assert result.waived_violations == 1
 
 
 class TestSnapToGrid:

@@ -224,6 +224,7 @@ def _run_drc_safe(cell, rules) -> dict | None:
         "error_count": result.error_count,
         "warning_count": result.warning_count,
         "suppressed": result.suppressed_violations,
+        "waived": result.waived_violations,
         "passed": result.passed,
     }
 

@@ -322,6 +322,13 @@ pub struct Cell {
     /// trusted cells such as PDK components. See `rosette-drc` for the exact
     /// suppression predicate.
     drc_skip: bool,
+    /// Region waivers in this cell's local coordinate frame. A DRC violation
+    /// whose location is fully contained in one of these regions (after the
+    /// region is transformed into top-level global coordinates for each
+    /// placement of this cell) is suppressed. Used for intentional local
+    /// violations such as taper tips or deliberate overlaps. See `rosette-drc`
+    /// for the exact suppression predicate.
+    drc_waive_regions: Vec<BBox>,
 }
 
 impl Cell {
@@ -334,6 +341,7 @@ impl Cell {
             metadata: CellMetadata::default(),
             origin: Point::origin(),
             drc_skip: false,
+            drc_waive_regions: Vec::new(),
         }
     }
 
@@ -424,6 +432,42 @@ impl Cell {
     /// See [`Cell::drc_skip`] for the exact suppression semantics.
     pub fn set_drc_skip(&mut self, drc_skip: bool) {
         self.drc_skip = drc_skip;
+    }
+
+    /// Get the DRC region waivers defined on this cell.
+    ///
+    /// Each waiver is an axis-aligned bounding box in this cell's local
+    /// coordinate frame. A DRC violation is suppressed if its location is
+    /// fully contained within one of these regions once the region has been
+    /// transformed into top-level global coordinates for the relevant
+    /// placement of this cell. See [`Cell::add_drc_waive_region`].
+    pub fn drc_waive_regions(&self) -> &[BBox] {
+        &self.drc_waive_regions
+    }
+
+    /// Add a DRC region waiver in this cell's local coordinate frame.
+    ///
+    /// Any DRC violation whose location is fully contained in `region` (after
+    /// transforming the region into top-level global coordinates for each
+    /// placement of this cell) is suppressed from the final DRC result. This
+    /// is intended for intentional local violations such as taper tips or
+    /// deliberate overlaps.
+    ///
+    /// Like [`Cell::drc_skip`], region waivers are not persisted to GDS.
+    pub fn add_drc_waive_region(&mut self, region: BBox) {
+        self.drc_waive_regions.push(region);
+    }
+
+    /// Replace all DRC region waivers on this cell.
+    ///
+    /// See [`Cell::add_drc_waive_region`] for the suppression semantics.
+    pub fn set_drc_waive_regions(&mut self, regions: Vec<BBox>) {
+        self.drc_waive_regions = regions;
+    }
+
+    /// Remove all DRC region waivers from this cell.
+    pub fn clear_drc_waive_regions(&mut self) {
+        self.drc_waive_regions.clear();
     }
 
     /// Add a bend info entry to the cell metadata.
@@ -973,6 +1017,33 @@ mod tests {
         assert!(cell.drc_skip());
         cell.set_drc_skip(false);
         assert!(!cell.drc_skip());
+    }
+
+    #[test]
+    fn test_drc_waive_regions_default_empty() {
+        let cell = Cell::new("c");
+        assert!(cell.drc_waive_regions().is_empty());
+    }
+
+    #[test]
+    fn test_drc_waive_regions_add_set_clear() {
+        let mut cell = Cell::new("c");
+        let r1 = BBox::new(Point::new(0.0, 0.0), Point::new(1.0, 1.0));
+        let r2 = BBox::new(Point::new(2.0, 2.0), Point::new(3.0, 3.0));
+
+        cell.add_drc_waive_region(r1);
+        assert_eq!(cell.drc_waive_regions().len(), 1);
+        assert_eq!(cell.drc_waive_regions()[0], r1);
+
+        cell.add_drc_waive_region(r2);
+        assert_eq!(cell.drc_waive_regions().len(), 2);
+
+        cell.set_drc_waive_regions(vec![r2]);
+        assert_eq!(cell.drc_waive_regions().len(), 1);
+        assert_eq!(cell.drc_waive_regions()[0], r2);
+
+        cell.clear_drc_waive_regions();
+        assert!(cell.drc_waive_regions().is_empty());
     }
 
     #[test]

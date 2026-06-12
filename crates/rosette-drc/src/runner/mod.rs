@@ -33,7 +33,20 @@ pub struct DrcStats {
     /// pairwise rules also carry cell-name provenance and therefore
     /// participate in suppression. The only rule that doesn't is
     /// `Density`, whose window-based check has no single source cell.
+    ///
+    /// Violations suppressed only by a region waiver (see
+    /// [`Self::waived_violations`]) are *not* counted here. A violation that
+    /// would be suppressed by both mechanisms is counted as a `drc_skip`
+    /// suppression (it is tested first).
     pub suppressed_violations: usize,
+    /// Number of violations suppressed by a region waiver
+    /// (`Cell::drc_waive_regions`).
+    ///
+    /// A violation is waived iff it was not already suppressed by `drc_skip`
+    /// and its `location` is fully contained within at least one waiver
+    /// region, after each region is transformed into top-level global
+    /// coordinates for the relevant placement of its owning cell.
+    pub waived_violations: usize,
     /// Number of unique cell names in the skipped-cell closure for this
     /// run.
     pub skipped_cells: usize,
@@ -178,6 +191,49 @@ fn expand_subtree(cell: &Cell, library: &Library, closure: &mut HashSet<String>)
     }
 }
 
+/// Collect every DRC region waiver in the hierarchy, transformed into
+/// top-level global coordinates.
+///
+/// Each cell may carry waiver regions in its own local coordinate frame
+/// (`Cell::drc_waive_regions`). This walk threads the transform stack down the
+/// hierarchy exactly like the geometry-flattening pass, so a waiver defined in
+/// a child cell is replicated and transformed for every placement of that
+/// child (including AREF/repetition copies). The resulting boxes live in the
+/// same top-level global frame as every `DrcViolation::location`, so the
+/// containment test in [`apply_waiver_filter`] is a direct comparison.
+///
+/// Note: under non-axis-aligned rotation, transforming an axis-aligned waiver
+/// box yields the AABB of the rotated rectangle (it inflates), consistent with
+/// [`BBox::transform`]. Waivers are therefore most precise for the common
+/// translate/reflect/90°-rotation placements.
+fn collect_waiver_regions(top: &Cell, library: Option<&Library>) -> Vec<BBox> {
+    let mut regions = Vec::new();
+    collect_waiver_regions_inner(top, library, &Transform::identity(), &mut regions);
+    regions
+}
+
+fn collect_waiver_regions_inner(
+    cell: &Cell,
+    library: Option<&Library>,
+    transform: &Transform,
+    regions: &mut Vec<BBox>,
+) {
+    for region in cell.drc_waive_regions() {
+        regions.push(region.transform(transform));
+    }
+    for element in cell.elements() {
+        if let Element::CellRef(cell_ref) = element
+            && let Some(lib) = library
+            && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
+        {
+            for copy_transform in DrcRunner::expand_cellref_transforms(cell_ref) {
+                let combined = transform.then(&copy_transform);
+                collect_waiver_regions_inner(ref_cell, Some(lib), &combined, regions);
+            }
+        }
+    }
+}
+
 /// Apply the `drc_skip` suppression predicate to a list of violations.
 ///
 /// A violation is suppressed iff `cell_name` and `cell_name2` are both
@@ -212,6 +268,43 @@ fn apply_drc_skip_filter(
         }
     }
     (kept, suppressed)
+}
+
+/// Apply the region-waiver suppression predicate to a list of violations.
+///
+/// A violation is waived iff its `location` (always in top-level global
+/// coordinates, per the [`DrcViolation::location`] contract) is fully
+/// contained within at least one waiver region. The regions passed here have
+/// already been transformed into top-level global coordinates by
+/// [`collect_waiver_regions`], so the containment test is a direct
+/// global-frame comparison.
+///
+/// Full containment (rather than mere intersection) is intentional: it avoids
+/// hiding a violation that merely touches the edge of a waiver region, which
+/// matches the "intentional local violation" use case (e.g. a taper tip
+/// drawn entirely inside a small waiver box).
+///
+/// Returns `(kept, waived_count)`.
+fn apply_waiver_filter(
+    violations: Vec<DrcViolation>,
+    waivers: &[BBox],
+) -> (Vec<DrcViolation>, usize) {
+    if waivers.is_empty() {
+        return (violations, 0);
+    }
+    let mut kept = Vec::with_capacity(violations.len());
+    let mut waived = 0usize;
+    for v in violations {
+        if waivers
+            .iter()
+            .any(|region| region.contains_bbox(&v.location))
+        {
+            waived += 1;
+        } else {
+            kept.push(v);
+        }
+    }
+    (kept, waived)
 }
 
 /// Map internal `polygon_idx`/`polygon_idx2` fields on each violation to
@@ -394,11 +487,17 @@ impl DrcRunner {
         }
 
         // Post-filter: suppress violations attributed entirely to trusted
-        // (drc_skip) cells. The runner itself stays ignorant of trust; we
-        // just drop the violations afterwards.
+        // (drc_skip) cells, then waive violations whose location falls inside
+        // a region waiver. The runner itself stays ignorant of trust/waivers;
+        // we just drop the violations afterwards. drc_skip is applied first so
+        // a violation suppressible by both mechanisms counts as a drc_skip
+        // suppression (not double-counted).
         let skipped_closure = collect_skipped_closure(cell, library);
         let (kept_violations, suppressed_count) =
             apply_drc_skip_filter(violations, &skipped_closure);
+
+        let waiver_regions = collect_waiver_regions(cell, library);
+        let (kept_violations, waived_count) = apply_waiver_filter(kept_violations, &waiver_regions);
 
         DrcResult {
             violations: kept_violations,
@@ -407,6 +506,7 @@ impl DrcRunner {
                 rules_checked: self.rules.rules().len(),
                 elapsed: start.elapsed(),
                 suppressed_violations: suppressed_count,
+                waived_violations: waived_count,
                 skipped_cells: skipped_closure.len(),
             },
         }

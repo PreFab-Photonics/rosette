@@ -606,6 +606,16 @@ class Cell:
     its subtree) are suppressed from the final DRC result. Inter-cell
     violations against an untrusted cell are still reported.
     """
+    drc_waive_regions: list[BBox]
+    """DRC region waivers defined on this cell, in local coordinates.
+
+    Each waiver is an axis-aligned ``BBox`` in this cell's local coordinate
+    frame. A DRC violation whose location is fully contained within one of
+    these regions (after the region is transformed into top-level global
+    coordinates for the relevant placement of this cell) is suppressed from
+    the final DRC result. Used for intentional local violations such as taper
+    tips. Like ``drc_skip``, region waivers are not persisted to GDS.
+    """
     def __init__(self, name: str, *, drc_skip: bool = False) -> None:
         """Create a new empty cell.
 
@@ -617,6 +627,17 @@ class Cell:
             ValueError: If the name is empty, longer than 32 characters,
                 or contains non-printable ASCII characters (spaces, Unicode, etc.)
         """
+        ...
+    def add_drc_waive_region(self, region: BBox) -> None:
+        """Add a DRC region waiver in this cell's local coordinate frame.
+
+        Any DRC violation fully contained within ``region`` (after
+        transforming into global coordinates for each placement of this cell)
+        is suppressed. See ``drc_waive_regions``.
+        """
+        ...
+    def clear_drc_waive_regions(self) -> None:
+        """Remove all DRC region waivers from this cell."""
         ...
     def add_polygon(self, polygon: Polygon, layer: Layer | int | tuple[int, int]) -> None:
         """Add a polygon to the cell.
@@ -1587,6 +1608,15 @@ class DrcResult:
     """
     skipped_cells: int
     """Number of unique cells in the skipped-cell closure for this run."""
+    waived_violations: int
+    """Number of violations suppressed by a region waiver
+    (``Cell.drc_waive_regions``).
+
+    A violation is waived iff it was not already suppressed by ``drc_skip``
+    and its location is fully contained within at least one waiver region
+    (transformed into top-level global coordinates for the relevant placement
+    of its owning cell).
+    """
     def __len__(self) -> int:
         """Total number of violations — errors **plus** warnings.
 

@@ -25,8 +25,10 @@ export interface DrcPayload {
   violations: Violation[];
   error_count: number;
   warning_count: number;
-  /** Number of violations suppressed by waivers (drc_skip). */
+  /** Number of violations suppressed by trusted cells (drc_skip). */
   suppressed: number;
+  /** Number of violations waived by region (drc_waive_regions). */
+  waived: number;
   /** Whether the design passes (warnings alone still pass). */
   passed: boolean;
 }
@@ -40,6 +42,7 @@ interface ViolationsState {
   errorCount: number;
   warningCount: number;
   suppressed: number;
+  waived: number;
   passed: boolean;
   /** Whether DRC is configured at all (null payload => not configured). */
   configured: boolean;
@@ -59,6 +62,7 @@ export const useViolationsStore = create<ViolationsState>((set) => ({
   errorCount: 0,
   warningCount: 0,
   suppressed: 0,
+  waived: 0,
   passed: true,
   configured: false,
   selectedIndex: null,
@@ -72,6 +76,7 @@ export const useViolationsStore = create<ViolationsState>((set) => ({
           errorCount: 0,
           warningCount: 0,
           suppressed: 0,
+          waived: 0,
           passed: true,
           configured: false,
           selectedIndex: null,
@@ -82,6 +87,7 @@ export const useViolationsStore = create<ViolationsState>((set) => ({
         errorCount: payload.error_count,
         warningCount: payload.warning_count,
         suppressed: payload.suppressed,
+        waived: payload.waived,
         passed: payload.passed,
         configured: true,
         // Drop a stale selection; the violation set was just rebuilt.

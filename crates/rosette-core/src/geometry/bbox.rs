@@ -87,6 +87,17 @@ impl BBox {
         p.x >= self.min.x && p.x <= self.max.x && p.y >= self.min.y && p.y <= self.max.y
     }
 
+    /// Check if this bounding box fully contains another bounding box.
+    ///
+    /// Returns `true` only if every point of `other` lies within `self`
+    /// (inclusive of the boundary). A box always contains itself.
+    pub fn contains_bbox(&self, other: &BBox) -> bool {
+        other.min.x >= self.min.x
+            && other.min.y >= self.min.y
+            && other.max.x <= self.max.x
+            && other.max.y <= self.max.y
+    }
+
     /// Check if two bounding boxes overlap.
     pub fn overlaps(&self, other: &BBox) -> bool {
         self.min.x <= other.max.x
@@ -257,5 +268,20 @@ mod tests {
         let diag = std::f64::consts::SQRT_2;
         assert!(approx_eq(out.width(), diag));
         assert!(approx_eq(out.height(), diag));
+    }
+
+    #[test]
+    fn test_contains_bbox() {
+        let outer = BBox::new(Point::new(0.0, 0.0), Point::new(10.0, 10.0));
+        // Fully inside.
+        assert!(outer.contains_bbox(&BBox::new(Point::new(2.0, 2.0), Point::new(8.0, 8.0))));
+        // Equal box (boundary inclusive).
+        assert!(outer.contains_bbox(&outer));
+        // Touching the boundary from inside.
+        assert!(outer.contains_bbox(&BBox::new(Point::new(0.0, 0.0), Point::new(5.0, 5.0))));
+        // Sticks out on one side.
+        assert!(!outer.contains_bbox(&BBox::new(Point::new(8.0, 8.0), Point::new(12.0, 9.0))));
+        // Fully outside.
+        assert!(!outer.contains_bbox(&BBox::new(Point::new(20.0, 20.0), Point::new(21.0, 21.0))));
     }
 }

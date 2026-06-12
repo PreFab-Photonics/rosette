@@ -968,6 +968,59 @@ class Cell:
     def drc_skip(self, value: bool) -> None:
         self._inner.drc_skip = value
 
+    @property
+    def drc_waive_regions(self) -> list[BBox]:
+        """DRC region waivers defined on this cell, in local coordinates.
+
+        Each waiver is an axis-aligned :class:`BBox` in this cell's local
+        coordinate frame. A DRC violation whose location is fully contained
+        within one of these regions is suppressed from the final DRC result.
+        The region is transformed into top-level global coordinates for the
+        relevant placement of this cell before the containment test, so a
+        waiver defined in a child cell correctly tracks every placement of
+        that child (including array references).
+
+        Use this for intentional local violations such as taper tips or
+        deliberate overlaps, where marking the whole cell ``drc_skip`` would
+        be too broad.
+
+        Notes:
+
+        - Containment is *full* — a violation that only partially overlaps a
+          waiver region is still reported.
+        - Coordinates are this cell's *local* frame, not global.
+        - Like ``drc_skip``, region waivers are not persisted to GDS;
+          round-tripping a design through ``write_gds`` / ``read_gds`` clears
+          them.
+
+        Example:
+            ```python
+            taper = Cell("taper")
+            # ... add geometry whose narrow tip violates min-width ...
+            taper.add_drc_waive_region(BBox(Point(9, -1), Point(11, 1)))
+            ```
+        """
+        return list(self._inner.drc_waive_regions)
+
+    @drc_waive_regions.setter
+    def drc_waive_regions(self, value: list[BBox]) -> None:
+        self._inner.drc_waive_regions = list(value)
+
+    def add_drc_waive_region(self, region: BBox) -> None:
+        """Add a DRC region waiver in this cell's local coordinate frame.
+
+        Args:
+            region: Waiver bounding box in this cell's local coordinates. Any
+                DRC violation fully contained within it (after transforming
+                into global coordinates for each placement of this cell) is
+                suppressed. See :attr:`drc_waive_regions`.
+        """
+        self._inner.add_drc_waive_region(region)
+
+    def clear_drc_waive_regions(self) -> None:
+        """Remove all DRC region waivers from this cell."""
+        self._inner.clear_drc_waive_regions()
+
     def add_bend(
         self,
         radius: float,

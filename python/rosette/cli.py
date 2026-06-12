@@ -1213,6 +1213,7 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
 
     suppressed = result.suppressed_violations
     skipped = result.skipped_cells
+    waived = result.waived_violations
 
     def _print_suppressed_line() -> None:
         if suppressed > 0:
@@ -1221,6 +1222,9 @@ def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
             print(
                 f"  {_dim(f'{suppressed} {viol_word} suppressed across {skipped} trusted {cell_word} (drc_skip)')}"
             )
+        if waived > 0:
+            viol_word = "violation" if waived == 1 else "violations"
+            print(f"  {_dim(f'{waived} {viol_word} waived by region (drc_waive_regions)')}")
 
     # No violations at all: clean pass.
     if not result.violations:
