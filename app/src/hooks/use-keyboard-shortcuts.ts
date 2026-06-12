@@ -443,9 +443,16 @@ export function useKeyboardShortcuts(
           }
           break;
         case "v":
-        case "V":
           e.preventDefault();
           setTool("select");
+          break;
+        case "V":
+          // Shift+V: switch sidebar to Violations tab
+          e.preventDefault();
+          if (useUIStore.getState().sidebarCollapsed) {
+            useUIStore.getState().toggleSidebarCollapsed();
+          }
+          useUIStore.getState().setSidebarTab("violations");
           break;
         case "p":
         case "P":

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { WarningCircle, WarningTriangle, CheckCircle } from "iconoir-react";
+import { WarningCircle, WarningTriangle } from "iconoir-react";
 import { useUIStore } from "@/stores/ui";
 import { useViolationsStore, type SeverityFilter, type Violation } from "@/stores/violations";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
@@ -88,47 +88,43 @@ export function ViolationsPanel() {
     );
   }
 
-  const FILTERS: { id: SeverityFilter; label: string }[] = [
-    { id: "all", label: "All" },
-    { id: "error", label: "Errors" },
-    { id: "warning", label: "Warnings" },
+  const FILTERS: {
+    id: SeverityFilter;
+    label: string;
+    count: number;
+    icon?: React.ReactNode;
+  }[] = [
+    { id: "all", label: "All", count: errorCount + warningCount },
+    {
+      id: "error",
+      label: "Errors",
+      count: errorCount,
+      icon: <WarningCircle className="h-3.5 w-3.5 text-red-500" />,
+    },
+    {
+      id: "warning",
+      label: "Warnings",
+      count: warningCount,
+      icon: <WarningTriangle className="h-3.5 w-3.5 text-amber-500" />,
+    },
   ];
 
   return (
     <div className="flex flex-col">
-      {/* Summary header */}
+      {/* Severity filter buttons with integrated counts */}
       <div
         className={cn(
-          "flex items-center gap-3 px-3 py-2 text-xs",
+          "flex flex-wrap items-center gap-1 px-3 py-2 text-xs",
           isDark ? "text-white/80" : "text-black/80",
         )}
       >
-        {errorCount === 0 && warningCount === 0 ? (
-          <span className="flex items-center gap-1 text-green-500">
-            <CheckCircle className="h-3.5 w-3.5" /> No violations
-          </span>
-        ) : (
-          <>
-            <span className="flex items-center gap-1 text-red-500">
-              <WarningCircle className="h-3.5 w-3.5" /> {errorCount}
-            </span>
-            <span className="flex items-center gap-1 text-amber-500">
-              <WarningTriangle className="h-3.5 w-3.5" /> {warningCount}
-            </span>
-          </>
-        )}
-        {suppressed > 0 && <span className={mutedText}>{suppressed} suppressed</span>}
-      </div>
-
-      {/* Severity filter */}
-      <div className="flex items-center gap-1 px-3 pb-2">
         {FILTERS.map((f) => (
           <button
             key={f.id}
             type="button"
             onClick={() => setSeverityFilter(f.id)}
             className={cn(
-              "cursor-pointer rounded-md px-2 py-0.5 text-[11px] transition-colors focus:outline-none",
+              "flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors focus:outline-none",
               severityFilter === f.id
                 ? isDark
                   ? "bg-[rgb(54,54,54)] text-white/90"
@@ -136,9 +132,14 @@ export function ViolationsPanel() {
                 : cn(mutedText, rowHover),
             )}
           >
-            {f.label}
+            {f.icon}
+            <span>{f.label}</span>
+            <span className="tabular-nums">{f.count}</span>
           </button>
         ))}
+        {suppressed > 0 && (
+          <span className={cn("ml-auto", mutedText)}>{suppressed} suppressed</span>
+        )}
       </div>
 
       <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />

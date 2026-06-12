@@ -311,6 +311,21 @@ export function getCommands(): CommandItem[] {
       searchableText: "Show inspector panel sidebar switch tab properties",
     },
     {
+      id: "view-show-violations",
+      type: "command",
+      name: "View: Show Violations Panel",
+      shortcut: { modifiers: [keys.shift], key: "V" },
+      action: () => {
+        if (useUIStore.getState().sidebarCollapsed) {
+          useUIStore.getState().toggleSidebarCollapsed();
+        }
+        useUIStore.getState().setSidebarTab("violations");
+        close();
+      },
+      searchableText:
+        "Show violations panel sidebar switch tab drc design rule check errors warnings",
+    },
+    {
       id: "view-focus-explorer",
       type: "command",
       name: "View: Focus Explorer",
