@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Component, AngleTool, NavArrowRight } from "iconoir-react";
+import { Component, AngleTool, NavArrowRight, WarningTriangle } from "iconoir-react";
 import { useUIStore, type SidebarTab } from "@/stores/ui";
 import { useMinimapStore } from "@/stores/minimap";
+import { useViolationsStore } from "@/stores/violations";
 import { cn, keys } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useResize } from "@/hooks/use-resize";
 import { LayersPanel } from "./LayersPanel";
 import { InspectorPanel } from "./InspectorPanel";
+import { ViolationsPanel } from "./ViolationsPanel";
 
 // =============================================================================
 // Types
@@ -23,6 +25,7 @@ interface Tab {
 const TABS: Tab[] = [
   { id: "layers", icon: Component, label: "Layers", shortcut: "L" },
   { id: "inspector", icon: AngleTool, label: "Inspector", shortcut: "I" },
+  { id: "violations", icon: WarningTriangle, label: "Violations", shortcut: "V" },
 ];
 
 // =============================================================================
@@ -107,6 +110,7 @@ export function Sidebar() {
   const activeTab = useUIStore((s) => s.sidebarTab);
   const setSidebarTab = useUIStore((s) => s.setSidebarTab);
   const isMinimapMinimized = useMinimapStore((s) => s.isMinimized);
+  const violationErrorCount = useViolationsStore((s) => s.errorCount);
 
   // On sm, the expanded Sidebar is an overlay — track if it was manually opened
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -176,7 +180,7 @@ export function Sidebar() {
                 <button
                   onClick={() => setSidebarTab(tab.id)}
                   className={cn(
-                    "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
+                    "relative cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
                     isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
                     isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
                   )}
@@ -184,6 +188,9 @@ export function Sidebar() {
                   <div className="flex h-4 w-4 items-center justify-center">
                     <Icon className={cn("h-4 w-4", isDark ? "text-white/90" : "text-black/90")} />
                   </div>
+                  {tab.id === "violations" && violationErrorCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2 rounded-full bg-red-500" />
+                  )}
                 </button>
               </Tooltip>
             );
@@ -217,6 +224,7 @@ export function Sidebar() {
         >
           {activeTab === "layers" && <LayersPanel />}
           {activeTab === "inspector" && <InspectorPanel />}
+          {activeTab === "violations" && <ViolationsPanel />}
         </div>
       </div>
     </>

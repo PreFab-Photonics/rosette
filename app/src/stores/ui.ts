@@ -42,7 +42,7 @@ function resolveTheme(setting: ThemeSetting): ResolvedTheme {
 export type RightClickMode = "context-menu" | "zoom";
 
 /** Sidebar tab identifiers. */
-export type SidebarTab = "layers" | "inspector";
+export type SidebarTab = "layers" | "inspector" | "violations";
 
 /** Default panel width in CSS pixels (Tailwind w-72). */
 export const DEFAULT_PANEL_WIDTH = 288;

@@ -41,6 +41,8 @@ mod shaders;
 mod shapes;
 mod text_to_polygons;
 mod viewport;
+#[allow(dead_code)]
+mod violation_markers;
 
 use wasm_bindgen::prelude::*;
 

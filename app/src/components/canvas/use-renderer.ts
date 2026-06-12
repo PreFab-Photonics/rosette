@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useWasm } from "@/hooks/use-wasm";
 import { HOVER_COLORS, SELECTION_COLORS, useUIStore } from "@/stores/ui";
 import { useViewportStore } from "@/stores/viewport";
+import { useViolationsStore } from "@/stores/violations";
 import type { WasmRenderer } from "@/wasm/rosette_wasm";
 
 /**
@@ -32,6 +33,8 @@ export function useRenderer(canvasId: string | null) {
   const theme = useUIStore((s) => s.theme);
   const showGrid = useUIStore((s) => s.showGrid);
   const { zoom, offset } = useViewportStore();
+  const violations = useViolationsStore((s) => s.violations);
+  const selectedViolation = useViolationsStore((s) => s.selectedIndex);
 
   // Initialize renderer
   useEffect(() => {
@@ -108,6 +111,30 @@ export function useRenderer(canvasId: string | null) {
       renderer.set_grid_visible(showGrid);
     }
   }, [renderer, isReady, showGrid]);
+
+  // Sync DRC violation markers to the renderer. Each violation is flattened to
+  // [minX, minY, maxX, maxY, severity] where severity is 1 (error) or 0
+  // (warning). Coordinates are passed in micrometers; the renderer's
+  // set_violations converts them to world units (scaled, Y negated).
+  useEffect(() => {
+    if (!(renderer && isReady)) return;
+    const data = new Float32Array(violations.length * 5);
+    violations.forEach((v, i) => {
+      const [[minX, minY], [maxX, maxY]] = v.bbox;
+      data[i * 5 + 0] = minX;
+      data[i * 5 + 1] = minY;
+      data[i * 5 + 2] = maxX;
+      data[i * 5 + 3] = maxY;
+      data[i * 5 + 4] = v.severity === "error" ? 1 : 0;
+    });
+    renderer.set_violations(data);
+  }, [renderer, isReady, violations]);
+
+  // Emphasize the violation currently selected in the panel.
+  useEffect(() => {
+    if (!(renderer && isReady)) return;
+    renderer.set_selected_violation(selectedViolation ?? undefined);
+  }, [renderer, isReady, selectedViolation]);
 
   // Update viewport when zoom/offset changes
   // Scale by devicePixelRatio for HiDPI/retina display support

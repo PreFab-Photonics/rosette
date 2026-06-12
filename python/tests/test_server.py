@@ -17,6 +17,7 @@ def reset_handler_state():
     RosetteHandler.design_cells = None
     RosetteHandler.design_layers = None
     RosetteHandler.design_filename = None
+    RosetteHandler.design_drc = None
     RosetteHandler.design_version = 0
     RosetteHandler.webapp_dir = None
     yield
@@ -144,6 +145,25 @@ class TestDesignAPI:
         _, _, headers = _get(base_url + "/api/design")
         assert "no-cache" in headers.get("Cache-Control", "")
 
+    def test_design_includes_drc_key(self, server):
+        """The /api/design payload always carries a `drc` key (null when unset)."""
+        srv, base_url = server
+        _status, body, _ = _get(base_url + "/api/design")
+        data = json.loads(body)
+        assert "drc" in data
+        assert data["drc"] is None
+
+        drc = {
+            "violations": [],
+            "error_count": 0,
+            "warning_count": 0,
+            "suppressed": 0,
+            "passed": True,
+        }
+        srv.set_design_json("{}", filename="x.py", drc=drc)
+        _status, body, _ = _get(base_url + "/api/design")
+        assert json.loads(body)["drc"] == drc
+
 
 class TestSSE:
     """Test the Server-Sent Events endpoint."""
@@ -260,6 +280,35 @@ class TestRosetteServer:
         assert RosetteHandler.design_cells == {"name": "top", "children": []}
         assert RosetteHandler.design_layers == [{"id": 1}]
         assert RosetteHandler.design_filename == "full.py"
+
+    def test_drc_defaults_to_none(self, webapp_dir):
+        """DRC payload is None when not provided (e.g. GDS path, no [drc])."""
+        srv = RosetteServer(webapp_dir)
+        srv.set_design_json("{}", filename="layout.py")
+        assert RosetteHandler.design_drc is None
+
+    def test_set_design_with_drc(self, webapp_dir):
+        srv = RosetteServer(webapp_dir)
+        drc = {
+            "violations": [
+                {
+                    "severity": "error",
+                    "rule": "min_width",
+                    "message": "width 0.05 < 0.12",
+                    "layer": [1, 0],
+                    "layer2": None,
+                    "cell_name": "wg",
+                    "cell_name2": None,
+                    "bbox": [[0.0, 0.0], [1.0, 0.05]],
+                }
+            ],
+            "error_count": 1,
+            "warning_count": 0,
+            "suppressed": 2,
+            "passed": False,
+        }
+        srv.set_design_json("{}", filename="layout.py", drc=drc)
+        assert RosetteHandler.design_drc == drc
 
     def test_get_design_version(self, webapp_dir):
         srv = RosetteServer(webapp_dir)

@@ -953,6 +953,11 @@ export class WasmRenderer {
      */
     set_preview_shape(points: Float64Array, color: Float32Array): void;
     /**
+     * Highlight a single violation by index (emphasized outline), or clear the
+     * highlight by passing `None`/an out-of-range index.
+     */
+    set_selected_violation(index?: number | null): void;
+    /**
      * Set the selected shape IDs.
      *
      * Pass an empty array to clear selection.
@@ -981,6 +986,16 @@ export class WasmRenderer {
      * * `zoom` - Zoom level (pixels per world unit).
      */
     set_viewport(offset_x: number, offset_y: number, zoom: number): void;
+    /**
+     * Set the DRC violation markers to display.
+     *
+     * `data` is a flat array with 5 values per violation:
+     * `[min_x, min_y, max_x, max_y, severity, ...]` where `severity` is
+     * `1.0` for errors and `0.0` for warnings. Coordinates are in micrometers
+     * (top-cell global frame); `parse_violations` converts them to renderer
+     * world units (scaled, Y negated). Pass an empty array to clear markers.
+     */
+    set_violations(data: Float32Array): void;
     /**
      * Get the number of shapes (excluding preview).
      */
@@ -1135,10 +1150,12 @@ export interface InitOutput {
     readonly wasmrenderer_set_laser_points: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_preview_origin: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmrenderer_set_preview_shape: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmrenderer_set_selected_violation: (a: number, b: number) => void;
     readonly wasmrenderer_set_selection: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_selection_color: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmrenderer_set_theme: (a: number, b: number) => void;
     readonly wasmrenderer_set_viewport: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrenderer_set_violations: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_shape_count: (a: number) => number;
     readonly wasmrenderer_sync_from_library: (a: number, b: number) => void;
     readonly wasmrenderer_toggle_selection: (a: number, b: number, c: number) => void;

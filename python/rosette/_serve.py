@@ -168,6 +168,66 @@ def _load_layer_map_safe() -> list[dict] | None:
     return _default_layer_map().to_dict_list()
 
 
+def _load_drc_rules_safe():
+    """Try to load DRC rules from rosette.toml.
+
+    Returns the ``DrcRules`` if the ``[drc]`` section is present and valid,
+    otherwise ``None``. A missing or invalid DRC config must never break the
+    live preview, so all expected config errors are swallowed.
+    """
+    try:
+        from rosette import load_drc_rules
+
+        return load_drc_rules()
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def _run_drc_safe(cell, rules) -> dict | None:
+    """Run DRC and serialize the result to a JSON-friendly dict for the viewer.
+
+    Returns ``None`` when no rules are configured or the DRC engine raises, so
+    a DRC failure degrades gracefully to "no violations shown" rather than
+    killing the reload.
+
+    The ``bbox`` is in top-level flattened global coordinates (the same frame
+    the viewer renders), so no transform is needed downstream.
+    """
+    if rules is None:
+        return None
+    try:
+        from rosette import run_drc
+
+        result = run_drc(cell, rules)
+    except Exception as e:  # never let DRC break live preview
+        print(f"drc error: {e}")
+        return None
+
+    violations = []
+    for v in result.violations:
+        (min_x, min_y), (max_x, max_y) = v.bbox
+        violations.append(
+            {
+                "severity": v.severity,
+                "rule": v.rule_name or v.rule_type,
+                "message": v.message,
+                "layer": list(v.layer),
+                "layer2": list(v.layer2) if v.layer2 is not None else None,
+                "cell_name": v.cell_name,
+                "cell_name2": v.cell_name2,
+                "bbox": [[min_x, min_y], [max_x, max_y]],
+            }
+        )
+
+    return {
+        "violations": violations,
+        "error_count": result.error_count,
+        "warning_count": result.warning_count,
+        "suppressed": result.suppressed_violations,
+        "passed": result.passed,
+    }
+
+
 # =============================================================================
 # Tauri / browser viewer management
 # =============================================================================
@@ -478,12 +538,15 @@ def serve_design(
         cell, file_path, _ = load_design(design)
         json_str, cell_tree = _prepare_design(cell)
         layer_defs = _load_layer_map_safe()
+        drc_rules = _load_drc_rules_safe()
+        drc = _run_drc_safe(cell, drc_rules)
 
         server.set_design_json(
             json_str,
             cells=cell_tree,
             layers=layer_defs,
             filename=Path(design).name,
+            drc=drc,
         )
 
         if not no_open:
@@ -528,12 +591,17 @@ def serve_design(
                     cell, _, _ = load_design(design)
                     json_str, cell_tree = _prepare_design(cell)
                     layer_defs = _load_layer_map_safe()
+                    # Reload DRC rules each iteration so edits to the [drc]
+                    # section in rosette.toml take effect live.
+                    drc_rules = _load_drc_rules_safe()
+                    drc = _run_drc_safe(cell, drc_rules)
 
                     server.set_design_json(
                         json_str,
                         cells=cell_tree,
                         layers=layer_defs,
                         filename=Path(design).name,
+                        drc=drc,
                     )
                 except Exception as e:
                     print(f"error: {e}")

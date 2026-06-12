@@ -10,6 +10,7 @@ use crate::library::WasmLibrary;
 use crate::shaders;
 use crate::shapes::{ColoredSegment, OutlineSegment, OutlineUniform, PolygonVertex, ShapeManager};
 use crate::viewport::{Viewport, ViewportUniform};
+use crate::violation_markers::{build_violation_segments, parse_violations};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
@@ -22,6 +23,10 @@ const INITIAL_OUTLINE_SEGMENTS: usize = 25_000;
 
 /// Growth factor when reallocating buffers (2x = double the size).
 const BUFFER_GROWTH_FACTOR: usize = 2;
+
+/// Fixed capacity for the DRC violation marker segment buffer. Markers are
+/// sparse in practice; segments beyond this are dropped (with a warning).
+const VIOLATION_SEGMENT_CAPACITY: usize = 16_384;
 
 /// Maximum allowed buffer sizes to prevent runaway allocation.
 /// These are set high enough to handle very large designs.
@@ -173,6 +178,19 @@ pub struct WasmRenderer {
     preview_border_segment_buffer: wgpu::Buffer,
     preview_border_bind_group: wgpu::BindGroup,
     preview_border_segment_count: u32,
+
+    // DRC violation markers (world-coordinate colored bbox outlines, drawn on top).
+    // Shares the border pipeline. Severity-coded color; the selected violation is
+    // emphasized with a doubled (offset) outline so it reads thicker/brighter.
+    violation_segment_buffer: wgpu::Buffer,
+    violation_bind_group: wgpu::BindGroup,
+    violation_segment_count: u32,
+    /// Violation markers in world coords: (bbox [minX,minY,maxX,maxY], is_error).
+    violations: Vec<([f64; 4], bool)>,
+    /// Index of the currently selected violation (emphasized), if any.
+    selected_violation: Option<usize>,
+    /// Whether violation segments need regeneration.
+    violations_dirty: bool,
 
     /// Cached instance bounding boxes in world coordinates.
     /// Maps CellRef element index → [minX, minY, maxX, maxY].
@@ -1026,6 +1044,30 @@ impl WasmRenderer {
             ],
         });
 
+        // DRC violation marker buffer. Fixed capacity; markers are sparse in
+        // practice. Each violation produces 4 (or 8, when selected) ColoredSegments.
+        let violation_segment_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("violation-segments"),
+            size: (VIOLATION_SEGMENT_CAPACITY * std::mem::size_of::<ColoredSegment>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let violation_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("violation-bind-group"),
+            layout: &border_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: border_uniform_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         let border_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("border-shader"),
             source: wgpu::ShaderSource::Wgsl(shaders::BORDER_SHADER.into()),
@@ -1147,6 +1189,12 @@ impl WasmRenderer {
             preview_border_segment_buffer,
             preview_border_bind_group,
             preview_border_segment_count: 0,
+            violation_segment_buffer,
+            violation_bind_group,
+            violation_segment_count: 0,
+            violations: Vec::new(),
+            selected_violation: None,
+            violations_dirty: false,
             instance_bboxes: Vec::new(),
             // Buffer capacity tracking for dynamic reallocation
             polygon_vertex_capacity,
@@ -1212,6 +1260,14 @@ impl WasmRenderer {
         if self.shape_manager.preview_borders_dirty() {
             self.update_preview_border_buffers();
             self.shape_manager.mark_preview_borders_clean();
+        }
+
+        // Update DRC violation marker buffer when the violation set or selection changes.
+        // Markers are world-coordinate colored bbox outlines, so they don't need
+        // regeneration on pan/zoom.
+        if self.violations_dirty {
+            self.update_violation_buffers();
+            self.violations_dirty = false;
         }
 
         // Update default border buffers when shapes or selection/hover changes (not on pan/zoom!)
@@ -1349,6 +1405,14 @@ impl WasmRenderer {
                 render_pass.set_bind_group(0, &self.hover_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.hover_segment_buffer.slice(..));
                 render_pass.draw(0..4, 0..self.hover_segment_count);
+            }
+
+            // Draw DRC violation markers (severity-coded bbox outlines, on top of selection/hover)
+            if self.violation_segment_count > 0 {
+                render_pass.set_pipeline(&self.border_pipeline);
+                render_pass.set_bind_group(0, &self.violation_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.violation_segment_buffer.slice(..));
+                render_pass.draw(0..4, 0..self.violation_segment_count);
             }
 
             // Draw laser pointer trail
@@ -1770,6 +1834,34 @@ impl WasmRenderer {
                 &self.preview_border_segment_buffer,
                 0,
                 bytemuck::cast_slice(&segments[..count]),
+            );
+        }
+    }
+
+    /// Build colored bbox outline segments for the current DRC violations.
+    ///
+    /// Segments are in world coordinates (the border pipeline transforms them to
+    /// screen space). Errors render red, warnings amber. The selected violation
+    /// is emphasized by emitting a second, slightly inset outline so it reads as
+    /// a thicker/brighter box.
+    fn update_violation_buffers(&mut self) {
+        let mut segments = build_violation_segments(&self.violations, self.selected_violation);
+
+        if segments.len() > VIOLATION_SEGMENT_CAPACITY {
+            log::warn!(
+                "Truncating {} violation segments to capacity {}",
+                segments.len(),
+                VIOLATION_SEGMENT_CAPACITY
+            );
+            segments.truncate(VIOLATION_SEGMENT_CAPACITY);
+        }
+
+        self.violation_segment_count = segments.len() as u32;
+        if !segments.is_empty() {
+            self.queue.write_buffer(
+                &self.violation_segment_buffer,
+                0,
+                bytemuck::cast_slice(&segments),
             );
         }
     }
@@ -2460,6 +2552,36 @@ impl WasmRenderer {
     pub fn clear_selection(&mut self) {
         self.shape_manager.clear_selection();
         self.needs_render = true;
+    }
+
+    /// Set the DRC violation markers to display.
+    ///
+    /// `data` is a flat array with 5 values per violation:
+    /// `[min_x, min_y, max_x, max_y, severity, ...]` where `severity` is
+    /// `1.0` for errors and `0.0` for warnings. Coordinates are in micrometers
+    /// (top-cell global frame); `parse_violations` converts them to renderer
+    /// world units (scaled, Y negated). Pass an empty array to clear markers.
+    pub fn set_violations(&mut self, data: Vec<f32>) {
+        self.violations = parse_violations(&data);
+        // Drop a stale selection that no longer maps to a violation.
+        if let Some(idx) = self.selected_violation {
+            if idx >= self.violations.len() {
+                self.selected_violation = None;
+            }
+        }
+        self.violations_dirty = true;
+        self.needs_render = true;
+    }
+
+    /// Highlight a single violation by index (emphasized outline), or clear the
+    /// highlight by passing `None`/an out-of-range index.
+    pub fn set_selected_violation(&mut self, index: Option<usize>) {
+        let normalized = index.filter(|&i| i < self.violations.len());
+        if normalized != self.selected_violation {
+            self.selected_violation = normalized;
+            self.violations_dirty = true;
+            self.needs_render = true;
+        }
     }
 
     /// Set the hovered shape ID.

@@ -16,6 +16,8 @@ import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useSelectionStore } from "@/stores/selection";
 import { useViewportStore } from "@/stores/viewport";
+import { useViolationsStore } from "@/stores/violations";
+import type { DrcPayload } from "@/stores/violations";
 import { useRulerStore } from "@/stores/ruler";
 import { useClipboardStore } from "@/stores/clipboard";
 import { useDocumentStore } from "@/stores/document";
@@ -167,6 +169,8 @@ interface DesignResponse {
   layers: ServerLayerDef[] | null;
   /** Source filename (e.g., "layout.py" or "mmi.gds"). */
   filename: string | null;
+  /** DRC result (violations + counts), or null when DRC is not configured. */
+  drc: DrcPayload | null;
 }
 
 /** Type guard: is the cells payload a hierarchy tree? */
@@ -633,6 +637,10 @@ export function useLibrary(
         if (data.version < designVersionRef.current) {
           designVersionRef.current = 0;
         }
+
+        // Update DRC violations on every event (cheap, and independent of the
+        // geometry-version gate below). `drc` is null when DRC isn't configured.
+        useViolationsStore.getState().setDrc(data.drc ?? null);
 
         // Check if version changed and we have JSON
         if (data.version !== designVersionRef.current && data.json) {
