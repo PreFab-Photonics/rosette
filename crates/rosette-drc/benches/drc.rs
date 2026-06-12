@@ -4,7 +4,9 @@
 //! - `pairwise_spacing` — same-layer `min_spacing` at N ∈ {100, 1K, 10K}
 //!   in three density regimes (separated / dense / very_dense).
 //! - `pairwise_overlap` — `forbid_overlap` + `require_overlap` cross-layer,
-//!   same N sweep.
+//!   same N sweep. Includes `*_very_dense` variants (ROS-555) where a layer-2
+//!   polygon is a candidate across many layer-1 R-tree queries, exercising the
+//!   memoized poly2 conversion and the `Intersects` short-circuit (ROS-550).
 //! - `pairwise_enclosure` — `enclosure` at N ∈ {100, 1K, 10K} with R-tree
 //!   spatial indexing (ROS-496).
 //! - `per_polygon` — `min_width` + `self_intersection` + `min_edge_length` on
@@ -12,6 +14,8 @@
 //! - `self_intersection` — dedicated sweep-line check (ROS-549) across
 //!   V ∈ {100, 1K, 10K}; isolates the scaling from the other per-polygon
 //!   checks.
+//! - `min_width` — dedicated `min_width`-only sweep (V ∈ {100, 1K}); isolates
+//!   the still-O(V²) ray-cast pole tracked by ROS-554.
 //! - `array_expansion` — AREF 10×10 / 30×30 / 100×100, full deck (baseline
 //!   for ROS-511).
 //! - `full_deck_realistic` — ~1K polygons, 3 layers, 2-level hierarchy,
@@ -141,6 +145,29 @@ fn bench_pairwise_overlap(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("require_overlap", n), &n, |b, _| {
             b.iter(|| run_drc(black_box(&cell), black_box(&require_rules), None));
         });
+
+        // Very dense: layer-2 squares straddle clusters of layer-1 squares, so
+        // each R-tree query returns several candidates and a given poly2 is a
+        // candidate across multiple poly1 queries. This is the regime where
+        // pre-converting polygons2 to geo once (ROS-555) and the cheap
+        // `Intersects` short-circuit (ROS-550) pay off; the well-separated
+        // `build_paired_layers` fixture above shows neither because each poly2
+        // is queried exactly once and always overlaps.
+        let cell_dense = fixtures::build_overlap_cluster(n, VERY_DENSE_PITCH);
+        group.bench_with_input(
+            BenchmarkId::new("forbid_overlap_very_dense", n),
+            &n,
+            |b, _| {
+                b.iter(|| run_drc(black_box(&cell_dense), black_box(&forbid_rules), None));
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("require_overlap_very_dense", n),
+            &n,
+            |b, _| {
+                b.iter(|| run_drc(black_box(&cell_dense), black_box(&require_rules), None));
+            },
+        );
     }
 
     group.finish();
@@ -229,6 +256,31 @@ fn bench_self_intersection(c: &mut Criterion) {
     group.finish();
 }
 
+// --- min_width ---------------------------------------------------------------
+
+fn bench_min_width(c: &mut Criterion) {
+    let mut group = c.benchmark_group("min_width");
+    configure_group(&mut group);
+    // Dedicated min_width-only bench. Capped at V ∈ {100, 1K}: min_width is
+    // still O(V²) (the perpendicular ray-cast in `estimate_min_width_sampling`
+    // scans ~half the edges for convex shapes), so V=10K is ~4.4 s per sample.
+    // Extend to 10K once ROS-554 lands an algorithmic fix.
+    let rules = DrcRules::new().min_width(L1, 0.1, Some("M1.W"));
+
+    for &v in VERTEX_COUNTS {
+        group.throughput(Throughput::Elements(v as u64));
+        if v >= 1_000 {
+            group.sample_size(10);
+        }
+        let cell = fixtures::build_high_vertex_polygon(v);
+        group.bench_with_input(BenchmarkId::from_parameter(v), &v, |b, _| {
+            b.iter(|| run_drc(black_box(&cell), black_box(&rules), None));
+        });
+    }
+
+    group.finish();
+}
+
 // --- array_expansion ---------------------------------------------------------
 
 fn bench_array_expansion(c: &mut Criterion) {
@@ -304,6 +356,7 @@ criterion_group!(
     bench_pairwise_enclosure,
     bench_per_polygon,
     bench_self_intersection,
+    bench_min_width,
     bench_array_expansion,
     bench_full_deck_realistic,
 );
