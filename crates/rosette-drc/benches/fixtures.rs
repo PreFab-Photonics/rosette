@@ -90,6 +90,39 @@ pub fn build_paired_layers(n: usize, pitch: f64) -> Cell {
     cell
 }
 
+/// Build a flat cell with two layers of overlapping squares packed densely
+/// enough that a typical layer-2 polygon falls inside the bbox-query envelope
+/// of *many* layer-1 polygons.
+///
+/// Layer 1 holds `n` `side`-wide squares on a grid with `pitch` spacing; layer
+/// 2 holds an identical grid offset by half a pitch so that every layer-2
+/// square overlaps a cluster of layer-1 squares (and vice versa). With
+/// `pitch < side` each R-tree query returns several candidates and a given
+/// `poly2` is revisited across multiple `poly1` queries — the regime that
+/// exercises the per-candidate `poly2` reconversion that ROS-555 removes.
+///
+/// Returns a single flat `Cell`. Used for the `very_dense` overlap benches.
+pub fn build_overlap_cluster(n: usize, pitch: f64) -> Cell {
+    let mut cell = Cell::new("overlap_cluster");
+    let side = 1.0_f64;
+    let cols = (n as f64).sqrt().ceil() as usize;
+    for i in 0..n {
+        let col = i % cols;
+        let row = i / cols;
+        let x = col as f64 * pitch;
+        let y = row as f64 * pitch;
+        // Layer 1 on the grid.
+        cell.add_polygon(Polygon::rect(Point::new(x, y), side, side), L1);
+        // Layer 2 offset by half a pitch on each axis so it straddles four
+        // layer-1 squares.
+        cell.add_polygon(
+            Polygon::rect(Point::new(x + pitch * 0.5, y + pitch * 0.5), side, side),
+            L2,
+        );
+    }
+    cell
+}
+
 /// Build a single cell containing one regular polygon with `vertices` sides on
 /// layer 1. Used for per-polygon checks (width, self-intersection, edge length).
 pub fn build_high_vertex_polygon(vertices: usize) -> Cell {

@@ -3,7 +3,7 @@
 //! Uses R-tree spatial indexing for the bulk forbidden-overlap check to avoid
 //! O(n²) boolean intersection operations on well-separated polygons.
 
-use geo::{Area, BooleanOps, BoundingRect};
+use geo::{Area, BooleanOps, BoundingRect, Intersects};
 use rosette_core::{BBox, Layer, Point, Polygon, polygon_to_geo};
 use rstar::{AABB, RTree};
 
@@ -27,7 +27,7 @@ pub fn check_forbid_overlap_bulk(
         return Vec::new();
     }
 
-    // Build R-tree for second set of polygons
+    // Build R-tree for second set of polygons.
     let indexed: Vec<IndexedPolygon> = polygons2
         .iter()
         .enumerate()
@@ -38,6 +38,13 @@ pub fn check_forbid_overlap_bulk(
         })
         .collect();
     let tree = RTree::bulk_load(indexed);
+
+    // Lazily-memoized `geo` conversions of polygons2 (ROS-555). On dense
+    // fixtures a single poly2 is a candidate across many poly1 queries;
+    // caching avoids reconverting it each time. Lazy (rather than eager) so
+    // sparse fixtures — where most poly2 are queried zero or one times — pay
+    // only for the conversions they actually use.
+    let mut geo2_cache: Vec<Option<geo::Polygon<f64>>> = vec![None; polygons2.len()];
 
     let mut violations = Vec::new();
 
@@ -65,8 +72,21 @@ pub fn check_forbid_overlap_bulk(
             // thereafter. Inner shadow binds the deref so later uses read
             // the converted polygon, not the Option wrapper.
             let geo1 = geo1.get_or_insert_with(|| polygon_to_geo(poly1));
-            let geo2 = polygon_to_geo(poly2);
-            let intersection = geo1.intersection(&geo2);
+            let geo2 = geo2_cache[candidate.index].get_or_insert_with(|| polygon_to_geo(poly2));
+
+            // Cheap predicate first: `Intersects` answers "do they touch at
+            // all?" without materializing the intersection polygon. In the
+            // passing case (bboxes overlap but geometry doesn't) this avoids
+            // the expensive `BooleanOps::intersection` entirely — the common
+            // case for forbid_overlap, which has no early exit otherwise.
+            if !geo1.intersects(&*geo2) {
+                continue;
+            }
+
+            // They intersect — now compute the actual intersection so we can
+            // report a precise area and location. Filter out boundary-only
+            // (zero-area) touches, which are not forbidden overlaps.
+            let intersection = geo1.intersection(&*geo2);
             let overlap_area = intersection.unsigned_area();
             if overlap_area <= 1e-10 {
                 continue;
@@ -215,7 +235,7 @@ pub fn check_require_overlap_bulk(
             .collect();
     }
 
-    // Build R-tree for second set of polygons
+    // Build R-tree for second set of polygons.
     let indexed: Vec<IndexedPolygon> = polygons2
         .iter()
         .enumerate()
@@ -226,6 +246,10 @@ pub fn check_require_overlap_bulk(
         })
         .collect();
     let tree = RTree::bulk_load(indexed);
+
+    // Lazily-memoized `geo` conversions of polygons2 (ROS-555); see
+    // `check_forbid_overlap_bulk` for the rationale.
+    let mut geo2_cache: Vec<Option<geo::Polygon<f64>>> = vec![None; polygons2.len()];
 
     let mut violations = Vec::new();
 
@@ -249,8 +273,14 @@ pub fn check_require_overlap_bulk(
 
             let (poly2, _) = &polygons2[candidate.index];
             let geo1 = geo1.get_or_insert_with(|| polygon_to_geo(poly1));
-            let geo2 = polygon_to_geo(poly2);
-            if geo1.intersection(&geo2).unsigned_area() > 1e-10 {
+            let geo2 = geo2_cache[candidate.index].get_or_insert_with(|| polygon_to_geo(poly2));
+            // A shared boundary edge (zero-area intersection) is not a
+            // satisfying overlap for `require_overlap`, so require positive
+            // area. Unlike `forbid_overlap` there is no `Intersects` pre-gate
+            // here: the loop already breaks on the first satisfying overlap, so
+            // the gate would only add a redundant traversal in the common
+            // (overlapping) case.
+            if geo1.intersection(&*geo2).unsigned_area() > 1e-10 {
                 has_overlap = true;
                 break;
             }
