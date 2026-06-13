@@ -197,3 +197,35 @@ pub fn build_realistic() -> (Library, String) {
     lib.add_cell(top).unwrap();
     (lib, "bench_top".to_string())
 }
+
+/// Build a hierarchy of `n_cells` *distinct* leaf cells under one top cell,
+/// each leaf holding `polys_per_cell` rectangles on layer 1. Total polygon
+/// count is `n_cells * polys_per_cell`.
+///
+/// Unlike [`build_realistic`] (which reuses one `tile`), every leaf here is a
+/// unique cell definition, so editing a single leaf invalidates only that
+/// cell's cache entry — the fixture for the incremental-DRC bench (ROS-548).
+///
+/// The returned `String` is the name of one leaf cell, so the caller can
+/// fetch and mutate it to simulate a single-cell edit.
+pub fn build_distinct_leaves(n_cells: usize, polys_per_cell: usize) -> (Library, String, String) {
+    let mut lib = Library::new("bench_incremental");
+    let mut top = Cell::new("inc_top");
+    let pitch = (polys_per_cell as f64) * 2.0 + 4.0;
+
+    for c in 0..n_cells {
+        let name = format!("leaf_{c}");
+        let mut leaf = Cell::new(&name);
+        for p in 0..polys_per_cell {
+            // Comfortably-passing width so the bench times the non-violating
+            // path, not violation collection.
+            leaf.add_polygon(Polygon::rect(Point::new(p as f64 * 2.0, 0.0), 1.0, 1.0), L1);
+        }
+        lib.add_cell(leaf).unwrap();
+        // Lay leaves out on a line, well separated so Phase-3 does little work.
+        top.add_ref(CellRef::new(&name).at(0.0, c as f64 * pitch));
+    }
+
+    lib.add_cell(top).unwrap();
+    (lib, "inc_top".to_string(), "leaf_0".to_string())
+}

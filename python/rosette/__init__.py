@@ -48,6 +48,7 @@ from rosette._core import (
     DfmResult,
     DfmViolation,
     # DRC
+    DrcCache,
     DrcResult,
     DrcRules,
     DrcViolation,
@@ -1976,6 +1977,7 @@ def run_drc(
     cell: Cell | _Cell,
     rules: DrcRules,
     library: Library | _Library | None = None,
+    cache: DrcCache | None = None,
 ) -> DrcResult:
     """Run DRC on a cell.
 
@@ -1988,6 +1990,12 @@ def run_drc(
         rules: DRC rules to apply
         library: Library containing referenced cells. If None and cell is a
                  Python Cell with Instance tracking, a Library is auto-built.
+        cache: Optional DrcCache reused across calls to make re-runs
+                 incremental (the ``rosette serve`` live-preview loop). A
+                 change to one cell then triggers DRC work proportional to
+                 that cell, not the whole design. Results are identical to a
+                 cache-free run; only the amount of work differs. The cache
+                 invalidates automatically when ``rules`` change.
 
     Returns:
         DrcResult with violations and statistics
@@ -2020,7 +2028,7 @@ def run_drc(
             lib.add_cell(cell)
             inner_library = lib._inner
 
-    return _run_drc(inner_cell, rules, inner_library)
+    return _run_drc(inner_cell, rules, inner_library, cache)
 
 
 # =============================================================================
@@ -2895,6 +2903,7 @@ __all__ = [
     "DfmConfig",
     "DfmResult",
     "DfmViolation",
+    "DrcCache",
     "DrcResult",
     "DrcRules",
     "DrcViolation",

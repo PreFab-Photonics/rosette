@@ -1627,10 +1627,29 @@ class DrcResult:
         ...
     def __repr__(self) -> str: ...
 
+class DrcCache:
+    """In-memory, cross-call DRC cache for the live-preview (``serve``) loop.
+
+    Hold a single instance across reloads and pass it to
+    :func:`run_drc` via ``cache=``. A change to one cell then triggers DRC
+    work proportional to that cell, not the whole design (ROS-548). The cache
+    is invalidated automatically when the rule set changes. In-memory only for
+    the process lifetime — there is no on-disk cache.
+    """
+
+    def __new__(cls) -> DrcCache: ...
+    def __len__(self) -> int:
+        """Number of cached cell entries (for diagnostics/tests)."""
+        ...
+    def clear(self) -> None:
+        """Drop all cached entries."""
+        ...
+
 def run_drc(
     cell: Cell,
     rules: DrcRules,
     library: Library | None = None,
+    cache: DrcCache | None = None,
 ) -> DrcResult:
     """Run DRC on a cell.
 
@@ -1639,6 +1658,9 @@ def run_drc(
         rules: DRC rules to apply
         library: Library containing referenced cells. If None, CellRefs
                  cannot be resolved and are skipped during flattening.
+        cache: Optional :class:`DrcCache` reused across calls to make
+               re-runs incremental (serve loop). Results are identical to a
+               cache-free run; only the amount of work differs.
 
     Returns:
         DrcResult with violations and statistics

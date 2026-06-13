@@ -20,6 +20,9 @@
 //!   for ROS-511).
 //! - `full_deck_realistic` — ~1K polygons, 3 layers, 2-level hierarchy,
 //!   realistic rule deck. Single "overall throughput" number.
+//! - `incremental` — cross-reload caching (ROS-548): a single-cell edit on a
+//!   warmed [`DrcCache`] (`cached_single_edit`) vs. a full uncached rerun
+//!   (`full_rerun`) over N ∈ {100, 1K} distinct leaf cells.
 //!
 //! See `benches/README.md` for how to interpret results and save baselines.
 
@@ -28,7 +31,8 @@ mod fixtures;
 use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use rosette_drc::{DrcRules, run_drc};
+use rosette_core::{Layer, Point, Polygon};
+use rosette_drc::{DrcCache, DrcRules, DrcRunner, run_drc};
 
 use fixtures::{L1, L2, L3};
 
@@ -349,6 +353,71 @@ fn bench_full_deck_realistic(c: &mut Criterion) {
     group.finish();
 }
 
+// --- incremental (ROS-548) ---------------------------------------------------
+
+// Number of distinct leaf cells in the incremental fixture. A single-cell
+// edit on a cached run should cost ~1/N of a full rerun.
+const INCREMENTAL_CELLS: &[usize] = &[100, 1_000];
+
+fn bench_incremental(c: &mut Criterion) {
+    let mut group = c.benchmark_group("incremental");
+    configure_group(&mut group);
+    let rules = DrcRules::new()
+        .min_width(L1, 0.1, Some("M1.W"))
+        .min_area(L1, 0.01, Some("M1.A"));
+
+    for &n in INCREMENTAL_CELLS {
+        let polys_per_cell = 10;
+        group.throughput(Throughput::Elements((n * polys_per_cell) as u64));
+
+        // Baseline: full uncached rerun every iteration (today's serve cost).
+        let (lib_full, top_name, _leaf) = fixtures::build_distinct_leaves(n, polys_per_cell);
+        let top_full = lib_full.cell(&top_name).expect("top").clone();
+        group.bench_with_input(BenchmarkId::new("full_rerun", n), &n, |b, _| {
+            b.iter(|| run_drc(black_box(&top_full), black_box(&rules), Some(&lib_full)));
+        });
+
+        // Incremental: warm the cache once, then each iteration edits a single
+        // leaf and re-runs through the same cache. Only the edited leaf (and
+        // the top cell, whose hash changes) is re-detected; the other N-1
+        // leaves are served from cache.
+        group.bench_with_input(BenchmarkId::new("cached_single_edit", n), &n, |b, _| {
+            let (mut lib, top_name, leaf_name) = fixtures::build_distinct_leaves(n, polys_per_cell);
+            let runner = DrcRunner::new(rules.clone());
+            let mut cache = DrcCache::new();
+            // Warm-up run to populate the cache for all N leaves.
+            {
+                let top = lib.cell(&top_name).expect("top").clone();
+                runner.check_cached(&top, Some(&lib), &mut cache);
+            }
+            let mut toggle = false;
+            b.iter(|| {
+                // Mutate one leaf so its content hash changes each iteration,
+                // forcing a real (single-cell) re-detection rather than the
+                // whole-design short-circuit.
+                toggle = !toggle;
+                let dy = if toggle { 0.5 } else { 0.0 };
+                if let Some(leaf) = lib.cell_mut(&leaf_name) {
+                    *leaf = {
+                        let mut c = rosette_core::Cell::new(&leaf_name);
+                        for p in 0..polys_per_cell {
+                            c.add_polygon(
+                                Polygon::rect(Point::new(p as f64 * 2.0, dy), 1.0, 1.0),
+                                Layer::new(1, 0),
+                            );
+                        }
+                        c
+                    };
+                }
+                let top = lib.cell(&top_name).expect("top").clone();
+                runner.check_cached(black_box(&top), Some(&lib), &mut cache)
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_pairwise_spacing,
@@ -359,5 +428,6 @@ criterion_group!(
     bench_min_width,
     bench_array_expansion,
     bench_full_deck_realistic,
+    bench_incremental,
 );
 criterion_main!(benches);

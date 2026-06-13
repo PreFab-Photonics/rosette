@@ -21,7 +21,7 @@ use dfm::{
     PyDfmConfig, PyDfmResult, PyDfmViolation, PyGaussianModel, PyLayerMetrics, PyLayerPrediction,
     py_run_dfm,
 };
-use drc::{PyDrcResult, PyDrcRules, PyDrcViolation, py_run_drc};
+use drc::{PyDrcCache, PyDrcResult, PyDrcRules, PyDrcViolation, py_run_drc};
 use geometry::{
     PyBBox, PyPoint, PyPolygon, PyPolygonIterator, PyTransform, PyVector2, py_arc_points,
     py_fresnel_c, py_fresnel_s, py_offset_polygon, py_offset_polygon_varying, py_path_length,
@@ -89,6 +89,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDrcRules>()?;
     m.add_class::<PyDrcResult>()?;
     m.add_class::<PyDrcViolation>()?;
+    m.add_class::<PyDrcCache>()?;
     m.add_function(wrap_pyfunction!(py_run_drc, m)?)?;
 
     // DFM types

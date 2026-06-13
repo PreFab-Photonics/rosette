@@ -293,7 +293,7 @@ DrcRules built from the configuration.
 
 </PyFunction>
 
-<PyFunction name={"run_drc"} type={"(cell, rules, library=None) -> DrcResult"}>
+<PyFunction name={"run_drc"} type={"(cell, rules, library=None, cache=None) -> DrcResult"}>
 
 Run DRC on a cell.
 
@@ -326,6 +326,13 @@ DRC rules to apply.
 <PyParameter name={"library"} type={"Library | None"} value={"None"}>
 
 Library containing referenced cells (required if cell has refs).
+
+</PyParameter>
+<PyParameter name={"cache"} type={"DrcCache | None"} value={"None"}>
+
+Optional [`DrcCache`](./DrcCache) reused across calls to make re-runs
+incremental (the `rosette serve` live-preview loop). Results are identical to
+a cache-free run; only the amount of work differs.
 
 </PyParameter>
 

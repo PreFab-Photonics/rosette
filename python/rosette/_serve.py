@@ -183,12 +183,17 @@ def _load_drc_rules_safe():
         return None
 
 
-def _run_drc_safe(cell, rules) -> dict | None:
+def _run_drc_safe(cell, rules, cache=None) -> dict | None:
     """Run DRC and serialize the result to a JSON-friendly dict for the viewer.
 
     Returns ``None`` when no rules are configured or the DRC engine raises, so
     a DRC failure degrades gracefully to "no violations shown" rather than
     killing the reload.
+
+    When ``cache`` (a :class:`rosette.DrcCache`) is supplied, DRC re-runs are
+    incremental: a change to one cell only re-checks that cell and its
+    dependents, rather than the full design every reload (ROS-548). Results
+    are identical to a cache-free run.
 
     The ``bbox`` is in top-level flattened global coordinates (the same frame
     the viewer renders), so no transform is needed downstream.
@@ -198,7 +203,7 @@ def _run_drc_safe(cell, rules) -> dict | None:
     try:
         from rosette import run_drc
 
-        result = run_drc(cell, rules)
+        result = run_drc(cell, rules, cache=cache)
     except Exception as e:  # never let DRC break live preview
         print(f"drc error: {e}")
         return None
@@ -536,11 +541,19 @@ def serve_design(
     tauri_proc = None
 
     if design:
+        # One DRC cache held for the whole serve session so re-runs on each
+        # reload are incremental: a change to one cell only re-checks that
+        # cell and its dependents (ROS-548). The cache invalidates itself when
+        # the [drc] rule set changes.
+        from rosette import DrcCache
+
+        drc_cache = DrcCache()
+
         cell, file_path, _ = load_design(design)
         json_str, cell_tree = _prepare_design(cell)
         layer_defs = _load_layer_map_safe()
         drc_rules = _load_drc_rules_safe()
-        drc = _run_drc_safe(cell, drc_rules)
+        drc = _run_drc_safe(cell, drc_rules, drc_cache)
 
         server.set_design_json(
             json_str,
@@ -595,7 +608,7 @@ def serve_design(
                     # Reload DRC rules each iteration so edits to the [drc]
                     # section in rosette.toml take effect live.
                     drc_rules = _load_drc_rules_safe()
-                    drc = _run_drc_safe(cell, drc_rules)
+                    drc = _run_drc_safe(cell, drc_rules, drc_cache)
 
                     server.set_design_json(
                         json_str,

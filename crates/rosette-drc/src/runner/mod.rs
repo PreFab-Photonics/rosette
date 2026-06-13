@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use rosette_core::cell::Element;
 use rosette_core::{BBox, Cell, Layer, Library, Point, Polygon, Transform, offset_polygon};
 
+use crate::cache::{CachedCell, ContentHash, DrcCache, cell_content_hash};
 use crate::checks::{
     check_acute_angle, check_angles, check_area, check_density, check_edge_length,
     check_enclosure_bulk, check_forbid_overlap_bulk, check_max_width, check_not_inside,
@@ -14,6 +15,45 @@ use crate::checks::{
 };
 use crate::rules::{DrcRules, Rule};
 use crate::violation::{DrcViolation, RuleType, Severity};
+
+/// Cache key for the per-unique-cell detection cache used in Phases 1 and 2.
+///
+/// In a one-shot run (no [`DrcCache`]) detection is deduped per cell *name*
+/// within the run. In a cached run (serve loop) it is keyed on the
+/// transitive content *hash* so results survive across reloads and a rename
+/// alone is a cache hit. Both live in a `HashMap<DetectionKey, _>`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum DetectionKey {
+    /// One-shot run: dedup per cell name.
+    Name(String),
+    /// Cached run: dedup per transitive content hash.
+    Hash(ContentHash),
+}
+
+/// Mutable context threaded through the Phase-1/Phase-2 recursion: the
+/// per-unique-cell detection cache plus the keying strategy (name vs content
+/// hash). Bundled into one struct so the recursive checkers stay within a
+/// sane argument count.
+struct DetectionCtx<'a> {
+    cache: HashMap<DetectionKey, Vec<DrcViolation>>,
+    name_to_hash: &'a HashMap<String, ContentHash>,
+    caching: bool,
+}
+
+impl DetectionCtx<'_> {
+    /// Resolve the detection-cache key for `cell`: content hash when caching
+    /// (so detection survives across serve reloads and a rename is a hit),
+    /// otherwise the cell name (one-shot dedup within a run).
+    fn key(&self, cell: &Cell) -> DetectionKey {
+        if self.caching
+            && let Some(hash) = self.name_to_hash.get(cell.name())
+        {
+            DetectionKey::Hash(*hash)
+        } else {
+            DetectionKey::Name(cell.name().to_string())
+        }
+    }
+}
 
 /// Statistics from a DRC run.
 #[derive(Debug, Clone)]
@@ -362,7 +402,53 @@ impl DrcRunner {
     /// * `cell` - The cell to check
     /// * `library` - Optional library containing referenced cells
     pub fn check(&self, cell: &Cell, library: Option<&Library>) -> DrcResult {
+        self.check_with_cache(cell, library, None)
+    }
+
+    /// Run DRC reusing per-cell detection results cached across calls.
+    ///
+    /// This is the incremental path used by the `rosette serve` live-preview
+    /// loop (ROS-548). Phase-1 (per-polygon) and Phase-2 (intra-cell
+    /// same-layer pairwise) detection results are memoised in `cache` keyed on
+    /// each cell's transitive content hash, so a reload that only edits one
+    /// cell re-detects just that cell (and its ancestors, whose hashes
+    /// change) rather than the whole design. Phase-3 (inter-instance) and the
+    /// transform-dependent / post-filter passes still run every call because
+    /// they depend on the full transform tree.
+    ///
+    /// When the top cell's content hash and the rule set are both unchanged
+    /// since the previous call, the entire run is short-circuited and the
+    /// per-cell caches are simply reused with no re-detection at all.
+    ///
+    /// Results are identical to [`Self::check`] on the same inputs; the cache
+    /// only affects *how much work* is done, never *which violations* are
+    /// reported.
+    pub fn check_cached(
+        &self,
+        cell: &Cell,
+        library: Option<&Library>,
+        cache: &mut DrcCache,
+    ) -> DrcResult {
+        self.check_with_cache(cell, library, Some(cache))
+    }
+
+    fn check_with_cache(
+        &self,
+        cell: &Cell,
+        library: Option<&Library>,
+        mut cache: Option<&mut DrcCache>,
+    ) -> DrcResult {
         let start = Instant::now();
+
+        // If a cache is supplied, recompute the transitive content hashes for
+        // every cell up front (cheap relative to detection) and invalidate the
+        // whole cache when the rule set changed.
+        let mut name_to_hash: HashMap<String, ContentHash> = HashMap::new();
+        let mut rules_fp: u64 = 0;
+        let caching = cache.is_some();
+        if caching {
+            cell_content_hash(cell, library, &mut name_to_hash);
+        }
 
         // Classify rules into three categories:
         // 1. Per-polygon, transform-invariant (width, area, angles, etc.)
@@ -390,19 +476,59 @@ impl DrcRunner {
             }
         }
 
+        // Seed the local per-phase detection contexts. When caching,
+        // pre-populate them from the persistent cache so unchanged cells skip
+        // re-detection entirely; entries are written back after the run.
+        let mut phase1_ctx = DetectionCtx {
+            cache: HashMap::new(),
+            name_to_hash: &name_to_hash,
+            caching,
+        };
+        let mut phase2_ctx = DetectionCtx {
+            cache: HashMap::new(),
+            name_to_hash: &name_to_hash,
+            caching,
+        };
+
+        if let Some(cache) = cache.as_deref_mut() {
+            rules_fp = cache.sync_rules(&self.rules);
+
+            // Whole-design short-circuit: if the top cell's content hash and
+            // the rule set are both unchanged since the last run, the entire
+            // previous result is reproducible — return it verbatim (with a
+            // refreshed elapsed time) without re-running any phase.
+            if let Some(top_hash) = name_to_hash.get(cell.name())
+                && let Some(prev) = cache.reusable_result(*top_hash, rules_fp)
+            {
+                let mut result = prev.clone();
+                result.stats.elapsed = start.elapsed();
+                return result;
+            }
+
+            for hash in name_to_hash.values() {
+                if let Some(entry) = cache.get(*hash) {
+                    phase1_ctx
+                        .cache
+                        .insert(DetectionKey::Hash(*hash), entry.phase1.clone());
+                    phase2_ctx
+                        .cache
+                        .insert(DetectionKey::Hash(*hash), entry.phase2.clone());
+                }
+            }
+        }
+
         let mut violations = Vec::new();
 
         // Phase 1: Per-polygon rules — detect each unique cell once, emit
         // per-instance with `location` transformed into top-level global
         // coords and `cell_name` set to the owning cell.
-        let mut per_polygon_cache: HashMap<String, Vec<DrcViolation>> = HashMap::new();
         if !per_polygon_rules.is_empty() {
             self.check_per_polygon_hierarchical(
                 cell,
                 library,
                 &per_polygon_rules,
                 &Transform::identity(),
-                &mut per_polygon_cache,
+                &mut phase1_ctx,
                 &mut violations,
             );
         }
@@ -414,13 +540,12 @@ impl DrcRunner {
             // Phase 2: Intra-cell same-layer pairwise — same detect-once,
             // emit-per-instance model as Phase 1.
             if !pairwise_rules.is_empty() {
-                let mut intra_cache: HashMap<String, Vec<DrcViolation>> = HashMap::new();
                 self.check_intra_cell_pairwise(
                     cell,
                     library,
                     &pairwise_rules,
                     &Transform::identity(),
-                    &mut intra_cache,
+                    &mut phase2_ctx,
                     &mut violations,
                 );
             }
@@ -499,7 +624,42 @@ impl DrcRunner {
         let waiver_regions = collect_waiver_regions(cell, library);
         let (kept_violations, waived_count) = apply_waiver_filter(kept_violations, &waiver_regions);
 
-        DrcResult {
+        // Write the per-cell detection results back into the persistent cache
+        // so the next reload can reuse them, and record the top-cell
+        // fingerprint for the whole-design short-circuit. Only content-hash
+        // keyed entries (rigid instances under a cache) are persisted; name
+        // keys from the one-shot path are ignored.
+        //
+        // Invariant this relies on: when only per-polygon rules are configured
+        // (Phase 2 never runs) the resulting `CachedCell` has an empty
+        // `phase2`, and vice versa. That is correct *because* a phase that
+        // didn't run genuinely contributes zero violations under the current
+        // rule set, and `sync_rules` clears the entire cache whenever the rule
+        // set changes. If `sync_rules` is ever made more granular (e.g.
+        // invalidating only the affected rule categories), this write-back
+        // would need to merge with — not overwrite — any existing entry to
+        // avoid persisting a falsely-empty phase.
+        if let Some(cache) = cache.as_deref_mut() {
+            let mut entries: HashMap<ContentHash, CachedCell> = HashMap::new();
+            for (key, phase1) in &phase1_ctx.cache {
+                if let DetectionKey::Hash(h) = key {
+                    entries.entry(*h).or_default().phase1 = phase1.clone();
+                }
+            }
+            for (key, phase2) in &phase2_ctx.cache {
+                if let DetectionKey::Hash(h) = key {
+                    entries.entry(*h).or_default().phase2 = phase2.clone();
+                }
+            }
+            for (h, entry) in entries {
+                cache.insert(h, entry);
+            }
+            if let Some(top_hash) = name_to_hash.get(cell.name()) {
+                cache.set_last_top(*top_hash, rules_fp);
+            }
+        }
+
+        let result = DrcResult {
             violations: kept_violations,
             stats: DrcStats {
                 polygons_checked,
@@ -509,7 +669,15 @@ impl DrcRunner {
                 waived_violations: waived_count,
                 skipped_cells: skipped_closure.len(),
             },
+        };
+
+        // Persist the full result so an unchanged-design reload can be served
+        // by the whole-design short-circuit above.
+        if let Some(cache) = cache {
+            cache.set_last_result(result.clone());
         }
+
+        result
     }
 
     /// Check per-polygon rules hierarchically, visiting each unique cell once.
@@ -529,22 +697,21 @@ impl DrcRunner {
         library: Option<&Library>,
         rules: &[&Rule],
         transform: &Transform,
-        detection_cache: &mut HashMap<String, Vec<DrcViolation>>,
+        ctx: &mut DetectionCtx<'_>,
         violations: &mut Vec<DrcViolation>,
     ) {
         if transform.is_rigid() {
             // Rigid transform: per-polygon properties are invariant. Detect
             // once per unique cell, cache the local-frame violations.
-            let cached = detection_cache
-                .entry(cell.name().to_string())
-                .or_insert_with(|| {
-                    let local_polygons = self.collect_local_polygons(cell);
-                    let mut out = Vec::new();
-                    for rule in rules {
-                        out.extend(self.check_rule(rule, &local_polygons));
-                    }
-                    out
-                });
+            let key = ctx.key(cell);
+            let cached = ctx.cache.entry(key).or_insert_with(|| {
+                let local_polygons = self.collect_local_polygons(cell);
+                let mut out = Vec::new();
+                for rule in rules {
+                    out.extend(self.check_rule(rule, &local_polygons));
+                }
+                out
+            });
             // Emit one violation per rigid instance with transformed location.
             for template in cached.iter() {
                 let mut v = template.clone();
@@ -587,7 +754,7 @@ impl DrcRunner {
                         Some(lib),
                         rules,
                         &combined,
-                        detection_cache,
+                        ctx,
                         violations,
                     );
                 }
@@ -617,13 +784,14 @@ impl DrcRunner {
         library: Option<&Library>,
         rules: &[&Rule],
         transform: &Transform,
-        detection_cache: &mut HashMap<String, Vec<DrcViolation>>,
+        ctx: &mut DetectionCtx<'_>,
         violations: &mut Vec<DrcViolation>,
     ) {
         let cell_name = cell.name().to_string();
         if transform.is_rigid() {
             // Rigid: distances are invariant, cache per unique cell.
-            let cached = detection_cache.entry(cell_name.clone()).or_insert_with(|| {
+            let key = ctx.key(cell);
+            let cached = ctx.cache.entry(key).or_insert_with(|| {
                 let local_polygons = self.collect_local_polygons(cell);
                 let mut out = Vec::new();
                 for rule in rules {
@@ -673,7 +841,7 @@ impl DrcRunner {
                         Some(lib),
                         rules,
                         &combined,
-                        detection_cache,
+                        ctx,
                         violations,
                     );
                 }

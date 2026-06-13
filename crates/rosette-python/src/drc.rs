@@ -2,7 +2,7 @@
 
 use pyo3::prelude::*;
 
-use rosette_drc::{DrcResult, DrcRules, DrcRunner, DrcViolation, RuleType, Severity};
+use rosette_drc::{DrcCache, DrcResult, DrcRules, DrcRunner, DrcViolation, RuleType, Severity};
 
 use crate::extract_layer;
 use crate::layout::{PyCell, PyLibrary};
@@ -507,9 +507,51 @@ impl PyDrcResult {
 
 /// Run DRC on a cell.
 #[pyfunction]
-#[pyo3(name = "run_drc", signature = (cell, rules, library=None))]
-pub fn py_run_drc(cell: &PyCell, rules: &PyDrcRules, library: Option<&PyLibrary>) -> PyDrcResult {
+#[pyo3(name = "run_drc", signature = (cell, rules, library=None, cache=None))]
+pub fn py_run_drc(
+    cell: &PyCell,
+    rules: &PyDrcRules,
+    library: Option<&PyLibrary>,
+    cache: Option<&Bound<'_, PyDrcCache>>,
+) -> PyDrcResult {
     let lib_ref = library.map(|l| &l.0);
-    let result = DrcRunner::new(rules.0.clone()).check(&cell.0, lib_ref);
+    let runner = DrcRunner::new(rules.0.clone());
+    let result = match cache {
+        // Incremental path (serve loop): reuse per-cell detection results
+        // across calls via the supplied cache. Identical violations to the
+        // one-shot path; only the amount of work differs.
+        Some(cache) => {
+            let mut cache = cache.borrow_mut();
+            runner.check_cached(&cell.0, lib_ref, &mut cache.0)
+        }
+        None => runner.check(&cell.0, lib_ref),
+    };
     PyDrcResult(result)
+}
+
+/// In-memory, cross-call DRC cache for the live-preview (`serve`) loop.
+///
+/// Hold a single instance across reloads and pass it to `run_drc(...,
+/// cache=...)`. A change to one cell then triggers DRC work proportional to
+/// that cell, not the whole design (ROS-548). The cache is invalidated
+/// automatically when the rule set changes.
+#[pyclass(name = "DrcCache")]
+pub struct PyDrcCache(pub DrcCache);
+
+#[pymethods]
+impl PyDrcCache {
+    #[new]
+    fn new() -> Self {
+        PyDrcCache(DrcCache::new())
+    }
+
+    /// Number of cached cell entries (for diagnostics/tests).
+    fn __len__(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Drop all cached entries.
+    fn clear(&mut self) {
+        self.0 = DrcCache::new();
+    }
 }

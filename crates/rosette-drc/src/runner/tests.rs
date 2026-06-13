@@ -2180,3 +2180,218 @@ fn waive_region_and_drc_skip_not_double_counted() {
     assert_eq!(result.stats.suppressed_violations, 1);
     assert_eq!(result.stats.waived_violations, 0);
 }
+
+// --- Incremental cache tests (ROS-548) ---
+
+use crate::cache::{DrcCache, cell_content_hash};
+use std::collections::HashMap;
+
+/// A stable, order-independent fingerprint of a result's violations, so a
+/// cached run can be compared against a fresh full run regardless of the
+/// order in which violations were emitted.
+fn violation_fingerprint(result: &DrcResult) -> Vec<String> {
+    let mut keys: Vec<String> = result
+        .violations
+        .iter()
+        .map(|v| {
+            let (min, max) = (v.location.min(), v.location.max());
+            format!(
+                "{:?}|{:?}|{:?}|{:?}|{:?}|{:.6},{:.6},{:.6},{:.6}",
+                v.rule_type,
+                v.severity,
+                v.layer,
+                v.cell_name,
+                v.cell_name2,
+                min.x,
+                min.y,
+                max.x,
+                max.y,
+            )
+        })
+        .collect();
+    keys.sort();
+    keys
+}
+
+fn assert_same_violations(cached: &DrcResult, fresh: &DrcResult) {
+    assert_eq!(
+        violation_fingerprint(cached),
+        violation_fingerprint(fresh),
+        "cached run must produce identical violations to a full rerun"
+    );
+    assert_eq!(
+        cached.stats.suppressed_violations,
+        fresh.stats.suppressed_violations
+    );
+    assert_eq!(
+        cached.stats.waived_violations,
+        fresh.stats.waived_violations
+    );
+}
+
+#[test]
+fn content_hash_ignores_cell_name() {
+    let mut a = Cell::new("alpha");
+    a.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
+    let mut b = Cell::new("beta");
+    b.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
+
+    let mut memo = HashMap::new();
+    let ha = cell_content_hash(&a, None, &mut memo);
+    let mut memo2 = HashMap::new();
+    let hb = cell_content_hash(&b, None, &mut memo2);
+    assert_eq!(ha, hb, "rename alone must not change the content hash");
+}
+
+#[test]
+fn content_hash_changes_on_geometry_edit() {
+    let mut a = Cell::new("c");
+    a.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
+    let mut b = Cell::new("c");
+    b.add_polygon(Polygon::rect(Point::origin(), 2.0, 3.0), Layer::new(1, 0));
+
+    let mut m1 = HashMap::new();
+    let mut m2 = HashMap::new();
+    assert_ne!(
+        cell_content_hash(&a, None, &mut m1),
+        cell_content_hash(&b, None, &mut m2),
+        "a geometry edit must change the content hash"
+    );
+}
+
+#[test]
+fn content_hash_is_transitive() {
+    // Editing a leaf cell must change the top cell's hash.
+    let make = |leaf_h: f64| {
+        let mut leaf = Cell::new("leaf");
+        leaf.add_polygon(
+            Polygon::rect(Point::origin(), 1.0, leaf_h),
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("leaf").at(0.0, 0.0));
+        let mut lib = Library::new("lib");
+        lib.add_cell(leaf).unwrap();
+        lib.add_cell(top.clone()).unwrap();
+        (top, lib)
+    };
+    let (top1, lib1) = make(1.0);
+    let (top2, lib2) = make(2.0);
+    let mut m1 = HashMap::new();
+    let mut m2 = HashMap::new();
+    assert_ne!(
+        cell_content_hash(&top1, Some(&lib1), &mut m1),
+        cell_content_hash(&top2, Some(&lib2), &mut m2),
+        "editing a referenced leaf must change the ancestor's hash"
+    );
+}
+
+#[test]
+fn cached_matches_fresh_flat_cell() {
+    let mut cell = Cell::new("test");
+    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+    let rules = DrcRules::new()
+        .min_width(Layer::new(1, 0), 0.5, Some("W"))
+        .min_area(Layer::new(1, 0), 10.0, Some("A"));
+
+    let runner = DrcRunner::new(rules.clone());
+    let mut cache = DrcCache::new();
+    let cached = runner.check_cached(&cell, None, &mut cache);
+    let fresh = run_drc(&cell, &rules, None);
+    assert_same_violations(&cached, &fresh);
+
+    // Second call hits the whole-design short-circuit; result is unchanged.
+    let cached2 = runner.check_cached(&cell, None, &mut cache);
+    assert_same_violations(&cached2, &fresh);
+}
+
+#[test]
+fn cached_matches_fresh_hierarchy() {
+    let mut child = Cell::new("child");
+    child.add_polygon(Polygon::rect(Point::origin(), 10.0, 0.05), Layer::new(1, 0));
+    let mut top = Cell::new("top");
+    top.add_ref(CellRef::new("child").array(3, 2, 12.0, 1.0));
+    let mut lib = Library::new("lib");
+    lib.add_cell(child).unwrap();
+    lib.add_cell(top.clone()).unwrap();
+
+    let rules = DrcRules::new()
+        .min_width(Layer::new(1, 0), 0.5, None)
+        .min_spacing(Layer::new(1, 0), Layer::new(1, 0), 0.5, None);
+
+    let runner = DrcRunner::new(rules.clone());
+    let mut cache = DrcCache::new();
+    let cached = runner.check_cached(&top, Some(&lib), &mut cache);
+    let fresh = run_drc(&top, &rules, Some(&lib));
+    assert_same_violations(&cached, &fresh);
+}
+
+#[test]
+fn cache_invalidates_on_rules_change() {
+    let mut cell = Cell::new("c");
+    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.3), Layer::new(1, 0));
+
+    let mut cache = DrcCache::new();
+
+    let lenient = DrcRules::new().min_width(Layer::new(1, 0), 0.1, None);
+    let r1 = DrcRunner::new(lenient.clone()).check_cached(&cell, None, &mut cache);
+    assert!(r1.passed(), "0.3 width passes a 0.1 min_width");
+
+    // Tighten the rule: the same geometry must now fail, even though the cell
+    // content hash is unchanged — the rules fingerprint differs so the cache
+    // is invalidated.
+    let strict = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let r2 = DrcRunner::new(strict.clone()).check_cached(&cell, None, &mut cache);
+    let fresh = run_drc(&cell, &strict, None);
+    assert_same_violations(&r2, &fresh);
+    assert!(
+        !r2.passed(),
+        "0.3 width must fail a 0.5 min_width after rule change"
+    );
+}
+
+#[test]
+fn cached_tracks_edit_sequence_like_full_rerun() {
+    // Property-style check: a sequence of edits reusing one cache must, at
+    // every step, agree with a fresh full rerun. Covers: edit a referenced
+    // leaf, rename the top, add a sibling instance, and revert.
+    let rules = DrcRules::new()
+        .min_width(Layer::new(1, 0), 0.5, None)
+        .min_spacing(Layer::new(1, 0), Layer::new(1, 0), 0.5, None);
+    let runner = DrcRunner::new(rules.clone());
+    let mut cache = DrcCache::new();
+
+    // Build a fresh (top, lib) for a given leaf height + top name + instance
+    // count, so each "edit" is just a rebuild with different parameters.
+    let build = |leaf_h: f64, top_name: &str, instances: usize| {
+        let mut child = Cell::new("child");
+        child.add_polygon(
+            Polygon::rect(Point::origin(), 10.0, leaf_h),
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new(top_name);
+        for i in 0..instances {
+            top.add_ref(CellRef::new("child").at(i as f64 * 12.0, 0.0));
+        }
+        let mut lib = Library::new("lib");
+        lib.add_cell(child).unwrap();
+        lib.add_cell(top.clone()).unwrap();
+        (top, lib)
+    };
+
+    let edits = [
+        (0.05, "top", 1),     // leaf too thin -> width violation
+        (0.05, "top", 1),     // no change -> short-circuit
+        (2.0, "top", 1),      // widen leaf -> violation clears
+        (2.0, "renamed", 1),  // rename top -> hash of leaf unchanged
+        (0.05, "renamed", 3), // thin again + more instances
+        (2.0, "renamed", 3),  // widen again
+    ];
+
+    for (leaf_h, name, n) in edits {
+        let (top, lib) = build(leaf_h, name, n);
+        let cached = runner.check_cached(&top, Some(&lib), &mut cache);
+        let fresh = run_drc(&top, &rules, Some(&lib));
+        assert_same_violations(&cached, &fresh);
+    }
+}

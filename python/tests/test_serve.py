@@ -1,6 +1,6 @@
 """Tests for DRC integration in the rosette._serve live-preview helpers."""
 
-from rosette import Cell, DrcRules, Layer, Point, Polygon
+from rosette import Cell, DrcCache, DrcRules, Layer, Point, Polygon
 from rosette._serve import _run_drc_safe
 
 
@@ -57,3 +57,38 @@ class TestRunDrcSafe:
 
         assert payload is not None
         assert payload["violations"][0]["rule"] == "min_width"
+
+
+class TestRunDrcSafeCache:
+    """A reused DrcCache must not change which violations the viewer sees."""
+
+    def test_cache_reuse_matches_uncached(self):
+        cell = Cell("test")
+        cell.add_polygon(Polygon.rect(Point.origin(), 0.05, 5.0), Layer(1, 0))
+        rules = DrcRules().min_width(Layer(1, 0), 1.0, name="MIN_W")
+
+        cache = DrcCache()
+        first = _run_drc_safe(cell, rules, cache)
+        # Second call with the same (unchanged) design hits the whole-design
+        # short-circuit; payload must be identical.
+        second = _run_drc_safe(cell, rules, cache)
+        uncached = _run_drc_safe(cell, rules)
+
+        assert first == second == uncached
+
+    def test_cache_tracks_edits(self):
+        rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
+        cache = DrcCache()
+
+        # Start clean (wide enough), then edit to a too-thin polygon: the
+        # cached path must reflect the new violation.
+        clean = Cell("test")
+        clean.add_polygon(Polygon.rect(Point.origin(), 2.0, 5.0), Layer(1, 0))
+        assert _run_drc_safe(clean, rules, cache)["passed"] is True
+
+        thin = Cell("test")
+        thin.add_polygon(Polygon.rect(Point.origin(), 0.05, 5.0), Layer(1, 0))
+        cached = _run_drc_safe(thin, rules, cache)
+        uncached = _run_drc_safe(thin, rules)
+        assert cached["passed"] is False
+        assert cached == uncached

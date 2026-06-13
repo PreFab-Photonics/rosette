@@ -36,11 +36,13 @@
 //! }
 //! ```
 
+mod cache;
 mod checks;
 mod rules;
 mod runner;
 mod violation;
 
+pub use cache::{ContentHash, DrcCache, cell_content_hash};
 pub use rules::{DrcRules, Rule};
 pub use runner::{DrcResult, DrcRunner, DrcStats, run_drc};
 pub use violation::{DrcViolation, RuleType, Severity};
