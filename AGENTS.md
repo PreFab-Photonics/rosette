@@ -6,8 +6,11 @@ Layout editor for integrated photonic circuits. Rust core with Python bindings, 
 
 ```
 crates/rosette-core     Geometry, layout, routing, cell hierarchy
+crates/rosette-checks   Check framework (orchestrates DRC, ...)
 crates/rosette-drc      Design rule checking
+crates/rosette-dfm      Design-for-manufacturing models
 crates/rosette-io       GDS-II reader/writer
+crates/rosette-raster   Rasterization
 crates/rosette-python   PyO3 bindings -> rosette._core
 crates/rosette-wasm     WASM + WebGPU renderer
 
@@ -30,7 +33,7 @@ uv run pytest python/tests/test_file.py::Test -v   # Single Python test
 
 cargo fmt && cargo clippy -- -D warnings           # Rust lint
 uv run ruff check python/ && uv run ruff format python/  # Python lint
-bun lint && bun fmt                                # App lint (run from app/)
+bun run lint && bun run fmt                        # App lint (run from app/)
 
 bun dev                                            # App dev server (from app/)
 bun run build:wasm                                 # Rebuild WASM (from app/)
@@ -43,9 +46,12 @@ rosette init                                       # Scaffold a new project
 rosette serve [designs/file.py]                    # Dev server with live preview
 rosette build designs/file.py                      # Build design to GDS
 rosette build designs/file.py --check              # Build with DRC pre-check
-rosette check designs/file.py                      # Run all checks (DRC, ...)
+rosette check designs/file.py                      # Run all checks (DRC, design checks; --include-dfm)
 rosette drc designs/file.py                        # Run DRC only
+rosette dfm designs/file.py                        # Run DFM prediction (--gds writes predicted polygons)
+rosette shot designs/file.py -o out.png            # Render a design region to PNG (AI visual inspection)
 rosette run output/file.gds                        # View a GDS file
+rosette update                                     # Update AGENTS.md to latest template
 rosette --version                                  # Print version
 ```
 
@@ -59,4 +65,11 @@ rosette --version                                  # Print version
 
 **Templates:** `rosette init` copies from `python/rosette/templates/blank/` or `python/rosette/templates/generic/`. Check if changes need template updates.
 
-**API docs:** Every symbol in `__all__` (in `python/rosette/__init__.py`) must have a corresponding docs page in `www/content/docs/api-reference/`. Classes get their own `.mdx` file, functions and constants are documented on `index.mdx`. Run `uv run python www/scripts/check-api-docs.py` to verify. When adding or changing a public API symbol, update the docs page to match.
+**API docs:** Every `__all__` symbol (in `python/rosette/__init__.py`) needs a docs page in `www/content/docs/api-reference/` — classes get their own `.mdx`, functions/constants go on `index.mdx`. Verify with `uv run python www/scripts/check-api-docs.py`; update docs when changing public API.
+
+## Bundling & Release
+
+The wheel embeds two gitignored bundles, regenerated before any local wheel build (CI does this automatically on `v*` tags):
+
+- **Web app** (`python/rosette/_webapp/`): viewer served by `rosette serve`/`run`. Build with `scripts/bundle_webapp.py` (runs `bun run build` in `app/`, copies `app/dist/`). Included via `pyproject.toml` `include`.
+- **Rust source** (`python/rosette/_source/`): copies of `rosette-core`/`-python`/`-io` source for agent reference. Build with `scripts/bundle_source.py`.
