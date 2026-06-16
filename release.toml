@@ -1,7 +1,7 @@
 # cargo-release configuration
 # Usage:
-#   cargo release 0.2.0          # dry run (preview)
-#   cargo release 0.2.0 --execute # actually release
+#   cargo release X.Y.Z          # dry run (preview)
+#   cargo release X.Y.Z --execute # actually release
 #
 # This bumps the workspace version in root Cargo.toml, commits, and tags.
 # The v* tag triggers the Python release workflow (PyPI publish).
