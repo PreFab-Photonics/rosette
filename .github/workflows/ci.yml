@@ -32,8 +32,14 @@ jobs:
         run: cargo test
 
   python:
-    name: Python
+    name: Python (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test the oldest and newest supported versions (the edges where
+        # build/ABI breakage is most likely). 3.12/3.13 are covered by release.
+        python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@v6
 
@@ -44,19 +50,21 @@ jobs:
       - uses: astral-sh/setup-uv@v7
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --python ${{ matrix.python-version }}
 
       - name: Build native extension
-        run: uv run maturin develop
+        run: uv run --python ${{ matrix.python-version }} maturin develop
 
       - name: Lint
+        if: matrix.python-version == '3.11'
         run: uv run ruff check python/
 
       - name: Check formatting
+        if: matrix.python-version == '3.11'
         run: uv run ruff format --check python/
 
       - name: Test
-        run: uv run pytest
+        run: uv run --python ${{ matrix.python-version }} pytest
 
   app:
     name: App
