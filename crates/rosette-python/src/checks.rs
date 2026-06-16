@@ -9,7 +9,7 @@ use rosette_checks::{
 use crate::layout::{PyCell, PyLibrary};
 
 /// Design check configuration.
-#[pyclass(name = "ChecksConfig")]
+#[pyclass(name = "ChecksConfig", from_py_object)]
 #[derive(Clone)]
 pub struct PyChecksConfig(pub ChecksConfig);
 
@@ -70,7 +70,7 @@ impl PyChecksConfig {
 }
 
 /// A single check violation.
-#[pyclass(name = "CheckViolation")]
+#[pyclass(name = "CheckViolation", from_py_object)]
 #[derive(Clone)]
 pub struct PyCheckViolation(pub CheckViolation);
 
@@ -144,7 +144,7 @@ impl PyCheckViolation {
 }
 
 /// Result of running design checks.
-#[pyclass(name = "ChecksResult")]
+#[pyclass(name = "ChecksResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyChecksResult(pub ChecksResult);
 

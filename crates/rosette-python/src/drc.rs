@@ -8,7 +8,7 @@ use crate::extract_layer;
 use crate::layout::{PyCell, PyLibrary};
 
 /// DRC rule builder.
-#[pyclass(name = "DrcRules")]
+#[pyclass(name = "DrcRules", from_py_object)]
 #[derive(Clone)]
 pub struct PyDrcRules(pub DrcRules);
 
@@ -271,7 +271,7 @@ impl PyDrcRules {
 }
 
 /// A single DRC violation.
-#[pyclass(name = "DrcViolation")]
+#[pyclass(name = "DrcViolation", from_py_object)]
 #[derive(Clone)]
 pub struct PyDrcViolation(pub DrcViolation);
 
@@ -366,7 +366,7 @@ impl PyDrcViolation {
 }
 
 /// Result of running DRC.
-#[pyclass(name = "DrcResult")]
+#[pyclass(name = "DrcResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyDrcResult(pub DrcResult);
 

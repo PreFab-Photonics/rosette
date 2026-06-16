@@ -9,7 +9,7 @@ use rosette_core::{BendInfo, Cell, CellRef, Layer, Library, Point, Port};
 use std::f64::consts::PI;
 
 /// GDS path end type.
-#[pyclass(name = "PathEndType")]
+#[pyclass(name = "PathEndType", from_py_object)]
 #[derive(Clone, Copy)]
 pub struct PyPathEndType(pub PathEndType);
 
@@ -44,7 +44,7 @@ impl PyPathEndType {
 }
 
 /// A GDS layer specification.
-#[pyclass(name = "Layer")]
+#[pyclass(name = "Layer", from_py_object)]
 #[derive(Clone)]
 pub struct PyLayer(pub Layer);
 
@@ -87,7 +87,7 @@ impl PyLayer {
 }
 
 /// A connection port on a component.
-#[pyclass(name = "Port")]
+#[pyclass(name = "Port", from_py_object)]
 #[derive(Clone)]
 pub struct PyPort(pub Port);
 
@@ -154,7 +154,7 @@ impl PyPort {
 }
 
 /// A reference to another cell with transformation.
-#[pyclass(name = "CellRef")]
+#[pyclass(name = "CellRef", from_py_object)]
 #[derive(Clone)]
 pub struct PyCellRef(pub CellRef);
 
@@ -338,7 +338,7 @@ impl PyCellRef {
 }
 
 /// A cell containing geometry and references to other cells.
-#[pyclass(name = "Cell")]
+#[pyclass(name = "Cell", from_py_object)]
 #[derive(Clone)]
 pub struct PyCell(pub Cell);
 
@@ -696,7 +696,7 @@ impl PyCell {
 }
 
 /// A library containing multiple cells.
-#[pyclass(name = "Library")]
+#[pyclass(name = "Library", from_py_object)]
 #[derive(Clone)]
 pub struct PyLibrary(pub Library);
 

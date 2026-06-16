@@ -8,7 +8,7 @@ use rosette_core::{
 use std::f64::consts::PI;
 
 /// A 2D point representing a position in space.
-#[pyclass(name = "Point")]
+#[pyclass(name = "Point", from_py_object)]
 #[derive(Clone)]
 pub struct PyPoint(pub Point);
 
@@ -77,7 +77,7 @@ impl PyPoint {
 }
 
 /// A 2D vector representing displacement or direction.
-#[pyclass(name = "Vector2")]
+#[pyclass(name = "Vector2", from_py_object)]
 #[derive(Clone)]
 pub struct PyVector2(pub Vector2);
 
@@ -173,7 +173,7 @@ impl PyVector2 {
 }
 
 /// A closed polygon defined by vertices.
-#[pyclass(name = "Polygon")]
+#[pyclass(name = "Polygon", from_py_object)]
 #[derive(Clone)]
 pub struct PyPolygon(pub Polygon);
 
@@ -347,7 +347,7 @@ impl PyPolygonIterator {
 }
 
 /// A 2D affine transformation.
-#[pyclass(name = "Transform")]
+#[pyclass(name = "Transform", from_py_object)]
 #[derive(Clone)]
 pub struct PyTransform(pub Transform);
 
@@ -408,7 +408,7 @@ impl PyTransform {
 }
 
 /// An axis-aligned bounding box.
-#[pyclass(name = "BBox")]
+#[pyclass(name = "BBox", from_py_object)]
 #[derive(Clone)]
 pub struct PyBBox(pub BBox);
 

@@ -14,7 +14,7 @@ use crate::geometry::PyPolygon;
 use crate::layout::{PyCell, PyLibrary};
 
 /// DFM prediction configuration.
-#[pyclass(name = "DfmConfig")]
+#[pyclass(name = "DfmConfig", from_py_object)]
 #[derive(Clone)]
 pub struct PyDfmConfig(pub DfmConfig);
 
@@ -186,7 +186,7 @@ impl PyDfmConfig {
 /// during lithography. The model produces continuous values in [0.0, 1.0]
 /// representing fabrication probability. Binarization is controlled by the
 /// contour_threshold parameter in DfmConfig.
-#[pyclass(name = "GaussianModel")]
+#[pyclass(name = "GaussianModel", from_py_object)]
 #[derive(Clone)]
 pub struct PyGaussianModel {
     /// Sigma in design units (user-facing).
@@ -231,7 +231,7 @@ impl PyGaussianModel {
 }
 
 /// Per-layer comparison metrics.
-#[pyclass(name = "LayerMetrics")]
+#[pyclass(name = "LayerMetrics", from_py_object)]
 #[derive(Clone)]
 pub struct PyLayerMetrics(pub LayerMetrics);
 
@@ -293,7 +293,7 @@ impl PyLayerMetrics {
 }
 
 /// A single DFM violation.
-#[pyclass(name = "DfmViolation")]
+#[pyclass(name = "DfmViolation", from_py_object)]
 #[derive(Clone)]
 pub struct PyDfmViolation(pub DfmViolation);
 
@@ -393,7 +393,7 @@ impl PyDfmViolation {
 }
 
 /// Prediction result for a single layer.
-#[pyclass(name = "LayerPrediction")]
+#[pyclass(name = "LayerPrediction", from_py_object)]
 #[derive(Clone)]
 pub struct PyLayerPrediction(pub LayerPrediction);
 
@@ -490,7 +490,7 @@ impl PyLayerPrediction {
 }
 
 /// Result of running DFM prediction.
-#[pyclass(name = "DfmResult")]
+#[pyclass(name = "DfmResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyDfmResult(pub DfmResult);
 
