@@ -174,9 +174,7 @@ def ring(
 
     is_adddrop = coupling == "adddrop"
 
-    cell = Cell(
-        safe_cell_name(f"ring_{coupling}_r{radius:.1f}_w{waveguide_width:.3f}_g{gap:.2f}")
-    )
+    cell = Cell(safe_cell_name(f"ring_{coupling}_r{radius:.1f}_w{waveguide_width:.3f}_g{gap:.2f}"))
 
     # Ring center position
     # Bus top edge is at waveguide_width/2, ring inner edge should be gap above that
