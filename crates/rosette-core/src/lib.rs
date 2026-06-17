@@ -11,6 +11,19 @@
 //! - [`component`]: Core component infrastructure (Route, connect_transform)
 //! - [`flatten`]: Library flattening for rendering
 //!
+//! ## Key types
+//!
+//! | Type | Description |
+//! |------|-------------|
+//! | [`Point`] | 2D coordinate (x, y) |
+//! | [`Polygon`] | Closed polygon defined by vertices |
+//! | [`Transform`] | Affine transformation (translate, rotate, scale, mirror) |
+//! | [`BBox`] | Axis-aligned bounding box |
+//! | [`Layer`] | GDS layer number and datatype |
+//! | [`Port`] | Named connection point with position and direction |
+//! | [`Cell`] | Container for geometry, can reference other cells |
+//! | [`CellRef`] | Reference to another cell with a transformation |
+//!
 //! **Note:** Photonic components (waveguides, bends, MMIs, etc.) are implemented
 //! in Python as user-customizable code. See `rosette.components`.
 
