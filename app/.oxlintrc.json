@@ -18,5 +18,5 @@
       "linkComponents": []
     }
   },
-  "ignorePatterns": []
+  "ignorePatterns": ["src/wasm/"]
 }
