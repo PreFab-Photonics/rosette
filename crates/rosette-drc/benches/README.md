@@ -8,7 +8,7 @@ and (b) detect regressions as the engine evolves.
 
 The initial baseline (captured on an Apple M1 Pro) is posted as a comment on
 [ROS-494](https://linear.app/prefabphotonics/issue/ROS-494/drc-performance-baseline-and-benchmarks).
-Compare local runs against it via the baseline flags above. Raw criterion
+Compare local runs against it via the baseline flags below. Raw criterion
 estimates live under `target/criterion/` (gitignored — they're per-machine).
 
 ## Running
@@ -50,10 +50,12 @@ flags statistically significant shifts.
 | `pairwise_spacing`   | `min_spacing` at N ∈ {100, 1K, 10K}, three densities     | R-tree path health; scales as N log N            |
 | `pairwise_overlap`   | `forbid_overlap` + `require_overlap` at same N sweep     | R-tree-backed overlap checks                     |
 | `pairwise_enclosure` | `enclosure` at {100, 1K} (capped low; see below)         | **Baseline for ROS-496** (enclosure is O(I·O) today) |
-| `per_polygon`        | `min_width` + self-int + edge-length, V ∈ {100, 1K}      | Per-polygon scaling (ray-casting, etc.)          |
+| `per_polygon`        | `min_width` + self-int + edge-length stacked, V ∈ {100, 1K} | Per-polygon scaling (ray-casting, etc.)       |
 | `self_intersection`  | dedicated sweep-line check, V ∈ {100, 1K, 10K}           | Sweep-line scaling (ROS-549) isolated from stack |
+| `min_width`          | `min_width` alone, V ∈ {100, 1K}                         | **Baseline for ROS-554** (min_width is O(V²) today) |
 | `array_expansion`    | Full deck on an AREF (10², 30², 100² copies)             | **Baseline for ROS-511** (AREF flattening cost)  |
 | `full_deck_realistic`| 1K polygons, 3 layers, 2-level hierarchy, mixed deck     | Overall throughput number                        |
+| `incremental`        | `full_rerun` vs `cached_single_edit`, N ∈ {100, 1K} cells | Detection-cache win: re-checking after a one-leaf edit |
 
 ### `pairwise_spacing` variants
 
@@ -77,16 +79,18 @@ rate alongside wall-clock. What "element" means varies:
 
 - `pairwise_spacing`, `pairwise_enclosure`: polygons on layer 1 (or inner layer).
 - `pairwise_overlap`: pair count (total polygons = 2 × n).
-- `per_polygon`, `self_intersection`: vertices in the polygon.
+- `per_polygon`, `self_intersection`, `min_width`: vertices in the polygon.
 - `array_expansion`: AREF copies. Each copy has 5 polygons, so the 100×100
   case flattens to 50K polygons.
 - `full_deck_realistic`: hardcoded to 1000 (approximate polygon count after
   flattening).
+- `incremental`: total polygons across all leaves (N cells × 10 polys/cell).
 
 ## Interpreting numbers — caveats
 
 **Phase-1 dedup makes hierarchical layouts look fast.** The DRC runner checks
-each unique cell definition once for per-polygon rules (`runner.rs:244`). The
+each unique cell definition once for per-polygon rules (the per-unique-cell
+detection cache in `runner/mod.rs`). The
 `array_expansion` bench therefore does *not* scale linearly with AREF size for
 per-polygon checks — those run once on the child and are trivially cheap.
 Pairwise checks (`min_spacing`, `forbid_overlap`) still pay the per-copy cost,
