@@ -13,7 +13,7 @@ autobenches = false
 rosette-core.workspace = true
 thiserror.workspace = true
 geo.workspace = true
-rstar = "0.12"
+rstar.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
