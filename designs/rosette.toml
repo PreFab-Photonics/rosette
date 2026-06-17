@@ -5,8 +5,8 @@
 name = "librosette"
 version = "0.1.0"
 
-[build]
-output_dir = "output"
+# Note: the output directory is set by the `rosette build -o/--output` flag
+# (default: "output/"), not by this config file.
 
 # =============================================================================
 # Layer Definitions
@@ -14,6 +14,14 @@ output_dir = "output"
 #
 # Named layers with GDS numbers and display properties.
 # Access in Python: layers = load_layer_map(); layers.silicon.layer
+#
+# Per-layer keys:
+#   number       - GDS layer number (required)
+#   datatype     - GDS datatype (default 0)
+#   color        - Hex display color, "#rrggbb" (default "#808080")
+#   fill         - Display fill: "solid", "hatched", "crosshatched", "dotted"
+#   opacity      - Display opacity, 0.0-1.0 (default 0.7)
+#   description  - Free-text label
 
 [layers.silicon]
 number = 1
@@ -31,7 +39,8 @@ description = "Slab / partial etch"
 number = 3
 datatype = 0
 color = "#2196f3"
-description = "Deep etch / trenches"
+fill = "hatched"
+description = "Marker / extent outline (also used for deep-etch trenches)"
 
 [layers.p_doping]
 number = 20
@@ -77,14 +86,31 @@ description = "Text annotations"
 #   acute_angle  - Minimum allowed convex interior angle (degrees; e.g. 60)
 #   no_overlap   - Forbid overlapping polygons on same layer
 #   no_self_intersection - Forbid self-intersecting polygons
+#   snap_to_grid - Require all vertices to lie on a grid of this pitch (um)
+#   density      - Area-fill density window (sub-table; see example below)
+#
+# Density is a sub-table, e.g.:
+#   [drc.layers.silicon.density]
+#   min = 0.20            # min fill fraction in each window
+#   max = 0.80            # max fill fraction in each window
+#   window = 100.0        # window size (um)
+#   step = 50.0           # window stride (um; default window/2)
+#   region_layer = "..."  # optional: only check inside this layer's polygons
 #
 # Supported inter-layer rules (in [[drc.rules]] section):
-#   enclosure    - Inner layer must be enclosed by outer layer
+#   enclosure    - Inner layer must be enclosed by outer layer (min_enclosure)
 #   spacing      - Minimum spacing between different layers
 #   require_overlap - Two layers must overlap
 #   forbid_overlap  - Two layers must not overlap
 #   not_inside   - Inner layer must not be fully contained inside outer layer
 #                  (keep-out / exclusion zone)
+#
+# Global DRC option:
+#   warning_margin - Near-miss margin (um). Geometry within this margin of a
+#                    limit is reported as a warning. Set <= 0 to disable.
+#                    Put it directly under the [drc] table, e.g.:
+#                        [drc]
+#                        warning_margin = 0.02
 #
 # =============================================================================
 
@@ -95,7 +121,8 @@ description = "Text annotations"
 min_width = 0.12      # Minimum waveguide width
 min_spacing = 0.13    # Minimum spacing between waveguides
 min_area = 0.01       # Minimum polygon area
-angles = [0, 90]      # Manhattan geometry only (0° and 90° edges)
+acute_angle = 60      # Min convex interior angle (deg); sharp tips are fab-risky
+# angles omitted — all edge angles allowed (curved/all-angle geometry permitted)
 no_overlap = true     # Forbid overlapping polygons on same layer
 
 # -----------------------------------------------------------------------------
@@ -107,7 +134,7 @@ min_spacing = 0.20    # Larger spacing requirement
 min_area = 0.05       # Minimum slab area
 
 # -----------------------------------------------------------------------------
-# Marker - Deep Etch / Trenches
+# Marker - Extent outline / deep etch
 # -----------------------------------------------------------------------------
 [drc.layers.marker]
 min_width = 0.25      # Minimum trench width
@@ -156,6 +183,28 @@ layer1 = "p_doping"       # P+ doping
 layer2 = "n_doping"       # N+ doping
 name = "PN_NOOVLP"        # P and N doping cannot overlap
 
+# Silicon must not sit fully inside an exclusion / keep-out zone.
+[[drc.rules]]
+type = "not_inside"
+inner = "silicon"         # feature layer
+outer = "exclusion"       # keep-out zone
+name = "EXCL_KEEPOUT"
+
+# Other inter-layer rule types (commented examples):
+#
+# [[drc.rules]]
+# type = "enclosure"        # inner must be enclosed by outer with a margin
+# inner = "silicon"
+# outer = "oxide"
+# min_enclosure = 0.10      # required surround (um)
+# name = "SI_IN_OX"
+#
+# [[drc.rules]]
+# type = "require_overlap"  # two layers must overlap somewhere
+# layer1 = "p_doping"
+# layer2 = "silicon"
+# name = "DOPE_ON_SI"
+
 # =============================================================================
 # DFM (Design for Manufacturability) Prediction
 # =============================================================================
@@ -177,7 +226,9 @@ padding = 1.0         # Margin around cell bounding box in um
 model = "gaussian"    # Prediction model (approximate — PreFab models coming soon)
 sigma = 0.08          # Gaussian sigma in um (models lithography proximity blur)
 threshold = 0.5       # Binarization threshold (0.0-1.0) — when is a pixel "filled"?
+                      #   (alias: contour_threshold; set only one)
 layers = ["silicon"]  # Layers to predict (waveguide layer)
+# keep_raster = false # Debug: keep intermediate rasters instead of discarding
 
 # Tolerances — deviations beyond these limits are reported as violations.
 # Note: the Gaussian model is an approximation. Set tolerances accordingly.

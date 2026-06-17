@@ -361,7 +361,8 @@ def bragg_grating(
 
     cell = Cell(
         safe_cell_name(
-            f"bg_w{waveguide_width:.3f}_p{period:.3f}_c{corrugation_width:.3f}_n{num_periods}"
+            f"bg_w{waveguide_width:.3f}_p{period:.3f}_c{corrugation_width:.3f}"
+            f"_n{num_periods}_{apodization[:3]}"
         )
     )
     cell.add_polygon(Polygon(vertices), layer)

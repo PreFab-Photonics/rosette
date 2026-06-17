@@ -538,6 +538,16 @@ class TestRing:
         assert "add" in ports
         assert "drop" in ports
 
+    def test_cell_name_distinguishes_coupling(self, layer):
+        """allpass vs adddrop must produce different cell names.
+
+        These variants share radius/width/gap, so without the coupling tag in
+        the name they collide when placed together (e.g. components_gallery).
+        """
+        a = ring(layer, radius=8.0, coupling="allpass")
+        b = ring(layer, radius=8.0, coupling="adddrop")
+        assert a.name != b.name
+
     def test_waveguide_width_validation_message(self, layer):
         """Invalid waveguide_width raises with the user-facing parameter name."""
         with pytest.raises(ValueError, match="Waveguide width"):
@@ -1396,6 +1406,17 @@ class TestBraggGrating:
         """Uniform Bragg grating with default parameters."""
         cell = bragg_grating(layer, num_periods=50)
         assert cell.polygon_count() == 1  # single sidewall polygon
+
+    def test_cell_name_distinguishes_apodization(self, layer):
+        """uniform vs gaussian must produce different cell names.
+
+        These variants share width/period/corrugation/num_periods, so without
+        the apodization tag in the name they collide when placed together
+        (e.g. components_gallery).
+        """
+        a = bragg_grating(layer, num_periods=80, apodization="uniform")
+        b = bragg_grating(layer, num_periods=80, apodization="gaussian")
+        assert a.name != b.name
 
     def test_port_positions_and_widths(self, layer):
         """Ports sit at (0, 0) and (length, 0) with mean waveguide width.
