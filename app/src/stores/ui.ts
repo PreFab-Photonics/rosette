@@ -207,6 +207,9 @@ export const useUIStore = create<UIState>()(
         }),
     }),
     {
+      // NOTE: app/public/theme-preload.js reads this persisted store (key
+      // "rosette-ui", field "themeSetting") before first paint to avoid a
+      // theme flash. Keep it in sync if the key or field name changes.
       name: "rosette-ui",
       partialize: (state) => ({
         themeSetting: state.themeSetting,

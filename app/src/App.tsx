@@ -238,6 +238,8 @@ export default function App() {
   }, [embed]);
 
   // Embed mode: full app experience (Explorer, Sidebar, StatusBar, CommandPalette)
+  // NOTE: the bg-black / bg-white root colors below are mirrored in
+  // app/public/theme-preload.js (the anti-flash preload). Keep them in sync.
   if (embed) {
     return (
       <div
