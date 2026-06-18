@@ -181,6 +181,7 @@ function ColorPicker({
           <button
             key={preset}
             type="button"
+            aria-label={`Use color ${preset}`}
             onClick={(e) => {
               e.stopPropagation();
               onChange(preset);
@@ -472,7 +473,7 @@ function SectionLabel({ label, isDark }: { label: string; isDark: boolean }) {
 function LayerEditor({ layer, isDark }: { layer: Layer; isDark: boolean }) {
   const library = useWasmContextStore((s) => s.library);
   const renderer = useWasmContextStore((s) => s.renderer);
-  const editorRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLFieldSetElement>(null);
 
   const handleChange = useCallback(
     (updates: Partial<Layer>) => {
@@ -562,9 +563,11 @@ function LayerEditor({ layer, isDark }: { layer: Layer; isDark: boolean }) {
   }, []);
 
   return (
-    <div
+    // Handlers below are event containment (stopPropagation) and Tab focus
+    // management for the grouped controls, not user-facing interactions.
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+    <fieldset
       ref={editorRef}
-      role="group"
       className="mx-1 flex w-[calc(100%-8px)] flex-col gap-2 px-2.5 py-2"
       onClick={(e) => e.stopPropagation()}
       onKeyDown={handleEditorKeyDown}
@@ -628,7 +631,7 @@ function LayerEditor({ layer, isDark }: { layer: Layer; isDark: boolean }) {
           baseTabIdx={4}
         />
       </div>
-    </div>
+    </fieldset>
   );
 }
 
@@ -774,8 +777,9 @@ function LayerRow({
         title={!inUse ? "No shapes use this layer" : undefined}
       >
         {/* Color swatch - click to open editor */}
-        <span
-          role="img"
+        <button
+          type="button"
+          aria-label={`Edit layer color (${layer.color})`}
           className={cn(
             "h-4.5 w-4.5 flex-shrink-0 cursor-pointer rounded border outline-none transition-shadow",
             isDark
@@ -786,7 +790,6 @@ function LayerRow({
           style={{ backgroundColor: layer.color }}
           onClick={handleSwatchClick}
           onMouseDown={handleSwatchMouseDown}
-          onKeyDown={() => {}}
         />
 
         {/* Layer name */}

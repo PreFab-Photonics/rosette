@@ -772,6 +772,8 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
               {SHAPE_OPS.map((op) => (
                 <Tooltip key={op.id} label={op.label} className="[&>div:last-child]:mt-0.5">
                   <button
+                    type="button"
+                    aria-label={op.label}
                     onClick={() => handleOpClick(op)}
                     className={cn(
                       "cursor-pointer rounded-lg p-1.5 transition-colors",
@@ -780,6 +782,7 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
                   >
                     <op.icon
                       className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")}
+                      aria-hidden="true"
                     />
                   </button>
                 </Tooltip>

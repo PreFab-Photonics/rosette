@@ -138,6 +138,7 @@ export function UpdateNotification() {
         </span>
         <button
           type="button"
+          aria-label="Dismiss"
           onClick={() => setDismissed(true)}
           className={cn(
             "flex h-5 w-5 items-center justify-center rounded transition-colors",
@@ -152,6 +153,7 @@ export function UpdateNotification() {
             stroke="currentColor"
             strokeWidth="1.5"
             strokeLinecap="round"
+            aria-hidden="true"
           >
             <path d="M1 1l8 8M9 1l-8 8" />
           </svg>

@@ -149,7 +149,7 @@ export function GoToDialog() {
     _setY(v);
   }, []);
 
-  const contentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDialogElement>(null);
 
   // Reset to defaults when opened
   useEffect(() => {
@@ -196,12 +196,12 @@ export function GoToDialog() {
   return (
     <div className="fixed inset-0 z-[200]">
       <div className="fixed inset-0 flex items-start justify-center px-4 pt-[min(25vh,200px)]">
-        <div
+        <dialog
+          open
           ref={contentRef}
-          role="dialog"
           aria-label="Go to Coordinate"
           className={cn(
-            "w-full max-w-[320px] overflow-hidden rounded-xl border shadow-md backdrop-blur-xl",
+            "static m-0 w-full max-w-[320px] overflow-hidden rounded-xl border p-0 shadow-md backdrop-blur-xl",
             isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
           )}
           onKeyDown={(e) => {
@@ -280,7 +280,7 @@ export function GoToDialog() {
               </button>
             </div>
           </div>
-        </div>
+        </dialog>
       </div>
     </div>
   );

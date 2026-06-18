@@ -1123,6 +1123,7 @@ function TabRow({
       {/* Close button — visible on hover or when active */}
       <button
         type="button"
+        aria-label="Close tab"
         onClick={onClose}
         className={cn(
           "flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-sm transition-opacity",
@@ -1140,6 +1141,7 @@ function TabRow({
           stroke="currentColor"
           strokeWidth="1.5"
           strokeLinecap="round"
+          aria-hidden="true"
         >
           <path d="M1.5 1.5l5 5M6.5 1.5l-5 5" />
         </svg>
@@ -1820,6 +1822,7 @@ export function Explorer() {
             <Tooltip label="All levels" position="bottom">
               <button
                 type="button"
+                aria-label="All levels"
                 onClick={() => setHierarchyLevelLimit(Infinity)}
                 className={cn(
                   "flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg border transition-colors",
@@ -1837,6 +1840,7 @@ export function Explorer() {
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden="true"
                 >
                   <polygon points="12 2 2 7 12 12 22 7 12 2" />
                   <polyline points="2 17 12 22 22 17" />

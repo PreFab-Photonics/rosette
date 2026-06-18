@@ -192,7 +192,7 @@ export function ArrayDialog() {
     _setRowY(v);
   }, []);
 
-  const contentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDialogElement>(null);
 
   // Compute default spacing from the bounding box of the selected elements.
   // Seeds a rectangular lattice (Col along +X, Row along +Y) sized to
@@ -306,12 +306,12 @@ export function ArrayDialog() {
   return (
     <div className="fixed inset-0 z-[200]">
       <div className="fixed inset-0 flex items-start justify-center px-4 pt-[min(25vh,200px)]">
-        <div
+        <dialog
+          open
           ref={contentRef}
-          role="dialog"
           aria-label="Create Array"
           className={cn(
-            "w-full max-w-[320px] overflow-hidden rounded-xl border shadow-md backdrop-blur-xl",
+            "static m-0 w-full max-w-[320px] overflow-hidden rounded-xl border p-0 shadow-md backdrop-blur-xl",
             isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
           )}
           onKeyDown={(e) => {
@@ -443,7 +443,7 @@ export function ArrayDialog() {
               </button>
             </div>
           </div>
-        </div>
+        </dialog>
       </div>
     </div>
   );

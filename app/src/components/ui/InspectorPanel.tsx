@@ -669,6 +669,9 @@ function LayerSelector({
         createPortal(
           <div
             ref={dropdownRef}
+            // Custom listbox: a native <select> can't render per-option color
+            // swatches or the portal-positioned styling this dropdown needs.
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             tabIndex={-1}
             onKeyDown={handleDropdownKeyDown}
@@ -693,7 +696,11 @@ function LayerSelector({
                 <div
                   key={l.id}
                   data-layer-option
+                  // Custom option (see listbox note above). Roving focus is
+                  // managed by the listbox container via highlightIndex.
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                   role="option"
+                  tabIndex={-1}
                   aria-selected={isSelected}
                   className={cn(
                     "mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
@@ -814,6 +821,7 @@ function VertexRow({
         {!readOnly && (
           <button
             type="button"
+            aria-label="Remove vertex"
             onClick={onRemove}
             disabled={!canRemove}
             className={cn(
@@ -828,7 +836,14 @@ function VertexRow({
             )}
             tabIndex={canRemove ? 0 : -1}
           >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
               <path d="M4 8h8" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>

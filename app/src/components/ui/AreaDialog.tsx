@@ -40,6 +40,7 @@ function AreaRow({ item, isDark }: { item: LayerArea; isDark: boolean }) {
       {/* Color swatch */}
       <td className="py-1.5 pr-2 pl-0">
         <span
+          aria-label={`Color for ${item.name}`}
           className={cn(
             "inline-block h-3 w-3 rounded border",
             isDark ? "border-white/15" : "border-black/15",
@@ -89,7 +90,7 @@ export function AreaDialog() {
 
   useKeyboardFocus("area-dialog", isOpen);
 
-  const contentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDialogElement>(null);
 
   // Close on click outside
   const handleClickOutside = useCallback(
@@ -114,12 +115,12 @@ export function AreaDialog() {
   return (
     <div className="fixed inset-0 z-[200]">
       <div className="fixed inset-0 flex items-start justify-center px-4 pt-[min(20vh,160px)]">
-        <div
+        <dialog
+          open
           ref={contentRef}
-          role="dialog"
           aria-label="Area Calculator"
           className={cn(
-            "w-full max-w-[420px] overflow-hidden rounded-xl border shadow-md backdrop-blur-xl outline-none",
+            "static m-0 w-full max-w-[420px] overflow-hidden rounded-xl border p-0 shadow-md backdrop-blur-xl outline-none",
             isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
           )}
           onKeyDown={(e) => {
@@ -159,7 +160,9 @@ export function AreaDialog() {
                       isDark ? "border-white/10 text-white/40" : "border-black/10 text-black/40",
                     )}
                   >
-                    <th className="pb-1.5 pr-2 font-normal" />
+                    <th className="pb-1.5 pr-2 font-normal">
+                      <span className="sr-only">Color</span>
+                    </th>
                     <th className="pb-1.5 pr-3 font-normal">Layer</th>
                     <th className="pb-1.5 pr-3 font-normal">L/D</th>
                     <th className="pb-1.5 text-right font-normal">{"\u00B5m\u00B2"}</th>
@@ -220,7 +223,7 @@ export function AreaDialog() {
               Close
             </button>
           </div>
-        </div>
+        </dialog>
       </div>
     </div>
   );
