@@ -3,7 +3,6 @@
 
 # generated content
 .source
-rosette.json
 
 # test & build
 /coverage
