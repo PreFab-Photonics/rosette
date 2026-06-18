@@ -23,21 +23,25 @@ export function ViewerEmbed({
   const [supported, setSupported] = useState<boolean | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     async function check() {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const gpu = (navigator as any).gpu;
         if (!gpu) {
-          setSupported(false);
+          if (!cancelled) setSupported(false);
           return;
         }
         const adapter = await gpu.requestAdapter();
-        setSupported(!!adapter);
+        if (!cancelled) setSupported(!!adapter);
       } catch {
-        setSupported(false);
+        if (!cancelled) setSupported(false);
       }
     }
     check();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Still checking — show placeholder matching the viewer dimensions

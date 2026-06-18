@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function CopyButton({
   text,
@@ -10,6 +10,14 @@ export function CopyButton({
   disabled?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear any pending reset timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   return (
     <button
@@ -17,10 +25,18 @@ export function CopyButton({
       disabled={disabled}
       onClick={() => {
         if (disabled) return;
-        navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-        });
+        if (!navigator.clipboard) return;
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true);
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            timeoutRef.current = setTimeout(() => setCopied(false), 2000);
+          })
+          .catch(() => {
+            // Clipboard write can fail (insecure context, denied permission);
+            // fail silently rather than throwing an unhandled rejection.
+          });
       }}
       className={`ml-3 flex-shrink-0 transition-colors ${
         disabled

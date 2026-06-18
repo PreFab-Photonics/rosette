@@ -253,6 +253,11 @@ export function SyncedDotGrid({
     return () => observer.disconnect();
   }, [scheduleRedraw]);
 
+  // Cancel any in-flight animation frame on unmount
+  useEffect(() => {
+    return () => cancelAnimationFrame(rafRef.current);
+  }, []);
+
   return (
     <canvas
       ref={canvasRef}
