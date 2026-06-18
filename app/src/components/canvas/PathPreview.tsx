@@ -132,11 +132,11 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
       />
 
       {/* Waypoint vertex dots */}
-      {waypoints.map((_, i) => {
+      {waypoints.map((wp, i) => {
         const sp = screenPoints[i];
         return (
           <circle
-            key={i}
+            key={`${wp.x},${wp.y}`}
             cx={sp.x}
             cy={sp.y}
             r={i === 0 ? 4 : 2.5}

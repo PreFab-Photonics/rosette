@@ -813,7 +813,7 @@ export function Canvas() {
 
     const { bounds, origin } = useCellDragStore.getState();
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleCellDragMove = (e: MouseEvent) => {
       if (!bounds) return;
 
       const rect = canvas.getBoundingClientRect();
@@ -858,7 +858,7 @@ export function Canvas() {
       }
     };
 
-    const handleMouseUp = (e: MouseEvent) => {
+    const handleCellDragUp = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
@@ -873,11 +873,11 @@ export function Canvas() {
 
       if (worldPos && inCanvas) {
         // Validate: can we instance this cell in the active cell?
-        const activeCell = library.active_cell_name();
+        const activeCellName = library.active_cell_name();
         if (
-          activeCell &&
-          activeCell !== cellDragName &&
-          library.can_instance_cell(activeCell, cellDragName)
+          activeCellName &&
+          activeCellName !== cellDragName &&
+          library.can_instance_cell(activeCellName, cellDragName)
         ) {
           const command = new AddCellRefCommand(cellDragName, worldPos.x, worldPos.y);
           useHistoryStore.getState().execute(command, { library, renderer });
@@ -887,11 +887,11 @@ export function Canvas() {
       useCellDragStore.getState().endDrag();
     };
 
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("mousemove", handleCellDragMove);
+    document.addEventListener("mouseup", handleCellDragUp);
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("mousemove", handleCellDragMove);
+      document.removeEventListener("mouseup", handleCellDragUp);
       // Clean up preview if the effect is torn down while a drag is active
       renderer.clear_preview();
       renderer.mark_dirty();

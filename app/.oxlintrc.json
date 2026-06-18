@@ -2,10 +2,14 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "react-hooks", "jsx-a11y"],
   "categories": {
-    "correctness": "error"
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
   },
   "rules": {
-    "jsx-a11y/no-autofocus": "off"
+    "jsx-a11y/no-autofocus": "off",
+    "react/react-in-jsx-scope": "off",
+    "react/jsx-uses-react": "off"
   },
   "settings": {
     "jsx-a11y": {

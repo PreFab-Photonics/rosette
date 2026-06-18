@@ -1951,6 +1951,7 @@ export function InspectorPanel() {
       const displayY = formatCoordinate(-wp.y / GRID_SIZE, unitInfo);
       return (
         <VertexRow
+          // oxlint-disable-next-line react/no-array-index-key -- waypoint index is the row's stable identity
           key={i}
           index={i}
           x={displayX}

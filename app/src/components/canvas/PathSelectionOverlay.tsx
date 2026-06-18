@@ -34,20 +34,20 @@ export function PathSelectionOverlay() {
   });
 
   // Collect path metadata for selected paths
-  const selectedPaths: { meta: PathMetadata; color: string }[] = [];
+  const selectedPaths: { id: string; meta: PathMetadata; color: string }[] = [];
   for (const id of selectedIds) {
     const meta = pathMetadata.get(id);
     if (meta && meta.waypoints.length >= 2) {
-      selectedPaths.push({ meta, color: selectionColor });
+      selectedPaths.push({ id, meta, color: selectionColor });
     }
   }
 
   // Collect hovered path (if not already selected)
-  let hoveredPath: { meta: PathMetadata; color: string } | null = null;
+  let hoveredPath: { id: string; meta: PathMetadata; color: string } | null = null;
   if (hoveredId && !selectedIds.has(hoveredId)) {
     const meta = pathMetadata.get(hoveredId);
     if (meta && meta.waypoints.length >= 2) {
-      hoveredPath = { meta, color: hoverColor };
+      hoveredPath = { id: hoveredId, meta, color: hoverColor };
     }
   }
 
@@ -57,12 +57,12 @@ export function PathSelectionOverlay() {
 
   return (
     <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
-      {allPaths.map(({ meta, color }, pathIdx) => {
+      {allPaths.map(({ id, meta, color }) => {
         const screenPoints = meta.waypoints.map(worldToScreen);
         const lineD = screenPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
 
         return (
-          <g key={pathIdx}>
+          <g key={id}>
             {/* Centerline through waypoints */}
             <path
               d={lineD}
@@ -75,9 +75,19 @@ export function PathSelectionOverlay() {
             />
 
             {/* Waypoint dots */}
-            {screenPoints.map((p, i) => (
-              <circle key={i} cx={p.x} cy={p.y} r={3} fill={color} fillOpacity={0.9} />
-            ))}
+            {meta.waypoints.map((wp, i) => {
+              const p = screenPoints[i];
+              return (
+                <circle
+                  key={`${wp.x},${wp.y}`}
+                  cx={p.x}
+                  cy={p.y}
+                  r={3}
+                  fill={color}
+                  fillOpacity={0.9}
+                />
+              );
+            })}
           </g>
         );
       })}

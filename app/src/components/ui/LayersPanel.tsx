@@ -976,15 +976,15 @@ export function LayersPanel() {
           // Delete the focused layer
           e.preventDefault();
           if (currentFocus != null && allLayers.length > 1) {
-            const { library, renderer } = useWasmContextStore.getState();
-            if (library && renderer) {
+            const { library: currentLibrary, renderer } = useWasmContextStore.getState();
+            if (currentLibrary && renderer) {
               // Move focus to neighbor before deleting
               const nextIndex =
                 currentIndex < allLayers.length - 1 ? currentIndex + 1 : currentIndex - 1;
               const nextFocus = nextIndex >= 0 ? allLayers[nextIndex].id : null;
 
               const command = new DeleteLayerCommand(currentFocus);
-              useHistoryStore.getState().execute(command, { library, renderer });
+              useHistoryStore.getState().execute(command, { library: currentLibrary, renderer });
 
               if (nextFocus != null && nextFocus !== currentFocus) {
                 setFocusedLayerId(nextFocus);
@@ -999,12 +999,12 @@ export function LayersPanel() {
           const mod = e.metaKey || e.ctrlKey;
           if (!mod) return;
           e.preventDefault();
-          const { library, renderer } = useWasmContextStore.getState();
-          if (!library || !renderer) break;
+          const { library: currentLibrary, renderer } = useWasmContextStore.getState();
+          if (!currentLibrary || !renderer) break;
           if (e.shiftKey) {
-            useHistoryStore.getState().redo({ library, renderer });
+            useHistoryStore.getState().redo({ library: currentLibrary, renderer });
           } else {
-            useHistoryStore.getState().undo({ library, renderer });
+            useHistoryStore.getState().undo({ library: currentLibrary, renderer });
           }
           break;
         }

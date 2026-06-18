@@ -175,7 +175,9 @@ function ActiveTextEditor({
         color,
       }}
     >
-      {/* Text content with selection highlighting */}
+      {/* Text content with selection highlighting.
+          Lines come from splitting plain text on "\n"; there is no stable
+          per-line id, so the line index is the appropriate key here. */}
       {lines.map((line, lineIndex) => {
         // Determine if this line has a selection
         const hasSelection =
@@ -183,6 +185,7 @@ function ActiveTextEditor({
 
         if (!hasSelection) {
           return (
+            // oxlint-disable-next-line react/no-array-index-key -- plain-text line, no stable id
             <div key={lineIndex} style={{ height: `${lineHeightPx}px`, whiteSpace: "pre" }}>
               {line || "\u200B"}
             </div>
@@ -198,6 +201,7 @@ function ActiveTextEditor({
         const afterText = line.substring(endCol);
 
         return (
+          // oxlint-disable-next-line react/no-array-index-key -- plain-text line, no stable id
           <div key={lineIndex} style={{ height: `${lineHeightPx}px`, whiteSpace: "pre" }}>
             {beforeText && <span>{beforeText}</span>}
             {selectedText && (

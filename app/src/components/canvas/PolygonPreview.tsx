@@ -146,11 +146,11 @@ export function PolygonPreview({
       )}
 
       {/* Vertex dots for placed points */}
-      {points.map((_, i) => {
+      {points.map((pt, i) => {
         const sp = screenPoints[i];
         return (
           <circle
-            key={i}
+            key={`${pt.x},${pt.y}`}
             cx={sp.x}
             cy={sp.y}
             r={i === 0 ? 4 : 2.5}

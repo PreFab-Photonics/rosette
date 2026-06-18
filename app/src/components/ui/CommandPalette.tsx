@@ -24,8 +24,8 @@ function ShortcutDisplay({ shortcut }: { shortcut: CommandShortcut }) {
 
   return (
     <span className="flex items-center gap-0.5">
-      {shortcut.modifiers?.map((modifier, idx) => (
-        <kbd key={idx} className={kbdClass}>
+      {shortcut.modifiers?.map((modifier) => (
+        <kbd key={modifier} className={kbdClass}>
           {modifier}
         </kbd>
       ))}

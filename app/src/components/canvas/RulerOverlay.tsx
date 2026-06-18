@@ -744,7 +744,7 @@ function PolylineRulerGraphic({
         };
         return (
           <CoordBadge
-            key={i}
+            key={`${mid.x},${mid.y}`}
             screen={mid}
             text={formatLength(lenNm, unitInfo)}
             theme={theme}
@@ -793,7 +793,7 @@ function PolylineRulerGraphic({
         const hovered = hoveredEndpoint?.pointIndex === i;
         return (
           <circle
-            key={i}
+            key={`${s.x},${s.y}`}
             cx={s.x}
             cy={s.y}
             r={hovered ? ENDPOINT_HOVER_RADIUS : ENDPOINT_RADIUS}
@@ -922,7 +922,7 @@ function AngleRulerGraphic({
         const hovered = hoveredEndpoint?.pointIndex === i;
         return (
           <circle
-            key={i}
+            key={`${p.x},${p.y}`}
             cx={p.x}
             cy={p.y}
             r={hovered ? ENDPOINT_HOVER_RADIUS : ENDPOINT_RADIUS}
@@ -1053,11 +1053,14 @@ function RadiusRulerGraphic({
         </div>
       </foreignObject>
       {/* Handles: 0 = center, 1 = edge */}
-      {[c, ePt].map((pt, i) => {
+      {[
+        { pt: c, name: "center" },
+        { pt: ePt, name: "edge" },
+      ].map(({ pt, name }, i) => {
         const hovered = hoveredEndpoint?.pointIndex === i;
         return (
           <circle
-            key={i}
+            key={name}
             cx={pt.x}
             cy={pt.y}
             r={hovered ? ENDPOINT_HOVER_RADIUS : ENDPOINT_RADIUS}
