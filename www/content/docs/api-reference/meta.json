@@ -26,6 +26,7 @@
     "DrcRules",
     "DrcViolation",
     "DrcResult",
+    "DrcCache",
     "---Design Checks---",
     "ChecksConfig",
     "CheckViolation",
