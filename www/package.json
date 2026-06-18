@@ -10,8 +10,7 @@
     "postinstall": "fumadocs-mdx",
     "lint": "biome check",
     "lint:fix": "biome check --write",
-    "format": "biome format --write",
-    "generate:api": "node scripts/generate-api-docs.mjs"
+    "format": "biome format --write"
   },
   "dependencies": {
     "@takumi-rs/image-response": "^0.73.1",
