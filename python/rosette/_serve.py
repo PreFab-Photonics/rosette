@@ -13,13 +13,18 @@ import subprocess
 import sys
 import webbrowser
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rosette import Cell, DrcCache, DrcRules, Library
+    from rosette._core import Library as _CoreLibrary
 
 # =============================================================================
 # Design serialization helpers
 # =============================================================================
 
 
-def _build_cell_tree(cell, child_cells_list) -> dict[str, object]:
+def _build_cell_tree(cell: Cell, child_cells_list: list[Cell] | None) -> dict[str, object]:
     """Build a hierarchy tree from a cell and its children.
 
     Uses the Rust-side cell_ref_names() to get direct children of each cell,
@@ -39,7 +44,7 @@ def _build_cell_tree(cell, child_cells_list) -> dict[str, object]:
             cell_map[c.name] = c
 
     # Track visited cells to avoid infinite recursion from circular refs
-    def build_node(c, visited=None) -> dict[str, object]:
+    def build_node(c: Cell, visited: set[str] | None = None) -> dict[str, object]:
         if visited is None:
             visited = set()
         if c.name in visited:
@@ -66,7 +71,7 @@ def _build_cell_tree(cell, child_cells_list) -> dict[str, object]:
 # =============================================================================
 
 
-def _prepare_design(cell):
+def _prepare_design(cell: Cell):
     """Serialize cell hierarchy and build explorer tree.
 
     Returns:
@@ -92,7 +97,7 @@ def _prepare_design(cell):
     return json_str, cell_tree
 
 
-def _prepare_design_from_library(library):
+def _prepare_design_from_library(library: Library | _CoreLibrary):
     """Serialize a Library (e.g. from read_gds) for the viewer.
 
     The Library already contains the full cell hierarchy, so we serialize
@@ -183,7 +188,9 @@ def _load_drc_rules_safe():
         return None
 
 
-def _run_drc_safe(cell, rules, cache=None) -> dict[str, object] | None:
+def _run_drc_safe(
+    cell: Cell, rules: DrcRules | None, cache: DrcCache | None = None
+) -> dict[str, object] | None:
     """Run DRC and serialize the result to a JSON-friendly dict for the viewer.
 
     Returns ``None`` when no rules are configured or the DRC engine raises, so

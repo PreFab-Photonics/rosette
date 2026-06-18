@@ -388,7 +388,7 @@ def _select_command_interactive() -> tuple[str, str | None]:
     return command, selected
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     from rosette import __version__
 
@@ -1119,7 +1119,7 @@ def _run_drc_check(
     return result, file_path
 
 
-def _print_drc_result(result, file_path: Path | None, verbose: bool = False) -> bool:
+def _print_drc_result(result: DrcResult, file_path: Path | None, verbose: bool = False) -> bool:
     """Print DRC results. Returns True if passed (no error-severity violations).
 
     Warnings (see ``DrcRules.warning_margin``) are shown but do not cause
@@ -1226,7 +1226,7 @@ def drc_design(design: str, config: str | None = None, verbose: bool = False):
 def _run_dfm_check(
     design_spec: str,
     config_path: str | None = None,
-    cell=None,
+    cell: Cell | None = None,
     file_path: Path | None = None,
 ) -> tuple[DfmResult, Path | None, bool, Cell]:
     """Run DFM prediction on a design and return (result, file_path, has_tolerances, cell).
@@ -1257,7 +1257,7 @@ def _run_dfm_check(
 
 
 def _print_dfm_result(
-    result, file_path: Path | None, verbose: bool = False, has_tolerances: bool = False
+    result: DfmResult, file_path: Path | None, verbose: bool = False, has_tolerances: bool = False
 ) -> bool:
     """Print DFM results. Returns True if passed (no error-severity violations)."""
 
@@ -1382,7 +1382,7 @@ def dfm_design(
 def _run_checks_check(
     design_spec: str,
     config_path: str | None = None,
-    cell=None,
+    cell: Cell | None = None,
     file_path: Path | None = None,
 ) -> tuple[ChecksResult, Path | None]:
     """Run design checks on a design and return (result, file_path).
@@ -1404,7 +1404,9 @@ def _run_checks_check(
     return result, file_path
 
 
-def _print_checks_result(result, file_path: Path | None, verbose: bool = False) -> bool:
+def _print_checks_result(
+    result: ChecksResult, file_path: Path | None, verbose: bool = False
+) -> bool:
     """Print design check results. Returns True if passed."""
     # Header with stats
     stats_parts = [f"{result.ports_checked} ports", f"{result.connections_found} connections"]

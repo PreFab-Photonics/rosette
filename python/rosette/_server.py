@@ -27,7 +27,11 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True  # Threads die when main thread exits
     allow_reuse_address = True
 
-    def handle_error(self, request, client_address):
+    def handle_error(
+        self,
+        request: socket.socket | tuple[bytes, socket.socket],
+        client_address: tuple[str, int],
+    ) -> None:
         """Suppress noisy connection reset errors from browser refreshes."""
         exc_type = sys.exc_info()[0]
         if exc_type in (BrokenPipeError, ConnectionResetError):
@@ -55,7 +59,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     # Condition variable for SSE notifications
     _condition: threading.Condition = threading.Condition()
 
-    def log_message(self, format: str, *args) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         """Suppress default logging."""
         pass
 

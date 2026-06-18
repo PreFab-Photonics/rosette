@@ -34,7 +34,7 @@ from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, TypeVar
 
 from rosette._core import (
     # Geometry
@@ -95,7 +95,12 @@ _DFM_DEFAULT_SIGMA = 0.08
 _GDS_ARRAY_MAX = 32767
 
 
-def _apply_repetition(ref, repetition):
+# Either the Rust core CellRef or the Python wrapper; _apply_repetition is
+# duck-typed over both (they share .array()/.array_vectors()).
+_RefT = TypeVar("_RefT", "_CellRef", "CellRef")
+
+
+def _apply_repetition(ref: _RefT, repetition: tuple[int, int, float, float, float, float]) -> _RefT:
     """Apply an `Instance._repetition` 6-tuple to a CellRef-like object.
 
     ``repetition`` is ``(columns, rows, col_x, col_y, row_x, row_y)``.  If
@@ -1170,8 +1175,7 @@ class Cell:
 
     def place_at_port(self, cell_ref: CellRef, cell_port: Port, target_port: Port) -> CellRef:
         """Place a cell reference by aligning its port to a target port."""
-        inner_ref = cell_ref._inner if isinstance(cell_ref, CellRef) else cell_ref
-        result = self._inner.place_at_port(inner_ref, cell_port, target_port)
+        result = self._inner.place_at_port(cell_ref._inner, cell_port, target_port)
         return CellRef._from_inner(result)
 
     # --- New ergonomic methods ---
@@ -1278,9 +1282,8 @@ class Cell:
                 "or pass child cells explicitly to write_gds().",
                 stacklevel=2,
             )
-            # Extract inner CellRef if it's our wrapper
-            inner_ref = ref._inner if isinstance(ref, CellRef) else ref
-            self._inner.add_ref(inner_ref)
+            # ref is narrowed to CellRef here; extract the inner Rust object
+            self._inner.add_ref(ref._inner)
 
     def get_child_cells(self) -> set[Cell]:
         """Get all tracked child cells (for write_gds auto-collection).
@@ -2438,17 +2441,11 @@ def write_gds(
             cells = list(collected)
 
     # Extract inner Rust objects for the Rust write_gds function
-    inner_design: _Cell | _Library
-    if isinstance(design, Cell):
-        inner_design = design._inner
-    elif isinstance(design, Library):
-        inner_design = design._inner
-    else:
-        inner_design = design
+    inner_design: _Cell | _Library = design._inner
 
     inner_cells: list[_Cell] | None = None
     if cells is not None:
-        inner_cells = [c._inner if isinstance(c, Cell) else c for c in cells]  # type: ignore[misc]
+        inner_cells = [c._inner for c in cells]
 
     # Check environment variables for CLI compatibility (rosette build -v)
     if os.environ.get("ROSETTE_VERBOSE"):
