@@ -8,8 +8,9 @@ Commands:
     rosette serve [file]     Start dev server with live preview
 """
 
+from __future__ import annotations
+
 import argparse
-import importlib.util
 import logging
 import os
 import shutil
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from rosette import BBox
+    from rosette import BBox, Cell, ChecksResult, DfmResult, DrcResult
 
 log = logging.getLogger(__name__)
 
@@ -387,7 +388,7 @@ def _select_command_interactive() -> tuple[str, str | None]:
     return command, selected
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     from rosette import __version__
 
@@ -642,7 +643,7 @@ def main():
 
 def _interactive_select(
     header: str,
-    options: list[tuple],
+    options: list[tuple[str, str, str]],
     preamble: list[str] | None = None,
 ) -> str | None:
     """Generic radio selector using terminal raw mode (Unix).
@@ -741,7 +742,7 @@ def _interactive_select(
 
 def _simple_select(
     header: str,
-    options: list[tuple],
+    options: list[tuple[str, str, str]],
     preamble: list[str] | None = None,
 ) -> str | None:
     """Generic fallback numbered prompt selector.
@@ -1028,7 +1029,7 @@ def update_project():
     print(f"Updated project to latest templates (tools: {tool_names})")
 
 
-def load_design(path_spec: str) -> tuple:
+def load_design(path_spec: str) -> tuple[Cell, Path, str]:
     """Load a design from a file using the 'design' convention.
 
     Args:
@@ -1044,90 +1045,9 @@ def load_design(path_spec: str) -> tuple:
         def design() -> Cell:       # Function (called with no args)
             ...
     """
-    from rosette import Cell
+    from rosette._design import load_design as _load_design
 
-    # Parse path_spec for optional :target
-    if ":" in path_spec and not path_spec.startswith(":"):
-        # Could be path:target or Windows path C:\...
-        # Only split on last : if it doesn't look like a drive letter
-        parts = path_spec.rsplit(":", 1)
-        if len(parts[0]) > 1:  # Not a drive letter like C:
-            file_path = Path(parts[0])
-            target_name = parts[1]
-        else:
-            file_path = Path(path_spec)
-            target_name = "design"
-    else:
-        file_path = Path(path_spec)
-        target_name = "design"
-
-    if not file_path.exists():
-        print(f"Error: Design file not found: {file_path}")
-        sys.exit(1)
-
-    # Add project directory to path for imports
-    project_dir = Path.cwd()
-    if str(project_dir) not in sys.path:
-        sys.path.insert(0, str(project_dir))
-
-    # Import the module
-    spec = importlib.util.spec_from_file_location("design_module", file_path)
-    if spec is None or spec.loader is None:
-        print(f"Error: Could not load module from {file_path}")
-        sys.exit(1)
-
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception as e:
-        print(f"Error loading design: {e}")
-        sys.exit(1)
-
-    # Get the target attribute
-    if not hasattr(module, target_name):
-        # Auto-detect: find all Cell objects in the module
-        cell_vars = {
-            name: obj
-            for name, obj in vars(module).items()
-            if isinstance(obj, Cell) and not name.startswith("_")
-        }
-
-        if len(cell_vars) == 1:
-            # Exactly one Cell found -- use it
-            target_name = next(iter(cell_vars))
-        else:
-            print(f"Error: No variable named '{target_name}' found in {file_path}")
-            if cell_vars:
-                names = ", ".join(cell_vars)
-                print(f"  Found cells: {names}")
-                print()
-                print("Specify which one to build:")
-                first = next(iter(cell_vars))
-                print(f"    rosette build {file_path}:{first}")
-            else:
-                print()
-                print("Define a Cell in your script:")
-                print(f'    design = Cell("{file_path.stem}")')
-            sys.exit(1)
-
-    target = getattr(module, target_name)
-
-    # If callable, call it
-    if callable(target):
-        try:
-            cell = target()
-        except Exception as e:
-            print(f"Error calling {target_name}(): {e}")
-            sys.exit(1)
-    else:
-        cell = target
-
-    # Verify it's a Cell
-    if not isinstance(cell, Cell):
-        print(f"Error: '{target_name}' must be a Cell, got {type(cell).__name__}")
-        sys.exit(1)
-
-    return cell, file_path, target_name
+    return _load_design(path_spec)
 
 
 def _use_color() -> bool:
@@ -1172,7 +1092,7 @@ def _format_layer(layer_tuple: tuple[int, int]) -> str:
 def _run_drc_check(
     design_spec: str,
     config_path: str | None = None,
-) -> tuple:
+) -> tuple[DrcResult, Path]:
     """Run DRC on a design and return (result, file_path).
 
     Loads the design, loads rules from rosette.toml, and runs DRC.
@@ -1199,7 +1119,7 @@ def _run_drc_check(
     return result, file_path
 
 
-def _print_drc_result(result, file_path: Path, verbose: bool = False) -> bool:
+def _print_drc_result(result: DrcResult, file_path: Path | None, verbose: bool = False) -> bool:
     """Print DRC results. Returns True if passed (no error-severity violations).
 
     Warnings (see ``DrcRules.warning_margin``) are shown but do not cause
@@ -1306,9 +1226,9 @@ def drc_design(design: str, config: str | None = None, verbose: bool = False):
 def _run_dfm_check(
     design_spec: str,
     config_path: str | None = None,
-    cell=None,
+    cell: Cell | None = None,
     file_path: Path | None = None,
-) -> tuple:
+) -> tuple[DfmResult, Path | None, bool, Cell]:
     """Run DFM prediction on a design and return (result, file_path, has_tolerances, cell).
 
     Loads the design (unless cell/file_path are provided), loads DFM config
@@ -1337,7 +1257,7 @@ def _run_dfm_check(
 
 
 def _print_dfm_result(
-    result, file_path: Path, verbose: bool = False, has_tolerances: bool = False
+    result: DfmResult, file_path: Path | None, verbose: bool = False, has_tolerances: bool = False
 ) -> bool:
     """Print DFM results. Returns True if passed (no error-severity violations)."""
 
@@ -1462,9 +1382,9 @@ def dfm_design(
 def _run_checks_check(
     design_spec: str,
     config_path: str | None = None,
-    cell=None,
+    cell: Cell | None = None,
     file_path: Path | None = None,
-) -> tuple:
+) -> tuple[ChecksResult, Path | None]:
     """Run design checks on a design and return (result, file_path).
 
     Loads the design (unless cell/file_path are provided), loads checks
@@ -1484,7 +1404,9 @@ def _run_checks_check(
     return result, file_path
 
 
-def _print_checks_result(result, file_path: Path, verbose: bool = False) -> bool:
+def _print_checks_result(
+    result: ChecksResult, file_path: Path | None, verbose: bool = False
+) -> bool:
     """Print design check results. Returns True if passed."""
     # Header with stats
     stats_parts = [f"{result.ports_checked} ports", f"{result.connections_found} connections"]
@@ -1667,7 +1589,7 @@ def build_design(
     print(f"{_green('ok')} {gds_output} {_dim(f'({elapsed:.0f}ms)')}")
 
 
-def _parse_bbox_arg(s: str) -> "BBox":
+def _parse_bbox_arg(s: str) -> BBox:
     """Parse '--bbox XMIN,YMIN,XMAX,YMAX' into a BBox."""
     from rosette import BBox, Point
 
@@ -1871,6 +1793,7 @@ def shot_design(
         pruned = _prune_snapshots(snapshot_dir, retain_val)
 
     canvas = result.view["canvas_px"]
+    assert isinstance(canvas, tuple)
     layer_summary = ", ".join(_format_layer(lyr) for lyr in result.layers_rendered)
     size_kb = len(result.png) / 1024
     extras = f"{canvas[0]}x{canvas[1]}, {size_kb:.1f}KB, layers {layer_summary}, {elapsed:.0f}ms"

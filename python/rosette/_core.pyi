@@ -595,7 +595,7 @@ class CellRef:
 class Cell:
     name: str
     path_length: float | None
-    bends: list[dict]
+    bends: list[dict[str, float]]
     """Bend info entries as list of dicts with keys: radius, x, y, and optionally requested_radius."""
     cell_warnings: list[str]
     """Warnings from cell construction."""
@@ -1986,5 +1986,81 @@ def run_checks(
 
     Returns:
         ChecksResult with violations and statistics
+    """
+    ...
+
+# =============================================================================
+# Rendering
+# =============================================================================
+
+class RenderResult:
+    """Result of a render call: PNG bytes, world<->pixel transform, layers drawn."""
+
+    @property
+    def png(self) -> bytes:
+        """PNG-encoded image bytes."""
+        ...
+
+    @property
+    def view(self) -> dict[str, object]:
+        """World<->pixel transform metadata as a dict.
+
+        Keys:
+        - ``scale_px_per_um`` (float): pixels per micron, uniform (aspect preserved).
+        - ``offset_x_px`` (float): X pixel offset added during world->pixel mapping.
+        - ``offset_y_px`` (float): Y pixel offset added during world->pixel mapping
+          (after Y-axis flip).
+        - ``canvas_px`` (tuple[int, int]): final image size as ``(width, height)``.
+        - ``world_bbox_um`` (dict): visible region in microns, with keys ``min`` and
+          ``max``, each a ``(x, y)`` tuple.
+        """
+        ...
+
+    @property
+    def layers_rendered(self) -> list[tuple[int, int]]:
+        """`(layer, datatype)` pairs that contributed pixels, in draw order."""
+        ...
+
+    def px_to_world(self, px: float, py: float) -> tuple[float, float]:
+        """Convert a pixel coordinate in the rendered image back to design (micron)
+        coordinates."""
+        ...
+
+    def world_to_px(self, x: float, y: float) -> tuple[float, float]:
+        """Convert design (micron) coordinates to pixel position in the rendered image."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+def render_png(
+    library: Library,
+    *,
+    bbox: BBox | None = None,
+    cell: str | None = None,
+    layers: list[tuple[int, int]] | None = None,
+    width: int = 1024,
+    height: int | None = None,
+    pad: float = 0.1,
+    bg: str = "#1a1a1a",
+    fill_alpha: int = 178,
+    palette: dict[int, str] | None = None,
+) -> RenderResult:
+    """Render a library to a PNG image.
+
+    Args:
+        library: The Library to render.
+        bbox: Optional explicit world-space region (microns). If omitted, derived
+            from `cell` or the full library extent.
+        cell: Render only the named cell instead of the top cell.
+        layers: Restrict rendering to these `(layer, datatype)` pairs.
+        width: Output width in pixels. Default 1024.
+        height: Output height in pixels. If None, derived from aspect ratio.
+        pad: Fractional padding around the target bbox (0.1 = 10%).
+        bg: Background color as `#RRGGBB` or `#RRGGBBAA`. Default `#1a1a1a`.
+        fill_alpha: Alpha applied to layer fill colors (0-255). Default 178 (~70%).
+        palette: Optional `{layer_number: hex_color}` overrides.
+
+    Returns:
+        RenderResult with `png` (bytes), `view` (dict), and `layers_rendered`.
     """
     ...

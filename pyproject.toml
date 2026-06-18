@@ -75,9 +75,28 @@ ignore = [
 known-first-party = ["rosette"]
 
 [tool.basedpyright]
-include = ["python"]
+# Scope to the shippable package. Tests are intentionally excluded: test
+# code commonly uses fixtures/monkeypatching that fight strict typing, and
+# gating on it is low value.
+include = ["python/rosette"]
 typeCheckingMode = "recommended"
 pythonVersion = "3.11"
+# Inherent to the PyO3 .so boundary: Python wrappers hold an untyped Rust
+# `_inner` object, so values crossing that boundary are Unknown/Any. Clearing
+# these would require fully typing every binding + wrapper method for cosmetic
+# gain, so they are disabled rather than suppressed inline.
+reportAny = false
+reportExplicitAny = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+# Stylistic, or conflicts with the documented architecture.
+reportUnusedCallResult = false           # ignored list.append(...) etc. is intentional
+reportImplicitOverride = false           # @override on every __repr__/__eq__ is ceremony
+reportPrivateUsage = false               # `cell._inner` access is by design (AGENTS.md)
+reportImplicitStringConcatenation = false  # adjacent literals in multi-line messages
+reportUnannotatedClassAttribute = false  # noisy on __slots__ + stdlib overrides; low value
+reportUnreachable = false                # flags intentional runtime guards on Literal params
 
 [tool.ruff.format]
 quote-style = "double"

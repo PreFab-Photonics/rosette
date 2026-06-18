@@ -13,13 +13,18 @@ import subprocess
 import sys
 import webbrowser
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rosette import Cell, DrcCache, DrcRules, Library
+    from rosette._core import Library as _CoreLibrary
 
 # =============================================================================
 # Design serialization helpers
 # =============================================================================
 
 
-def _build_cell_tree(cell, child_cells_list):
+def _build_cell_tree(cell: Cell, child_cells_list: list[Cell] | None) -> dict[str, object]:
     """Build a hierarchy tree from a cell and its children.
 
     Uses the Rust-side cell_ref_names() to get direct children of each cell,
@@ -39,7 +44,7 @@ def _build_cell_tree(cell, child_cells_list):
             cell_map[c.name] = c
 
     # Track visited cells to avoid infinite recursion from circular refs
-    def build_node(c, visited=None):
+    def build_node(c: Cell, visited: set[str] | None = None) -> dict[str, object]:
         if visited is None:
             visited = set()
         if c.name in visited:
@@ -48,7 +53,7 @@ def _build_cell_tree(cell, child_cells_list):
 
         # Get direct child cell names from Rust CellRef elements
         direct_refs = c._inner.cell_ref_names()
-        children = []
+        children: list[dict[str, object]] = []
         for ref_name in sorted(set(direct_refs)):
             child = cell_map.get(ref_name)
             if child is not None:
@@ -66,7 +71,7 @@ def _build_cell_tree(cell, child_cells_list):
 # =============================================================================
 
 
-def _prepare_design(cell):
+def _prepare_design(cell: Cell):
     """Serialize cell hierarchy and build explorer tree.
 
     Returns:
@@ -92,7 +97,7 @@ def _prepare_design(cell):
     return json_str, cell_tree
 
 
-def _prepare_design_from_library(library):
+def _prepare_design_from_library(library: Library | _CoreLibrary):
     """Serialize a Library (e.g. from read_gds) for the viewer.
 
     The Library already contains the full cell hierarchy, so we serialize
@@ -152,7 +157,7 @@ def _start_server(port: int):
     return server, f"http://localhost:{actual_port}"
 
 
-def _load_layer_map_safe() -> list[dict] | None:
+def _load_layer_map_safe() -> list[dict[str, object]] | None:
     """Try to load layer map from rosette.toml, fall back to defaults."""
     try:
         from rosette import load_layer_map
@@ -183,7 +188,9 @@ def _load_drc_rules_safe():
         return None
 
 
-def _run_drc_safe(cell, rules, cache=None) -> dict | None:
+def _run_drc_safe(
+    cell: Cell, rules: DrcRules | None, cache: DrcCache | None = None
+) -> dict[str, object] | None:
     """Run DRC and serialize the result to a JSON-friendly dict for the viewer.
 
     Returns ``None`` when no rules are configured or the DRC engine raises, so
@@ -358,7 +365,7 @@ class _PidHandle:
 
 def _launch_tauri(
     url: str, allow_build: bool = False, design_mode: bool = True
-) -> subprocess.Popen | _PidHandle | None:
+) -> subprocess.Popen[bytes] | _PidHandle | None:
     """Launch the Tauri desktop app pointing at the given URL.
 
     On macOS, prefers the installed Rosette.app bundle (via ``open -a``)
@@ -471,7 +478,7 @@ def _open_viewer(
     native_explicit: bool,
     design_mode: bool = True,
     label: str = "",
-) -> subprocess.Popen | _PidHandle | None:
+) -> subprocess.Popen[bytes] | _PidHandle | None:
     """Open the viewer in a native Tauri window or browser.
 
     Returns the Tauri process handle, or None if browser was used.
@@ -493,7 +500,7 @@ def _open_viewer(
     return None
 
 
-def _cleanup_tauri(proc: subprocess.Popen | _PidHandle | None):
+def _cleanup_tauri(proc: subprocess.Popen[bytes] | _PidHandle | None):
     """Terminate a Tauri process if still running."""
     if proc and proc.poll() is None:
         proc.terminate()
@@ -522,7 +529,7 @@ def serve_design(
     """
     import logging
 
-    from rosette.cli import load_design
+    from rosette._design import load_design
 
     logging.basicConfig(
         level=logging.WARNING,
