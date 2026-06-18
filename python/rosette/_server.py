@@ -43,10 +43,12 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     # Class-level state shared across all handlers
     webapp_dir: Path | None = None
     design_json: str | None = None
-    design_cells: dict | None = None  # Hierarchy tree: {name, children}
-    design_layers: list[dict] | None = None  # Layer definitions from rosette.toml
+    design_cells: dict[str, object] | None = None  # Hierarchy tree: {name, children}
+    design_layers: list[dict[str, object]] | None = None  # Layer definitions from rosette.toml
     design_filename: str | None = None  # Source filename (e.g., "layout.py" or "mmi.gds")
-    design_drc: dict | None = None  # DRC result: {violations, error_count, ...} or None
+    design_drc: dict[str, object] | None = (
+        None  # DRC result: {violations, error_count, ...} or None
+    )
     design_version: int = 0
     on_error: Callable[[str], None] | None = None
 
@@ -148,7 +150,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             # Client disconnected - exit gracefully
             pass
 
-    def _send_sse_event(self, event_type: str, data: dict) -> None:
+    def _send_sse_event(self, event_type: str, data: dict[str, object]) -> None:
         """Send an SSE event to the client."""
         self.wfile.write(f"event: {event_type}\n".encode())
         self.wfile.write(f"data: {json.dumps(data)}\n\n".encode())
@@ -249,10 +251,10 @@ class RosetteServer:
     def set_design_json(
         self,
         json_str: str,
-        cells: dict | None = None,
-        layers: list[dict] | None = None,
+        cells: dict[str, object] | None = None,
+        layers: list[dict[str, object]] | None = None,
         filename: str | None = None,
-        drc: dict | None = None,
+        drc: dict[str, object] | None = None,
     ) -> None:
         """Update the design JSON and increment version.
 

@@ -19,7 +19,7 @@ from pathlib import Path
 # =============================================================================
 
 
-def _build_cell_tree(cell, child_cells_list):
+def _build_cell_tree(cell, child_cells_list) -> dict[str, object]:
     """Build a hierarchy tree from a cell and its children.
 
     Uses the Rust-side cell_ref_names() to get direct children of each cell,
@@ -39,7 +39,7 @@ def _build_cell_tree(cell, child_cells_list):
             cell_map[c.name] = c
 
     # Track visited cells to avoid infinite recursion from circular refs
-    def build_node(c, visited=None):
+    def build_node(c, visited=None) -> dict[str, object]:
         if visited is None:
             visited = set()
         if c.name in visited:
@@ -48,7 +48,7 @@ def _build_cell_tree(cell, child_cells_list):
 
         # Get direct child cell names from Rust CellRef elements
         direct_refs = c._inner.cell_ref_names()
-        children = []
+        children: list[dict[str, object]] = []
         for ref_name in sorted(set(direct_refs)):
             child = cell_map.get(ref_name)
             if child is not None:
@@ -152,7 +152,7 @@ def _start_server(port: int):
     return server, f"http://localhost:{actual_port}"
 
 
-def _load_layer_map_safe() -> list[dict] | None:
+def _load_layer_map_safe() -> list[dict[str, object]] | None:
     """Try to load layer map from rosette.toml, fall back to defaults."""
     try:
         from rosette import load_layer_map
@@ -183,7 +183,7 @@ def _load_drc_rules_safe():
         return None
 
 
-def _run_drc_safe(cell, rules, cache=None) -> dict | None:
+def _run_drc_safe(cell, rules, cache=None) -> dict[str, object] | None:
     """Run DRC and serialize the result to a JSON-friendly dict for the viewer.
 
     Returns ``None`` when no rules are configured or the DRC engine raises, so
@@ -358,7 +358,7 @@ class _PidHandle:
 
 def _launch_tauri(
     url: str, allow_build: bool = False, design_mode: bool = True
-) -> subprocess.Popen | _PidHandle | None:
+) -> subprocess.Popen[bytes] | _PidHandle | None:
     """Launch the Tauri desktop app pointing at the given URL.
 
     On macOS, prefers the installed Rosette.app bundle (via ``open -a``)
@@ -471,7 +471,7 @@ def _open_viewer(
     native_explicit: bool,
     design_mode: bool = True,
     label: str = "",
-) -> subprocess.Popen | _PidHandle | None:
+) -> subprocess.Popen[bytes] | _PidHandle | None:
     """Open the viewer in a native Tauri window or browser.
 
     Returns the Tauri process handle, or None if browser was used.
@@ -493,7 +493,7 @@ def _open_viewer(
     return None
 
 
-def _cleanup_tauri(proc: subprocess.Popen | _PidHandle | None):
+def _cleanup_tauri(proc: subprocess.Popen[bytes] | _PidHandle | None):
     """Terminate a Tauri process if still running."""
     if proc and proc.poll() is None:
         proc.terminate()
@@ -522,7 +522,7 @@ def serve_design(
     """
     import logging
 
-    from rosette.cli import load_design
+    from rosette._design import load_design
 
     logging.basicConfig(
         level=logging.WARNING,

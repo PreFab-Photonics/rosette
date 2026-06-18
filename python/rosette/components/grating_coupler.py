@@ -153,10 +153,11 @@ def grating_coupler(
             stacklevel=2,
         )
         grating_width = None
-    if focusing_angle is None and grating_width is None:
-        grating_width = 12.0
-    if focusing_angle is None and grating_width <= 0:
-        raise ValueError("Grating width must be positive")
+    if focusing_angle is None:
+        if grating_width is None:
+            grating_width = 12.0
+        if grating_width <= 0:
+            raise ValueError("Grating width must be positive")
     if num_periods < 1:
         raise ValueError("Number of periods must be at least 1")
 
@@ -199,7 +200,10 @@ def grating_coupler(
         if focusing_angle is not None:
             tooth_poly = _curved_tooth(tooth_width, i, focusing_angle, taper_length, period, ff)
         else:
-            # Straight rectangular tooth
+            # Straight rectangular tooth. grating_width is guaranteed
+            # non-None here: it is defaulted/validated when focusing_angle
+            # is None earlier in the function.
+            assert grating_width is not None
             half_grating = grating_width / 2.0
             tooth_poly = Polygon(
                 [
@@ -263,6 +267,7 @@ def _create_taper(
     # grating_width at x=-length. Build the canonical shape (extending
     # in +X, width_in at x=0 and width_out at x=+length) and mirror
     # across the Y-axis so it extends in -X as required.
+    assert width_out is not None, "width_out is required for straight grating couplers"
     return taper_polygon(width_in, width_out, length).mirror_y()
 
 

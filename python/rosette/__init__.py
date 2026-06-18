@@ -34,7 +34,7 @@ from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypedDict
 
 from rosette._core import (
     # Geometry
@@ -1040,7 +1040,7 @@ class Cell:
         self._inner.add_bend(radius, x, y, requested_radius)
 
     @property
-    def bends(self) -> list[dict]:
+    def bends(self) -> list[dict[str, float]]:
         """Bend info entries as list of dicts."""
         return self._inner.bends
 
@@ -1892,7 +1892,7 @@ def _find_rosette_toml() -> Path | None:
     return None
 
 
-def _validate_rule_fields(rule: dict, required: list[str], index: int) -> None:
+def _validate_rule_fields(rule: dict[str, object], required: list[str], index: int) -> None:
     """Validate that a DRC rule has all required fields."""
     missing = [field for field in required if field not in rule]
     if missing:
@@ -1915,13 +1915,15 @@ def _parse_layer_string(layer_str: str) -> Layer:
         )
 
 
-def _build_layer_lookup(config: dict) -> dict[str, Layer]:
+def _build_layer_lookup(config: dict[str, object]) -> dict[str, Layer]:
     """Build a name -> Layer lookup from the [layers] section of a parsed TOML config.
 
     Returns an empty dict if no [layers] section exists.
     """
     layers_config = config.get("layers", {})
     lookup: dict[str, Layer] = {}
+    if not isinstance(layers_config, dict):
+        return lookup
     for name, props in layers_config.items():
         if isinstance(props, dict) and "number" in props:
             number = props["number"]
@@ -2583,10 +2585,21 @@ def render_png(
 # Valid fill pattern values (matches app/WASM renderer)
 _VALID_FILL_PATTERNS = {"solid", "hatched", "crosshatched", "dotted"}
 
+
 # Default layer definitions — single source of truth for templates and app.
 # These are used as the fallback when rosette.toml has no [layers] section
 # and are mirrored in the templates and the desktop app.
-DEFAULT_LAYERS: list[dict] = [
+class _LayerDef(TypedDict):
+    name: str
+    number: int
+    datatype: int
+    color: str
+    fill: str
+    opacity: float
+    description: str
+
+
+DEFAULT_LAYERS: list[_LayerDef] = [
     {
         "name": "silicon",
         "number": 1,
@@ -2747,7 +2760,7 @@ class LayerMap:
         """Get all layer names."""
         return list(self._layers.keys())
 
-    def to_dict_list(self) -> list[dict]:
+    def to_dict_list(self) -> list[dict[str, object]]:
         """Export as a list of dicts for serialization.
 
         Returns a list suitable for JSON serialization, with keys matching
