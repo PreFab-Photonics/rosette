@@ -75,7 +75,10 @@ ignore = [
 known-first-party = ["rosette"]
 
 [tool.basedpyright]
-include = ["python"]
+# Scope to the shippable package. Tests are intentionally excluded: test
+# code commonly uses fixtures/monkeypatching that fight strict typing, and
+# gating on it is low value.
+include = ["python/rosette"]
 typeCheckingMode = "recommended"
 pythonVersion = "3.11"
 # Inherent to the PyO3 .so boundary: Python wrappers hold an untyped Rust

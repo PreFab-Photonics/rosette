@@ -63,6 +63,10 @@ jobs:
         if: matrix.python-version == '3.11'
         run: uv run ruff format --check python/
 
+      - name: Type check
+        if: matrix.python-version == '3.11'
+        run: uv run basedpyright python/rosette
+
       - name: Test
         run: uv run --python ${{ matrix.python-version }} pytest
 
