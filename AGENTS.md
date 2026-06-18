@@ -33,6 +33,7 @@ uv run pytest python/tests/test_file.py::Test -v   # Single Python test
 
 cargo fmt && cargo clippy -- -D warnings           # Rust lint
 uv run ruff check python/ && uv run ruff format python/  # Python lint
+uv run basedpyright python/                        # Python type check
 bun run lint && bun run fmt                        # App lint (run from app/)
 
 bun dev                                            # App dev server (from app/)

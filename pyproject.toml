@@ -36,7 +36,7 @@ rosette = "rosette.cli:main"
 ro = "rosette.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=7.0", "maturin>=1.4,<2.0", "ruff>=0.8"]
+dev = ["pytest>=7.0", "maturin>=1.4,<2.0", "ruff>=0.8", "basedpyright>=1.20"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
@@ -73,6 +73,11 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["rosette"]
+
+[tool.basedpyright]
+include = ["python"]
+typeCheckingMode = "recommended"
+pythonVersion = "3.11"
 
 [tool.ruff.format]
 quote-style = "double"
