@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Generate a showcase design JSON for the landing page viewer embed.
 
-Reads the rosette logo PNG image and recreates it as pixel art using
+Reads the rosette logo image and recreates it as pixel art using
 rectangles on three layers (dark navy, purple, golden yellow).
 Adjacent same-color pixels in each row are merged into wider rectangles
 for efficiency. White/background pixels are omitted.
+
+NOTE: `www/public/rosette-logo.png` was removed (replaced by a vector
+`rosette-logo.svg`, see ROS-598). The generated `showcase.json` is committed
+and is the source of truth for the landing page, so this script is not needed
+for normal builds. To regenerate it you must first supply a raster source for
+`img_path` below (e.g. rasterize `rosette-logo.svg` with `resvg`/Pillow, or
+point it at another PNG), since Pillow cannot read SVG directly.
 """
 
 import sys
@@ -72,6 +79,15 @@ def main():
     layer_map = {"dark": dark, "purple": purple, "gold": gold}
 
     img_path = repo_root / "www" / "public" / "rosette-logo.png"
+    if not img_path.exists():
+        print(
+            f"Source image not found: {img_path}\n"
+            "rosette-logo.png was removed (ROS-598); the committed "
+            "www/public/viewer/showcase.json is used instead.\n"
+            "To regenerate, supply a raster source (e.g. rasterize "
+            "rosette-logo.svg to a PNG) and point img_path at it."
+        )
+        sys.exit(1)
     img = Image.open(img_path).convert("RGB")
     img_small = img.resize((GRID, GRID), Image.Resampling.LANCZOS)
 

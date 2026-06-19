@@ -30,7 +30,7 @@ export function Header({ trailing }: { trailing?: ReactNode }) {
             className="flex items-center gap-2 text-sm font-semibold tracking-tight text-fd-foreground transition-colors"
           >
             <Image
-              src="/rosette-logo.png"
+              src="/rosette-logo.svg"
               alt="Rosette"
               width={28}
               height={28}

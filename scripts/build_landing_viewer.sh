@@ -20,7 +20,11 @@ cp -r dist/* "$VIEWER_DIR/"
 
 echo "Generating showcase design..."
 cd "$REPO_ROOT"
-uv run python scripts/generate_showcase.py
+# NOTE: rosette-logo.png was removed (ROS-598); generate_showcase.py needs a
+# raster source to regenerate showcase.json. The committed showcase.json is the
+# source of truth, so a failure here is non-fatal for the viewer build.
+uv run python scripts/generate_showcase.py || \
+  echo "  (skipped: see scripts/generate_showcase.py; using committed showcase.json)"
 
 FILE_COUNT=$(find "$VIEWER_DIR" -type f | wc -l | tr -d ' ')
 echo "Done. $FILE_COUNT files in www/public/viewer/"
