@@ -153,11 +153,13 @@ def test_estimate_sbend_path_length_at_least_straight_length(bend_type):
 
 
 # ----------------------------------------------------------------------------
-# Euler-specific coverage: the s_max = 1.0 scaling choice is documented in
-# ``euler_sbend_point``, and the Fresnel-scaled physical space is load-bearing
-# for how the polygon sidewalls are offset. These tests pin that choice at the
-# boundaries so a future refactor that changes s_max has to face the test
-# suite head-on.
+# Euler-specific coverage: ``s_max`` is derived from the bend aspect ratio
+# (``s_max = sqrt(2 * atan2(|offset|, length) / pi)``) so the midpoint tangent
+# angle scales with the geometry instead of being pinned at 90 degrees. The
+# Fresnel-scaled physical space is load-bearing for how the polygon sidewalls
+# are offset, so these tests pin both the geometric-midpoint invariant and the
+# aspect-proportional inflection slope. See ROS-585 for the bug these replace
+# (the midpoint used to be forced vertical for every bend).
 # ----------------------------------------------------------------------------
 
 
@@ -171,17 +173,38 @@ def test_euler_midpoint_is_geometric_midpoint():
     assert y == pytest.approx(offset / 2.0)
 
 
-def test_euler_s_max_boundary_tangent_angle():
-    """At t=0.5 the Fresnel parameter s = s_max = 1.0, so the tangent
-    angle is theta = (pi/2) * s^2 = pi/2 — i.e. the (scaled) tangent has
-    dx = 0 (to within float precision) and positive dy.
+def test_euler_midpoint_slope_scales_with_aspect_not_vertical():
+    """The midpoint tangent angle tracks the bend aspect ratio.
 
-    This locks the ``s_max = 1.0`` choice at the midpoint boundary.
+    ``s_max = sqrt(2 * phi / pi)`` where ``phi = atan2(|offset|, length)``,
+    so the unscaled clothoid reaches ``theta(s_max) = phi`` at the
+    midpoint. After the anisotropic rescaling the physical inflection is
+    steeper than the chord (the scaling stretches Y harder than X near
+    the ports, giving a floor of ``atan(3*|offset|/length)``), but for a
+    gentle bend it must stay well clear of vertical — this is the ROS-585
+    regression guard.
     """
     length, offset = 20.0, 5.0
     dx, dy = euler_sbend_tangent(0.5, length, offset)
-    assert dx == pytest.approx(0.0, abs=1e-9)
+    assert dx > 0.0, "midpoint tangent must not be vertical for a gentle bend"
     assert dy > 0.0
+    slope = math.degrees(math.atan2(dy, dx))
+    # length=20, offset=5: chord ~14 deg, physical inflection ~37 deg.
+    # Far from the old 90 deg, and bracketed comfortably.
+    assert 20.0 < slope < 60.0, f"gentle-bend midpoint slope {slope:.2f}deg out of range"
+
+
+def test_euler_midpoint_slope_monotonic_in_aspect():
+    """Steeper bends (larger |offset|/length) get steeper inflections."""
+    length = 20.0
+    slopes = []
+    for offset in (1.0, 3.0, 5.0, 10.0, 18.0):
+        dx, dy = euler_sbend_tangent(0.5, length, offset)
+        slopes.append(math.degrees(math.atan2(dy, dx)))
+    for a, b in pairwise(slopes):
+        assert b > a, f"midpoint slope not monotonic in aspect: {slopes}"
+    # The tightest bend here is still below vertical.
+    assert slopes[-1] < 90.0
 
 
 def test_euler_tangent_at_endpoints_is_horizontal():

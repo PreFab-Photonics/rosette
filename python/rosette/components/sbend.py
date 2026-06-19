@@ -34,6 +34,12 @@ loss and radiation:
 * ``"euler"`` -- Two clothoid (Cornu) segments. Curvature varies linearly
   with arc length, peaking at the midpoint and zero at the ports. Lowest
   optical loss of the three; preferred for tight or lossy processes.
+  Note: this variant is an *anisotropically* rescaled clothoid (see
+  below), so its midpoint inflection is always somewhat steeper than the
+  chord — by roughly ``3x`` the chord slope for gentle bends, shrinking
+  toward ``1x`` as the bend steepens. The inflection is gentle and
+  aspect-proportional, but for a *true* clothoid shape (no slope
+  overshoot) use ``Route(bend_profile="euler")`` instead.
 
 Relationship to ``Route(bend_profile="euler")``
 -----------------------------------------------
@@ -58,6 +64,26 @@ Use ``sbend`` when the endpoint geometry is prescribed and you are
 willing to accept anisotropic scaling; use ``Route`` when you want the
 true clothoid shape and can let the footprint fall out of the turn
 geometry.
+
+A note on euler fidelity vs. aspect ratio
+-----------------------------------------
+Forcing a clothoid through prescribed endpoints requires unequal X and Y
+scaling, and that stretch inflates the midpoint slope above the chord
+slope. The overshoot is purely a function of aspect ratio ``offset /
+length``:
+
+* **Gentle-to-moderate** (``offset/length`` ~ 0.1-0.5): the midpoint is
+  ~2-3x the chord slope. This is where the overshoot is most visible to
+  the eye, because the steepened inflection contrasts with otherwise
+  gentle surroundings. If a perfectly gentle inflection matters here,
+  prefer ``Route(bend_profile="euler")``.
+* **Steep** (``offset/length`` >~ 1): the overshoot shrinks toward 1x and
+  the inflection blends in; the anisotropic ``sbend`` reads cleanly.
+* **Very gentle** (tiny ``offset/length``): the ratio is still ~3x but
+  the absolute slopes are so small that the overshoot is imperceptible.
+
+The overshoot is intrinsic to prescribed-endpoint clothoids and cannot be
+removed without giving up exact endpoint control (which ``Route`` does).
 """
 
 import math

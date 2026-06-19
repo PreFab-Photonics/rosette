@@ -180,45 +180,51 @@ def euler_sbend_point(t: float, length: float, offset: float) -> tuple[float, fl
     endpoints, the Route one preserves the true constant-rate-of-curvature
     clothoid shape.
 
-    Curvature profile and the ``s_max = 1.0`` choice
-    -------------------------------------------------
+    Curvature profile and the aspect-derived ``s_max``
+    ---------------------------------------------------
     A clothoid is parameterised by arc length ``s``: its tangent angle is
     ``theta(s) = (pi / 2) * s^2`` and its curvature is
     ``kappa(s) = pi * s``. Each half of the S-bend traces the clothoid
     from ``s = 0`` (zero curvature at the port) up to ``s = s_max``
     (maximum curvature at the midpoint), then the second half mirrors
     back down to zero curvature at the exit port. So ``s_max`` sets the
-    **fraction of a full clothoid** each half uses, and thereby how
-    concentrated the curvature is relative to the endpoints.
+    **fraction of a full clothoid** each half uses, and thereby the
+    tangent angle the unscaled curve reaches at the midpoint.
 
-    We fix ``s_max = 1.0``. That choice:
+    We derive ``s_max`` from the bend aspect ratio instead of fixing it.
+    Let ``phi = atan2(|offset|, length)`` be the overall chord angle of
+    the S-bend. We pick ``s_max`` so the *unscaled* clothoid reaches a
+    midpoint tangent angle of ``phi``::
 
-    * Places the endpoint tangent angle at ``theta(1) = pi/2 = 90°`` at
-      the unscaled curve. After the anisotropic ``(scale_x, scale_y)``
-      rescaling, the centerline enters and leaves each port with zero
-      slope (matching an ``in``/``out`` port facing ±X), while the
-      curvature peaks smoothly at the midpoint.
-    * Gives a curvature profile that is roughly half a "natural"
-      clothoid per half-S-bend — enough to be clearly clothoid-like
-      (curvature ramps linearly with arc length, avoiding the
-      discontinuity of a circular bend and the non-monotonic curvature
-      of a cosine bend) without being so tight that the scaling becomes
-      numerically sensitive.
-    * Lets the anisotropic ``scale_x = (length/2) / C(1)``,
-      ``scale_y = (|offset|/2) / S(1)`` place the midpoint exactly at
-      the geometric centre ``(length/2, offset/2)``, independent of
-      aspect ratio.
+        theta(s_max) = (pi / 2) * s_max^2 = phi
+        s_max = sqrt(2 * phi / pi)
 
-    Larger ``s_max`` would pack more of a full clothoid into the same
-    endpoint-to-endpoint span, sharpening the curvature peak in the
-    middle (higher peak ``kappa``, larger peak bend radius inverse)
-    at the cost of less headroom before the scaling becomes ill-
-    conditioned.     Smaller ``s_max`` gives a curve closer to a gentle
-    cosine, losing the loss advantage of a true clothoid. ``s_max = 1.0``
-    is a common choice for clothoid S-bends — it gives a full 90° tangent
-    sweep in each half before the anisotropic rescaling, which is enough
-    to recover most of the loss benefit of a clothoid without needing to
-    expose a tuning knob.
+    (clamped to ``<= 1.0`` as a defensive cap; since ``phi <= pi/2`` the
+    formula already yields ``s_max <= 1.0``). This makes the inflection
+    slope scale with the geometry: a gentle bend (small ``phi``) gets a
+    gentle inflection, while a tight bend (``phi`` approaching 90°)
+    recovers the near-vertical midpoint of the old ``s_max = 1.0``
+    behaviour.
+
+    Historically this was hardcoded to ``s_max = 1.0``, which forced
+    ``theta = 90°`` at the midpoint of *every* bend. After the
+    anisotropic rescaling that produced a purely vertical centerline
+    tangent at the inflection regardless of aspect ratio, so even very
+    gentle S-bends read as kinked (see ROS-585).
+
+    The anisotropic ``scale_x = (length/2) / C(s_max)``,
+    ``scale_y = (|offset|/2) / S(s_max)`` still places the midpoint
+    exactly at the geometric centre ``(length/2, offset/2)`` for any
+    ``s_max``, so the endpoint/midpoint contract is unchanged.
+
+    Note one inherent limit of the anisotropic scaling: because the
+    Y-axis is stretched harder than the X-axis near the ports
+    (``S(s) ~ (pi/6) s^3`` vs ``C(s) ~ s`` for small ``s``), the physical
+    (post-scaling) midpoint slope has a floor of ``atan(3 * |offset| /
+    length)`` — roughly three times the chord slope — reached as
+    ``s_max -> 0``. So the physical inflection is always somewhat steeper
+    than the chord, but the aspect-derived ``s_max`` keeps it gentle and
+    geometry-proportional rather than pinned at vertical.
 
     Args:
         t: Parameter from 0 to 1
@@ -234,13 +240,15 @@ def euler_sbend_point(t: float, length: float, offset: float) -> tuple[float, fl
     sign = 1.0 if offset > 0 else -1.0
     abs_offset = abs(offset)
 
-    # Euler spiral parameter - determines the "tightness".
-    # s_max = 1.0 gives a clothoid whose endpoint tangent reaches 90
-    # degrees on the unscaled curve; after the anisotropic
-    # (scale_x, scale_y) rescaling this becomes a full S-bend with
-    # zero slope at the ports and peak curvature at the midpoint.
-    # See the docstring for a full discussion.
-    s_max = 1.0
+    # Euler spiral parameter - determines the "tightness", derived from
+    # the bend aspect ratio so the unscaled clothoid reaches a midpoint
+    # tangent angle equal to the chord angle phi = atan2(|offset|, length):
+    #   theta(s_max) = (pi/2) * s_max^2 = phi  =>  s_max = sqrt(2*phi/pi).
+    # This keeps the inflection slope proportional to the geometry instead
+    # of pinning it at 90 degrees (vertical) for every bend. See the
+    # docstring for a full discussion (and ROS-585 for the prior bug).
+    phi = math.atan2(abs_offset, length)
+    s_max = min(1.0, math.sqrt(2.0 * phi / math.pi))
 
     # Get the Fresnel values at s_max (endpoint of half-spiral)
     c_max = fresnel_c(s_max)
@@ -291,7 +299,12 @@ def euler_sbend_tangent(t: float, length: float, offset: float) -> tuple[float, 
 
     sign = 1.0 if offset > 0 else -1.0
     abs_offset = abs(offset)
-    s_max = 1.0
+
+    # Aspect-derived s_max, identical to euler_sbend_point so point and
+    # tangent stay consistent (theta(s_max) = chord angle). See that
+    # function's docstring for the derivation.
+    phi = math.atan2(abs_offset, length)
+    s_max = min(1.0, math.sqrt(2.0 * phi / math.pi))
 
     # Scale factors matching euler_sbend_point
     c_max = fresnel_c(s_max)

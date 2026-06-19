@@ -103,15 +103,12 @@ gallery = Gallery(design, row_pitch=70.0)
 # --- sbend: cosine / circular / euler profiles ---
 # Note: sbend(bend_type="euler") uses a whole-S-bend anisotropic clothoid,
 # a separate implementation from Route(bend_profile="euler").
-# A tighter aspect (offset/length) is used here so the euler variant reads
-# cleanly; the euler midpoint currently forces a 90-degree tangent which
-# looks kinked on very gentle bends (tracked in ROS-585).
 gallery.row(
     "sbend (cosine, circular, euler)",
     [
-        sbend(silicon, length=15.0, offset=8.0, bend_type="cosine"),
-        sbend(silicon, length=15.0, offset=8.0, bend_type="circular"),
-        sbend(silicon, length=15.0, offset=8.0, bend_type="euler"),
+        sbend(silicon, length=20.0, offset=5.0, bend_type="cosine"),
+        sbend(silicon, length=20.0, offset=5.0, bend_type="circular"),
+        sbend(silicon, length=20.0, offset=5.0, bend_type="euler"),
     ],
     x_pitch=35.0,
 )
