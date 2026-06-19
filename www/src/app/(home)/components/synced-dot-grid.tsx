@@ -218,7 +218,8 @@ export function SyncedDotGrid({
   // no React state update needed since we draw imperatively on canvas.
   useEffect(() => {
     function onMessage(e: MessageEvent) {
-      // Only accept messages from our own iframe
+      // Only accept same-origin messages from our own iframe
+      if (e.origin !== window.location.origin) return;
       if (e.source !== iframeRef.current?.contentWindow) return;
       if (!isViewportMsg(e.data)) return;
 
