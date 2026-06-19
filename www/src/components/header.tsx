@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { ComingSoonButton } from "@/components/coming-soon-button";
 
 const navLinks = [
   { label: "Docs", href: "/docs", external: false },
@@ -156,28 +157,11 @@ export function Header({ trailing }: { trailing?: ReactNode }) {
             Star
           </a>
 
-          <div
-            className="hidden h-8 cursor-not-allowed items-center gap-1.5 rounded-md border border-fd-border bg-fd-background px-3 text-xs font-medium text-fd-muted-foreground opacity-60 shadow-sm md:inline-flex"
+          <ComingSoonButton
+            iconSize={14}
             title="Coming soon"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" x2="12" y1="15" y2="3" />
-            </svg>
-            Download
-          </div>
+            className="hidden h-8 items-center gap-1.5 rounded-md border border-fd-border bg-fd-background px-3 text-xs font-medium text-fd-muted-foreground shadow-sm md:inline-flex"
+          />
 
           {trailing}
         </div>

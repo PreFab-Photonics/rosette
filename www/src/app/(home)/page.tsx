@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ComingSoonButton } from "@/components/coming-soon-button";
 import { blog } from "@/lib/source";
 import { CopyButton } from "./components/copy-button";
 import { HeroViewer } from "./components/hero-viewer";
@@ -71,25 +72,7 @@ function Hero() {
 
             {/* Download — Desktop app */}
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-6 text-sm font-medium text-fd-muted-foreground opacity-60 shadow-sm">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" x2="12" y1="15" y2="3" />
-                </svg>
-                Download
-              </div>
+              <ComingSoonButton className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-6 text-sm font-medium text-fd-muted-foreground shadow-sm" />
               <span className="text-[11px] text-fd-muted-foreground">
                 Desktop app &middot; coming soon
               </span>
@@ -480,25 +463,7 @@ function ClosingCTA() {
             </div>
 
             <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-6 text-sm font-medium text-fd-muted-foreground opacity-60 shadow-sm">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" x2="12" y1="15" y2="3" />
-                </svg>
-                Download
-              </div>
+              <ComingSoonButton className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-6 text-sm font-medium text-fd-muted-foreground shadow-sm" />
               <span className="text-[11px] text-fd-muted-foreground">
                 Desktop app &middot; coming soon
               </span>
