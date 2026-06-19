@@ -761,7 +761,7 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
             onMouseEnter={handleMenuEnter}
             onMouseLeave={handleMenuLeave}
             className={cn(
-              "fixed z-[9999] rounded-xl border p-2 backdrop-blur-xl",
+              "fixed z-[9999] rounded-xl border p-1 backdrop-blur-xl",
               isDark
                 ? "border-white/10 bg-[rgb(29,29,29)]"
                 : "border-black/10 bg-[rgb(241,241,241)]",
