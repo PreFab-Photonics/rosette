@@ -40,8 +40,10 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.8"
       - name: Install app dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
         working-directory: app
       - name: Build WASM module
         run: bun run build:wasm
@@ -83,6 +85,21 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist --interpreter 3.11 3.12 3.13 3.14
           manylinux: auto
+      # Smoke test: install the freshly built wheel in a clean venv and import it,
+      # to catch wheels that compile but fail to load (broken native module,
+      # missing bundled data). Skipped for aarch64 (cross-built under QEMU).
+      # --find-links lets pip pick the wheel matching this Python (wheels are
+      # version-specific, not abi3) while still resolving deps from PyPI.
+      - uses: actions/setup-python@v5
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        with:
+          python-version: "3.13"
+      - name: Smoke test wheel
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --find-links dist librosette
+          /tmp/smoke/bin/python -c "import rosette; print(rosette.__version__)"
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}
@@ -103,6 +120,15 @@ jobs:
         with:
           target: aarch64-apple-darwin
           args: --release --out dist --interpreter 3.11 3.12 3.13 3.14
+      # Smoke test: macOS-14 runners are natively arm64, so this is not emulated.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Smoke test wheel
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --find-links dist librosette
+          /tmp/smoke/bin/python -c "import rosette; print(rosette.__version__)"
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-aarch64
@@ -123,6 +149,15 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
           args: --release --out dist --interpreter 3.11 3.12 3.13 3.14
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Smoke test wheel
+        shell: pwsh
+        run: |
+          python -m venv smoke
+          .\smoke\Scripts\pip.exe install --find-links dist librosette
+          .\smoke\Scripts\python.exe -c "import rosette; print(rosette.__version__)"
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-x86_64
