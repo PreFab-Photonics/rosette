@@ -13,11 +13,6 @@ build/
 .pytest_cache/
 .ruff_cache/
 
-# Generated source bundles (scripts/bundle_source.py)
-python/rosette/_source/core/
-python/rosette/_source/io/
-python/rosette/_source/python_bindings/
-
 # Bundled web app (scripts/bundle_webapp.py)
 python/rosette/_webapp/
 
