@@ -70,7 +70,6 @@ rosette --version                                  # Print version
 
 ## Bundling & Release
 
-The wheel embeds two gitignored bundles, regenerated before any local wheel build (CI does this automatically on `v*` tags):
+The wheel embeds a gitignored bundle, regenerated before any local wheel build (CI does this automatically on `v*` tags):
 
 - **Web app** (`python/rosette/_webapp/`): viewer served by `rosette serve`/`run`. Build with `scripts/bundle_webapp.py` (runs `bun run build` in `app/`, copies `app/dist/`). Included via `pyproject.toml` `include`.
-- **Rust source** (`python/rosette/_source/`): copies of `rosette-core`/`-python`/`-io` source for agent reference. Build with `scripts/bundle_source.py`.
