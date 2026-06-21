@@ -1,0 +1,61 @@
+---
+title: RenderResult
+---
+
+Result of a [`render_png()`](./index#render_png) call: the PNG image bytes plus
+the world↔pixel transform metadata needed to map between design (micron) and
+image (pixel) coordinates.
+
+<Callout type="warn" title="Experimental">
+The rendering API (`render_png` / `RenderResult`) is evolving. Property shapes
+(notably the `view` metadata) and method signatures may change without notice.
+</Callout>
+
+```python
+from rosette import render_png
+
+result = render_png(library, width=1024)
+png_bytes = result.png
+x, y = result.px_to_world(512, 256)
+```
+
+## Attributes
+
+<PyAttribute name={"png"} type={"bytes"}>
+
+PNG-encoded image bytes.
+
+</PyAttribute>
+
+<PyAttribute name={"view"} type={"dict[str, object]"}>
+
+World↔pixel transform metadata (scale, offsets, canvas size, and the visible
+world bbox in microns). See the binding stubs in `python/rosette/_core.pyi` for
+the current key set, which may change.
+
+</PyAttribute>
+
+<PyAttribute name={"layers_rendered"} type={"list[tuple[int, int]]"}>
+
+`(layer, datatype)` pairs that contributed pixels, in draw order.
+
+</PyAttribute>
+
+## Methods
+
+<PyFunction name={"px_to_world"} type={"(px, py) -> tuple[float, float]"}>
+
+Convert a pixel coordinate in the rendered image back to design (micron)
+coordinates.
+
+<PyFunctionReturn type={"tuple[float, float]"} />
+
+</PyFunction>
+
+<PyFunction name={"world_to_px"} type={"(x, y) -> tuple[float, float]"}>
+
+Convert design (micron) coordinates to a pixel position in the rendered image.
+
+<PyFunctionReturn type={"tuple[float, float]"} />
+
+</PyFunction>

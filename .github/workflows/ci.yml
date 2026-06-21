@@ -108,6 +108,11 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Check API docs coverage
+        run: uv run --no-project python www/scripts/check-api-docs.py
+
       - name: Install dependencies
         working-directory: www
         run: bun install --frozen-lockfile

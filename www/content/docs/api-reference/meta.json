@@ -37,6 +37,8 @@
     "LayerMetrics",
     "DfmViolation",
     "LayerPrediction",
-    "DfmResult"
+    "DfmResult",
+    "---Rendering---",
+    "RenderResult"
   ]
 }

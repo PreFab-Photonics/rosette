@@ -113,6 +113,14 @@ section. Contains two layers: silicon (1/0), text (10/0).
 
 </Cards>
 
+### Rendering
+
+<Cards>
+
+<Card title={"RenderResult"} href={"/docs/api-reference/RenderResult"} />
+
+</Cards>
+
 </Tab>
 <Tab value={"Functions"}>
 
@@ -739,6 +747,84 @@ Upper limit of integration.
 </div>
 
 <PyFunctionReturn type={"float"} />
+
+</PyFunction>
+
+### Rendering
+
+<Callout type="warn" title="Experimental">
+The rendering API is evolving; the signature and `RenderResult` shape may change
+without notice.
+</Callout>
+
+<PyFunction name={"render_png"} type={"(library, *, bbox=None, cell=None, layers=None, width=1024, height=None, pad=0.1, bg='#1a1a1a', fill_alpha=178, palette=None) -> RenderResult"}>
+
+Render a [`Library`](./Library) to a PNG image, returning a
+[`RenderResult`](./RenderResult) with the image bytes and world↔pixel transform
+metadata.
+
+<div>
+
+<PyParameter name={"library"} type={"Library"}>
+
+The Library to render.
+
+</PyParameter>
+<PyParameter name={"bbox"} type={"BBox | None"} value={"None"}>
+
+Optional explicit world-space region (microns). If omitted, derived from `cell`
+or the full library extent.
+
+</PyParameter>
+<PyParameter name={"cell"} type={"str | None"} value={"None"}>
+
+Render only the named cell instead of the top cell.
+
+</PyParameter>
+<PyParameter name={"layers"} type={"list[tuple[int, int]] | None"} value={"None"}>
+
+Restrict rendering to these `(layer, datatype)` pairs.
+
+</PyParameter>
+<PyParameter name={"width"} type={"int"} value={"1024"}>
+
+Output width in pixels.
+
+</PyParameter>
+<PyParameter name={"height"} type={"int | None"} value={"None"}>
+
+Output height in pixels. If `None`, derived from aspect ratio.
+
+</PyParameter>
+<PyParameter name={"pad"} type={"float"} value={"0.1"}>
+
+Fractional padding around the target bbox (`0.1` = 10%).
+
+</PyParameter>
+<PyParameter name={"bg"} type={"str"} value={"'#1a1a1a'"}>
+
+Background color as `#RRGGBB` or `#RRGGBBAA`.
+
+</PyParameter>
+<PyParameter name={"fill_alpha"} type={"int"} value={"178"}>
+
+Alpha applied to layer fill colors (0-255). Default 178 (~70%).
+
+</PyParameter>
+<PyParameter name={"palette"} type={"dict[int, str] | None"} value={"None"}>
+
+Optional `{layer_number: hex_color}` overrides.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"RenderResult"}>
+
+A [`RenderResult`](./RenderResult) with `png` (bytes), `view` (dict), and
+`layers_rendered`.
+
+</PyFunctionReturn>
 
 </PyFunction>
 

@@ -16,12 +16,14 @@ Exit codes:
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 DOCS_DIR = ROOT / "www" / "content" / "docs" / "api-reference"
+META_JSON = DOCS_DIR / "meta.json"
 ROSETTE_INIT = ROOT / "python" / "rosette" / "__init__.py"
 
 
@@ -68,6 +70,24 @@ def find_documented_attrs(index_mdx: Path) -> set[str]:
     return set(re.findall(r'<PyAttribute\s+name=\{"([^"]+)"\}', content))
 
 
+def find_nav_pages(meta_json: Path) -> set[str]:
+    """Find page entries listed in the api-reference sidebar nav (meta.json).
+
+    Returns page names like 'Cell', 'Point', etc. Section separators
+    ('---Geometry---') and meta entries ('...index') are excluded, leaving
+    only references to actual .mdx pages.
+    """
+    meta = json.loads(meta_json.read_text())
+    pages = set()
+    for entry in meta.get("pages", []):
+        if not isinstance(entry, str):
+            continue
+        if entry.startswith("---") or entry.startswith("..."):
+            continue
+        pages.add(entry)
+    return pages
+
+
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -80,9 +100,10 @@ def main() -> int:
 
     # Separate classes (uppercase, not ALL_CAPS) from functions/constants.
     # ALL_CAPS names like DEFAULT_LAYERS are constants documented on index.mdx.
-    classes = [s for s in all_symbols if s[0].isupper() and not s.isupper()]
-    functions = [s for s in all_symbols if s[0].islower()]
-    constants = [s for s in all_symbols if s.isupper()]
+    # The leading `s and` guards against a malformed (empty) __all__ entry.
+    classes = [s for s in all_symbols if s and s[0].isupper() and not s.isupper()]
+    functions = [s for s in all_symbols if s and s[0].islower()]
+    constants = [s for s in all_symbols if s and s.isupper()]
 
     # ── Check docs exist ───────────────────────────────────────────────
     mdx_pages = find_mdx_pages(DOCS_DIR)
@@ -110,6 +131,25 @@ def main() -> int:
     for page in mdx_pages:
         if page not in known_symbols:
             warnings.append(f"Docs page '{page}.mdx' exists but '{page}' is not in __all__")
+
+    # ── Check sidebar nav (meta.json) ──────────────────────────────────
+    # A class page can exist and be public yet still be invisible in the
+    # sidebar if it's missing from meta.json's `pages`. Diff the .mdx pages
+    # against the nav to catch that drift (and dangling nav entries).
+    if META_JSON.exists():
+        nav_pages = find_nav_pages(META_JSON)
+        for page in mdx_pages:
+            if page not in nav_pages:
+                errors.append(
+                    f"Docs page '{page}.mdx' exists but is missing from meta.json sidebar nav"
+                )
+        for entry in nav_pages:
+            if entry not in mdx_pages:
+                errors.append(
+                    f"meta.json nav entry '{entry}' has no corresponding '{entry}.mdx' page"
+                )
+    else:
+        errors.append(f"Sidebar nav file not found: {META_JSON}")
 
     # ── Report ─────────────────────────────────────────────────────────
     if warnings:
