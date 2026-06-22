@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/PreFab-Photonics/rosette/main/www/public/rosette-logo.png" alt="Rosette" width="200" />
+  <img src="https://raw.githubusercontent.com/PreFab-Photonics/rosette/main/www/public/rosette-logo.svg" alt="Rosette" width="200" />
 </p>
 
 # Rosette
