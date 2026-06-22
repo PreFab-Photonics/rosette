@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-22
+
+A consolidation release: tooling, docs, dependency hygiene, and DRC workflow
+improvements. No breaking API changes. Entries are grouped at a higher level than
+usual given the volume of changes.
+
+### Added
+
+- `rosette shot`: render a design region to PNG for AI-driven visual inspection
+- Live DRC violations in the viewer, with a polished violations panel
+- DRC region waivers: suppress violations within designated areas
+- Incremental DRC during `rosette serve` via a clean-cell cache (faster serve loop)
+- Python 3.14 support across CI, release wheels, and packaging metadata
+
+### Changed
+
+- DRC overlap checks sped up
+- Euler S-bend now derives `s_max` from the bend's aspect ratio
+- Type checking: `basedpyright` added to the Python package and gated in CI (zero
+  errors/warnings)
+- Docs site bolstered with core-concepts, guides, agent-workflow pages, and a blog;
+  landing/blog visuals simplified to a neutral palette
+- Example designs overhauled; component cell-name collisions fixed
+- App tooling upgraded: Vite 8 (Rolldown) + plugin-react 6, oxlint broadened
+- Code reorganized for maintainability: oversized `rosette-wasm` sources split into
+  submodules; Explorer, Inspector, and `lib/commands.ts` extracted into focused modules
+- Workspace dependency catalog used for shared crates (serde, rstar); crate READMEs
+  standardized with reference docs moved into rustdoc
+- Dependencies upgraded for security/freshness: `pyo3` 0.29, Next 16.2.9, fumadocs
+  v15/16.10, plus Python and app advisory patches
+
+### Fixed
+
+- CI/release hardening: pinned Bun, added wheel smoke tests, and wired the API-docs
+  completeness check into CI
+- Accessibility: a11y fixes for disabled Download buttons and jsx-a11y errors; theme
+  flash on load eliminated
+
 ## [0.4.0] - 2026-05-07
 
 ### Added
@@ -280,7 +318,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `rosette serve` to use installed Rosette.app on macOS
 
-[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.1.9...v0.2.0
