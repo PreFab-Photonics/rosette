@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { ComingSoonButton } from "@/components/coming-soon-button";
 import { blog } from "@/lib/source";
 import { CopyButton } from "./components/copy-button";
-import { HeroViewer } from "./components/hero-viewer";
 import { RedactedText } from "./components/redacted-text";
 
 export const metadata: Metadata = {
@@ -26,21 +26,6 @@ export const metadata: Metadata = {
 /* -------------------------------------------------------------------------- */
 /*  Hero                                                                      */
 /* -------------------------------------------------------------------------- */
-
-const heroCodeFallback = `from rosette import Cell, Layer, Route, write_gds
-from components.mmi import mmi
-from components.grating_coupler import grating_coupler
-
-chip = Cell("splitter")
-gc = grating_coupler(layer=Layer(1, 0)).at(0, 0)
-splitter = mmi(layer=Layer(1, 0)).at(80, 0)
-chip.add_ref(gc)
-chip.add_ref(splitter)
-
-Route.through(gc.port("opt"), splitter.port("in"),
-    layer=Layer(1, 0), width=0.5, bend_radius=10.0)
-
-write_gds("splitter.gds", chip)`;
 
 function Hero() {
   return (
@@ -106,12 +91,28 @@ function Hero() {
         </div>
       </div>
 
-      {/* Full-width viewer + synced background dot grid (wider than text) */}
-      <div className="mx-auto max-w-[1400px] px-6 pb-16">
-        <HeroViewer
-          src="/viewer/index.html?embed=true&src=showcase.json&colors=382165,5635a2,e6b01b&fills=solid,solid,solid&name=demo&zoom=0.8&panelWidth=200"
-          fallback={heroCodeFallback}
-        />
+      {/* Full-width static preview (wider than the hero text) */}
+      <div className="mx-auto mt-10 max-w-6xl px-6 pb-8">
+        <div className="relative aspect-[2388/1544] w-full select-none overflow-hidden rounded-xl border border-fd-border shadow-md dark:shadow-elevation ring-1 ring-inset ring-fd-accent">
+          {/* Light theme */}
+          <Image
+            src="/hero-preview-light-v2.png"
+            alt="A photonic circuit laid out in the Rosette editor"
+            fill
+            priority
+            sizes="(max-width: 1152px) 100vw, 1152px"
+            className="object-cover dark:hidden"
+          />
+          {/* Dark theme */}
+          <Image
+            src="/hero-preview-dark-v2.png"
+            alt="A photonic circuit laid out in the Rosette editor"
+            fill
+            priority
+            sizes="(max-width: 1152px) 100vw, 1152px"
+            className="hidden object-cover dark:block"
+          />
+        </div>
       </div>
     </section>
   );
