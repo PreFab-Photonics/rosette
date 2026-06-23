@@ -64,7 +64,7 @@ rosette --version                                  # Print version
 
 **Python wrappers:** `__slots__` on all classes. `_inner` holds the Rust object. `_from_inner` classmethod to wrap existing Rust objects.
 
-**Templates:** `rosette init` copies from `python/rosette/templates/blank/` or `python/rosette/templates/generic/`. Check if changes need template updates.
+**Templates:** `rosette init` copies from `python/rosette/templates/blank/` or `python/rosette/templates/generic/`. The agent instruction body (`agent-rules.md.template`) and `skills/` are stored once per template, harness-neutral; the `HARNESSES` adapter in `cli.py` projects them into each tool's files. Most agents share the `agents` harness (`AGENTS.md` + `.agents/skills/`, covering OpenCode/Codex/Cursor/Gemini/Copilot via aliases); Claude Code is the one diverger (`CLAUDE.md` + `.claude/skills/`). `--tool` accepts aliases and comma-separated lists (e.g. `agents,claude`). To support a tool with the same convention, add an alias to the matching `_Harness`; to support a genuinely different one, add a new `HARNESSES` entry — no new template files needed. Check if changes need template updates.
 
 **API docs:** Every `__all__` symbol (in `python/rosette/__init__.py`) needs a docs page in `www/content/docs/api-reference/` — classes get their own `.mdx`, functions/constants go on `index.mdx`. Verify with `uv run python www/scripts/check-api-docs.py`; update docs when changing public API.
 

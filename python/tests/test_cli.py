@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from rosette.cli import build_design, init_project, main, update_project
+from rosette.cli import _parse_tool_spec, build_design, init_project, main, update_project
 
 
 def _make_uv_project(project_dir: Path):
@@ -16,6 +16,34 @@ def _make_uv_project(project_dir: Path):
     project_dir.mkdir(exist_ok=True)
     (project_dir / "pyproject.toml").write_text('[project]\nname = "test"\nversion = "0.1.0"\n')
     (project_dir / ".gitignore").write_text("# Python\n__pycache__/\n*.py[cod]\n.venv/\n")
+
+
+class TestParseToolSpec:
+    """Tests for _parse_tool_spec harness resolution."""
+
+    def test_none_and_empty(self):
+        assert _parse_tool_spec(None) == []
+        assert _parse_tool_spec("none") == []
+        assert _parse_tool_spec("NONE") == []
+        assert _parse_tool_spec("") == []
+
+    def test_canonical_keys(self):
+        assert _parse_tool_spec("agents") == ["agents"]
+        assert _parse_tool_spec("claude") == ["claude"]
+
+    def test_aliases_resolve_to_agents(self):
+        for alias in ("opencode", "codex", "cursor", "gemini", "copilot"):
+            assert _parse_tool_spec(alias) == ["agents"]
+
+    def test_comma_separated_and_dedupe(self):
+        assert _parse_tool_spec("agents,claude") == ["agents", "claude"]
+        # opencode and codex both collapse to agents; claude stays distinct.
+        assert _parse_tool_spec("opencode, codex , claude") == ["agents", "claude"]
+
+    def test_unknown_exits(self):
+        with pytest.raises(SystemExit) as exc_info:
+            _parse_tool_spec("bogus")
+        assert exc_info.value.code == 1
 
 
 class TestRosetteInit:
@@ -312,6 +340,112 @@ class TestRosetteInit:
         claude_content = (project_dir / "CLAUDE.md").read_text()
         assert "<!-- BEGIN:rosette-agent-rules -->" in claude_content
         assert "ALWAYS read the reference files" in claude_content
+
+    def test_init_opencode_skills_location(self, tmp_path: Path, monkeypatch):
+        """Generic template skills land in .agents/skills for OpenCode."""
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("generic", tool="opencode")
+
+        skill = project_dir / ".agents" / "skills" / "layout-design" / "SKILL.md"
+        assert skill.exists()
+        assert "name: layout-design" in skill.read_text()
+        # Not placed in the Claude location.
+        assert not (project_dir / ".claude").exists()
+
+    def test_init_claude_skills_location(self, tmp_path: Path, monkeypatch):
+        """Generic template skills land in .claude/skills for Claude Code.
+
+        Regression: skills used to ship only under .agents/skills, which
+        Claude Code never reads.
+        """
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("generic", tool="claude")
+
+        skill = project_dir / ".claude" / "skills" / "spiral-cutback" / "SKILL.md"
+        assert skill.exists()
+        # OpenCode location is not created for a Claude-only project.
+        assert not (project_dir / ".agents").exists()
+
+    def test_init_blank_ships_no_skills(self, tmp_path: Path, monkeypatch):
+        """Blank template has no skills, so no skills dir is created."""
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
+
+        assert not (project_dir / ".agents").exists()
+        assert not (project_dir / ".claude").exists()
+
+    def test_init_agents_baseline(self, tmp_path: Path, monkeypatch):
+        """tool='agents' writes the AGENTS.md standard files."""
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="agents")
+
+        assert (project_dir / "AGENTS.md").exists()
+        assert not (project_dir / "CLAUDE.md").exists()
+
+    def test_init_codex_alias_maps_to_agents(self, tmp_path: Path, monkeypatch):
+        """Codex/Cursor aliases resolve to the AGENTS.md standard (no separate files)."""
+        for alias in ("codex", "cursor", "opencode"):
+            project_dir = tmp_path / f"proj_{alias}"
+            _make_uv_project(project_dir)
+            monkeypatch.chdir(project_dir)
+
+            init_project("generic", tool=alias)
+
+            # All aliases produce identical AGENTS.md + .agents/skills output.
+            assert (project_dir / "AGENTS.md").exists()
+            assert (project_dir / ".agents" / "skills" / "layout-design" / "SKILL.md").exists()
+            assert not (project_dir / "CLAUDE.md").exists()
+            assert not (project_dir / ".cursor").exists()
+            assert not (project_dir / ".codex").exists()
+
+    def test_init_multiple_harnesses(self, tmp_path: Path, monkeypatch):
+        """A comma-separated --tool spec writes files for every selected harness."""
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("generic", tool="agents,claude")
+
+        # Both instruction files and both skills dirs are present.
+        assert (project_dir / "AGENTS.md").exists()
+        assert (project_dir / "CLAUDE.md").exists()
+        assert (project_dir / ".agents" / "skills" / "layout-design" / "SKILL.md").exists()
+        assert (project_dir / ".claude" / "skills" / "layout-design" / "SKILL.md").exists()
+
+    def test_init_dedupes_alias_and_canonical(self, tmp_path: Path, monkeypatch):
+        """opencode + codex + agents all collapse to one 'agents' harness."""
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode,codex,agents")
+
+        assert (project_dir / "AGENTS.md").exists()
+        assert not (project_dir / "CLAUDE.md").exists()
+
+    def test_init_unknown_tool_errors(self, tmp_path: Path, monkeypatch, capsys):
+        """An unrecognized tool name exits with an error listing valid options."""
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        with pytest.raises(SystemExit) as exc_info:
+            init_project("blank", tool="bogus")
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Unknown tool: bogus" in captured.out
 
     def test_init_appends_gitignore(self, tmp_path: Path, monkeypatch):
         """rosette init appends entries to existing .gitignore without duplicating."""
@@ -645,6 +779,43 @@ class TestRosetteUpdate:
         # AGENTS.md should be restored with markers
         agents_content = agents_md.read_text()
         assert "<!-- BEGIN:rosette-agent-rules -->" in agents_content
+
+    def test_update_refreshes_skills(self, tmp_path: Path, monkeypatch):
+        """rosette update restores a deleted skill into the harness skills dir."""
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("generic", tool="claude")
+
+        skill = project_dir / ".claude" / "skills" / "layout-design" / "SKILL.md"
+        assert skill.exists()
+        skill.unlink()
+
+        update_project()
+
+        assert skill.exists()
+        assert "name: layout-design" in skill.read_text()
+
+    def test_update_restores_deleted_instruction_via_skills_dir(self, tmp_path: Path, monkeypatch):
+        """A harness stays configured (and its instruction file is restored) as
+        long as its skills dir survives -- deleting only CLAUDE.md doesn't drop it."""
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("generic", tool="agents,claude")
+
+        # Delete the Claude instruction file but leave .claude/skills/ in place.
+        (project_dir / "CLAUDE.md").unlink()
+        assert (project_dir / ".claude" / "skills").is_dir()
+
+        update_project()
+
+        # Claude is still recognized via its skills dir and the file is restored.
+        restored = project_dir / "CLAUDE.md"
+        assert restored.exists()
+        assert "<!-- BEGIN:rosette-agent-rules -->" in restored.read_text()
 
     def test_update_no_tool_does_not_create_agents(self, tmp_path: Path, monkeypatch):
         """rosette update on a tool=none project does not create AGENTS.md."""

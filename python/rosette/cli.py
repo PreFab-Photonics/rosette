@@ -33,6 +33,103 @@ COMPONENTS_DIR = Path(__file__).parent / "components"
 _MARKER_BEGIN = "<!-- BEGIN:rosette-agent-rules -->"
 _MARKER_END = "<!-- END:rosette-agent-rules -->"
 
+# Harness adapters: map each supported AI tool family to where its files live.
+# The instruction body (templates/<t>/agent-rules.md.template) and skills
+# (templates/<t>/skills/) are stored once per template, harness-neutral. Each
+# adapter projects them into the filenames/directories that tool family reads.
+#   - instructions: the project-root instruction filename the harness loads
+#   - skills_dir:   the directory the harness scans for <skill>/SKILL.md
+#   - aliases:      tool names that resolve to this harness (de-dupe identical
+#                   conventions instead of writing the same files twice)
+#
+# Most modern agents converged on AGENTS.md + .agents/skills/ as the
+# vendor-neutral standard (OpenCode, Codex, Cursor, Gemini CLI, Copilot,
+# Windsurf, Aider all read it), so they share the single "agents" harness.
+# Claude Code is the lone diverger (CLAUDE.md + .claude/skills/).
+# Sources: agents.md, agentskills.io, developers.openai.com/codex,
+# cursor.com/docs/skills, code.claude.com/docs/en/skills,
+# opencode.ai/docs/skills.
+
+
+class _Harness:
+    __slots__ = ("aliases", "description", "instructions", "key", "label", "skills_dir")
+
+    def __init__(
+        self,
+        key: str,
+        label: str,
+        instructions: str,
+        skills_dir: str,
+        description: str,
+        aliases: tuple[str, ...] = (),
+    ):
+        self.key = key
+        self.label = label
+        self.instructions = instructions
+        self.skills_dir = skills_dir
+        self.description = description
+        self.aliases = aliases
+
+
+HARNESSES: dict[str, _Harness] = {
+    "agents": _Harness(
+        "agents",
+        "AGENTS.md standard",
+        "AGENTS.md",
+        ".agents/skills",
+        "OpenCode, Codex, Cursor, Gemini, Copilot, …",
+        aliases=("opencode", "codex", "cursor", "gemini", "copilot"),
+    ),
+    "claude": _Harness(
+        "claude",
+        "Claude Code",
+        "CLAUDE.md",
+        ".claude/skills",
+        "Anthropic Claude Code",
+    ),
+}
+
+# Resolve a user-supplied tool name (including legacy aliases like "opencode")
+# to a canonical harness key.
+_HARNESS_ALIASES: dict[str, str] = {
+    alias: h.key for h in HARNESSES.values() for alias in (h.key, *h.aliases)
+}
+
+
+def _resolve_harness(tool: str) -> str | None:
+    """Map a tool name (or alias) to a canonical harness key, or None."""
+    return _HARNESS_ALIASES.get(tool)
+
+
+def _parse_tool_spec(tool: str | None) -> list[str]:
+    """Resolve a --tool spec into a de-duplicated list of harness keys.
+
+    Accepts None / "none" (-> []), a single tool/alias, or a comma-separated
+    list (e.g. "agents,claude" or "opencode,claude"). Exits with an error on an
+    unknown tool name.
+    """
+    if tool is None or tool.strip().lower() == "none":
+        return []
+    keys: list[str] = []
+    for raw in tool.split(","):
+        name = raw.strip()
+        if not name:
+            continue
+        key = _resolve_harness(name)
+        if key is None:
+            valid = sorted({*HARNESSES, *_HARNESS_ALIASES})
+            print(f"Error: Unknown tool: {name}")
+            print(f"Valid options: {', '.join(valid)}, none")
+            sys.exit(1)
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
+# Source filename (under each template dir) holding the canonical instruction
+# body. Projected to each harness's instruction filename at init/update time.
+_AGENT_RULES_TEMPLATE = "agent-rules.md.template"
+
 
 def _get_template_dir(template_name: str) -> Path | None:
     """Get path to a template directory, or None if not found."""
@@ -49,13 +146,27 @@ def _list_templates() -> list[str]:
     return [d.name for d in TEMPLATES_DIR.iterdir() if d.is_dir()]
 
 
-def _apply_template(template_dir: Path, project_dir: Path, name: str, tool: str | None = None):
+def _apply_template(
+    template_dir: Path,
+    project_dir: Path,
+    name: str,
+    harnesses: list[str] | None = None,
+):
     """Apply a template to the project directory.
 
-    - Files ending in .template have {{name}} replaced and extension stripped
-    - File named 'gitignore': entries are appended to existing .gitignore if present
+    The agent instruction body and skills are stored once per template
+    (``agent-rules.md.template`` and ``skills/``), harness-neutral. They are
+    projected into each selected harness's filenames/directories via the
+    ``HARNESSES`` adapter map -- so an AGENTS.md-standard user gets ``AGENTS.md``
+    + ``.agents/skills/`` and a Claude user gets ``CLAUDE.md`` +
+    ``.claude/skills/`` from the same source.
+
+    - ``agent-rules.md.template`` and ``skills/`` are handled by the harness
+      adapter (skipped here, installed by ``_install_harness``)
+    - Files ending in ``.template`` have ``{{name}}`` replaced and the extension
+      stripped
+    - File named ``gitignore``: entries are appended to existing ``.gitignore``
     - All other files are copied as-is
-    - Tool-specific files (AGENTS.md, CLAUDE.md) are only copied for the selected tool
     """
     for src_path in template_dir.rglob("*"):
         if src_path.is_dir():
@@ -63,12 +174,10 @@ def _apply_template(template_dir: Path, project_dir: Path, name: str, tool: str 
 
         # Compute relative path and destination
         rel_path = src_path.relative_to(template_dir)
+        rel_parts = rel_path.parts
 
-        # Filter tool-specific files
-        rel_str = str(rel_path)
-        if rel_str == "AGENTS.md.template" and tool != "opencode":
-            continue
-        if rel_str == "CLAUDE.md.template" and tool != "claude":
+        # Harness-managed sources are installed separately, per selected tool.
+        if rel_parts[0] == "skills" or rel_parts[-1] == _AGENT_RULES_TEMPLATE:
             continue
 
         dest_path = project_dir / rel_path
@@ -90,6 +199,51 @@ def _apply_template(template_dir: Path, project_dir: Path, name: str, tool: str 
         else:
             # Copy file as-is
             shutil.copy2(src_path, dest_path)
+
+    # Project the harness-neutral instruction body + skills into each selected
+    # tool's locations.
+    for key in harnesses or []:
+        _install_harness(template_dir, project_dir, name, key)
+
+
+def _render_agent_rules(template_dir: Path, name: str) -> str | None:
+    """Read the canonical instruction body and substitute {{name}}.
+
+    Returns None if the template has no agent-rules file.
+    """
+    src = template_dir / _AGENT_RULES_TEMPLATE
+    if not src.exists():
+        return None
+    return src.read_text().replace("{{name}}", name)
+
+
+def _install_skills(template_dir: Path, skills_dest: Path):
+    """Copy the template's harness-neutral skills into ``skills_dest``.
+
+    Each ``skills/<skill>/`` directory is copied verbatim. No-op if the
+    template ships no skills.
+    """
+    skills_src = template_dir / "skills"
+    if not skills_src.is_dir():
+        return
+    for skill_dir in sorted(skills_src.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        shutil.copytree(
+            skill_dir,
+            skills_dest / skill_dir.name,
+            dirs_exist_ok=True,
+            ignore=_COMPONENT_COPY_IGNORE,
+        )
+
+
+def _install_harness(template_dir: Path, project_dir: Path, name: str, tool: str):
+    """Write instruction file + skills for a single harness."""
+    harness = HARNESSES[tool]
+    rules = _render_agent_rules(template_dir, name)
+    if rules is not None:
+        (project_dir / harness.instructions).write_text(rules)
+    _install_skills(template_dir, project_dir / harness.skills_dir)
 
 
 def _append_gitignore(src_path: Path, dest_path: Path):
@@ -410,8 +564,11 @@ def main() -> None:
     init_parser.add_argument(
         "--tool",
         default=None,
-        choices=["opencode", "claude", "none"],
-        help="AI tool to configure (opencode, claude, none). Interactive if omitted.",
+        help=(
+            "AI tool(s) to configure, comma-separated (e.g. 'agents', 'claude', "
+            "'agents,claude', or 'none'). Aliases like 'opencode'/'codex'/'cursor' "
+            "map to the AGENTS.md standard. Interactive if omitted."
+        ),
     )
 
     # update command - updates template files
@@ -774,20 +931,23 @@ def _select_tool_interactive() -> str | None:
     """Interactive single-select for AI tool configuration.
 
     Uses arrow keys + enter in TTY mode, falls back to numbered prompt.
-    Returns the tool key ("opencode" or "claude") or None if skipped.
+    Returns a --tool spec string (e.g. "agents", "claude") or "none". The
+    default in non-TTY contexts is the AGENTS.md standard.
+
+    Note: the menu offers one harness at a time. Users who want files for
+    multiple harnesses can pass a comma-separated ``--tool`` (e.g.
+    ``--tool agents,claude``).
     """
-    options = [
-        ("opencode", "OpenCode", "Generates AGENTS.md"),
-        ("claude", "Claude Code", "Generates CLAUDE.md"),
-        ("none", "None", "Skip AI tool setup"),
-    ]
+    options = [(h.key, h.label, h.description) for h in HARNESSES.values()]
+    options.append(("none", "None", "Skip AI tool setup"))
     preamble = [
         "Rosette sets up AI agent config so your editor knows how to work",
         "with photonic designs. Pick which tool you use:",
     ]
 
+    default = next(iter(HARNESSES))  # AGENTS.md standard
     if not sys.stdin.isatty():
-        return "opencode"
+        return default
 
     try:
         result = _interactive_select("Select AI tool", options, preamble)
@@ -850,17 +1010,9 @@ def init_project(template: str | None = None, tool: str | None = None):
     if tool is None:
         tool = _select_tool_interactive()
 
-    # Normalize "none" to None
-    if tool == "none":
-        tool = None
-
-    # Validate tool name
-    if tool is not None:
-        valid_tools = {"opencode", "claude"}
-        if tool not in valid_tools:
-            print(f"Error: Unknown tool: {tool}")
-            print(f"Valid options: {', '.join(sorted(valid_tools))}")
-            sys.exit(1)
+    # Resolve the tool spec (may be comma-separated; "none" disables) into a
+    # de-duplicated list of canonical harness keys.
+    harness_keys = _parse_tool_spec(tool)
 
     # Load and apply template
     template_dir = _get_template_dir(template)
@@ -870,7 +1022,7 @@ def init_project(template: str | None = None, tool: str | None = None):
         print(f"Available templates: {', '.join(available)}")
         sys.exit(1)
 
-    _apply_template(template_dir, project_dir, name, tool=tool)
+    _apply_template(template_dir, project_dir, name, harnesses=harness_keys)
 
     # Create directories (not part of template)
     (project_dir / "designs").mkdir(exist_ok=True)
@@ -885,19 +1037,18 @@ def init_project(template: str | None = None, tool: str | None = None):
     # Copy API stub for agent reference
     _copy_api_stub(project_dir / ".rosette")
 
-    tool_label = tool or "none"
+    tool_label = ", ".join(harness_keys) if harness_keys else "none"
     print(f"Initialized rosette project '{name}' (template: {template}, tool: {tool_label})")
     print()
     print("Next steps:")
     print("  Create a design in designs/ and build it:")
     print("  uv run rosette build designs/<name>.py")
     print()
-    if tool == "opencode":
+    if harness_keys:
         print("  Or use an AI agent:")
-        print("  opencode       # reads AGENTS.md")
-    elif tool == "claude":
-        print("  Or use an AI agent:")
-        print("  claude         # reads CLAUDE.md")
+        for key in harness_keys:
+            harness = HARNESSES[key]
+            print(f"  # reads {harness.instructions} ({harness.description})")
 
 
 def _copy_api_stub(rosette_dir: Path):
@@ -955,8 +1106,12 @@ def update_project():
     """Update agent instruction files to latest templates.
 
     Convention:
-    - AGENTS.md / CLAUDE.md: only the section between BEGIN/END markers is
-      replaced, preserving any user content outside the markers
+    - Instruction files (AGENTS.md, CLAUDE.md, ...): only the section between
+      BEGIN/END markers is replaced, preserving any user content outside the
+      markers. The body is stored once per template and projected to each
+      configured harness via the HARNESSES adapter.
+    - Skills: each configured harness's skills dir (.agents/skills,
+      .claude/skills, ...) is refreshed from the template's canonical skills/
     - .rosette/api.pyi: fully replaced with latest API stub
     - Only updates files for tools that are already configured
     - User-owned files are never touched:
@@ -995,32 +1150,35 @@ def update_project():
         print(f"Error: Template '{template_name}' not found")
         sys.exit(1)
 
-    # Detect which tools are configured by checking for their files
-    tools = []
-    if (project_dir / "AGENTS.md").exists():
-        tools.append("opencode")
-    if (project_dir / "CLAUDE.md").exists():
-        tools.append("claude")
+    # Detect which harnesses are configured. A harness counts as configured if
+    # either its instruction file or its skills dir is present, so a deleted
+    # instruction file (or skills dir) is restored rather than silently dropped.
+    tools = [
+        t
+        for t, h in HARNESSES.items()
+        if (project_dir / h.instructions).exists() or (project_dir / h.skills_dir).is_dir()
+    ]
 
-    # Update template files, preserving user content outside markers
+    # Refresh non-harness template files (e.g. rosette.toml is user-owned and
+    # skipped). The instruction body and skills are handled per-harness below.
     for template_file in template_dir.glob("*.template"):
-        output_name = template_file.stem  # e.g., AGENTS.md.template -> AGENTS.md
-        # Skip user-owned files
+        output_name = template_file.stem  # e.g. rosette.toml.template -> rosette.toml
         if output_name == "rosette.toml":
-            continue
-        # Filter tool-specific templates
-        if output_name == "AGENTS.md" and "opencode" not in tools:
-            continue
-        if output_name == "CLAUDE.md" and "claude" not in tools:
-            continue
+            continue  # user-owned
+        if template_file.name == _AGENT_RULES_TEMPLATE:
+            continue  # handled by the harness loop
         content = template_file.read_text().replace("{{name}}", name)
-        dest = project_dir / output_name
+        (project_dir / output_name).write_text(content)
 
-        if output_name in ("AGENTS.md", "CLAUDE.md"):
-            # Marker-based update: preserve user content outside markers
-            _update_agent_file(dest, content)
-        else:
-            dest.write_text(content)
+    # Refresh each configured harness: instruction file (marker-based, preserving
+    # user content) + skills (each shipped skill dir is restored/overwritten from
+    # the template; skills removed upstream are not pruned from the project).
+    rules = _render_agent_rules(template_dir, name)
+    for tool in tools:
+        harness = HARNESSES[tool]
+        if rules is not None:
+            _update_agent_file(project_dir / harness.instructions, rules)
+        _install_skills(template_dir, project_dir / harness.skills_dir)
 
     # Update API stub for agent reference
     _copy_api_stub(project_dir / ".rosette")
