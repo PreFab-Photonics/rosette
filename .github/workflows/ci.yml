@@ -76,6 +76,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Pin wasm-pack so the regenerated stub matches what other environments
+      # produce. The .d.ts member ordering is governed by the wasm-bindgen crate
+      # version (pinned via Cargo.lock; deterministic since 0.2.106), and
+      # wasm-pack fetches the matching CLI — pinning wasm-pack removes the last
+      # unpinned input to the stub-drift check below.
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | VERSION="v0.14.0" sh
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.8"
@@ -83,6 +97,22 @@ jobs:
       - name: Install dependencies
         working-directory: app
         run: bun install --frozen-lockfile
+
+      # Rebuild the wasm bindings from the rosette-wasm crate and verify the
+      # committed type stub is in sync. The stub (app/src/wasm/rosette_wasm.d.ts)
+      # is a checked-in cache for local type-checking; the rest of src/wasm/ is
+      # gitignored build output. CI never trusts the cache — it regenerates and
+      # fails if the committed stub drifted from the crate's actual public API.
+      - name: Build wasm bindings
+        working-directory: app
+        run: bun run build:wasm
+
+      - name: Verify committed wasm type stub is up to date
+        run: |
+          if ! git diff --exit-code app/src/wasm/rosette_wasm.d.ts; then
+            echo "::error::app/src/wasm/rosette_wasm.d.ts is stale. Run 'bun run build:wasm' in app/ and commit the regenerated stub."
+            exit 1
+          fi
 
       - name: Lint
         working-directory: app
@@ -107,6 +137,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.8"
 
       - uses: astral-sh/setup-uv@v7
 

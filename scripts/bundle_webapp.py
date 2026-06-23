@@ -2,8 +2,9 @@
 """Bundle the web app for inclusion in the Python package.
 
 This script:
-1. Builds the web app (bun run build in app/)
-2. Copies the built files to python/rosette/_webapp/
+1. Builds the wasm bindings (bun run build:wasm in app/)
+2. Builds the web app (bun run build in app/)
+3. Copies the built files to python/rosette/_webapp/
 
 Run this before building/publishing the Python package.
 """
@@ -24,6 +25,31 @@ def main():
     # Check bun is available
     if not shutil.which("bun"):
         print("Error: bun not found. Install from https://bun.sh")
+        sys.exit(1)
+
+    # Check wasm-pack is available. The web app's wasm bindings are generated
+    # from the rosette-wasm crate; bundling stale (or missing) bindings would
+    # ship a wheel whose viewer doesn't match the crate. Build them fresh here
+    # rather than trusting whatever happens to be on disk.
+    if not shutil.which("wasm-pack"):
+        print(
+            "Error: wasm-pack not found. Install from "
+            "https://rustwasm.github.io/wasm-pack/installer/"
+        )
+        sys.exit(1)
+
+    # Build wasm bindings (regenerates app/src/wasm/ from the rosette-wasm crate)
+    print("Building wasm bindings...")
+    result = subprocess.run(
+        ["bun", "run", "build:wasm"],
+        cwd=app_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        print("Error building wasm bindings:")
+        print(result.stderr)
         sys.exit(1)
 
     # Build web app

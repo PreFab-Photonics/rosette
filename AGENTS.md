@@ -68,8 +68,10 @@ rosette --version                                  # Print version
 
 **API docs:** Every `__all__` symbol (in `python/rosette/__init__.py`) needs a docs page in `www/content/docs/api-reference/` — classes get their own `.mdx`, functions/constants go on `index.mdx`. Verify with `uv run python www/scripts/check-api-docs.py`; update docs when changing public API.
 
+**WASM bindings:** The app type-checks against `app/src/wasm/rosette_wasm.d.ts`, a checked-in cache of `wasm-pack` output (the rest of `app/src/wasm/` is gitignored). After changing the `rosette-wasm` crate's public API, run `bun run build:wasm` (from `app/`) and commit the regenerated stub with `git add -f` (wasm-pack writes a `src/wasm/.gitignore` of `*`). CI rebuilds wasm and fails if the committed stub is stale.
+
 ## Bundling & Release
 
 The wheel embeds a gitignored bundle, regenerated before any local wheel build (CI does this automatically on `v*` tags):
 
-- **Web app** (`python/rosette/_webapp/`): viewer served by `rosette serve`/`run`. Build with `scripts/bundle_webapp.py` (runs `bun run build` in `app/`, copies `app/dist/`). Included via `pyproject.toml` `include`.
+- **Web app** (`python/rosette/_webapp/`): viewer served by `rosette serve`/`run`. Build with `scripts/bundle_webapp.py` (runs `bun run build:wasm` then `bun run build` in `app/`, copies `app/dist/`; requires `wasm-pack`). Included via `pyproject.toml` `include`.
