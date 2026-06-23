@@ -103,16 +103,18 @@ jobs:
       # is a checked-in cache for local type-checking; the rest of src/wasm/ is
       # gitignored build output. CI never trusts the cache — it regenerates and
       # fails if the committed stub drifted from the crate's actual public API.
+      # The check normalizes the internal InitOutput export table (whose ordering
+      # is toolchain-dependent) so pure reordering doesn't false-positive; see
+      # scripts/check_wasm_stub.py.
+      - name: Save committed wasm type stub
+        run: cp app/src/wasm/rosette_wasm.d.ts /tmp/committed_stub.d.ts
+
       - name: Build wasm bindings
         working-directory: app
         run: bun run build:wasm
 
       - name: Verify committed wasm type stub is up to date
-        run: |
-          if ! git diff --exit-code app/src/wasm/rosette_wasm.d.ts; then
-            echo "::error::app/src/wasm/rosette_wasm.d.ts is stale. Run 'bun run build:wasm' in app/ and commit the regenerated stub."
-            exit 1
-          fi
+        run: python3 scripts/check_wasm_stub.py /tmp/committed_stub.d.ts app/src/wasm/rosette_wasm.d.ts
 
       - name: Lint
         working-directory: app

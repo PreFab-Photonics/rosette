@@ -68,7 +68,7 @@ rosette --version                                  # Print version
 
 **API docs:** Every `__all__` symbol (in `python/rosette/__init__.py`) needs a docs page in `www/content/docs/api-reference/` — classes get their own `.mdx`, functions/constants go on `index.mdx`. Verify with `uv run python www/scripts/check-api-docs.py`; update docs when changing public API.
 
-**WASM bindings:** The app type-checks against `app/src/wasm/rosette_wasm.d.ts`, a checked-in cache of `wasm-pack` output (the rest of `app/src/wasm/` is gitignored). After changing the `rosette-wasm` crate's public API, run `bun run build:wasm` (from `app/`) and commit the regenerated stub with `git add -f` (wasm-pack writes a `src/wasm/.gitignore` of `*`). CI rebuilds wasm and fails if the committed stub is stale.
+**WASM bindings:** The app type-checks against `app/src/wasm/rosette_wasm.d.ts`, a checked-in cache of `wasm-pack` output (the rest of `app/src/wasm/` is gitignored). After changing the `rosette-wasm` crate's public API, run `bun run build:wasm` (from `app/`) and commit the regenerated stub with `git add -f` (wasm-pack writes a `src/wasm/.gitignore` of `*`). CI rebuilds wasm and fails if the committed stub's public API drifted (`scripts/check_wasm_stub.py` normalizes the toolchain-dependent ordering of the internal `InitOutput` table, so reordering alone doesn't require a recommit).
 
 ## Bundling & Release
 
