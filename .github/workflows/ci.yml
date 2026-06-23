@@ -99,22 +99,29 @@ jobs:
         run: bun install --frozen-lockfile
 
       # Rebuild the wasm bindings from the rosette-wasm crate and verify the
-      # committed type stub is in sync. The stub (app/src/wasm/rosette_wasm.d.ts)
-      # is a checked-in cache for local type-checking; the rest of src/wasm/ is
-      # gitignored build output. CI never trusts the cache — it regenerates and
-      # fails if the committed stub drifted from the crate's actual public API.
-      # The check normalizes the internal InitOutput export table (whose ordering
-      # is toolchain-dependent) so pure reordering doesn't false-positive; see
-      # scripts/check_wasm_stub.py.
+      # committed type stub's public API is in sync. The stub
+      # (app/src/wasm/rosette_wasm.d.ts) is a checked-in cache for local
+      # type-checking; the rest of src/wasm/ is gitignored build output. CI never
+      # trusts the cache — it regenerates and fails if the public API drifted from
+      # the crate. We compare only the public surface (the export declarations
+      # before `export interface InitOutput`); the InitOutput block is the
+      # internal wasm export table — no caller imports it, and it contains
+      # toolchain-dependent ordering and per-build closure hashes that never match
+      # across environments.
       - name: Save committed wasm type stub
-        run: cp app/src/wasm/rosette_wasm.d.ts /tmp/committed_stub.d.ts
+        run: sed '/^export interface InitOutput {/q' app/src/wasm/rosette_wasm.d.ts > /tmp/committed_stub_public.d.ts
 
       - name: Build wasm bindings
         working-directory: app
         run: bun run build:wasm
 
       - name: Verify committed wasm type stub is up to date
-        run: python3 scripts/check_wasm_stub.py /tmp/committed_stub.d.ts app/src/wasm/rosette_wasm.d.ts
+        run: |
+          sed '/^export interface InitOutput {/q' app/src/wasm/rosette_wasm.d.ts > /tmp/rebuilt_stub_public.d.ts
+          if ! diff -u /tmp/committed_stub_public.d.ts /tmp/rebuilt_stub_public.d.ts; then
+            echo "::error::app/src/wasm/rosette_wasm.d.ts public API is stale. Run 'bun run build:wasm' in app/ and commit it with 'git add -f app/src/wasm/rosette_wasm.d.ts'."
+            exit 1
+          fi
 
       - name: Lint
         working-directory: app
