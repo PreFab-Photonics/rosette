@@ -367,7 +367,7 @@ class TestRosetteInit:
 
         init_project("generic", tool="claude")
 
-        skill = project_dir / ".claude" / "skills" / "spiral-cutback" / "SKILL.md"
+        skill = project_dir / ".claude" / "skills" / "layout-design" / "SKILL.md"
         assert skill.exists()
         # OpenCode location is not created for a Claude-only project.
         assert not (project_dir / ".agents").exists()
