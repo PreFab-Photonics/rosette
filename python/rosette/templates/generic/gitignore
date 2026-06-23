@@ -1,3 +1,9 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+
+# Rosette
 .rosette/
 output/*.gds
 .env

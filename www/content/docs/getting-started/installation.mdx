@@ -54,6 +54,25 @@ On Windows, activate the virtual environment with `.venv\Scripts\activate` inste
 This creates a new project, installs Rosette, scaffolds the project files, and starts
 the dev server. Visit `http://localhost:5173` to open the viewer.
 
+<Callout title={"One-command start"} type={"info"}>
+
+`rosette init` can set up the uv project for you. Run it in an empty directory
+and, if there's no `pyproject.toml` yet, it offers to run `uv init --bare`,
+`uv add librosette`, and `git init` before scaffolding:
+
+```bash
+mkdir my-chip && cd my-chip
+uvx --from librosette rosette init
+```
+
+`uvx` runs the CLI in a throwaway environment, so this works before anything is
+installed (the package is `librosette` but the command is `rosette`, hence
+`--from`). Pass `--yes` to skip the confirmation prompt (useful in scripts),
+`--no-git` to skip repo initialization. If uv isn't installed, `rosette init`
+falls back to printing the manual pip steps.
+
+</Callout>
+
 <Callout title={"Package name"} type={"info"}>
 
 The PyPI package is called `librosette`, but you import it as `rosette` in Python:
@@ -99,8 +118,9 @@ sure to also run `uv add librosette` in your project.
 
 ## Create a project
 
-The quickest way to set up a new Rosette project is with `rosette init`. Start by
-creating a directory and initializing a Python project:
+The quickest way to set up a new Rosette project is with `rosette init`. If you
+prefer to set up the Python project yourself (rather than letting `rosette init`
+bootstrap it), start by creating a directory and initializing a Python project:
 
 <Tabs items={["uv", "pip"]}>
 

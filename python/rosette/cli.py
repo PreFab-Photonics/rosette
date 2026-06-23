@@ -1,7 +1,7 @@
 """Rosette CLI - Photonic layout tool.
 
 Commands:
-    rosette init             Initialize rosette in current uv project
+    rosette init             Initialize rosette (bootstraps a uv project if needed)
     rosette build <file>     Build a design to GDS
     rosette check <file>     Run all checks (DRC, ...)
     rosette drc <file>       Run DRC only
@@ -14,6 +14,7 @@ import argparse
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -247,26 +248,59 @@ def _install_harness(template_dir: Path, project_dir: Path, name: str, tool: str
 
 
 def _append_gitignore(src_path: Path, dest_path: Path):
-    """Append rosette-specific entries to .gitignore, avoiding duplicates."""
-    new_entries = [
-        line.strip()
-        for line in src_path.read_text().splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
+    """Merge the template's .gitignore into the project's, avoiding duplicates.
 
-    if dest_path.exists():
-        existing = dest_path.read_text()
-        existing_lines = {line.strip() for line in existing.splitlines()}
-        to_add = [entry for entry in new_entries if entry not in existing_lines]
-        if to_add:
-            # Ensure we start on a new line
-            if existing and not existing.endswith("\n"):
-                existing += "\n"
-            existing += "\n# Rosette\n"
-            existing += "\n".join(to_add) + "\n"
-            dest_path.write_text(existing)
-    else:
-        dest_path.write_text("# Rosette\n" + "\n".join(new_entries) + "\n")
+    Preserves the template's own section headers (e.g. ``# Python / uv``,
+    ``# Rosette``) rather than re-labeling every entry as Rosette. When the
+    destination already exists, only patterns not already present are appended,
+    keeping their surrounding comment lines for context.
+    """
+    src_lines = src_path.read_text().splitlines()
+
+    if not dest_path.exists():
+        # Fresh file (e.g. after `uv init --bare`): copy the template verbatim.
+        dest_path.write_text(src_path.read_text())
+        return
+
+    existing = dest_path.read_text()
+    existing_patterns = {
+        line.strip() for line in existing.splitlines() if line.strip() and not line.startswith("#")
+    }
+
+    # Split the template into sections delimited by blank lines, then keep only
+    # the sections that still contribute at least one new pattern. This drops
+    # whole headers (e.g. "# Python / uv") when uv already covered them, and
+    # preserves the template's own labels for the sections we do add.
+    sections: list[list[str]] = []
+    current: list[str] = []
+    for line in src_lines:
+        if line.strip() == "":
+            if current:
+                sections.append(current)
+                current = []
+        else:
+            current.append(line)
+    if current:
+        sections.append(current)
+
+    blocks: list[str] = []
+    for section in sections:
+        kept = [
+            line
+            for line in section
+            if line.strip().startswith("#") or line.strip() not in existing_patterns
+        ]
+        # Only keep sections that contain at least one (new) pattern line.
+        if any(ln.strip() and not ln.strip().startswith("#") for ln in kept):
+            blocks.append("\n".join(kept))
+
+    if not blocks:
+        return
+
+    if existing and not existing.endswith("\n"):
+        existing += "\n"
+    existing += "\n" + "\n\n".join(blocks) + "\n"
+    dest_path.write_text(existing)
 
 
 # What `_copy_components` ships into user projects (non-minimal):
@@ -576,6 +610,18 @@ def main() -> None:
             "map to the AGENTS.md standard. Interactive if omitted."
         ),
     )
+    init_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation when bootstrapping a uv project (uv init + uv add librosette).",
+    )
+    init_parser.add_argument(
+        "--no-git",
+        dest="git",
+        action="store_false",
+        help="Don't run `git init` when bootstrapping a new project.",
+    )
 
     # update command - updates template files
     subparsers.add_parser("update", help="Update AGENTS.md to latest template")
@@ -762,7 +808,13 @@ def main() -> None:
             sys.exit(0)
 
     if args.command == "init":
-        init_project(template=args.template, tool=args.tool, name=args.name)
+        init_project(
+            template=args.template,
+            tool=args.tool,
+            name=args.name,
+            assume_yes=args.yes,
+            git=args.git,
+        )
     elif args.command == "update":
         update_project()
     elif args.command == "build":
@@ -1014,26 +1066,125 @@ def _select_template_interactive() -> str:
     return result
 
 
+def _print_manual_setup_recipe(*, has_uv: bool):
+    """Print the manual project-setup steps the user can run themselves.
+
+    When uv is available we lead with the uv steps but still show the pip
+    alternative (e.g. the user declined the uv bootstrap because they prefer
+    pip). When uv is absent we only show the pip + venv flow.
+    """
+    print("Error: No pyproject.toml found. Initialize your project first:")
+    print()
+    if has_uv:
+        print("With uv:")
+        print("  uv init --bare")
+        print("  uv add librosette")
+        print("  uv run rosette init")
+        print()
+        print("Or with pip:")
+    print("  python -m venv .venv")
+    print("  source .venv/bin/activate   # Windows: .venv\\Scripts\\activate")
+    print("  pip install librosette")
+    print("  rosette init")
+
+
+def _maybe_git_init(project_dir: Path):
+    """Initialize a git repo in ``project_dir`` unless one already exists.
+
+    Best-effort: skips silently if git is unavailable or the directory is
+    already inside a git repo. Failures are non-fatal — a missing repo
+    shouldn't block project scaffolding.
+    """
+    if shutil.which("git") is None:
+        return
+    if (project_dir / ".git").exists():
+        return
+    cmd = ["git", "init"]
+    print(f"$ {' '.join(cmd)}")
+    try:
+        subprocess.run(
+            cmd,
+            cwd=project_dir,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        # Non-fatal: the project is still usable without a git repo.
+        print("Warning: `git init` failed; skipping repo initialization.")
+
+
+def _bootstrap_uv_project(project_dir: Path, *, assume_yes: bool, git: bool = True) -> bool:
+    """Set up a uv project in ``project_dir`` so ``rosette init`` can proceed.
+
+    Runs ``uv init --bare`` followed by ``uv add librosette`` and, unless
+    ``git`` is False, ``git init`` (skipped if git is missing or the dir is
+    already a repo). Returns True on success. On any failure (uv missing,
+    declined prompt, subprocess error) prints guidance and returns False — the
+    caller then exits.
+
+    Behavior:
+    - uv absent: print the pip-based manual recipe, return False.
+    - uv present, interactive TTY: prompt for confirmation (default yes).
+    - uv present, non-TTY: only proceed when ``assume_yes`` is set.
+    """
+    if shutil.which("uv") is None:
+        _print_manual_setup_recipe(has_uv=False)
+        return False
+
+    if not assume_yes:
+        if not sys.stdin.isatty():
+            # Non-interactive and not explicitly confirmed: don't guess.
+            _print_manual_setup_recipe(has_uv=True)
+            return False
+        print("No uv project found here. Set one up with uv now?")
+        try:
+            answer = input(f"Proceed? [{_bold('Y')}/n] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer in ("n", "no"):
+            _print_manual_setup_recipe(has_uv=True)
+            return False
+
+    for cmd in (["uv", "init", "--bare"], ["uv", "add", "librosette"]):
+        print(f"$ {' '.join(cmd)}")
+        try:
+            subprocess.run(cmd, cwd=project_dir, check=True)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print(f"Error: `{' '.join(cmd)}` failed: {exc}")
+            print()
+            print("Set up the project manually, then re-run `rosette init`:")
+            _print_manual_setup_recipe(has_uv=True)
+            return False
+
+    if git:
+        _maybe_git_init(project_dir)
+
+    return True
+
+
 def init_project(
     template: str | None = None,
     tool: str | None = None,
     name: str | None = None,
+    assume_yes: bool = False,
+    git: bool = True,
 ):
     """Initialize rosette in the current uv project.
 
-    Expects the user has already run `uv init` and `uv add librosette`.
+    If no ``pyproject.toml`` exists yet, offers to bootstrap one with uv
+    (``uv init --bare`` + ``uv add librosette``, plus ``git init`` unless
+    ``git`` is False) when uv is available; see ``_bootstrap_uv_project``. Pass
+    ``assume_yes`` to skip the prompt.
     """
     project_dir = Path.cwd()
     default_name = project_dir.name
 
-    # Pre-flight: ensure we're inside a uv/Python project
+    # Pre-flight: ensure we're inside a uv/Python project, offering to set one
+    # up with uv when it's missing.
     if not (project_dir / "pyproject.toml").exists():
-        print("Error: No pyproject.toml found. Initialize your project first:")
-        print()
-        print("  uv init")
-        print("  uv add librosette")
-        print("  uv run rosette init")
-        sys.exit(1)
+        if not _bootstrap_uv_project(project_dir, assume_yes=assume_yes, git=git):
+            sys.exit(1)
 
     # Check if already initialized
     if (project_dir / "rosette.toml").exists():

@@ -183,12 +183,123 @@ class TestRosetteInit:
         assert 'name = "BadName"' in content
 
     def test_init_requires_pyproject_toml(self, tmp_path: Path, monkeypatch):
-        """rosette init fails without pyproject.toml (user must run uv init first)."""
+        """rosette init fails without pyproject.toml when uv is unavailable."""
         monkeypatch.chdir(tmp_path)
 
-        with pytest.raises(SystemExit) as exc_info:
-            init_project("blank", tool="opencode")
+        # No uv on PATH -> no bootstrap, fall back to manual recipe + exit 1.
+        with patch("rosette.cli.shutil.which", return_value=None):
+            with pytest.raises(SystemExit) as exc_info:
+                init_project("blank", tool="opencode")
         assert exc_info.value.code == 1
+
+    def test_init_uv_absent_message_mentions_pip(self, tmp_path: Path, monkeypatch, capsys):
+        """When uv is missing, the guidance points at the pip + venv flow."""
+        monkeypatch.chdir(tmp_path)
+
+        with patch("rosette.cli.shutil.which", return_value=None):
+            with pytest.raises(SystemExit):
+                init_project("blank", tool="opencode")
+
+        out = capsys.readouterr().out
+        assert "pip install librosette" in out
+        assert "python -m venv" in out
+
+    def test_init_non_tty_without_yes_does_not_bootstrap(self, tmp_path: Path, monkeypatch):
+        """uv present but non-interactive and no --yes: error, no subprocess calls."""
+        monkeypatch.chdir(tmp_path)
+
+        with (
+            patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("rosette.cli.sys.stdin.isatty", return_value=False),
+            patch("rosette.cli.subprocess.run") as mock_run,
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                init_project("blank", tool="opencode", assume_yes=False)
+
+        assert exc_info.value.code == 1
+        mock_run.assert_not_called()
+
+    def test_init_bootstraps_uv_project_with_yes(self, tmp_path: Path, monkeypatch):
+        """uv present + assume_yes runs uv init/add + git init, then scaffolds."""
+        project_dir = tmp_path / "fresh"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            # Mimic `uv init --bare` creating the pyproject.toml so the rest of
+            # init_project() can proceed.
+            if cmd[:3] == ["uv", "init", "--bare"]:
+                (project_dir / "pyproject.toml").write_text(
+                    '[project]\nname = "fresh"\nversion = "0.1.0"\n'
+                )
+            return None
+
+        with (
+            patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("rosette.cli.subprocess.run", side_effect=fake_run),
+        ):
+            init_project("blank", tool="opencode", assume_yes=True)
+
+        assert calls == [
+            ["uv", "init", "--bare"],
+            ["uv", "add", "librosette"],
+            ["git", "init"],
+        ]
+        assert (project_dir / "rosette.toml").exists()
+        assert (project_dir / "AGENTS.md").exists()
+
+    def test_init_bootstrap_no_git(self, tmp_path: Path, monkeypatch):
+        """--no-git (git=False) skips git init during bootstrap."""
+        project_dir = tmp_path / "fresh"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ["uv", "init", "--bare"]:
+                (project_dir / "pyproject.toml").write_text(
+                    '[project]\nname = "fresh"\nversion = "0.1.0"\n'
+                )
+            return None
+
+        with (
+            patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("rosette.cli.subprocess.run", side_effect=fake_run),
+        ):
+            init_project("blank", tool="opencode", assume_yes=True, git=False)
+
+        assert ["git", "init"] not in calls
+        assert (project_dir / "rosette.toml").exists()
+
+    def test_init_bootstrap_skips_git_if_already_repo(self, tmp_path: Path, monkeypatch):
+        """git init is skipped when the directory is already a git repo."""
+        project_dir = tmp_path / "fresh"
+        project_dir.mkdir()
+        (project_dir / ".git").mkdir()
+        monkeypatch.chdir(project_dir)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ["uv", "init", "--bare"]:
+                (project_dir / "pyproject.toml").write_text(
+                    '[project]\nname = "fresh"\nversion = "0.1.0"\n'
+                )
+            return None
+
+        with (
+            patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("rosette.cli.subprocess.run", side_effect=fake_run),
+        ):
+            init_project("blank", tool="opencode", assume_yes=True)
+
+        assert ["git", "init"] not in calls
 
     def test_init_fails_if_already_initialized(self, tmp_path: Path, monkeypatch):
         """rosette init fails if rosette.toml already exists."""
@@ -508,11 +619,40 @@ class TestRosetteInit:
         # Original uv entries preserved
         assert "__pycache__/" in gitignore
         assert ".venv/" in gitignore
-        # Rosette entries appended
+        # Rosette entries appended under their section header
         assert ".rosette/" in gitignore
         assert "output/*.gds" in gitignore
-        # Section header added
         assert "# Rosette" in gitignore
+        # Python/uv patterns were already present, so that section header is
+        # not re-appended, and patterns are not duplicated.
+        assert gitignore.count(".venv/") == 1
+        assert "# Python / uv" not in gitignore
+
+    def test_append_gitignore_partial_overlap(self, tmp_path: Path):
+        """A section with some pre-existing patterns keeps its header and only
+        the new patterns; sections fully covered are dropped."""
+        from rosette.cli import _append_gitignore
+
+        src = tmp_path / "template_gitignore"
+        src.write_text(
+            "# Python / uv\n.venv/\n__pycache__/\n*.py[cod]\n\n# Rosette\n.rosette/\noutput/*.gds\n"
+        )
+        dest = tmp_path / ".gitignore"
+        # Pre-existing file already has .venv/ but not the other Python entries.
+        dest.write_text("# Existing\n.venv/\n")
+
+        _append_gitignore(src, dest)
+        result = dest.read_text()
+
+        # .venv/ not duplicated; the new Python patterns are added under their
+        # header (section retained because it still has new patterns).
+        assert result.count(".venv/") == 1
+        assert "# Python / uv" in result
+        assert "__pycache__/" in result
+        assert "*.py[cod]" in result
+        # Rosette section fully new.
+        assert "# Rosette" in result
+        assert ".rosette/" in result
 
 
 class TestRewriteComponentImports:
