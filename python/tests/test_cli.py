@@ -8,7 +8,14 @@ from unittest.mock import patch
 
 import pytest
 
-from rosette.cli import _parse_tool_spec, build_design, init_project, main, update_project
+from rosette.cli import (
+    _parse_tool_spec,
+    _sanitize_project_name,
+    build_design,
+    init_project,
+    main,
+    update_project,
+)
 
 
 def _make_uv_project(project_dir: Path):
@@ -16,6 +23,25 @@ def _make_uv_project(project_dir: Path):
     project_dir.mkdir(exist_ok=True)
     (project_dir / "pyproject.toml").write_text('[project]\nname = "test"\nversion = "0.1.0"\n')
     (project_dir / ".gitignore").write_text("# Python\n__pycache__/\n*.py[cod]\n.venv/\n")
+
+
+class TestSanitizeProjectName:
+    """Tests for _sanitize_project_name."""
+
+    def test_keeps_normal_name(self):
+        assert _sanitize_project_name("my-chip", "fallback") == "my-chip"
+
+    def test_strips_whitespace(self):
+        assert _sanitize_project_name("  my chip  ", "fallback") == "my chip"
+
+    def test_drops_double_quotes(self):
+        # A double quote would corrupt the TOML string value.
+        assert _sanitize_project_name('my "chip"', "fallback") == "my chip"
+
+    def test_falls_back_when_empty(self):
+        assert _sanitize_project_name("", "fallback") == "fallback"
+        assert _sanitize_project_name("   ", "fallback") == "fallback"
+        assert _sanitize_project_name('"', "fallback") == "fallback"
 
 
 class TestParseToolSpec:
@@ -132,6 +158,29 @@ class TestRosetteInit:
 
         content = (project_dir / "rosette.toml").read_text()
         assert 'name = "my_project_dir"' in content
+
+    def test_init_explicit_name_overrides_dir(self, tmp_path: Path, monkeypatch):
+        """An explicit name overrides the directory name and lands in rosette.toml."""
+        project_dir = tmp_path / "my_project_dir"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode", name="Fancy Chip")
+
+        content = (project_dir / "rosette.toml").read_text()
+        assert 'name = "Fancy Chip"' in content
+        assert "my_project_dir" not in content
+
+    def test_init_explicit_name_sanitized(self, tmp_path: Path, monkeypatch):
+        """A name with quotes is sanitized so the TOML stays valid."""
+        project_dir = tmp_path / "my_project_dir"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode", name='Bad"Name')
+
+        content = (project_dir / "rosette.toml").read_text()
+        assert 'name = "BadName"' in content
 
     def test_init_requires_pyproject_toml(self, tmp_path: Path, monkeypatch):
         """rosette init fails without pyproject.toml (user must run uv init first)."""

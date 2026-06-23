@@ -556,6 +556,12 @@ def main() -> None:
     # init command - initializes in current uv project
     init_parser = subparsers.add_parser("init", help="Initialize rosette in current uv project")
     init_parser.add_argument(
+        "-n",
+        "--name",
+        default=None,
+        help="Project name (defaults to the current directory name). Interactive if omitted.",
+    )
+    init_parser.add_argument(
         "-t",
         "--template",
         default=None,
@@ -756,7 +762,7 @@ def main() -> None:
             sys.exit(0)
 
     if args.command == "init":
-        init_project(template=args.template, tool=args.tool)
+        init_project(template=args.template, tool=args.tool, name=args.name)
     elif args.command == "update":
         update_project()
     elif args.command == "build":
@@ -927,6 +933,34 @@ def _simple_select(
     return options[0][0]
 
 
+def _sanitize_project_name(raw: str, fallback: str) -> str:
+    """Normalize a project name, falling back to ``fallback`` if unusable.
+
+    The name is written into ``rosette.toml`` as a TOML string and used as a
+    markdown heading, so a double quote would corrupt the config. Strip
+    surrounding whitespace, drop double quotes, and fall back when empty.
+    """
+    name = raw.strip().replace('"', "")
+    return name or fallback
+
+
+def _select_name_interactive(default: str) -> str:
+    """Prompt for a project name, defaulting to ``default`` on empty input.
+
+    Non-interactive contexts (no TTY) accept the default without prompting.
+    """
+    if not sys.stdin.isatty():
+        return default
+    # Make it explicit that Enter accepts the default. Bold styling matches the
+    # radio selectors' "enter confirm" hints and is gated on _use_color().
+    print(f"Project name [{_bold(default)}] ({_bold('enter')} to accept, or type a new name):")
+    try:
+        raw = input("> ")
+    except EOFError:
+        return default
+    return _sanitize_project_name(raw, default)
+
+
 def _select_tool_interactive() -> str | None:
     """Interactive single-select for AI tool configuration.
 
@@ -980,13 +1014,17 @@ def _select_template_interactive() -> str:
     return result
 
 
-def init_project(template: str | None = None, tool: str | None = None):
+def init_project(
+    template: str | None = None,
+    tool: str | None = None,
+    name: str | None = None,
+):
     """Initialize rosette in the current uv project.
 
     Expects the user has already run `uv init` and `uv add librosette`.
     """
     project_dir = Path.cwd()
-    name = project_dir.name
+    default_name = project_dir.name
 
     # Pre-flight: ensure we're inside a uv/Python project
     if not (project_dir / "pyproject.toml").exists():
@@ -1001,6 +1039,12 @@ def init_project(template: str | None = None, tool: str | None = None):
     if (project_dir / "rosette.toml").exists():
         print("Error: rosette.toml already exists (project already initialized)")
         sys.exit(1)
+
+    # Resolve project name: explicit flag wins, else prompt (defaults to dir name)
+    if name is None:
+        name = _select_name_interactive(default_name)
+    else:
+        name = _sanitize_project_name(name, default_name)
 
     # Select template if not specified
     if template is None:
