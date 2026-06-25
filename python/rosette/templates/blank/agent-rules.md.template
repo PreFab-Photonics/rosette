@@ -28,9 +28,7 @@ A passing build only means the GDS was written -- it does NOT mean the design is
 
 - Designs must export a `design` variable (a `Cell` instance)
 - Use `load_layer_map()` to get layers from rosette.toml -- never hardcode layer numbers
-- Always prefix CLI commands with `uv run` (e.g. `uv run rosette build designs/foo.py`)
 - The package is `librosette` (installed via `uv add librosette`, imported as `rosette`)
-- LSP errors on `from rosette import ...` are expected (native extension); ignore them
-- After making non-trivial geometry edits, or when the user references the design visually, run `uv run rosette shot designs/foo.py` (writes PNG + sidecar JSON to `.rosette/snapshots/`)
+- To inspect a design visually, `uv run rosette shot designs/foo.py` renders a PNG (plus a sidecar JSON with the world<->pixel transform) to `.rosette/snapshots/`
 
 <!-- END:rosette-agent-rules -->
