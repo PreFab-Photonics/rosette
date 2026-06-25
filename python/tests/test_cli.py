@@ -25,6 +25,31 @@ def _make_uv_project(project_dir: Path):
     (project_dir / ".gitignore").write_text("# Python\n__pycache__/\n*.py[cod]\n.venv/\n")
 
 
+def _make_fake_run(calls: list[list[str]], *, project_name: str = "fresh"):
+    """Build a fake `subprocess.run` for bootstrap tests.
+
+    Records each command in ``calls``. Mimics `uv init --bare` by writing a
+    pyproject.toml into the command's cwd, and answers `git rev-parse
+    --is-inside-work-tree` based on whether a ``.git`` dir exists in cwd (so
+    tests can simulate an already-existing repo).
+    """
+    from subprocess import CompletedProcess
+
+    def fake_run(cmd, *args, **kwargs):
+        calls.append(cmd)
+        cwd = Path(kwargs.get("cwd", Path.cwd()))
+        if cmd[:3] == ["uv", "init", "--bare"]:
+            (cwd / "pyproject.toml").write_text(
+                f'[project]\nname = "{project_name}"\nversion = "0.1.0"\n'
+            )
+        if cmd[:2] == ["git", "rev-parse"]:
+            inside = "true" if (cwd / ".git").exists() else "false"
+            return CompletedProcess(cmd, 0, stdout=inside + "\n", stderr="")
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    return fake_run
+
+
 class TestSanitizeProjectName:
     """Tests for _sanitize_project_name."""
 
@@ -227,27 +252,15 @@ class TestRosetteInit:
 
         calls: list[list[str]] = []
 
-        def fake_run(cmd, *args, **kwargs):
-            calls.append(cmd)
-            # Mimic `uv init --bare` creating the pyproject.toml so the rest of
-            # init_project() can proceed.
-            if cmd[:3] == ["uv", "init", "--bare"]:
-                (project_dir / "pyproject.toml").write_text(
-                    '[project]\nname = "fresh"\nversion = "0.1.0"\n'
-                )
-            return None
-
         with (
             patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
-            patch("rosette.cli.subprocess.run", side_effect=fake_run),
+            patch("rosette.cli.subprocess.run", side_effect=_make_fake_run(calls)),
         ):
             init_project("blank", tool="opencode", assume_yes=True)
 
-        assert calls == [
-            ["uv", "init", "--bare"],
-            ["uv", "add", "librosette"],
-            ["git", "init"],
-        ]
+        assert ["uv", "init", "--bare"] in calls
+        assert ["uv", "add", "librosette"] in calls
+        assert ["git", "init"] in calls
         assert (project_dir / "rosette.toml").exists()
         assert (project_dir / "AGENTS.md").exists()
 
@@ -259,17 +272,9 @@ class TestRosetteInit:
 
         calls: list[list[str]] = []
 
-        def fake_run(cmd, *args, **kwargs):
-            calls.append(cmd)
-            if cmd[:3] == ["uv", "init", "--bare"]:
-                (project_dir / "pyproject.toml").write_text(
-                    '[project]\nname = "fresh"\nversion = "0.1.0"\n'
-                )
-            return None
-
         with (
             patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
-            patch("rosette.cli.subprocess.run", side_effect=fake_run),
+            patch("rosette.cli.subprocess.run", side_effect=_make_fake_run(calls)),
         ):
             init_project("blank", tool="opencode", assume_yes=True, git=False)
 
@@ -285,19 +290,41 @@ class TestRosetteInit:
 
         calls: list[list[str]] = []
 
+        with (
+            patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("rosette.cli.subprocess.run", side_effect=_make_fake_run(calls)),
+        ):
+            init_project("blank", tool="opencode", assume_yes=True)
+
+        assert ["git", "init"] not in calls
+
+    def test_init_bootstrap_skips_git_inside_parent_repo(self, tmp_path: Path, monkeypatch):
+        """git init is skipped when an ancestor directory is a git repo.
+
+        Running `rosette init subdir` inside an existing repo shouldn't nest a
+        new repo. The new dir has no `.git`, but `git rev-parse` reports it is
+        inside the parent's work tree.
+        """
+        monkeypatch.chdir(tmp_path)
+        calls: list[list[str]] = []
+
         def fake_run(cmd, *args, **kwargs):
+            from subprocess import CompletedProcess
+
             calls.append(cmd)
+            cwd = Path(kwargs.get("cwd", Path.cwd()))
             if cmd[:3] == ["uv", "init", "--bare"]:
-                (project_dir / "pyproject.toml").write_text(
-                    '[project]\nname = "fresh"\nversion = "0.1.0"\n'
-                )
-            return None
+                (cwd / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "0.1.0"\n')
+            if cmd[:2] == ["git", "rev-parse"]:
+                # Simulate an ancestor repo: always inside a work tree.
+                return CompletedProcess(cmd, 0, stdout="true\n", stderr="")
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
 
         with (
             patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
             patch("rosette.cli.subprocess.run", side_effect=fake_run),
         ):
-            init_project("blank", tool="opencode", assume_yes=True)
+            init_project("blank", tool="opencode", assume_yes=True, path="subdir")
 
         assert ["git", "init"] not in calls
 
@@ -305,17 +332,14 @@ class TestRosetteInit:
         """rosette init <path> creates the dir and scaffolds inside it."""
         monkeypatch.chdir(tmp_path)
 
-        def fake_run(cmd, *args, **kwargs):
-            cwd = kwargs.get("cwd")
-            if cmd[:3] == ["uv", "init", "--bare"]:
-                (Path(cwd) / "pyproject.toml").write_text(
-                    '[project]\nname = "x"\nversion = "0.1.0"\n'
-                )
-            return None
+        calls: list[list[str]] = []
 
         with (
             patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
-            patch("rosette.cli.subprocess.run", side_effect=fake_run),
+            patch(
+                "rosette.cli.subprocess.run",
+                side_effect=_make_fake_run(calls, project_name="x"),
+            ),
         ):
             init_project("blank", tool="opencode", assume_yes=True, path="my-chip")
 
@@ -334,12 +358,15 @@ class TestRosetteInit:
         cwds: list[str] = []
 
         def fake_run(cmd, *args, **kwargs):
+            from subprocess import CompletedProcess
+
             cwds.append(str(kwargs.get("cwd")))
+            cwd = Path(kwargs["cwd"])
             if cmd[:3] == ["uv", "init", "--bare"]:
-                (Path(kwargs["cwd"]) / "pyproject.toml").write_text(
-                    '[project]\nname = "x"\nversion = "0.1.0"\n'
-                )
-            return None
+                (cwd / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "0.1.0"\n')
+            if cmd[:2] == ["git", "rev-parse"]:
+                return CompletedProcess(cmd, 0, stdout="false\n", stderr="")
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
 
         with (
             patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),

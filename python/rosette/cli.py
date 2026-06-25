@@ -264,7 +264,9 @@ def _append_gitignore(src_path: Path, dest_path: Path):
 
     existing = dest_path.read_text()
     existing_patterns = {
-        line.strip() for line in existing.splitlines() if line.strip() and not line.startswith("#")
+        line.strip()
+        for line in existing.splitlines()
+        if line.strip() and not line.strip().startswith("#")
     }
 
     # Split the template into sections delimited by blank lines, then keep only
@@ -1097,16 +1099,38 @@ def _print_manual_setup_recipe(*, has_uv: bool):
     print("  rosette init")
 
 
+def _is_inside_git_repo(project_dir: Path) -> bool:
+    """Return True if ``project_dir`` is already inside a git work tree.
+
+    Walks up the directory tree (like git/uv do) so we don't nest a new repo
+    inside an existing one. Falls back to a local ``.git`` check if the git
+    invocation fails for any reason.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=project_dir,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return result.stdout.strip() == "true"
+    except (OSError, subprocess.CalledProcessError):
+        return (project_dir / ".git").exists()
+
+
 def _maybe_git_init(project_dir: Path):
     """Initialize a git repo in ``project_dir`` unless one already exists.
 
     Best-effort: skips silently if git is unavailable or the directory is
-    already inside a git repo. Failures are non-fatal — a missing repo
-    shouldn't block project scaffolding.
+    already inside a git repo (including a parent repo, to avoid nesting).
+    Failures are non-fatal — a missing repo shouldn't block project
+    scaffolding.
     """
     if shutil.which("git") is None:
         return
-    if (project_dir / ".git").exists():
+    if _is_inside_git_repo(project_dir):
         return
     cmd = ["git", "init"]
     print(f"$ {' '.join(cmd)}")
