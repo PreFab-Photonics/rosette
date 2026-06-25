@@ -1,7 +1,7 @@
 """Rosette CLI - Photonic layout tool.
 
 Commands:
-    rosette init             Initialize rosette (bootstraps a uv project if needed)
+    rosette init [path]      Initialize rosette (in cwd, or a new dir at [path])
     rosette build <file>     Build a design to GDS
     rosette check <file>     Run all checks (DRC, ...)
     rosette drc <file>       Run DRC only
@@ -587,13 +587,21 @@ def main() -> None:
     parser.add_argument("-V", "--version", action="version", version=f"rosette {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
-    # init command - initializes in current uv project
-    init_parser = subparsers.add_parser("init", help="Initialize rosette in current uv project")
+    # init command - initializes in a uv project (current dir or a new path)
+    init_parser = subparsers.add_parser(
+        "init", help="Initialize rosette in the current dir or a new project directory"
+    )
+    init_parser.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Directory to create the project in (created if needed). Defaults to current dir.",
+    )
     init_parser.add_argument(
         "-n",
         "--name",
         default=None,
-        help="Project name (defaults to the current directory name). Interactive if omitted.",
+        help="Project name (defaults to the project directory name). Interactive if omitted.",
     )
     init_parser.add_argument(
         "-t",
@@ -814,6 +822,7 @@ def main() -> None:
             name=args.name,
             assume_yes=args.yes,
             git=args.git,
+            path=args.path,
         )
     elif args.command == "update":
         update_project()
@@ -1169,16 +1178,31 @@ def init_project(
     name: str | None = None,
     assume_yes: bool = False,
     git: bool = True,
+    path: str | None = None,
 ):
-    """Initialize rosette in the current uv project.
+    """Initialize rosette in a uv project.
+
+    With no ``path`` the current directory is used. When ``path`` is given the
+    project is created/used at ``cwd / path`` (the directory is created if
+    needed), mirroring ``uv init <path>`` and ``git init <dir>``.
 
     If no ``pyproject.toml`` exists yet, offers to bootstrap one with uv
     (``uv init --bare`` + ``uv add librosette``, plus ``git init`` unless
     ``git`` is False) when uv is available; see ``_bootstrap_uv_project``. Pass
     ``assume_yes`` to skip the prompt.
     """
-    project_dir = Path.cwd()
+    if path is not None:
+        project_dir = Path.cwd() / path
+        project_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        project_dir = Path.cwd()
     default_name = project_dir.name
+
+    # Guard before any bootstrap side effects: a directory that's already a
+    # rosette project shouldn't be re-initialized.
+    if (project_dir / "rosette.toml").exists():
+        print("Error: rosette.toml already exists (project already initialized)")
+        sys.exit(1)
 
     # Pre-flight: ensure we're inside a uv/Python project, offering to set one
     # up with uv when it's missing.
@@ -1186,16 +1210,15 @@ def init_project(
         if not _bootstrap_uv_project(project_dir, assume_yes=assume_yes, git=git):
             sys.exit(1)
 
-    # Check if already initialized
-    if (project_dir / "rosette.toml").exists():
-        print("Error: rosette.toml already exists (project already initialized)")
-        sys.exit(1)
-
-    # Resolve project name: explicit flag wins, else prompt (defaults to dir name)
-    if name is None:
-        name = _select_name_interactive(default_name)
-    else:
+    # Resolve project name: explicit flag wins; a positional path already
+    # expresses intent so its basename is used without prompting; otherwise
+    # prompt (defaulting to the directory name).
+    if name is not None:
         name = _sanitize_project_name(name, default_name)
+    elif path is not None:
+        name = _sanitize_project_name(default_name, default_name)
+    else:
+        name = _select_name_interactive(default_name)
 
     # Select template if not specified
     if template is None:
@@ -1236,6 +1259,8 @@ def init_project(
     print(f"Initialized rosette project '{name}' (template: {template}, tool: {tool_label})")
     print()
     print("Next steps:")
+    if path is not None:
+        print(f"  cd {path}")
     print("  Create a design in designs/ and build it:")
     print("  uv run rosette build designs/<name>.py")
     print()

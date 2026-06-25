@@ -301,6 +301,87 @@ class TestRosetteInit:
 
         assert ["git", "init"] not in calls
 
+    def test_init_path_creates_new_directory(self, tmp_path: Path, monkeypatch):
+        """rosette init <path> creates the dir and scaffolds inside it."""
+        monkeypatch.chdir(tmp_path)
+
+        def fake_run(cmd, *args, **kwargs):
+            cwd = kwargs.get("cwd")
+            if cmd[:3] == ["uv", "init", "--bare"]:
+                (Path(cwd) / "pyproject.toml").write_text(
+                    '[project]\nname = "x"\nversion = "0.1.0"\n'
+                )
+            return None
+
+        with (
+            patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("rosette.cli.subprocess.run", side_effect=fake_run),
+        ):
+            init_project("blank", tool="opencode", assume_yes=True, path="my-chip")
+
+        project_dir = tmp_path / "my-chip"
+        assert project_dir.is_dir()
+        assert (project_dir / "rosette.toml").exists()
+        # No project files leaked into the parent (cwd).
+        assert not (tmp_path / "rosette.toml").exists()
+        # Default name comes from the path basename.
+        assert 'name = "my-chip"' in (project_dir / "rosette.toml").read_text()
+
+    def test_init_path_bootstrap_runs_in_new_dir(self, tmp_path: Path, monkeypatch):
+        """Bootstrap subprocesses run with cwd set to the new directory."""
+        monkeypatch.chdir(tmp_path)
+
+        cwds: list[str] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            cwds.append(str(kwargs.get("cwd")))
+            if cmd[:3] == ["uv", "init", "--bare"]:
+                (Path(kwargs["cwd"]) / "pyproject.toml").write_text(
+                    '[project]\nname = "x"\nversion = "0.1.0"\n'
+                )
+            return None
+
+        with (
+            patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("rosette.cli.subprocess.run", side_effect=fake_run),
+        ):
+            init_project("blank", tool="opencode", assume_yes=True, path="nested/chip")
+
+        expected = str(tmp_path / "nested" / "chip")
+        assert cwds and all(c == expected for c in cwds)
+
+    def test_init_path_with_name_override(self, tmp_path: Path, monkeypatch):
+        """--name overrides the project name; the dir still comes from path."""
+        monkeypatch.chdir(tmp_path)
+
+        _make_uv_project(tmp_path / "my-chip")
+
+        init_project("blank", tool="opencode", name="Fancy Chip", path="my-chip")
+
+        toml = (tmp_path / "my-chip" / "rosette.toml").read_text()
+        assert 'name = "Fancy Chip"' in toml
+
+    def test_init_path_existing_project_errors(self, tmp_path: Path, monkeypatch):
+        """rosette init <path> fails if the target is already a rosette project."""
+        monkeypatch.chdir(tmp_path)
+        target = tmp_path / "my-chip"
+        _make_uv_project(target)
+        (target / "rosette.toml").write_text('[project]\nname = "x"\n')
+
+        with pytest.raises(SystemExit) as exc_info:
+            init_project("blank", tool="opencode", path="my-chip")
+        assert exc_info.value.code == 1
+
+    def test_init_path_includes_cd_in_next_steps(self, tmp_path: Path, monkeypatch, capsys):
+        """Next-steps output tells the user to cd into the new directory."""
+        monkeypatch.chdir(tmp_path)
+        _make_uv_project(tmp_path / "my-chip")
+
+        init_project("blank", tool="opencode", path="my-chip")
+
+        out = capsys.readouterr().out
+        assert "cd my-chip" in out
+
     def test_init_fails_if_already_initialized(self, tmp_path: Path, monkeypatch):
         """rosette init fails if rosette.toml already exists."""
         project_dir = tmp_path / "test"

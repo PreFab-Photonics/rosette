@@ -56,20 +56,21 @@ the dev server. Visit `http://localhost:5173` to open the viewer.
 
 <Callout title={"One-command start"} type={"info"}>
 
-`rosette init` can set up the uv project for you. Run it in an empty directory
-and, if there's no `pyproject.toml` yet, it offers to run `uv init --bare`,
+`rosette init` can create the project directory and set up uv for you. Pass a
+path and, if there's no `pyproject.toml` yet, it runs `uv init --bare`,
 `uv add librosette`, and `git init` before scaffolding:
 
 ```bash
-mkdir my-chip && cd my-chip
-uvx --from librosette rosette init
+uvx --from librosette rosette init my-chip
+cd my-chip
 ```
 
-`uvx` runs the CLI in a throwaway environment, so this works before anything is
-installed (the package is `librosette` but the command is `rosette`, hence
-`--from`). Pass `--yes` to skip the confirmation prompt (useful in scripts),
-`--no-git` to skip repo initialization. If uv isn't installed, `rosette init`
-falls back to printing the manual pip steps.
+Omit the path to initialize in the current directory instead. `uvx` runs the
+CLI in a throwaway environment, so this works before anything is installed (the
+package is `librosette` but the command is `rosette`, hence `--from`). Pass
+`--yes` to skip the confirmation prompt (useful in scripts), `--no-git` to skip
+repo initialization. If uv isn't installed, `rosette init` falls back to
+printing the manual pip steps.
 
 </Callout>
 
