@@ -731,10 +731,13 @@ class TestRosetteInit:
         assert ".rosette/" in gitignore
         assert "output/*.gds" in gitignore
         assert "# Rosette" in gitignore
-        # Python/uv patterns were already present, so that section header is
-        # not re-appended, and patterns are not duplicated.
+        # The uv project already had .venv/, __pycache__/, *.py[cod], so those
+        # are not duplicated. But .env is new (it lives under the Python / uv
+        # section in the rosette template), so that section header is retained
+        # to carry the new pattern.
         assert gitignore.count(".venv/") == 1
-        assert "# Python / uv" not in gitignore
+        assert ".env" in gitignore
+        assert "# Python / uv" in gitignore
 
     def test_append_gitignore_partial_overlap(self, tmp_path: Path):
         """A section with some pre-existing patterns keeps its header and only
