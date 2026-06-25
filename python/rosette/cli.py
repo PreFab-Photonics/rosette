@@ -309,6 +309,7 @@ def _append_gitignore(src_path: Path, dest_path: Path):
 #   - __init__.py         (the public re-exports + conventions docstring)
 #   - _utils.py           (safe_cell_name helper, stable API for component authors)
 #   - _curves.py          (shared S-bend math, stable API for component authors)
+#   - _tapers.py          (taper_polygon/TaperProfile, stable API for component authors)
 #   - All public component modules (bragg_grating.py, crossing.py, mmi.py, ...)
 # What it deliberately skips:
 #   - __pycache__/ and *.pyc         (build artifacts; see _COMPONENT_COPY_IGNORE)
@@ -317,7 +318,15 @@ def _append_gitignore(src_path: Path, dest_path: Path):
 # `from components import ...` re-export surface exists without pre-loading
 # the full stdlib catalog. Non-minimal mode ships everything that survives
 # `_COMPONENT_COPY_IGNORE`.
-_MINIMAL_COMPONENT_FILES = ("__init__.py", "_utils.py", "_curves.py")
+#
+# The allow-list MUST contain every `_*.py` primitive module in
+# `rosette/components/`, since a blank-template user copying in any stdlib
+# component (per `components/__init__.py`) may transitively need any of them
+# (`mmi`/`grating_coupler`/`edge_coupler` need `_tapers`, several need
+# `_curves`, all need `_utils`). Primitives depend only on `rosette` core,
+# not each other, so shipping them all is safe. `test_cli.py` has a guardrail
+# asserting this invariant -- if you add a new primitive, add it here too.
+_MINIMAL_COMPONENT_FILES = ("__init__.py", "_utils.py", "_curves.py", "_tapers.py")
 _COMPONENT_COPY_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
 
 
@@ -393,8 +402,9 @@ _MINIMAL_COMPONENTS_INIT = '''\
 """Photonic components (minimal scaffold).
 
 This ``components/`` package was created by ``rosette init --template blank``
-and ships only the shared internals (``_utils``, ``_curves``). Add component
-modules one at a time and re-export them from this file, for example::
+and ships only the shared internals (``_utils``, ``_curves``, ``_tapers``).
+Add component modules one at a time and re-export them from this file, for
+example::
 
     from components.my_sbend import my_sbend
 
@@ -428,10 +438,10 @@ def _copy_components(project_dir: Path, *, minimal: bool = False) -> None:
         Target project root. ``components/`` will be created inside it.
     minimal:
         If ``True`` (blank template), ship only the package scaffold
-        (``__init__.py``, ``_utils.py``, ``_curves.py``) and rewrite
-        ``__init__.py`` to drop the stdlib re-exports. Users then add
-        components one file at a time. If ``False`` (generic and other
-        non-blank templates), copy the full stdlib catalog.
+        (``__init__.py``, ``_utils.py``, ``_curves.py``, ``_tapers.py``)
+        and rewrite ``__init__.py`` to drop the stdlib re-exports. Users
+        then add components one file at a time. If ``False`` (generic and
+        other non-blank templates), copy the full stdlib catalog.
     """
     import tempfile
 

@@ -163,6 +163,7 @@ class TestRosetteInit:
         assert (components_dir / "__init__.py").exists()
         assert (components_dir / "_utils.py").exists()
         assert (components_dir / "_curves.py").exists()
+        assert (components_dir / "_tapers.py").exists()
         # No public component modules are pre-seeded.
         assert not (components_dir / "mmi.py").exists()
         assert not (components_dir / "ring.py").exists()
@@ -549,6 +550,82 @@ class TestRosetteInit:
                 "Local edits to components/mmi.py did not take effect -- "
                 "imports are resolving against the installed rosette.components package."
             )
+        finally:
+            sys.path.remove(str(project_dir))
+            for mod in list(sys.modules):
+                if mod == "components" or mod.startswith("components."):
+                    del sys.modules[mod]
+
+    def test_minimal_scaffold_includes_all_primitives(self):
+        """Every ``_*.py`` primitive must be in ``_MINIMAL_COMPONENT_FILES``.
+
+        The blank-template scaffold is an explicit allow-list. A blank user
+        who copies in any stdlib component (per ``components/__init__.py``)
+        may transitively need any primitive -- ``mmi``/``grating_coupler``/
+        ``edge_coupler`` import ``_tapers``, several import ``_curves``, all
+        import ``_utils``. If a new primitive is extracted but not added to
+        the allow-list, blank silently breaks with ``ModuleNotFoundError``
+        (this is exactly how ``_tapers`` was missed -- ROS-612). This cheap
+        structural guardrail asserts the allow-list stays in sync with the
+        actual primitive modules on disk so the failure mode can't recur.
+        """
+        from rosette.cli import _MINIMAL_COMPONENT_FILES, COMPONENTS_DIR
+
+        primitives = {p.name for p in COMPONENTS_DIR.glob("_*.py") if p.name != "__init__.py"}
+        assert primitives, "no `_*.py` primitive modules found in components/"
+        missing = primitives - set(_MINIMAL_COMPONENT_FILES)
+        assert not missing, (
+            f"primitive module(s) {sorted(missing)} are not in "
+            "_MINIMAL_COMPONENT_FILES; the blank template scaffold would omit "
+            "them and any copied-in component that needs them would fail with "
+            "ModuleNotFoundError. Add them to the allow-list in cli.py."
+        )
+
+    def test_init_blank_copied_component_using_tapers_imports(self, tmp_path: Path, monkeypatch):
+        """A copied stdlib component needing ``_tapers`` imports in a blank project.
+
+        The blank scaffold tells users to add components one file at a time by
+        copying from the rosette source tree. A component like ``mmi`` (which
+        imports ``_tapers``) must then import cleanly. Regression test for
+        ROS-612: blank previously shipped ``_utils`` + ``_curves`` but not
+        ``_tapers``, so ``from components import mmi`` raised
+        ``ModuleNotFoundError: components._tapers``.
+        """
+        from rosette.cli import COMPONENTS_DIR, _rewrite_component_imports
+
+        project_dir = tmp_path / "my_project"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
+
+        components_dir = project_dir / "components"
+        # The minimal scaffold must ship the _tapers primitive.
+        assert (components_dir / "_tapers.py").exists()
+
+        # Simulate the user copying in mmi.py (which depends on _tapers). The
+        # copied module's body is rewritten exactly as `_copy_components` does
+        # (absolute `rosette.components.*` imports -> package-relative).
+        stdlib_mmi = (COMPONENTS_DIR / "mmi.py").read_text()
+        (components_dir / "mmi.py").write_text(_rewrite_component_imports(stdlib_mmi))
+        # Re-export it from the scaffold __init__.py, as the docstring instructs.
+        # This line is already project-relative, so no rewrite applies to it.
+        init_path = components_dir / "__init__.py"
+        init_path.write_text(
+            init_path.read_text() + "\nfrom components.mmi import mmi\n\n__all__ = ['mmi']\n"
+        )
+
+        import importlib
+        import sys
+
+        sys.path.insert(0, str(project_dir))
+        for mod in list(sys.modules):
+            if mod == "components" or mod.startswith("components."):
+                del sys.modules[mod]
+        try:
+            components = importlib.import_module("components")
+            assert hasattr(components, "mmi")
+            assert components.mmi.__module__ == "components.mmi"
         finally:
             sys.path.remove(str(project_dir))
             for mod in list(sys.modules):
