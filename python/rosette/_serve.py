@@ -633,6 +633,13 @@ def serve_design(
             pass
 
     else:
+        # No design file: still surface the project's configured layers so the
+        # empty canvas reflects rosette.toml rather than the app's built-in
+        # defaults. Falls back to defaults when there's no (or no [layers])
+        # rosette.toml.
+        layer_defs = _load_layer_map_safe()
+        server.set_design_json(None, layers=layer_defs)
+
         if not no_open:
             tauri_proc = _open_viewer(
                 url,
