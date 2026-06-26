@@ -1,7 +1,9 @@
 """Tests for DRC integration in the rosette._serve live-preview helpers."""
 
+from pathlib import Path
+
 from rosette import Cell, DrcCache, DrcRules, Layer, Point, Polygon
-from rosette._serve import _run_drc_safe
+from rosette._serve import _load_layer_map_safe, _run_drc_safe
 
 
 class TestRunDrcSafe:
@@ -92,3 +94,46 @@ class TestRunDrcSafeCache:
         uncached = _run_drc_safe(thin, rules)
         assert cached["passed"] is False
         assert cached == uncached
+
+
+class TestLoadLayerMapSafe:
+    """Tests for _load_layer_map_safe — used to seed the viewer's layers,
+    including the empty-canvas (`rosette serve` with no design) case.
+    """
+
+    def test_reads_config_layers(self, tmp_path: Path, monkeypatch):
+        """A project rosette.toml's [layers] are surfaced, not the defaults."""
+        (tmp_path / "rosette.toml").write_text(
+            '[project]\nname = "x"\n\n'
+            '[layers.metal]\nnumber = 42\ndatatype = 3\ncolor = "#abcdef"\n'
+        )
+        monkeypatch.chdir(tmp_path)
+
+        layers = _load_layer_map_safe()
+
+        assert layers is not None
+        by_name = {ly["name"]: ly for ly in layers}
+        assert "metal" in by_name
+        assert by_name["metal"]["layerNumber"] == 42
+        assert by_name["metal"]["datatype"] == 3
+
+    def test_falls_back_to_defaults_without_config(self, tmp_path: Path, monkeypatch):
+        """No rosette.toml => built-in default layers (silicon, text)."""
+        monkeypatch.chdir(tmp_path)
+
+        layers = _load_layer_map_safe()
+
+        assert layers is not None
+        names = {ly["name"] for ly in layers}
+        assert {"silicon", "text"} <= names
+
+    def test_falls_back_to_defaults_when_layers_section_absent(self, tmp_path: Path, monkeypatch):
+        """A [project]-only rosette.toml (blank template) => default layers."""
+        (tmp_path / "rosette.toml").write_text('[project]\nname = "x"\ntemplate = "blank"\n')
+        monkeypatch.chdir(tmp_path)
+
+        layers = _load_layer_map_safe()
+
+        assert layers is not None
+        names = {ly["name"] for ly in layers}
+        assert {"silicon", "text"} <= names

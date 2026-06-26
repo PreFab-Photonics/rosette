@@ -215,16 +215,7 @@ function applyServerLayers(lib: WasmLibrary, serverLayers: ServerLayerDef[]): bo
   const defined = new Set(serverLayers.map((l) => `${l.layerNumber}/${l.datatype}`));
 
   // Start with server-defined layers
-  const newLayers: Layer[] = serverLayers.map((l) => ({
-    id: l.id,
-    layerNumber: l.layerNumber,
-    datatype: l.datatype,
-    name: l.name,
-    color: l.color,
-    visible: l.visible ?? true,
-    fillPattern: (l.fillPattern ?? "solid") as Layer["fillPattern"],
-    opacity: l.opacity ?? 0.7,
-  }));
+  const newLayers: Layer[] = serverLayers.map(serverLayerToLayer);
 
   // Discover any additional layers in the GDS that aren't in rosette.toml
   const usedLayers = lib.get_used_layers();
@@ -254,6 +245,59 @@ function applyServerLayers(lib: WasmLibrary, serverLayers: ServerLayerDef[]): bo
 
   useLayerStore.getState().resetLayers(newLayers);
   return true;
+}
+
+/** Map a server layer definition to the app's Layer shape, applying defaults. */
+function serverLayerToLayer(l: ServerLayerDef): Layer {
+  return {
+    id: l.id,
+    layerNumber: l.layerNumber,
+    datatype: l.datatype,
+    name: l.name,
+    color: l.color,
+    visible: l.visible ?? true,
+    fillPattern: (l.fillPattern ?? "solid") as Layer["fillPattern"],
+    opacity: l.opacity ?? 0.7,
+  };
+}
+
+/**
+ * Apply server-provided layer definitions with no design library to augment
+ * against. Used for the empty canvas (`rosette serve` with no design file), so
+ * the Layers panel reflects rosette.toml's `[layers]` instead of the app's
+ * built-in defaults. Returns true if any layers were applied.
+ */
+function applyServerLayersStandalone(serverLayers: ServerLayerDef[]): boolean {
+  if (serverLayers.length === 0) return false;
+  useLayerStore.getState().resetLayers(serverLayers.map(serverLayerToLayer));
+  return true;
+}
+
+/**
+ * Fetch the project's configured layers from the dev server and apply them to
+ * the (empty-canvas) Layers panel. Used by `rosette serve` with no design file:
+ * the server exposes layers at /api/design even when no design is loaded.
+ *
+ * Note: when a Python server is present it always returns a non-empty layer
+ * list — the project's rosette.toml `[layers]` if defined, otherwise the
+ * built-in silicon/text defaults (server-side fallback). So the app's own
+ * DEFAULT_LAYERS only survive when there is no server at all (pure web build)
+ * or the fetch fails; in those cases this no-ops and leaves them in place.
+ */
+async function seedProjectLayers(): Promise<void> {
+  try {
+    const res = await fetch("/api/design");
+    if (!res.ok) return;
+    const data = (await res.json()) as Partial<DesignResponse>;
+    // Only seed the empty canvas. If a design is loaded, the SSE path owns
+    // layer application.
+    if (data.json) return;
+    if (data.layers && data.layers.length > 0) {
+      applyServerLayersStandalone(data.layers);
+    }
+  } catch {
+    // No dev server (pure web build) or transient error — keep defaults.
+  }
 }
 
 /**
@@ -393,6 +437,14 @@ export function useLibrary(
     // Reset stale state from any previous design-mode session
     useExplorerStore.getState().setProjectName("untitled-project");
     useLayerStore.getState().resetLayers(DEFAULT_LAYERS);
+
+    // Seed the empty canvas with the layers the dev server reports (the
+    // project's rosette.toml `[layers]`, or the server's built-in defaults if
+    // it has none). Fire-and-forget: the canvas initializes immediately with
+    // DEFAULT_LAYERS, then swaps to the server's layers once the fetch
+    // resolves. Only the no-server case (pure web/dev build) keeps
+    // DEFAULT_LAYERS.
+    void seedProjectLayers();
 
     // Check if we already have tabs (e.g., from a hot reload)
     const { tabs } = useTabsStore.getState();

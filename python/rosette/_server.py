@@ -254,7 +254,7 @@ class RosetteServer:
 
     def set_design_json(
         self,
-        json_str: str,
+        json_str: str | None,
         cells: dict[str, object] | None = None,
         layers: list[dict[str, object]] | None = None,
         filename: str | None = None,
@@ -263,7 +263,8 @@ class RosetteServer:
         """Update the design JSON and increment version.
 
         Args:
-            json_str: JSON string of the serialized library
+            json_str: JSON string of the serialized library, or None for an
+                empty canvas (no design loaded).
             cells: Optional cell hierarchy tree: {name, children}
             layers: Optional layer definitions from rosette.toml (LayerMap.to_dict_list())
             filename: Optional source filename (e.g., "layout.py" or "mmi.gds")
