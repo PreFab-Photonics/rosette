@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-26
+
+An agent-ergonomics release: machine-readable CLI and structured output for the
+build→check→fix loop, a smarter `rosette init`, and leaner templates. No breaking
+API changes.
+
+### Added
+
+- `rosette check`, `drc`, and `dfm` gain a `--json` flag emitting a single versioned
+  JSON object (`"schema": 1`, bbox in microns) instead of human-formatted prose, so
+  the agent build→check→fix loop no longer parses colored text. `check --json`
+  returns one combined object; exit codes are unchanged
+- `.rosette/cli.json` machine-readable CLI manifest, written by `rosette init` and
+  refreshed by `rosette update` alongside `api.pyi`; derived from the argparse parser
+  so it can't drift. New `rosette cli-manifest` prints it live; `check`/`drc`/`dfm`
+  `--help` now documents the `--json` schema and exit codes
+- `rosette init` accepts an optional `[path]` to create a new project directory,
+  bootstraps a `uv` project when none exists, and prompts for a project name
+  (defaulting to the directory name)
+- `rosette init --no-install` (dev): skip `uv add librosette` so a project venv
+  doesn't shadow a working-copy rosette on PATH
+
+### Changed
+
+- `rosette dfm` degrades to a clean skip (exit 0) when the `[dfm]` section is absent,
+  matching `drc`/`check`; genuinely invalid DFM config still raises. `check
+  --include-dfm` treats the absent section as a skip
+- `rosette serve` with no design file now seeds the empty canvas with the project's
+  `rosette.toml` `[layers]` instead of the app's built-in defaults
+- Templates: blank `rosette.toml` is now `[project]`-only with guidance comments;
+  generic ships a realistic Si-photonics baseline (7 layers, per-layer DRC,
+  inter-layer rules); dead config (`[build]`, `[project] version`) dropped from both.
+  `rosette check --json` is the copied default command
+- Agent rules and skills single-sourced through a multi-harness adapter; trimmed Key
+  conventions and stale LSP/`uv run` lines; dropped the spiral-cutback skill and
+  pared layout-design to an example stub
+- `rosette init` skips `git init` inside an existing repo; minimal components scaffold
+  adds `_tapers.py`; `.env` moved to the Python section of the shipped `.gitignore`
+- Landing page replaces the live viewer embed with static hero images
+- CI gates only the public `rosette-wasm` type-stub API (tolerant of toolchain
+  reordering)
+
+### Fixed
+
+- Broken README logo (now uses SVG)
+
 ## [0.4.1] - 2026-06-22
 
 A consolidation release: tooling, docs, dependency hygiene, and DRC workflow
@@ -318,7 +364,8 @@ usual given the volume of changes.
 
 - `rosette serve` to use installed Rosette.app on macOS
 
-[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.2.0...v0.3.0
