@@ -3771,7 +3771,7 @@ checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
 
 [[package]]
 name = "rosette-checks"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rosette-core",
  "rstar",
@@ -3780,7 +3780,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "geo",
  "serde",
@@ -3789,7 +3789,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-desktop"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rosette-io",
  "serde",
@@ -3806,7 +3806,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-dfm"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rayon",
  "rosette-core",
@@ -3814,7 +3814,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-drc"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "criterion",
  "geo",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-io"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "byteorder",
  "rosette-core",
@@ -3836,7 +3836,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-python"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "pyo3",
  "rosette-checks",
@@ -3849,7 +3849,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-raster"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rosette-core",
  "serde",
@@ -3860,7 +3860,7 @@ dependencies = [
 
 [[package]]
 name = "rosette-wasm"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "bytemuck",
  "console_error_panic_hook",
