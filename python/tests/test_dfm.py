@@ -511,8 +511,8 @@ layers = ["1/0"]
         config, _model, _layers = load_dfm_config(config_file)
         assert config.has_tolerances is False
 
-    def test_missing_dfm_section_raises(self, tmp_path):
-        """Missing [dfm] section raises ValueError."""
+    def test_missing_dfm_section_returns_none(self, tmp_path):
+        """Missing [dfm] section returns None (graceful skip, not an error)."""
         toml_content = """
 [project]
 name = "test"
@@ -520,8 +520,20 @@ name = "test"
         config_file = tmp_path / "rosette.toml"
         config_file.write_text(toml_content)
 
-        with pytest.raises(ValueError, match="No \\[dfm\\] section"):
-            load_dfm_config(config_file)
+        assert load_dfm_config(config_file) is None
+
+    def test_empty_dfm_section_returns_none(self, tmp_path):
+        """A present-but-empty [dfm] section also returns None (no config)."""
+        toml_content = """
+[project]
+name = "test"
+
+[dfm]
+"""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(toml_content)
+
+        assert load_dfm_config(config_file) is None
 
     def test_unknown_model_raises(self, tmp_path):
         """Unknown model type raises ValueError."""
@@ -836,3 +848,37 @@ class TestDfmCli:
         with pytest.raises(SystemExit) as exc_info:
             dfm_design(str(design_py), fake_config)
         assert exc_info.value.code == 1
+
+    def test_run_dfm_check_returns_none_when_no_dfm_section(self, tmp_path):
+        """_run_dfm_check returns None when rosette.toml has no [dfm] section."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette import Cell, Layer, Point, Polygon\n"
+            'design = Cell("test")\n'
+            "design.add_polygon(Polygon.rect(Point.origin(), 10.0, 10.0), Layer(1, 0))\n"
+        )
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text('[project]\nname = "test"\n')
+
+        assert _run_dfm_check(str(design_py), str(config_file)) is None
+
+    def test_dfm_design_skips_without_dfm_section(self, tmp_path, capsys):
+        """dfm_design on a blank project skips cleanly (exit 0) instead of erroring."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette import Cell, Layer, Point, Polygon\n"
+            'design = Cell("test")\n'
+            "design.add_polygon(Polygon.rect(Point.origin(), 10.0, 10.0), Layer(1, 0))\n"
+        )
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text('[project]\nname = "test"\n')
+
+        # Must not raise SystemExit (exit 0).
+        dfm_design(str(design_py), str(config_file))
+
+        captured = capsys.readouterr()
+        assert "dfm" in captured.out
+        assert "no [dfm] section" in captured.out
+        # Did not run prediction / did not error.
+        assert "Error" not in captured.out
+        assert "edge deviation" not in captured.out

@@ -2153,7 +2153,7 @@ def run_checks(
 
 def load_dfm_config(
     config_path: str | Path | None = None,
-) -> tuple[DfmConfig, GaussianModel, list[Layer]]:
+) -> tuple[DfmConfig, GaussianModel, list[Layer]] | None:
     """Load DFM configuration from rosette.toml.
 
     Reads the [dfm] section of rosette.toml which configures the virtual
@@ -2169,11 +2169,15 @@ def load_dfm_config(
 
     Returns:
         Tuple of (DfmConfig, GaussianModel, layers) where layers is the list
-        of layers to predict (empty list means "all layers in the design").
+        of layers to predict (empty list means "all layers in the design"), or
+        ``None`` when rosette.toml has no [dfm] section. ``None`` lets callers
+        treat "DFM not configured" as a graceful skip (matching how [drc] and
+        [checks] degrade), rather than an error — only genuinely invalid DFM
+        settings raise.
 
     Raises:
         FileNotFoundError: If rosette.toml is not found
-        ValueError: If the config has invalid DFM settings
+        ValueError: If the [dfm] section is present but has invalid settings
 
     Example:
         In rosette.toml::
@@ -2188,8 +2192,10 @@ def load_dfm_config(
 
         Usage::
 
-            config, model, layers = load_dfm_config()
-            result = run_dfm(cell, layers=layers, model=model, config=config)
+            loaded = load_dfm_config()
+            if loaded is not None:
+                config, model, layers = loaded
+                result = run_dfm(cell, layers=layers, model=model, config=config)
     """
     # Find config file
     if config_path is not None:
@@ -2213,7 +2219,9 @@ def load_dfm_config(
 
     dfm_config = config.get("dfm", {})
     if not dfm_config:
-        raise ValueError("No [dfm] section found in rosette.toml")
+        # No [dfm] section configured — signal absence so callers can skip
+        # gracefully (like [drc]/[checks]) rather than treating it as an error.
+        return None
 
     # Extract configuration values with defaults
     resolution = dfm_config.get("resolution", 0.01)

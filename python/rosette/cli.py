@@ -1640,11 +1640,14 @@ def _run_dfm_check(
     config_path: str | None = None,
     cell: Cell | None = None,
     file_path: Path | None = None,
-) -> tuple[DfmResult, Path | None, bool, Cell]:
+) -> tuple[DfmResult, Path | None, bool, Cell] | None:
     """Run DFM prediction on a design and return (result, file_path, has_tolerances, cell).
 
     Loads the design (unless cell/file_path are provided), loads DFM config
     from rosette.toml, and runs prediction.
+
+    Returns ``None`` when rosette.toml has no [dfm] section, so callers can
+    treat "DFM not configured" as a graceful skip.
 
     Raises FileNotFoundError/ValueError on config issues instead of exiting,
     so callers can decide how to handle errors.
@@ -1655,8 +1658,12 @@ def _run_dfm_check(
     if cell is None:
         cell, file_path, _ = load_design(design_spec)
 
-    # Load DFM config from rosette.toml (raises on error — caller handles)
-    dfm_config, model, layers = load_dfm_config(config_path)
+    # Load DFM config from rosette.toml. None => no [dfm] section (skip);
+    # raises on a missing file or invalid config (caller handles).
+    loaded = load_dfm_config(config_path)
+    if loaded is None:
+        return None
+    dfm_config, model, layers = loaded
 
     if not layers:
         raise ValueError(
@@ -1770,13 +1777,21 @@ def dfm_design(
 ):
     """Run DFM prediction on a design."""
     try:
-        result, file_path, has_tol, cell = _run_dfm_check(design, config)
+        checked = _run_dfm_check(design, config)
     except FileNotFoundError as e:
         print(f"Error: {e}")
         sys.exit(1)
     except ValueError as e:
         print(f"Error in DFM config: {e}")
         sys.exit(1)
+
+    # No [dfm] section configured — skip cleanly (exit 0), matching how
+    # `rosette drc`/`rosette check` degrade on a blank project.
+    if checked is None:
+        print(f"{_bold('dfm')}  {design}  {_dim('no [dfm] section configured — skipping')}")
+        return
+
+    result, file_path, has_tol, cell = checked
     passed = _print_dfm_result(result, file_path, verbose, has_tolerances=has_tol)
 
     # Write GDS with predicted polygons if requested
@@ -1911,18 +1926,20 @@ def check_design(
     # DFM (opt-in via --include-dfm flag)
     if include_dfm:
         try:
-            dfm_result, _, has_tol, _ = _run_dfm_check(
-                design, config, cell=cell, file_path=file_path
-            )
-            print()  # Separator between DRC and DFM output
-            dfm_passed = _print_dfm_result(dfm_result, file_path, verbose, has_tolerances=has_tol)
-            if not dfm_passed:
-                all_passed = False
-        except FileNotFoundError:
-            print(
-                f"\n{_yellow('Warning: --include-dfm specified but no [dfm] section in rosette.toml')}"
-            )
-        except ValueError as e:
+            checked = _run_dfm_check(design, config, cell=cell, file_path=file_path)
+            if checked is None:
+                print(
+                    f"\n{_yellow('Warning: --include-dfm specified but no [dfm] section in rosette.toml')}"
+                )
+            else:
+                dfm_result, _, has_tol, _ = checked
+                print()  # Separator between DRC and DFM output
+                dfm_passed = _print_dfm_result(
+                    dfm_result, file_path, verbose, has_tolerances=has_tol
+                )
+                if not dfm_passed:
+                    all_passed = False
+        except (FileNotFoundError, ValueError) as e:
             print(f"\n{_yellow(f'Warning: DFM config error: {e}')}")
 
     # Design checks (always runs — uses defaults if no [checks] section)

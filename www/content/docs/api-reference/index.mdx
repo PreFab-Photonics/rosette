@@ -446,7 +446,7 @@ ChecksResult with violations and statistics.
 
 ### DFM
 
-<PyFunction name={"load_dfm_config"} type={"(config_path=None) -> tuple[DfmConfig, GaussianModel, list[Layer]]"}>
+<PyFunction name={"load_dfm_config"} type={"(config_path=None) -> tuple[DfmConfig, GaussianModel, list[Layer]] | None"}>
 
 Load DFM configuration from `rosette.toml`.
 
@@ -455,11 +455,18 @@ prediction tool. Layer references in the `layers` list and `[dfm.layer.*]`
 overrides accept semantic names from the `[layers]` section (e.g.
 `"silicon"`) or the traditional `"number/datatype"` format (e.g. `"1/0"`).
 
+Returns `None` when `rosette.toml` has no `[dfm]` section, so callers can
+treat "DFM not configured" as a graceful skip (matching how `[drc]` and
+`[checks]` degrade) rather than an error. Only genuinely invalid DFM
+settings raise.
+
 <Callout title={"Example"} type={"example"}>
 
 ```python
-config, model, layers = load_dfm_config()
-result = run_dfm(cell, layers=layers, model=model, config=config)
+loaded = load_dfm_config()
+if loaded is not None:
+    config, model, layers = loaded
+    result = run_dfm(cell, layers=layers, model=model, config=config)
 ```
 
 </Callout>
@@ -475,10 +482,11 @@ from current directory upward.
 
 </div>
 
-<PyFunctionReturn type={"tuple[DfmConfig, GaussianModel, list[Layer]]"}>
+<PyFunctionReturn type={"tuple[DfmConfig, GaussianModel, list[Layer]] | None"}>
 
 Tuple of (config, model, layers) where layers is the list
-of layers to predict (empty list means all layers).
+of layers to predict (empty list means all layers), or `None` when
+`rosette.toml` has no `[dfm]` section.
 
 </PyFunctionReturn>
 
