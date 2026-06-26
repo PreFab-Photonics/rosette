@@ -1,20 +1,64 @@
 [project]
 name = "{{name}}"
-version = "0.1.0"
 template = "generic"
 
-[build]
-output_dir = "output"
+# A realistic silicon-photonics baseline: multi-layer stack, active per-layer
+# DRC, inter-layer rules, DFM prediction, and design checks. Tune the values
+# to your foundry. Full schema reference:
+# https://rosette.dev/docs/guides/design-rule-checking
 
 # =============================================================================
 # Layer Definitions
 # =============================================================================
+#
+# Named layers with GDS numbers and display properties.
+# Access in Python: layers = load_layer_map(); layers.silicon.layer
+#
+# Per-layer keys:
+#   number       - GDS layer number (required)
+#   datatype     - GDS datatype (default 0)
+#   color        - Hex display color, "#rrggbb" (default "#808080")
+#   fill         - Display fill: "solid", "hatched", "crosshatched", "dotted"
+#   opacity      - Display opacity, 0.0-1.0 (default 0.7)
+#   description  - Free-text label
 
 [layers.silicon]
 number = 1
 datatype = 0
 color = "#ff69b4"
 description = "Silicon waveguides"
+
+[layers.oxide]
+number = 2
+datatype = 0
+color = "#4caf50"
+description = "Slab / partial etch"
+
+[layers.marker]
+number = 3
+datatype = 0
+color = "#2196f3"
+fill = "hatched"
+description = "Marker / extent outline (also used for deep-etch trenches)"
+
+[layers.p_doping]
+number = 20
+datatype = 0
+color = "#e91e63"
+description = "Doping P+"
+
+[layers.n_doping]
+number = 21
+datatype = 0
+color = "#9c27b0"
+description = "Doping N+"
+
+[layers.exclusion]
+number = 100
+datatype = 0
+color = "#ff9800"
+fill = "hatched"
+description = "Exclusion zone / keep-out"
 
 [layers.text]
 number = 10
@@ -27,10 +71,11 @@ description = "Text annotations"
 # Design Rule Check (DRC) Constraints
 # =============================================================================
 #
-# Generic silicon photonics design rules. Adjust values for your foundry.
-# Layer keys use semantic names from [layers] above.
-# Numeric "layer/datatype" format (e.g., "1/0") also works.
-# All dimensions in micrometers (um)
+# Generic silicon-photonics design rules. Adjust values for your foundry.
+# Layer keys use semantic names from [layers] above (e.g. [drc.layers.silicon]).
+# Numeric "number/datatype" format (e.g. [drc.layers."1/0"]) also works.
+# All dimensions in micrometers (um). See the docs for the full per-layer and
+# inter-layer rule vocabulary.
 
 # Near-threshold violations (within `warning_margin` of the rule) are reported
 # as warnings instead of errors. Warnings do not fail `rosette check` or
@@ -39,43 +84,136 @@ description = "Text annotations"
 # warning_margin = 0.01
 
 # -----------------------------------------------------------------------------
-# Silicon Layer (waveguides)
+# Silicon - Waveguide Core
 # -----------------------------------------------------------------------------
 [drc.layers.silicon]
-min_width = 0.15      # Minimum waveguide width
-min_spacing = 0.15    # Minimum gap between waveguides
-min_area = 0.02       # Minimum polygon area
+min_width = 0.12      # Minimum waveguide width
+min_spacing = 0.13    # Minimum spacing between waveguides
+min_area = 0.01       # Minimum polygon area
+acute_angle = 60      # Min convex interior angle (deg); sharp tips are fab-risky
 no_overlap = true     # Forbid overlapping polygons on same layer
+# angles omitted — all edge angles allowed (curved/all-angle geometry permitted)
+
+# -----------------------------------------------------------------------------
+# Oxide - Slab / Partial Etch
+# -----------------------------------------------------------------------------
+[drc.layers.oxide]
+min_width = 0.18      # Wider minimum for partial etch
+min_spacing = 0.20    # Larger spacing requirement
+min_area = 0.05       # Minimum slab area
+
+# -----------------------------------------------------------------------------
+# Marker - Extent outline / deep etch
+# -----------------------------------------------------------------------------
+[drc.layers.marker]
+min_width = 0.25      # Minimum trench width
+min_spacing = 0.30    # Trench-to-trench spacing
+min_area = 0.10       # Minimum trench area
+
+# -----------------------------------------------------------------------------
+# P+ Doping
+# -----------------------------------------------------------------------------
+[drc.layers.p_doping]
+min_width = 0.30      # Minimum doping width
+min_spacing = 0.40    # Doping region spacing
+min_area = 0.10       # Minimum doping area
+
+# -----------------------------------------------------------------------------
+# N+ Doping
+# -----------------------------------------------------------------------------
+[drc.layers.n_doping]
+min_width = 0.30      # Minimum doping width
+min_spacing = 0.40    # Doping region spacing
+min_area = 0.10       # Minimum doping area
+
+# -----------------------------------------------------------------------------
+# Exclusion Zone / Keep-out
+# -----------------------------------------------------------------------------
+[drc.layers.exclusion]
+min_width = 5.0       # Large exclusion zones
+min_spacing = 10.0    # Keep exclusion zones apart
+min_area = 25.0       # Minimum exclusion area
+
+# =============================================================================
+# Inter-Layer Rules
+# =============================================================================
+# These define relationships between different layers.
+
+[[drc.rules]]
+type = "spacing"
+layer1 = "p_doping"       # P+ doping
+layer2 = "n_doping"       # N+ doping
+min_spacing = 0.50        # Doping separation
+name = "PN_SPC"
+
+[[drc.rules]]
+type = "forbid_overlap"
+layer1 = "p_doping"       # P+ doping
+layer2 = "n_doping"       # N+ doping
+name = "PN_NOOVLP"        # P and N doping cannot overlap
+
+# Silicon must not sit fully inside an exclusion / keep-out zone.
+[[drc.rules]]
+type = "not_inside"
+inner = "silicon"         # feature layer
+outer = "exclusion"       # keep-out zone
+name = "EXCL_KEEPOUT"
+
+# Other inter-layer rule types (commented examples):
+#
+# [[drc.rules]]
+# type = "enclosure"        # inner must be enclosed by outer with a margin
+# inner = "silicon"
+# outer = "oxide"
+# min_enclosure = 0.10      # required surround (um)
+# name = "SI_IN_OX"
+#
+# [[drc.rules]]
+# type = "require_overlap"  # two layers must overlap somewhere
+# layer1 = "p_doping"
+# layer2 = "silicon"
+# name = "DOPE_ON_SI"
 
 # =============================================================================
 # DFM (Design for Manufacturability) Prediction
 # =============================================================================
 #
-# Virtual nanofabrication prediction. Run with: rosette dfm <design>
-# The Gaussian model is an approximation for catching gross issues.
-# PreFab foundry-calibrated models coming soon.
-
-[dfm]
-resolution = 0.01     # Pixel size in um
-padding = 1.0         # Margin around geometry in um
-model = "gaussian"    # Approximate proximity blur model
-sigma = 0.08          # Gaussian sigma in um
-threshold = 0.5       # Binarization threshold
-layers = ["silicon"]  # Layers to predict
-# max_area_deviation = 0.10   # relative area change limit (enables pass/fail)
-# severity = "warning"        # "warning" or "error"
+# EXPERIMENTAL — disabled by default. Virtual nanofabrication prediction via a
+# Gaussian proximity-blur model. It's a rough approximation for catching gross
+# issues (features too narrow, gaps too small), not a calibrated process model;
+# PreFab foundry-calibrated models are coming soon. Uncomment the [dfm] block
+# below to enable it, then run: rosette dfm <design>
 #
-# Per-layer overrides:
+# [dfm]
+# resolution = 0.01     # Pixel size in um (smaller = more accurate, slower)
+# padding = 1.0         # Margin around cell bounding box in um
+# model = "gaussian"    # Approximate proximity blur model
+# sigma = 0.08          # Gaussian sigma in um (models lithography proximity blur)
+# threshold = 0.5       # Binarization threshold (0.0-1.0) — when is a pixel "filled"?
+# layers = ["silicon"]  # Layers to predict (waveguide layer)
+#
+# Tolerances — deviations beyond these limits are reported as violations.
+# The Gaussian model is an approximation; set tolerances accordingly.
+# max_area_deviation = 0.10   # relative — max area change (10%)
+# severity = "warning"        # "warning" to inform, "error" to fail the check
+#
+# Per-layer overrides — override model params and tolerances per layer:
 # [dfm.layer.silicon]
-# sigma = 0.05              # override model params per layer
+# sigma = 0.05              # tighter process on waveguide layer
 # max_area_deviation = 0.05
 
-# ---------------------------------------------------------------------------
-# Design checks — connectivity + bend radius
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Design Checks — connectivity + bend radius
+# =============================================================================
+#
+# Unified design checks run by `rosette check`:
+# - Connectivity: unconnected ports, width/angle mismatches
+# - Bend radius: flags bends below minimum, reports auto-reduced bends
+#
+# Runs by default with sensible defaults. Uncomment to override.
 # [checks]
 # position_tolerance = 0.001   # um — max gap between "connected" ports
 # angle_tolerance = 0.1        # degrees — max deviation from anti-parallel
-# check_widths = true           # error on width mismatch between connected ports
+# check_widths = true          # error on width mismatch between connected ports
 # min_bend_radius = 5.0        # um — minimum allowed bend radius (omit to skip)
-# severity = "error"            # "error" or "warning"
+# severity = "error"           # "error" or "warning"

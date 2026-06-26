@@ -124,6 +124,16 @@ class TestRosetteInit:
         # Config content
         toml_content = (project_dir / "rosette.toml").read_text()
         assert 'name = "my_project"' in toml_content
+        assert 'template = "blank"' in toml_content
+
+        # "Blank means blank": [project] only — no layers, DRC, DFM, or checks,
+        # and none of the dead config keys ([build], [project] version). Parse
+        # the TOML so prose in comments doesn't trip substring checks.
+        import tomllib
+
+        parsed = tomllib.loads(toml_content)
+        assert set(parsed) == {"project"}
+        assert set(parsed["project"]) == {"name", "template"}
 
         # AGENTS.md content: has markers and directive
         agents_content = (project_dir / "AGENTS.md").read_text()
@@ -449,6 +459,22 @@ class TestRosetteInit:
         toml_content = (project_dir / "rosette.toml").read_text()
         assert 'template = "generic"' in toml_content
         assert "[layers.silicon]" in toml_content
+
+        # Enriched, realistic silicon-photonics baseline: multi-layer stack,
+        # per-layer DRC, and inter-layer rules — exercises DRC out of the box.
+        # Assert against parsed structure so comment prose doesn't interfere.
+        import tomllib
+
+        parsed = tomllib.loads(toml_content)
+        assert {"silicon", "p_doping", "n_doping", "exclusion"} <= set(parsed["layers"])
+        assert {"silicon", "p_doping"} <= set(parsed["drc"]["layers"])
+        rule_names = {r.get("name") for r in parsed["drc"]["rules"]}
+        assert {"PN_SPC", "PN_NOOVLP", "EXCL_KEEPOUT"} <= rule_names
+        # DFM is experimental and ships commented-out, so it must not be active.
+        assert "dfm" not in parsed
+        # Dead config is dropped here too.
+        assert "build" not in parsed
+        assert "version" not in parsed["project"]
 
         # AGENTS.md has markers and directive
         agents_content = (project_dir / "AGENTS.md").read_text()
