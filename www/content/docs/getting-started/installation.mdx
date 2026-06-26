@@ -186,7 +186,7 @@ After running `rosette init`, your project will contain:
 
 ```txt
 my-chip/
-├── rosette.toml          # Project config: layers, DRC rules, build settings
+├── rosette.toml          # Project config: layers, DRC rules, and checks
 ├── designs/              # Your design scripts go here
 ├── output/               # GDS build output
 ├── components/           # Editable photonic components (yours to modify)
@@ -200,7 +200,8 @@ my-chip/
 ```
 
 - **`rosette.toml`**: the central configuration file. It defines your project name,
-  layer stack, and design-rule constraints.
+  layer stack, and design-rule constraints. The **blank** template ships only a
+  `[project]` section — add layers and rules as you need them.
 - **`designs/`**: where you write your layout scripts. Each script defines cells and
   geometry that Rosette compiles to GDS-II.
 - **`output/`**: build artifacts. Running `rosette build` writes GDS files here.

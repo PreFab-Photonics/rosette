@@ -1,105 +1,13 @@
 [project]
 name = "{{name}}"
-version = "0.1.0"
 template = "blank"
 
-[build]
-output_dir = "output"
-
-# =============================================================================
-# Layer Definitions
-# =============================================================================
+# Blank means blank: this project ships no layers, DRC, DFM, or checks.
+# Designs build against the built-in default layers until you define your own:
+#   silicon  number 1,  datatype 0  (waveguides)
+#   text     number 10, datatype 0  (annotations)
 #
-# Define named layers with GDS numbers and display properties.
-# Access in Python: layers = load_layer_map(); layers.silicon.layer
-#
-# Required: number (0-999)
-# Optional: datatype (default 0), color (hex), fill, opacity, description
-# Fill options: "solid", "hatched", "crosshatched", "dotted"
-
-[layers.silicon]
-number = 1
-datatype = 0
-color = "#ff69b4"
-description = "Silicon waveguides"
-
-[layers.text]
-number = 10
-datatype = 0
-color = "#607d8b"
-fill = "dotted"
-description = "Text annotations"
-
-# Add more layers as needed:
-#
-# [layers.cladding]
-# number = 2
-# datatype = 0
-# color = "#4caf50"
-# description = "Cladding"
-
-# =============================================================================
-# Design Rule Check (DRC) Constraints
-# =============================================================================
-#
-# Layer keys use semantic names from [layers] above (e.g., [drc.layers.silicon]).
-# Numeric "layer/datatype" format (e.g., [drc.layers."1/0"]) also works.
-# All dimensions in micrometers (um)
-#
-# Example:
-#
-# [drc]
-# warning_margin = 0.01   # Near-threshold violations (within this margin of the
-#                         # rule) are reported as warnings instead of errors.
-#                         # Omit or set to 0 to treat every violation as an error.
-#
-# [drc.layers.silicon]
-# min_width = 0.12
-# min_spacing = 0.13
-# min_area = 0.01
-# no_overlap = true   # Forbid overlapping polygons on same layer
-# # angles = [0, 90]  # Restrict to Manhattan geometry
-#
-# [drc.layers.cladding]
-# min_width = 0.5
-# min_spacing = 0.5
-#
-# # Inter-layer rules (also accept semantic names)
-# [[drc.rules]]
-# type = "spacing"
-# layer1 = "silicon"
-# layer2 = "cladding"
-# min_spacing = 1.0
-# name = "WG_CLAD_SPC"
-
-# =============================================================================
-# DFM (Design for Manufacturability) Prediction
-# =============================================================================
-#
-# Virtual nanofabrication prediction. Run with: rosette dfm <design>
-# Gaussian model is approximate; PreFab models coming soon.
-#
-# Example:
-#
-# [dfm]
-# resolution = 0.01     # Pixel size in um
-# padding = 1.0         # Margin around geometry in um
-# model = "gaussian"    # Approximate proximity blur model
-# sigma = 0.08          # Gaussian sigma in um
-# threshold = 0.5       # Binarization threshold
-# layers = ["silicon"]  # Layers to predict (semantic names or "1/0")
-# max_area_deviation = 0.10   # relative area change limit (enables pass/fail)
-#
-# Per-layer overrides:
-# [dfm.layer.silicon]
-# sigma = 0.05
-
-# ---------------------------------------------------------------------------
-# Design checks — connectivity + bend radius
-# ---------------------------------------------------------------------------
-# [checks]
-# position_tolerance = 0.001   # um — max gap between "connected" ports
-# angle_tolerance = 0.1        # degrees — max deviation from anti-parallel
-# check_widths = true           # error on width mismatch between connected ports
-# min_bend_radius = 5.0        # um — minimum allowed bend radius (omit to skip)
-# severity = "error"            # "error" or "warning"
+# Add a [layers] section to define named layers, plus [drc], [dfm], and
+# [checks] to configure design-rule checking, manufacturability prediction,
+# and connectivity/bend-radius checks. Full schema reference:
+# https://rosette.dev/docs/guides/design-rule-checking
