@@ -589,8 +589,37 @@ def _select_command_interactive() -> tuple[str, str | None]:
     return command, selected
 
 
-def main() -> None:
-    """Main CLI entry point."""
+# ---------------------------------------------------------------------------
+# Shared contract text reused by the per-command epilogs and the cli.json
+# manifest. Documents the agent-facing contract (exit codes, --json schema,
+# coordinate units) in exactly one place so --help and the manifest agree.
+# ---------------------------------------------------------------------------
+
+# Exit-code contract shared by the check-family commands (drc/dfm/check).
+_EXIT_CODES_CONTRACT = (
+    "Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. "
+    "These are stable; branch on the exit code, not on the printed text."
+)
+
+
+def _json_contract(command: str) -> str:
+    """Epilog fragment describing the --json contract for a check-family command."""
+    return (
+        f"With --json, `{command}` emits a single JSON object on stdout (schema "
+        f"{SCHEMA_VERSION}); decorative output is suppressed so stdout stays "
+        "parseable. Read `passed` directly; each violation carries a `bbox` in "
+        "microns (same coordinate space as `rosette shot`) locating the problem."
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Construct the full argparse parser.
+
+    Factored out of ``main()`` so the command surface can be introspected
+    without dispatching a command -- this is the single source of truth that
+    ``_cli_manifest`` walks to emit ``.rosette/cli.json``. Keeping the manifest
+    derived from the real parser means it cannot drift from the actual flags.
+    """
     from rosette import __version__
 
     parser = argparse.ArgumentParser(
@@ -658,6 +687,19 @@ def main() -> None:
     # update command - updates template files
     subparsers.add_parser("update", help="Update AGENTS.md to latest template")
 
+    # cli-manifest command - print the machine-readable command manifest
+    subparsers.add_parser(
+        "cli-manifest",
+        help="Print the machine-readable CLI manifest (same as .rosette/cli.json)",
+        description=(
+            "Print the CLI command manifest as JSON to stdout. This is the same "
+            "object written to .rosette/cli.json by `rosette init`/`update`: a "
+            "discoverable contract of every command, its flags, exit codes, and "
+            "the --json schema version. Derived from the argparse parser, so it "
+            "never drifts from the real CLI."
+        ),
+    )
+
     # build command
     build_parser = subparsers.add_parser("build", help="Build a design to GDS")
     build_parser.add_argument("design", help="Design file (path or path:target)")
@@ -675,7 +717,15 @@ def main() -> None:
     )
 
     # check command - run all checks
-    check_parser = subparsers.add_parser("check", help="Run all checks (DRC, design checks)")
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Run all checks (DRC, design checks)",
+        description=(
+            "Run DRC and design checks (connectivity + bend radius); "
+            "add --include-dfm to also run DFM prediction."
+        ),
+        epilog=f"{_json_contract('check')} {_EXIT_CODES_CONTRACT}",
+    )
     check_parser.add_argument("design", help="Design file (path or path:target)")
     check_parser.add_argument(
         "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
@@ -693,7 +743,12 @@ def main() -> None:
     )
 
     # drc command - run DRC only
-    drc_parser = subparsers.add_parser("drc", help="Run DRC only")
+    drc_parser = subparsers.add_parser(
+        "drc",
+        help="Run DRC only",
+        description="Run design-rule checking (min width, spacing, overlap, ...) only.",
+        epilog=f"{_json_contract('drc')} {_EXIT_CODES_CONTRACT}",
+    )
     drc_parser.add_argument("design", help="Design file (path or path:target)")
     drc_parser.add_argument(
         "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
@@ -706,7 +761,15 @@ def main() -> None:
     )
 
     # dfm command - run DFM prediction only
-    dfm_parser = subparsers.add_parser("dfm", help="Run DFM prediction")
+    dfm_parser = subparsers.add_parser(
+        "dfm",
+        help="Run DFM prediction",
+        description=(
+            "Run design-for-manufacturing prediction (requires a [dfm] section "
+            "in rosette.toml; skips cleanly with exit 0 if absent)."
+        ),
+        epilog=f"{_json_contract('dfm')} {_EXIT_CODES_CONTRACT}",
+    )
     dfm_parser.add_argument("design", help="Design file (path or path:target)")
     dfm_parser.add_argument(
         "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
@@ -838,7 +901,20 @@ def main() -> None:
         help="Force browser mode even if Tauri app is available",
     )
 
+    return parser
+
+
+def main() -> None:
+    """Main CLI entry point."""
+    parser = _build_parser()
     args = parser.parse_args()
+
+    # cli-manifest: print the machine-readable command manifest and exit. This
+    # is the same object written to .rosette/cli.json at init/update time, so
+    # an agent can inspect the CLI contract live (even outside a project).
+    if args.command == "cli-manifest":
+        print(json.dumps(_cli_manifest(), indent=2))
+        return
 
     # No command given: interactive picker in TTY, help text otherwise
     if args.command is None:
@@ -1327,6 +1403,9 @@ def init_project(
     # Copy API stub for agent reference
     _copy_api_stub(project_dir / ".rosette")
 
+    # Write the CLI manifest (discoverable command contract, parallel to api.pyi)
+    _write_cli_manifest(project_dir / ".rosette")
+
     tool_label = ", ".join(harness_keys) if harness_keys else "none"
     print(f"Initialized rosette project '{name}' (template: {template}, tool: {tool_label})")
     print()
@@ -1405,6 +1484,7 @@ def update_project():
     - Skills: each configured harness's skills dir (.agents/skills,
       .claude/skills, ...) is refreshed from the template's canonical skills/
     - .rosette/api.pyi: fully replaced with latest API stub
+    - .rosette/cli.json: regenerated CLI manifest (command contract)
     - Only updates files for tools that are already configured
     - User-owned files are never touched:
       - designs/ - your design files
@@ -1474,6 +1554,9 @@ def update_project():
 
     # Update API stub for agent reference
     _copy_api_stub(project_dir / ".rosette")
+
+    # Refresh the CLI manifest (discoverable command contract, parallel to api.pyi)
+    _write_cli_manifest(project_dir / ".rosette")
 
     tool_names = ", ".join(sorted(tools))
     print(f"Updated project to latest templates (tools: {tool_names})")
@@ -1552,6 +1635,116 @@ def _format_layer(layer_tuple: tuple[int, int]) -> str:
 # ---------------------------------------------------------------------------
 
 SCHEMA_VERSION = 1
+
+
+# ---------------------------------------------------------------------------
+# CLI manifest (.rosette/cli.json)
+#
+# A machine-readable description of the whole command surface, written by
+# `rosette init`/`update` (mirroring how `.rosette/api.pyi` ships the Python
+# API contract). Derived by walking the argparse parser built in
+# `_build_parser`, so it is the parser -- not prose -- that is the source of
+# truth and the manifest cannot drift from the real flags.
+#
+# Bump CLI_SCHEMA_VERSION on a breaking change to the *manifest* shape (field
+# names/structure below); additive fields do not require a bump. This is
+# distinct from SCHEMA_VERSION, which versions the --json *output* of the
+# check-family commands (exposed in the manifest as `json_schema`).
+# ---------------------------------------------------------------------------
+
+CLI_SCHEMA_VERSION = 1
+
+# Per-command "what file does this need" hint, surfaced in the manifest so a
+# consumer knows whether to pass a design .py, a .gds, or nothing. Sourced from
+# the same sets the interactive picker uses.
+_COMMAND_NEEDS = {
+    **{c: "design" for c in _NEEDS_DESIGN},
+    **{c: "gds" for c in _NEEDS_GDS},
+    **{c: "nothing" for c in _NEEDS_NOTHING},
+}
+
+
+def _action_to_dict(action: argparse.Action) -> dict[str, object]:
+    """Serialize a single argparse action into a manifest argument entry."""
+    # store_true/store_false/version etc. consume no value.
+    takes_value = not isinstance(
+        action,
+        (
+            argparse._StoreTrueAction,
+            argparse._StoreFalseAction,
+            argparse._VersionAction,
+            argparse._HelpAction,
+        ),
+    )
+    positional = not action.option_strings
+    return {
+        "flags": list(action.option_strings),
+        "dest": action.dest,
+        "positional": positional,
+        "required": bool(action.required) or (positional and action.nargs != "?"),
+        "takes_value": takes_value,
+        "metavar": action.metavar,
+        "choices": list(action.choices) if action.choices is not None else None,
+        "default": action.default if _json_safe(action.default) else None,
+        "help": action.help,
+    }
+
+
+def _json_safe(value: object) -> bool:
+    """True if ``value`` round-trips through json.dumps (keeps defaults clean)."""
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def _cli_manifest() -> dict[str, object]:
+    """Build the machine-readable CLI manifest from the argparse parser.
+
+    Walks the subparsers of `_build_parser()` and emits one entry per command
+    with its help/description/epilog, the kind of file it needs, and its full
+    argument list. The top level carries the manifest schema version and the
+    --json output schema version so a consumer can check both contracts.
+    """
+    parser = _build_parser()
+
+    # The subparsers action is the one with `choices` mapping name -> subparser.
+    commands: dict[str, object] = {}
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        for name, sub in action.choices.items():
+            args = [
+                _action_to_dict(a) for a in sub._actions if not isinstance(a, argparse._HelpAction)
+            ]
+            # The subparser's own help string (e.g. "Run DRC only") lives on the
+            # _SubParsersAction's pseudo-actions, keyed by command name.
+            help_text = next(
+                (cpa.help for cpa in action._choices_actions if cpa.dest == name),
+                None,
+            )
+            commands[name] = {
+                "help": help_text,
+                "description": sub.description,
+                "epilog": sub.epilog,
+                "needs": _COMMAND_NEEDS.get(name, "nothing"),
+                "arguments": args,
+            }
+
+    return {
+        "schema": CLI_SCHEMA_VERSION,
+        "prog": parser.prog,
+        "description": parser.description,
+        "json_schema": SCHEMA_VERSION,
+        "commands": commands,
+    }
+
+
+def _write_cli_manifest(rosette_dir: Path) -> None:
+    """Write the CLI manifest to ``<rosette_dir>/cli.json`` for agent reference.
+
+    Mirrors ``_copy_api_stub``: the manifest is regenerated (not copied) so it
+    always matches the installed CLI. ``.rosette/`` is gitignored.
+    """
+    rosette_dir.mkdir(parents=True, exist_ok=True)
+    (rosette_dir / "cli.json").write_text(json.dumps(_cli_manifest(), indent=2) + "\n")
 
 
 def _design_str(file_path: Path | None) -> str | None:

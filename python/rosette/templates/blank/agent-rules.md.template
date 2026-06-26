@@ -9,6 +9,7 @@ Rosette photonic design project. Python scripts in `designs/` produce GDSII layo
 Before writing or modifying any Rosette code, read these files:
 
 - `.rosette/api.pyi` -- complete typed API (source of truth for all classes and functions)
+- `.rosette/cli.json` -- complete CLI contract (every command, its flags, exit codes, and `--json` schema), discoverable without prose. Equivalent to `rosette cli-manifest`.
 - `rosette.toml` -- project config, layer definitions (named layers), DRC rules, DFM config
 
 Your training data may be outdated -- these files match your installed version.
@@ -22,7 +23,7 @@ uv run rosette build designs/foo.py
 uv run rosette check designs/foo.py --json
 ```
 
-Always pass `--json`: checks then emit a single JSON object on stdout — read `passed` directly and use each violation's `bbox` (in microns) to locate the problem, instead of parsing prose that may reword. A passing build only means the GDS was written -- it does NOT mean the design is correct. `rosette check` catches DRC violations (min width, spacing, overlap), unconnected ports, width mismatches, and bend radius violations.
+Always pass `--json`: checks then emit a single JSON object on stdout — read `passed` directly and use each violation's `bbox` (in microns) to locate the problem, instead of parsing prose that may reword. A passing build only means the GDS was written -- it does NOT mean the design is correct. `rosette check` catches DRC violations (min width, spacing, overlap), unconnected ports, width mismatches, and bend radius violations. Run `rosette drc`/`rosette dfm` (both support `--json`) to check those in isolation; `rosette dfm` predicts as-manufactured geometry and is also folded into `rosette check --include-dfm`.
 
 ## Key conventions
 

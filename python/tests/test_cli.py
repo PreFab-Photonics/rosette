@@ -9,6 +9,8 @@ from unittest.mock import patch
 import pytest
 
 from rosette.cli import (
+    _build_parser,
+    _cli_manifest,
     _parse_tool_spec,
     _sanitize_project_name,
     build_design,
@@ -1302,3 +1304,117 @@ class TestCliHelp:
         captured = capsys.readouterr()
         # Check for output option
         assert "-o" in captured.out or "output" in captured.out.lower()
+
+
+class TestCliManifest:
+    """Tests for the discoverable CLI manifest (.rosette/cli.json)."""
+
+    def test_manifest_shape(self):
+        """The manifest carries both schema versions and one entry per command."""
+        import json
+        from typing import Any, cast
+
+        m = _cli_manifest()
+        # Round-trips through JSON (no argparse sentinels leak through).
+        json.dumps(m)
+
+        assert m["prog"] == "rosette"
+        assert cast("int", m["schema"]) >= 1  # manifest schema
+        assert cast("int", m["json_schema"]) >= 1  # --json output schema
+        commands = cast("dict[str, Any]", m["commands"])
+        assert isinstance(commands, dict)
+        # Every user-facing command is represented, including dfm and shot
+        # (called out in ROS-619 as unevenly documented).
+        for name in ("build", "check", "drc", "dfm", "shot", "serve", "run", "init", "update"):
+            assert name in commands, f"{name} missing from manifest"
+
+    def test_manifest_documents_check_family_contract(self):
+        """drc/check/dfm document the --json schema and exit codes in their epilog."""
+        from typing import Any, cast
+
+        m = _cli_manifest()
+        commands = cast("dict[str, Any]", m["commands"])
+        for name in ("drc", "check", "dfm"):
+            cmd = commands[name]
+            assert cmd["needs"] == "design"
+            epilog = cmd["epilog"]
+            assert epilog is not None
+            assert "--json" in epilog
+            assert "Exit codes" in epilog
+            assert "micron" in epilog
+            # The --json flag is present in the argument list.
+            flags = {flag for arg in cmd["arguments"] for flag in arg["flags"]}
+            assert "--json" in flags
+
+    def test_manifest_matches_parser(self):
+        """Guardrail: every subparser command/flag appears in the manifest.
+
+        Keeps the manifest derived-from-parser so it can't silently drift from
+        the real CLI surface.
+        """
+        import argparse
+        from typing import Any, cast
+
+        parser = _build_parser()
+        commands = cast("dict[str, Any]", _cli_manifest()["commands"])
+
+        sub_action = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+        assert set(sub_action.choices) == set(commands)
+
+        for name, sub in sub_action.choices.items():
+            parser_flags = {
+                flag
+                for a in sub._actions
+                if not isinstance(a, argparse._HelpAction)
+                for flag in a.option_strings
+            }
+            manifest_flags = {flag for arg in commands[name]["arguments"] for flag in arg["flags"]}
+            assert parser_flags == manifest_flags, f"flag drift in {name}"
+
+    def test_cli_manifest_subcommand_prints_json(self, capsys):
+        """`rosette cli-manifest` prints the manifest as parseable JSON."""
+        import json
+        import sys
+
+        with patch.object(sys, "argv", ["rosette", "cli-manifest"]):
+            main()
+        out = capsys.readouterr().out
+        parsed = json.loads(out)
+        assert parsed["prog"] == "rosette"
+        assert "drc" in parsed["commands"]
+
+    def test_init_writes_cli_manifest(self, tmp_path: Path, monkeypatch):
+        """rosette init writes .rosette/cli.json alongside api.pyi."""
+        import json
+
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
+
+        manifest_path = project_dir / ".rosette" / "cli.json"
+        assert manifest_path.exists()
+        parsed = json.loads(manifest_path.read_text())
+        assert "drc" in parsed["commands"]
+        assert parsed["commands"]["drc"]["epilog"] is not None
+
+    def test_update_restores_cli_manifest(self, tmp_path: Path, monkeypatch):
+        """rosette update regenerates a deleted .rosette/cli.json."""
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
+
+        manifest_path = project_dir / ".rosette" / "cli.json"
+        assert manifest_path.exists()
+        manifest_path.unlink()
+
+        update_project()
+
+        assert manifest_path.exists()
+        import json
+
+        parsed = json.loads(manifest_path.read_text())
+        assert "check" in parsed["commands"]

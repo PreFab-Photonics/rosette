@@ -40,3 +40,21 @@ meets your loss budget.
 Group components into a sub-cell when the group repeats, has a clean low-port
 interface, or could be tested independently. A flat layout is fine for simple
 circuits — don't force hierarchy for its own sake.
+
+## Verify with the CLI
+
+A layout isn't finished until the checks pass. Build, then check, and fix
+before moving on:
+
+```
+uv run rosette build designs/foo.py
+uv run rosette check designs/foo.py --json
+```
+
+`--json` makes the result machine-readable: read `passed` and use each
+violation's `bbox` (in microns) to locate the problem, rather than parsing
+prose. Use `rosette drc`/`rosette dfm` to isolate a single check, and
+`--include-dfm` to fold manufacturing prediction into `rosette check`. The full
+command contract — flags, exit codes, the `--json` schema — lives in
+`.rosette/cli.json` (or `rosette cli-manifest`); consult it instead of guessing
+invocations.
