@@ -4,6 +4,8 @@ These tests focus on Python-specific behavior and integration.
 Core algorithm correctness is tested in Rust.
 """
 
+import json
+
 import pytest
 
 from rosette import (
@@ -882,3 +884,75 @@ class TestDfmCli:
         # Did not run prediction / did not error.
         assert "Error" not in captured.out
         assert "edge deviation" not in captured.out
+
+
+class TestDfmJson:
+    """Tests for `rosette dfm --json` structured output."""
+
+    def test_json_informational(self, tmp_path, capsys):
+        """--json emits a parseable object with per-layer metrics."""
+        design_py, config_file = _write_design_and_dfm_config(tmp_path)
+
+        dfm_design(str(design_py), str(config_file), json_output=True)
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["schema"] == 1
+        assert out["command"] == "dfm"
+        assert out["passed"] is True
+        assert out["has_tolerances"] is False
+        assert out["summary"]["layers_processed"] == 1
+        assert out["layers"][0]["layer"] == "1/0"
+        assert out["layers"][0]["metrics"] is not None
+
+    def test_json_tolerances_pass(self, tmp_path, capsys):
+        """--json reports has_tolerances when a tolerance is configured."""
+        design_py, config_file = _write_design_and_dfm_config(tmp_path, tolerances=True)
+
+        dfm_design(str(design_py), str(config_file), json_output=True)
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["passed"] is True
+        assert out["has_tolerances"] is True
+
+    def test_json_violations_exit(self, tmp_path, capsys):
+        """A tolerance breach exits 1 and lists violations with bbox."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette import Cell, Layer, Point, Polygon\n"
+            'design = Cell("test")\n'
+            "design.add_polygon(Polygon.rect(Point.origin(), 20.0, 0.3), Layer(1, 0))\n"
+        )
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(
+            "[dfm]\nresolution = 0.1\npadding = 2.0\nsigma = 3.0\n"
+            'layers = ["1/0"]\nmax_area_deviation = 0.01\n'
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            dfm_design(str(design_py), str(config_file), json_output=True)
+        assert exc_info.value.code == 1
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["passed"] is False
+        assert out["summary"]["violations"] >= 1
+        bbox = out["violations"][0]["bbox"]
+        assert len(bbox) == 2 and len(bbox[0]) == 2
+
+    def test_json_skips_without_dfm_section(self, tmp_path, capsys):
+        """No [dfm] section emits a JSON skip object (exit 0)."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette import Cell, Layer, Point, Polygon\n"
+            'design = Cell("test")\n'
+            "design.add_polygon(Polygon.rect(Point.origin(), 10.0, 10.0), Layer(1, 0))\n"
+        )
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text('[project]\nname = "test"\n')
+
+        dfm_design(str(design_py), str(config_file), json_output=True)
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["command"] == "dfm"
+        assert out["skipped"] is True
+        assert out["error"] is False
+        assert out["passed"] is True

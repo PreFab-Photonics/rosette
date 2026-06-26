@@ -292,6 +292,29 @@ class TestRosetteInit:
         assert ["git", "init"] not in calls
         assert (project_dir / "rosette.toml").exists()
 
+    def test_init_bootstrap_no_install(self, tmp_path: Path, monkeypatch):
+        """--no-install (install=False) skips `uv add librosette` during bootstrap.
+
+        Used in local dev so the project's venv doesn't shadow a rosette on
+        PATH. The project still gets `uv init --bare` and is scaffolded.
+        """
+        project_dir = tmp_path / "fresh"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+
+        calls: list[list[str]] = []
+
+        with (
+            patch("rosette.cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("rosette.cli.subprocess.run", side_effect=_make_fake_run(calls)),
+        ):
+            init_project("blank", tool="opencode", assume_yes=True, install=False)
+
+        assert ["uv", "init", "--bare"] in calls
+        assert ["uv", "add", "librosette"] not in calls
+        assert (project_dir / "rosette.toml").exists()
+        assert (project_dir / "AGENTS.md").exists()
+
     def test_init_bootstrap_skips_git_if_already_repo(self, tmp_path: Path, monkeypatch):
         """git init is skipped when the directory is already a git repo."""
         project_dir = tmp_path / "fresh"

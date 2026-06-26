@@ -4,6 +4,8 @@ These tests focus on Python-specific behavior and integration.
 Core algorithm correctness is tested in Rust.
 """
 
+import json
+
 import pytest
 
 from rosette import (
@@ -2123,6 +2125,112 @@ class TestDrcCli:
 
         captured = capsys.readouterr()
         assert "passed" in captured.out
+
+
+class TestDrcJson:
+    """Tests for `rosette drc --json` structured output."""
+
+    def _write_warning_design_and_config(self, tmp_path):
+        """A design whose only violation is within the warning margin."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette import Cell, Layer, Point, Polygon\n"
+            'design = Cell("test")\n'
+            "design.add_polygon(Polygon.rect(Point.origin(), 0.115, 10.0), Layer(1, 0))\n"
+        )
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(
+            '[drc]\nwarning_margin = 0.01\n\n[drc.layers."1/0"]\nmin_width = 0.12\n'
+        )
+        return design_py, config_file
+
+    def test_json_pass(self, tmp_path, capsys):
+        """--json emits a parseable object with passed=true on a clean run."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=True)
+
+        drc_design(str(design_py), str(config_file), json_output=True)
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["schema"] == 1
+        assert out["command"] == "drc"
+        assert out["passed"] is True
+        assert out["summary"]["errors"] == 0
+        assert out["violations"] == []
+
+    def test_json_warnings_only_passes(self, tmp_path, capsys):
+        """A warnings-only run reports passed=true and does not exit."""
+        design_py, config_file = self._write_warning_design_and_config(tmp_path)
+
+        # Must NOT raise SystemExit — warnings-only is a pass.
+        drc_design(str(design_py), str(config_file), json_output=True)
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["passed"] is True
+        assert out["summary"]["warnings"] == 1
+        assert out["summary"]["errors"] == 0
+        assert out["violations"][0]["severity"] == "warning"
+
+    def test_json_errors_exits_with_bbox(self, tmp_path, capsys):
+        """A failing run exits 1 and every violation carries a numeric bbox."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=False)
+
+        with pytest.raises(SystemExit) as exc_info:
+            drc_design(str(design_py), str(config_file), json_output=True)
+        assert exc_info.value.code == 1
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["passed"] is False
+        assert out["summary"]["errors"] >= 1
+        v = out["violations"][0]
+        assert v["severity"] == "error"
+        bbox = v["bbox"]
+        assert len(bbox) == 2 and len(bbox[0]) == 2
+        assert all(isinstance(c, (int, float)) for pt in bbox for c in pt)
+
+    def test_json_missing_config_emits_error_object(self, tmp_path, capsys):
+        """A config error surfaces as a JSON error object, not prose."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text('from rosette import Cell\ndesign = Cell("test")\n')
+        fake_config = str(tmp_path / "nonexistent.toml")
+
+        with pytest.raises(SystemExit) as exc_info:
+            drc_design(str(design_py), fake_config, json_output=True)
+        assert exc_info.value.code == 1
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["command"] == "drc"
+        assert out["passed"] is False
+        assert "error" in out
+
+
+class TestCheckJson:
+    """Tests for `rosette check --json` combined output."""
+
+    def test_json_combined_no_dfm(self, tmp_path, capsys):
+        """check --json returns a combined object with dfm=null by default."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=True)
+
+        check_design(str(design_py), str(config_file), json_output=True)
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["schema"] == 1
+        assert out["command"] == "check"
+        assert out["passed"] is True
+        assert out["drc"]["passed"] is True
+        assert out["checks"]["passed"] is True
+        assert out["dfm"] is None
+
+    def test_json_combined_fails_and_exits(self, tmp_path, capsys):
+        """A failing sub-check makes top-level passed false and exits 1."""
+        design_py, config_file = _write_design_and_config(tmp_path, passing=False)
+
+        with pytest.raises(SystemExit) as exc_info:
+            check_design(str(design_py), str(config_file), json_output=True)
+        assert exc_info.value.code == 1
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["passed"] is False
+        assert out["drc"]["passed"] is False
 
 
 class TestWarningMargin:

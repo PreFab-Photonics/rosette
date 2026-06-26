@@ -170,6 +170,10 @@ rosette check designs/my_design.py
 rosette build designs/my_design.py --check
 ```
 
+Both `rosette drc` and `rosette check` accept `--json` to emit a single
+machine-readable object on stdout instead of prose — see the
+[agent workflows guide](/docs/guides/agent-workflows#machine-readable-output).
+
 <Callout title={"--check does not gate the build"} type={"info"}>
 `rosette build --check` runs DRC and reports violations, but it still
 writes the GDS file. If you want a hard gate for CI, run

@@ -132,6 +132,73 @@ That's all the agent needs. Each violation has a rule name, the offending
 geometry, and a coordinate. The agent reads the output, figures out which
 parts of the design need to change, and edits the script.
 
+## Machine-readable output
+
+The prose above is tuned for humans. For a fully reliable verify loop —
+no ANSI stripping, no regexing severities out of prose that might
+reword — add `--json` to `check`, `drc`, or `dfm`. The command then
+emits a single JSON object on stdout (and nothing else), with a stable,
+versioned schema:
+
+```bash
+rosette drc designs/foo.py --json
+```
+
+```json
+{
+  "schema": 1,
+  "command": "drc",
+  "design": "designs/foo.py",
+  "passed": false,
+  "elapsed_ms": 12.4,
+  "summary": { "violations": 1, "errors": 1, "warnings": 0 },
+  "violations": [
+    {
+      "severity": "error",
+      "rule_name": "min_spacing",
+      "rule_type": "spacing",
+      "layer": "1/0",
+      "layer2": null,
+      "message": "spacing 0.180 < 0.200",
+      "cell_name": "ring",
+      "cell_name2": "ring",
+      "bbox": [[12.34, 5.12], [12.52, 5.30]]
+    }
+  ],
+  "suppressed": 0,
+  "skipped_cells": 0,
+  "waived": 0
+}
+```
+
+The agent reads `passed` directly instead of matching prose, and each
+`bbox` is in microns — the same coordinate space as
+[`rosette shot`](/docs/guides/snapshots), so the agent can render the
+offending region with `rosette shot --bbox <xmin,ymin,xmax,ymax>` to see
+what went wrong.
+
+`rosette check --json` returns one combined object with `drc`, `checks`,
+and `dfm` keys (the last is `null` unless `--include-dfm` is passed) plus
+a top-level `passed`. Exit codes are unchanged in JSON mode: a failing
+run still exits `1` alongside `"passed": false`.
+
+In every JSON mode, read `passed` to gate the loop — it is present on
+every object, including skips and errors. Each slot in the combined
+`check` object (`drc`, `checks`, `dfm`) also carries its own `passed`,
+plus `skipped`/`error` flags when it didn't produce a normal result.
+
+Config-error handling matches the human `check` flow. A bad DRC config
+(or missing `rosette.toml`) is fatal: `check` emits a top-level error
+object (`{"schema": 1, "command": "check", "passed": false, "error":
+"..."}`) and exits `1`. A bad `[dfm]` section or checks config is
+non-fatal under `check` — its slot becomes
+`{"command": ..., "passed": false, "skipped": true, "error": true,
+"reason": ...}` while the top-level `passed` reflects only DRC and
+connectivity. (The standalone `rosette dfm --json` treats the same DFM
+config error as fatal and exits `1`.) A `dfm` slot of
+`{..., "error": false, "reason": ...}` is a benign skip — no `[dfm]`
+section configured.
+
 <Callout title={"`rosette build` alone is not enough"} type={"warn"}>
 A passing build only means the GDS file was written. It does not mean
 the design is physically correct. Always follow up with `rosette check`

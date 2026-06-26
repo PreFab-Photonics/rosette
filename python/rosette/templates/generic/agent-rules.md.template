@@ -20,10 +20,10 @@ A design is not complete until it passes checks. After every build, run checks a
 
 ```
 uv run rosette build designs/foo.py
-uv run rosette check designs/foo.py
+uv run rosette check designs/foo.py --json
 ```
 
-A passing build only means the GDS was written -- it does NOT mean the design is correct. `rosette check` catches DRC violations (min width, spacing, overlap), unconnected ports, width mismatches, and bend radius violations.
+Always pass `--json`: checks then emit a single JSON object on stdout — read `passed` directly and use each violation's `bbox` (in microns) to locate the problem, instead of parsing prose that may reword. A passing build only means the GDS was written -- it does NOT mean the design is correct. `rosette check` catches DRC violations (min width, spacing, overlap), unconnected ports, width mismatches, and bend radius violations.
 
 ## Key conventions
 

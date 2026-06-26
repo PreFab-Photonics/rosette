@@ -4,6 +4,8 @@ These tests focus on Python-specific behavior and integration.
 Core algorithm correctness is tested in Rust.
 """
 
+import json
+
 import pytest
 
 from rosette import (
@@ -18,8 +20,11 @@ from rosette import (
     run_checks,
 )
 from rosette.cli import (
+    _checks_result_to_dict,
     _print_checks_result,
     _run_checks_check,
+    _skip_dict,
+    check_design,
 )
 
 
@@ -411,3 +416,94 @@ class TestChecksCli:
 
         captured = capsys.readouterr()
         assert "at (" in captured.out
+
+
+class TestChecksJson:
+    """Tests for the checks JSON serializer and `rosette check --include-dfm --json`."""
+
+    def test_checks_result_to_dict_pass(self, tmp_path):
+        """Serializer mirrors a passing ChecksResult."""
+        design_py, config_file = _write_connected_design(tmp_path, connected=True)
+        result, file_path = _run_checks_check(str(design_py), str(config_file))
+
+        out = _checks_result_to_dict(result, file_path)
+        assert out["schema"] == 1
+        assert out["command"] == "checks"
+        assert out["passed"] is True
+        assert out["violations"] == []
+        assert "ports_checked" in out["summary"]
+
+    def test_checks_result_to_dict_fail_has_bbox(self, tmp_path):
+        """Each serialized violation carries a numeric bbox."""
+        design_py, config_file = _write_connected_design(tmp_path, connected=False)
+        result, file_path = _run_checks_check(str(design_py), str(config_file))
+
+        out = _checks_result_to_dict(result, file_path)
+        assert out["passed"] is False
+        assert out["summary"]["violations"] > 0
+        bbox = out["violations"][0]["bbox"]
+        assert len(bbox) == 2 and len(bbox[0]) == 2
+        assert all(isinstance(c, (int, float)) for pt in bbox for c in pt)
+
+    def test_check_include_dfm_json_has_dfm_object(self, tmp_path, capsys):
+        """check --include-dfm --json carries a dfm object instead of null."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette import Cell, Layer, Point, Polygon, Port, Vector2\n"
+            'design = Cell("test")\n'
+            "design.add_polygon(Polygon.rect(Point.origin(), 10.0, 10.0), Layer(1, 0))\n"
+        )
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(
+            '[drc.layers."1/0"]\nmin_width = 0.15\n\n'
+            '[dfm]\nresolution = 0.5\npadding = 1.0\nsigma = 0.0\nlayers = ["1/0"]\n'
+        )
+
+        check_design(str(design_py), str(config_file), include_dfm=True, json_output=True)
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["command"] == "check"
+        assert out["dfm"] is not None
+        assert out["drc"] is not None
+        assert out["checks"] is not None
+
+    def test_check_include_dfm_json_skip_is_self_describing(self, tmp_path, capsys):
+        """--include-dfm with no [dfm] section yields a self-describing skip slot."""
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette import Cell, Layer, Point, Polygon\n"
+            'design = Cell("test")\n'
+            "design.add_polygon(Polygon.rect(Point.origin(), 10.0, 10.0), Layer(1, 0))\n"
+        )
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text('[drc.layers."1/0"]\nmin_width = 0.15\n')
+
+        check_design(str(design_py), str(config_file), include_dfm=True, json_output=True)
+
+        out = json.loads(capsys.readouterr().out)
+        dfm = out["dfm"]
+        assert dfm["command"] == "dfm"
+        assert dfm["skipped"] is True
+        assert dfm["error"] is False
+        # A benign skip does not flag the DFM slot as failed.
+        assert dfm["passed"] is True
+
+    def test_skip_dict_uniform_shape(self):
+        """`_skip_dict` yields the same keys for dfm and checks slots.
+
+        Guards the contract that every combined-object slot exposes
+        `passed`/`error`, so a consumer can read them without a KeyError —
+        including the (rarely-hit) checks config-error branch.
+        """
+        expected_keys = {"command", "design", "passed", "skipped", "error", "reason"}
+
+        benign = _skip_dict("dfm", "designs/foo.py", "no [dfm] section", is_error=False)
+        assert set(benign) == expected_keys
+        assert benign["passed"] is True
+        assert benign["error"] is False
+
+        broken = _skip_dict("checks", "designs/foo.py", "design checks failed: x", is_error=True)
+        assert set(broken) == expected_keys
+        assert broken["passed"] is False
+        assert broken["error"] is True
+        assert broken["command"] == "checks"

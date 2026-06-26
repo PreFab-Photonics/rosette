@@ -11,6 +11,7 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import shutil
@@ -18,10 +19,10 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 if TYPE_CHECKING:
-    from rosette import BBox, Cell, ChecksResult, DfmResult, DrcResult
+    from rosette import BBox, Cell, ChecksResult, DfmResult, DrcResult, LayerMetrics
 
 log = logging.getLogger(__name__)
 
@@ -642,6 +643,17 @@ def main() -> None:
         action="store_false",
         help="Don't run `git init` when bootstrapping a new project.",
     )
+    init_parser.add_argument(
+        "--no-install",
+        dest="install",
+        action="store_false",
+        help=(
+            "Dev only: skip `uv add librosette` when bootstrapping, so the "
+            "project's venv doesn't shadow a globally-installed (e.g. working-copy) "
+            "rosette. `uv run rosette` then uses the rosette on PATH. The project "
+            "won't declare librosette as a dependency or be able to `import rosette`."
+        ),
+    )
 
     # update command - updates template files
     subparsers.add_parser("update", help="Update AGENTS.md to latest template")
@@ -674,6 +686,11 @@ def main() -> None:
         help="Also run DFM prediction (requires [dfm] section in rosette.toml)",
     )
     check_parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed output")
+    check_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a single machine-readable JSON object to stdout (schema 1)",
+    )
 
     # drc command - run DRC only
     drc_parser = subparsers.add_parser("drc", help="Run DRC only")
@@ -682,6 +699,11 @@ def main() -> None:
         "--config", default=None, help="Path to rosette.toml (auto-detected if omitted)"
     )
     drc_parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed output")
+    drc_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a single machine-readable JSON object to stdout (schema 1)",
+    )
 
     # dfm command - run DFM prediction only
     dfm_parser = subparsers.add_parser("dfm", help="Run DFM prediction")
@@ -696,6 +718,11 @@ def main() -> None:
         help="Write GDS with predicted polygons on offset layers (e.g., 1/0 -> 1/100)",
     )
     dfm_parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed output")
+    dfm_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a single machine-readable JSON object to stdout (schema 1)",
+    )
 
     # serve command
     serve_parser = subparsers.add_parser("serve", help="Start dev server with live preview")
@@ -835,17 +862,18 @@ def main() -> None:
             assume_yes=args.yes,
             git=args.git,
             path=args.path,
+            install=args.install,
         )
     elif args.command == "update":
         update_project()
     elif args.command == "build":
         build_design(args.design, args.output, args.verbose, args.check, args.config)
     elif args.command == "check":
-        check_design(args.design, args.config, args.verbose, args.include_dfm)
+        check_design(args.design, args.config, args.verbose, args.include_dfm, args.json)
     elif args.command == "drc":
-        drc_design(args.design, args.config, args.verbose)
+        drc_design(args.design, args.config, args.verbose, args.json)
     elif args.command == "dfm":
-        dfm_design(args.design, args.config, args.verbose, args.gds)
+        dfm_design(args.design, args.config, args.verbose, args.gds, args.json)
     elif args.command == "serve":
         from rosette._serve import serve_design
 
@@ -1157,7 +1185,9 @@ def _maybe_git_init(project_dir: Path):
         print("Warning: `git init` failed; skipping repo initialization.")
 
 
-def _bootstrap_uv_project(project_dir: Path, *, assume_yes: bool, git: bool = True) -> bool:
+def _bootstrap_uv_project(
+    project_dir: Path, *, assume_yes: bool, git: bool = True, install: bool = True
+) -> bool:
     """Set up a uv project in ``project_dir`` so ``rosette init`` can proceed.
 
     Runs ``uv init --bare`` followed by ``uv add librosette`` and, unless
@@ -1165,6 +1195,10 @@ def _bootstrap_uv_project(project_dir: Path, *, assume_yes: bool, git: bool = Tr
     already a repo). Returns True on success. On any failure (uv missing,
     declined prompt, subprocess error) prints guidance and returns False — the
     caller then exits.
+
+    When ``install`` is False the ``uv add librosette`` step is skipped (dev
+    convenience): the project's venv then won't shadow a rosette on PATH, but
+    the project won't declare librosette as a dependency.
 
     Behavior:
     - uv absent: print the pip-based manual recipe, return False.
@@ -1189,7 +1223,10 @@ def _bootstrap_uv_project(project_dir: Path, *, assume_yes: bool, git: bool = Tr
             _print_manual_setup_recipe(has_uv=True)
             return False
 
-    for cmd in (["uv", "init", "--bare"], ["uv", "add", "librosette"]):
+    commands = [["uv", "init", "--bare"]]
+    if install:
+        commands.append(["uv", "add", "librosette"])
+    for cmd in commands:
         print(f"$ {' '.join(cmd)}")
         try:
             subprocess.run(cmd, cwd=project_dir, check=True)
@@ -1213,6 +1250,7 @@ def init_project(
     assume_yes: bool = False,
     git: bool = True,
     path: str | None = None,
+    install: bool = True,
 ):
     """Initialize rosette in a uv project.
 
@@ -1241,7 +1279,7 @@ def init_project(
     # Pre-flight: ensure we're inside a uv/Python project, offering to set one
     # up with uv when it's missing.
     if not (project_dir / "pyproject.toml").exists():
-        if not _bootstrap_uv_project(project_dir, assume_yes=assume_yes, git=git):
+        if not _bootstrap_uv_project(project_dir, assume_yes=assume_yes, git=git, install=install):
             sys.exit(1)
 
     # Resolve project name: explicit flag wins; a positional path already
@@ -1501,9 +1539,205 @@ def _format_layer(layer_tuple: tuple[int, int]) -> str:
     return f"{layer_tuple[0]}/{layer_tuple[1]}"
 
 
+# ---------------------------------------------------------------------------
+# JSON serializers (--json)
+#
+# These mirror exactly what the `_print_*_result` functions read, turning the
+# already-structured result objects into a stable, versioned JSON contract.
+# Coordinates (bbox) are in design units (microns), consistent with the
+# pixel<->world transform written by `rosette shot`.
+#
+# Schema version: bump SCHEMA_VERSION on any breaking change to field
+# names/shape; additive fields do not require a bump.
+# ---------------------------------------------------------------------------
+
+SCHEMA_VERSION = 1
+
+
+def _design_str(file_path: Path | None) -> str | None:
+    """Render a design file path for JSON output (string or null)."""
+    return str(file_path) if file_path is not None else None
+
+
+def _bbox_to_list(
+    bbox: tuple[tuple[float, float], tuple[float, float]],
+) -> list[list[float]]:
+    """Serialize a bbox as [[min_x, min_y], [max_x, max_y]] in microns."""
+    return [[bbox[0][0], bbox[0][1]], [bbox[1][0], bbox[1][1]]]
+
+
+def _drc_result_to_dict(result: DrcResult, file_path: Path | None) -> dict[str, object]:
+    """Serialize a DrcResult into a JSON-ready dict (mirrors _print_drc_result)."""
+    return {
+        "schema": SCHEMA_VERSION,
+        "command": "drc",
+        "design": _design_str(file_path),
+        "passed": result.passed,
+        "elapsed_ms": result.elapsed_ms,
+        "summary": {
+            "violations": len(result.violations),
+            "errors": result.error_count,
+            "warnings": result.warning_count,
+        },
+        "violations": [
+            {
+                "severity": v.severity,
+                "rule_name": v.rule_name,
+                "rule_type": v.rule_type,
+                "layer": _format_layer(v.layer),
+                "layer2": _format_layer(v.layer2) if v.layer2 is not None else None,
+                "message": v.message,
+                "cell_name": v.cell_name,
+                "cell_name2": v.cell_name2,
+                "bbox": _bbox_to_list(v.bbox),
+            }
+            for v in result.violations
+        ],
+        "suppressed": result.suppressed_violations,
+        "skipped_cells": result.skipped_cells,
+        "waived": result.waived_violations,
+    }
+
+
+def _dfm_result_to_dict(
+    result: DfmResult, file_path: Path | None, has_tolerances: bool
+) -> dict[str, object]:
+    """Serialize a DfmResult into a JSON-ready dict (mirrors _print_dfm_result)."""
+
+    def _metrics_to_dict(m: LayerMetrics | None) -> dict[str, object] | None:
+        if m is None:
+            return None
+        return {
+            "max_edge_deviation": m.max_edge_deviation,
+            "area_deviation": m.area_deviation,
+            "designed_area": m.designed_area,
+            "predicted_area": m.predicted_area,
+            "designed_feature_count": m.designed_feature_count,
+            "predicted_feature_count": m.predicted_feature_count,
+        }
+
+    return {
+        "schema": SCHEMA_VERSION,
+        "command": "dfm",
+        "design": _design_str(file_path),
+        "passed": result.passed,
+        "elapsed_ms": result.elapsed_ms,
+        "has_tolerances": has_tolerances,
+        "summary": {
+            "violations": len(result.violations),
+            "errors": sum(1 for v in result.violations if v.severity == "error"),
+            "warnings": sum(1 for v in result.violations if v.severity == "warning"),
+            "layers_processed": result.layers_processed,
+            "total_input_polygons": result.total_input_polygons,
+            "total_predicted_polygons": result.total_predicted_polygons,
+        },
+        "violations": [
+            {
+                "severity": v.severity,
+                "violation_type": v.violation_type,
+                "layer": _format_layer(v.layer),
+                "message": v.message,
+                "bbox": _bbox_to_list(v.bbox),
+                "max_allowed": v.max_allowed,
+                "actual": v.actual,
+                "designed_count": v.designed_count,
+                "predicted_count": v.predicted_count,
+            }
+            for v in result.violations
+        ],
+        "layers": [
+            {
+                "layer": _format_layer(lp.layer),
+                "input_polygon_count": lp.input_polygon_count,
+                "predicted_polygon_count": lp.predicted_polygon_count,
+                "has_raster": lp.has_raster,
+                "raster_width": lp.raster_width,
+                "raster_height": lp.raster_height,
+                "metrics": _metrics_to_dict(lp.metrics),
+            }
+            for lp in result.layers
+        ],
+    }
+
+
+def _skip_dict(
+    command: str, design: str | None, reason: str, *, is_error: bool
+) -> dict[str, object]:
+    """A result placeholder for the "no normal result" cases (skip or error).
+
+    Covers both a benign skip (e.g. no ``[dfm]`` section) and a config error.
+    ``is_error`` distinguishes the two so a consumer doesn't have to parse
+    ``reason``; ``passed`` stays ``False`` only for genuine errors. The shape is
+    uniform across the standalone ``dfm --json`` object and the embedded
+    ``check --json`` ``dfm``/``checks`` slots, so every slot exposes the same
+    ``passed``/``error`` keys a consumer can read.
+    """
+    return {
+        "command": command,
+        "design": design,
+        "passed": not is_error,
+        "skipped": True,
+        "error": is_error,
+        "reason": reason,
+    }
+
+
+def _checks_result_to_dict(result: ChecksResult, file_path: Path | None) -> dict[str, object]:
+    """Serialize a ChecksResult into a JSON-ready dict (mirrors _print_checks_result)."""
+    return {
+        "schema": SCHEMA_VERSION,
+        "command": "checks",
+        "design": _design_str(file_path),
+        "passed": result.passed,
+        "elapsed_ms": result.elapsed_ms,
+        "summary": {
+            "violations": len(result.violations),
+            "errors": sum(1 for v in result.violations if v.severity == "error"),
+            "warnings": sum(1 for v in result.violations if v.severity == "warning"),
+            "ports_checked": result.ports_checked,
+            "connections_found": result.connections_found,
+            "bends_checked": result.bends_checked,
+        },
+        "violations": [
+            {
+                "severity": v.severity,
+                "violation_type": v.violation_type,
+                "name": v.name,
+                "cell_path": v.cell_path,
+                "partner_name": v.partner_name,
+                "partner_path": v.partner_path,
+                "message": v.message,
+                "bbox": _bbox_to_list(v.bbox),
+            }
+            for v in result.violations
+        ],
+    }
+
+
+def _emit_json_error(command: str, design: str | None, message: str) -> NoReturn:
+    """Print a JSON error object to stdout and exit(1).
+
+    Used in --json mode so a config typo or missing file surfaces as a
+    parseable object rather than prose an agent would choke on.
+    """
+    print(
+        json.dumps(
+            {
+                "schema": SCHEMA_VERSION,
+                "command": command,
+                "design": design,
+                "passed": False,
+                "error": message,
+            }
+        )
+    )
+    sys.exit(1)
+
+
 def _run_drc_check(
     design_spec: str,
     config_path: str | None = None,
+    json_output: bool = False,
 ) -> tuple[DrcResult, Path]:
     """Run DRC on a design and return (result, file_path).
 
@@ -1519,10 +1753,14 @@ def _run_drc_check(
     try:
         rules = load_drc_rules(config_path)
     except FileNotFoundError as e:
+        if json_output:
+            _emit_json_error("drc", design_spec, str(e))
         print(f"Error: {e}")
         sys.exit(1)
     except ValueError as e:
         # Also catches TOMLDecodeError (subclass of ValueError)
+        if json_output:
+            _emit_json_error("drc", design_spec, f"DRC config error: {e}")
         print(f"Error in DRC config: {e}")
         sys.exit(1)
 
@@ -1627,10 +1865,16 @@ def _print_drc_result(result: DrcResult, file_path: Path | None, verbose: bool =
     return False
 
 
-def drc_design(design: str, config: str | None = None, verbose: bool = False):
+def drc_design(
+    design: str, config: str | None = None, verbose: bool = False, json_output: bool = False
+):
     """Run DRC on a design."""
-    result, file_path = _run_drc_check(design, config)
-    passed = _print_drc_result(result, file_path, verbose)
+    result, file_path = _run_drc_check(design, config, json_output=json_output)
+    if json_output:
+        print(json.dumps(_drc_result_to_dict(result, file_path)))
+        passed = result.passed
+    else:
+        passed = _print_drc_result(result, file_path, verbose)
     if not passed:
         sys.exit(1)
 
@@ -1774,33 +2018,55 @@ def dfm_design(
     config: str | None = None,
     verbose: bool = False,
     gds_output: str | None = None,
+    json_output: bool = False,
 ):
     """Run DFM prediction on a design."""
     try:
         checked = _run_dfm_check(design, config)
     except FileNotFoundError as e:
+        if json_output:
+            _emit_json_error("dfm", design, str(e))
         print(f"Error: {e}")
         sys.exit(1)
     except ValueError as e:
+        if json_output:
+            _emit_json_error("dfm", design, f"DFM config error: {e}")
         print(f"Error in DFM config: {e}")
         sys.exit(1)
 
     # No [dfm] section configured — skip cleanly (exit 0), matching how
     # `rosette drc`/`rosette check` degrade on a blank project.
     if checked is None:
+        if json_output:
+            payload = _skip_dict("dfm", design, "no [dfm] section configured", is_error=False)
+            payload["schema"] = SCHEMA_VERSION
+            print(json.dumps(payload))
+            return
         print(f"{_bold('dfm')}  {design}  {_dim('no [dfm] section configured — skipping')}")
         return
 
     result, file_path, has_tol, cell = checked
-    passed = _print_dfm_result(result, file_path, verbose, has_tolerances=has_tol)
 
-    # Write GDS with predicted polygons if requested
+    # Write GDS with predicted polygons if requested. Done before emitting
+    # output so the JSON object can report it.
+    gds_written: str | None = None
     if gds_output is not None:
         from rosette import add_dfm_predictions, write_gds
 
         add_dfm_predictions(cell, result)
-        write_gds(gds_output, cell, quiet=False, verbose=verbose)
-        print(f"\n  {_green('wrote')} {gds_output} (predicted on datatype +100)")
+        write_gds(gds_output, cell, quiet=json_output, verbose=verbose)
+        gds_written = gds_output
+
+    if json_output:
+        payload = _dfm_result_to_dict(result, file_path, has_tolerances=has_tol)
+        if gds_written is not None:
+            payload["gds_written"] = gds_written
+        print(json.dumps(payload))
+        passed = result.passed
+    else:
+        passed = _print_dfm_result(result, file_path, verbose, has_tolerances=has_tol)
+        if gds_written is not None:
+            print(f"\n  {_green('wrote')} {gds_written} (predicted on datatype +100)")
 
     if not passed:
         sys.exit(1)
@@ -1896,12 +2162,17 @@ def check_design(
     config: str | None = None,
     verbose: bool = False,
     include_dfm: bool = False,
+    json_output: bool = False,
 ):
     """Run all checks on a design.
 
     Runs DRC and design checks (connectivity + bend radius).
     DFM prediction is only included when --include-dfm is passed.
     """
+    if json_output:
+        _check_design_json(design, config, include_dfm)
+        return
+
     all_passed = True
 
     # Load the design once — shared by all checks
@@ -1951,6 +2222,88 @@ def check_design(
             all_passed = False
     except (FileNotFoundError, ValueError) as e:
         print(f"\n{_yellow(f'Warning: design checks failed: {e}')}")
+
+    if not all_passed:
+        sys.exit(1)
+
+
+def _check_design_json(design: str, config: str | None, include_dfm: bool) -> None:
+    """Emit a single combined JSON object for `rosette check --json`.
+
+    Shape:
+        { "schema": 1, "command": "check", "design": ...,
+          "drc": {...}, "checks": {...}, "dfm": {...}|null, "passed": <all> }
+
+    `dfm` is null unless --include-dfm was passed; when passed but no [dfm]
+    section exists (or its config errored), it becomes a structured skip/error
+    object so the output stays a single parseable object.
+    """
+    from rosette import load_drc_rules, run_drc
+
+    all_passed = True
+
+    # Load the design once — shared by all checks
+    cell, file_path, _ = load_design(design)
+
+    # DRC — a config error here is fatal (matches prose path's sys.exit(1)).
+    try:
+        rules = load_drc_rules(config)
+    except FileNotFoundError as e:
+        _emit_json_error("check", design, str(e))
+    except ValueError as e:
+        _emit_json_error("check", design, f"DRC config error: {e}")
+    drc_result = run_drc(cell, rules)
+    drc_dict = _drc_result_to_dict(drc_result, file_path)
+    if not drc_result.passed:
+        all_passed = False
+
+    # DFM (opt-in)
+    dfm_dict: dict[str, object] | None = None
+    if include_dfm:
+        try:
+            checked = _run_dfm_check(design, config, cell=cell, file_path=file_path)
+            if checked is None:
+                dfm_dict = _skip_dict(
+                    "dfm",
+                    _design_str(file_path),
+                    "--include-dfm specified but no [dfm] section in rosette.toml",
+                    is_error=False,
+                )
+            else:
+                dfm_result, _, has_tol, _ = checked
+                dfm_dict = _dfm_result_to_dict(dfm_result, file_path, has_tolerances=has_tol)
+                if not dfm_result.passed:
+                    all_passed = False
+        except (FileNotFoundError, ValueError) as e:
+            dfm_dict = _skip_dict(
+                "dfm", _design_str(file_path), f"DFM config error: {e}", is_error=True
+            )
+
+    # Design checks (always runs — uses defaults if no [checks] section)
+    checks_dict: dict[str, object] | None = None
+    try:
+        checks_result, _ = _run_checks_check(design, config, cell=cell, file_path=file_path)
+        checks_dict = _checks_result_to_dict(checks_result, file_path)
+        if not checks_result.passed:
+            all_passed = False
+    except (FileNotFoundError, ValueError) as e:
+        checks_dict = _skip_dict(
+            "checks", _design_str(file_path), f"design checks failed: {e}", is_error=True
+        )
+
+    print(
+        json.dumps(
+            {
+                "schema": SCHEMA_VERSION,
+                "command": "check",
+                "design": _design_str(file_path),
+                "drc": drc_dict,
+                "checks": checks_dict,
+                "dfm": dfm_dict,
+                "passed": all_passed,
+            }
+        )
+    )
 
     if not all_passed:
         sys.exit(1)
