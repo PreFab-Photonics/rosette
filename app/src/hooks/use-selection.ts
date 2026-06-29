@@ -123,6 +123,24 @@ export function useSelection(
   // Track the last preview IDs to avoid unnecessary updates
   const lastPreviewIdsRef = useRef<string>("");
 
+  // RAF throttle for the marquee preview query. The marquee rectangle itself
+  // updates immediately on every mousemove (smooth rubber-banding), but the
+  // expensive preview work — rect hit-test, group expansion, and ruler/image
+  // queries — runs at most once per animation frame. Pointer events fire far
+  // faster than the display refresh (120+ Hz on trackpads), so coalescing this
+  // to RAF avoids redundant per-event work when sweeping across dense geometry.
+  const marqueePreviewRafRef = useRef<number>(0);
+
+  // Cancel any pending marquee-preview frame on unmount.
+  useEffect(() => {
+    return () => {
+      if (marqueePreviewRafRef.current !== 0) {
+        cancelAnimationFrame(marqueePreviewRafRef.current);
+        marqueePreviewRafRef.current = 0;
+      }
+    };
+  }, []);
+
   // Sync selection state to renderer (filter out image IDs — renderer only knows WASM elements)
   useEffect(() => {
     if (!renderer) return;
@@ -294,31 +312,39 @@ export function useSelection(
 
       // Update marquee box if drawing
       if (isDrawingMarquee) {
+        // Update the rubber-band rectangle immediately for smooth tracking.
         updateBox(screenX, screenY);
 
-        // Query elements under the marquee for preview highlighting
-        const currentBox = useMarqueeStore.getState().box;
-        if (currentBox) {
-          // Get screen bounds of marquee
-          const screenMinX = Math.min(currentBox.x, currentBox.x + currentBox.width);
-          const screenMaxX = Math.max(currentBox.x, currentBox.x + currentBox.width);
-          const screenMinY = Math.min(currentBox.y, currentBox.y + currentBox.height);
-          const screenMaxY = Math.max(currentBox.y, currentBox.y + currentBox.height);
+        // Defer the expensive preview query (hit-test + group expansion +
+        // ruler/image checks) to the next animation frame, coalescing bursts of
+        // pointer events into a single query per frame.
+        if (marqueePreviewRafRef.current === 0) {
+          marqueePreviewRafRef.current = requestAnimationFrame(() => {
+            marqueePreviewRafRef.current = 0;
 
-          // Check rulers in marquee for preview
-          const hitRulerIds = findRulersInScreenRect(
-            screenMinX,
-            screenMinY,
-            screenMaxX,
-            screenMaxY,
-            rulers,
-            zoom,
-            offset,
-          );
-          setMarqueePreviewIds(hitRulerIds);
+            // Bail if the marquee ended before this frame ran.
+            const currentBox = useMarqueeStore.getState().box;
+            if (!currentBox || !useMarqueeStore.getState().isDrawing) return;
 
-          // Check shapes + images in marquee for preview
-          {
+            // Get screen bounds of marquee
+            const screenMinX = Math.min(currentBox.x, currentBox.x + currentBox.width);
+            const screenMaxX = Math.max(currentBox.x, currentBox.x + currentBox.width);
+            const screenMinY = Math.min(currentBox.y, currentBox.y + currentBox.height);
+            const screenMaxY = Math.max(currentBox.y, currentBox.y + currentBox.height);
+
+            // Check rulers in marquee for preview
+            const hitRulerIds = findRulersInScreenRect(
+              screenMinX,
+              screenMinY,
+              screenMaxX,
+              screenMaxY,
+              rulers,
+              zoom,
+              offset,
+            );
+            setMarqueePreviewIds(hitRulerIds);
+
+            // Check shapes + images in marquee for preview
             const worldX1 = (screenMinX - offset.x) / zoom;
             const worldX2 = (screenMaxX - offset.x) / zoom;
             const worldY1 = (screenMinY - offset.y) / zoom;
@@ -342,7 +368,7 @@ export function useSelection(
               lastPreviewIdsRef.current = hitIdsKey;
               setPreviewIds(allHitIds);
             }
-          }
+          });
         }
         return;
       }
@@ -424,6 +450,12 @@ export function useSelection(
    * Handle mouse up - finalize endpoint drag or marquee selection.
    */
   const handleMouseUp = useCallback(() => {
+    // Cancel any pending marquee-preview frame so it can't run after finalize.
+    if (marqueePreviewRafRef.current !== 0) {
+      cancelAnimationFrame(marqueePreviewRafRef.current);
+      marqueePreviewRafRef.current = 0;
+    }
+
     // Stop endpoint dragging if active
     if (draggingEndpoint) {
       const dragResult = endDraggingEndpoint();

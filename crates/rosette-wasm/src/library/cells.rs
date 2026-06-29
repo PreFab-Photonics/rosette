@@ -25,6 +25,8 @@ impl WasmLibrary {
             cell_image_bounds: HashMap::new(),
             instance_bbox_cache: RefCell::new(HashMap::new()),
             instance_bbox_cache_cell: RefCell::new(None),
+            spatial_index: RefCell::new(None),
+            spatial_index_cell: RefCell::new(None),
         }
     }
 

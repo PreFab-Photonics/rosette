@@ -3872,6 +3872,7 @@ dependencies = [
  "log",
  "rosette-core",
  "rosette-io",
+ "rstar",
  "serde",
  "serde-wasm-bindgen",
  "thiserror 1.0.69",

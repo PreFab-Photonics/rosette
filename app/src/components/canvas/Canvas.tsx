@@ -527,8 +527,11 @@ export function Canvas() {
         }
       }
 
-      // Handle select tool hover
-      if (activeTool === "select") {
+      // Handle select tool hover.
+      // Skip while panning (isDragging): a pan drag has no meaningful hover
+      // target, and the per-event hover hit-test is the dominant cost when the
+      // cursor is over dense geometry. Suppressing it keeps quick pans smooth.
+      if (activeTool === "select" && !isDragging) {
         handleSelectMouseMove(e);
       }
 

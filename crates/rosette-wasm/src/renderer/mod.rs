@@ -1270,11 +1270,15 @@ impl WasmRenderer {
             self.violations_dirty = false;
         }
 
-        // Update default border buffers when shapes or selection/hover changes (not on pan/zoom!)
-        // Borders are in world coordinates, transformed to screen in the shader.
-        // Regeneration is needed on selection/hover change because borders exclude selected shapes.
-        if self.borders_dirty || self.shape_manager.outlines_dirty() {
+        // Update default border buffers when shapes or selection changes (NOT on
+        // hover change, and NOT on pan/zoom!). Borders are in world coordinates,
+        // transformed to screen in the shader. Default borders exclude only
+        // selected shapes; hovered shapes keep their border underneath the hover
+        // outline, so rapid hover churn (marquee preview) no longer triggers this
+        // O(all-shapes) rebuild.
+        if self.borders_dirty || self.shape_manager.borders_dirty() {
             self.update_border_buffers();
+            self.shape_manager.mark_borders_clean();
             self.borders_dirty = false;
         }
 
@@ -1955,8 +1959,9 @@ impl WasmRenderer {
             self.update_preview_border_buffers();
             self.shape_manager.mark_preview_borders_clean();
         }
-        if self.borders_dirty || self.shape_manager.outlines_dirty() {
+        if self.borders_dirty || self.shape_manager.borders_dirty() {
             self.update_border_buffers();
+            self.shape_manager.mark_borders_clean();
             self.borders_dirty = false;
         }
         if self.shape_manager.outlines_dirty() || self.outlines_viewport_dirty {

@@ -307,6 +307,15 @@ pub struct ShapeManager {
     hovered_ids: HashSet<String>,
     /// Whether outline data needs update.
     outlines_dirty: bool,
+    /// Whether the default-border buffer needs regeneration.
+    ///
+    /// Default borders are drawn for every shape that is NOT selected, and the
+    /// selection/hover outlines draw on top. Crucially this flag is set by
+    /// geometry and *selection* changes but NOT by hover changes: hovered shapes
+    /// keep their default border underneath the hover outline, so a hover change
+    /// never forces the O(all-shapes) `get_default_border_segments` rebuild. This
+    /// keeps marquee preview (rapid hover-set churn) cheap on large scenes.
+    borders_dirty: bool,
     /// Whether preview border segments need update (separate from main borders).
     preview_borders_dirty: bool,
 }
@@ -325,6 +334,7 @@ impl ShapeManager {
         if new_set != self.selected_ids {
             self.selected_ids = new_set;
             self.outlines_dirty = true;
+            self.borders_dirty = true;
         }
     }
 
@@ -337,6 +347,7 @@ impl ShapeManager {
     pub fn add_to_selection(&mut self, id: String) {
         if self.selected_ids.insert(id) {
             self.outlines_dirty = true;
+            self.borders_dirty = true;
         }
     }
 
@@ -348,6 +359,7 @@ impl ShapeManager {
             self.selected_ids.insert(id.to_string());
         }
         self.outlines_dirty = true;
+        self.borders_dirty = true;
     }
 
     /// Clear all selection.
@@ -355,6 +367,7 @@ impl ShapeManager {
         if !self.selected_ids.is_empty() {
             self.selected_ids.clear();
             self.outlines_dirty = true;
+            self.borders_dirty = true;
         }
     }
 
@@ -394,6 +407,16 @@ impl ShapeManager {
     /// Mark outlines as clean.
     pub fn mark_outlines_clean(&mut self) {
         self.outlines_dirty = false;
+    }
+
+    /// Check if the default-border buffer needs regeneration.
+    pub fn borders_dirty(&self) -> bool {
+        self.borders_dirty
+    }
+
+    /// Mark default borders as clean.
+    pub fn mark_borders_clean(&mut self) {
+        self.borders_dirty = false;
     }
 
     /// Check if preview border segments need update.
@@ -508,8 +531,11 @@ impl ShapeManager {
         let mut segments = Vec::new();
 
         for id in &self.order {
-            // Skip selected or hovered shapes (they have their own outlines)
-            if self.selected_ids.contains(id) || self.hovered_ids.contains(id) {
+            // Skip selected shapes (they have their own selection outline).
+            // Hovered shapes intentionally keep their default border: the hover
+            // outline draws on top, and excluding them here would force this
+            // O(all-shapes) rebuild on every hover change (e.g. marquee preview).
+            if self.selected_ids.contains(id) {
                 continue;
             }
 
@@ -686,7 +712,8 @@ impl ShapeManager {
         }
         self.dirty_ids.insert(id);
         self.dirty = true;
-        self.outlines_dirty = true; // Borders need regeneration
+        self.outlines_dirty = true;
+        self.borders_dirty = true; // geometry changed
     }
 
     /// Update an existing shape's points.
@@ -696,7 +723,8 @@ impl ShapeManager {
             shape.points = points;
             self.dirty_ids.insert(id.to_string());
             self.dirty = true;
-            self.outlines_dirty = true; // Borders need regeneration
+            self.outlines_dirty = true;
+            self.borders_dirty = true; // geometry changed
         }
     }
 
@@ -707,7 +735,8 @@ impl ShapeManager {
             self.tri_cache.remove(id);
             self.dirty_ids.remove(id);
             self.dirty = true;
-            self.outlines_dirty = true; // Borders need regeneration
+            self.outlines_dirty = true;
+            self.borders_dirty = true; // geometry changed
         }
     }
 
@@ -718,7 +747,8 @@ impl ShapeManager {
         self.tri_cache.clear();
         self.dirty_ids.clear();
         self.dirty = true;
-        self.outlines_dirty = true; // Borders need regeneration
+        self.outlines_dirty = true;
+        self.borders_dirty = true; // geometry changed
     }
 
     /// Sync shapes from a list of (uuid, vertices, color, fill_pattern) tuples.
@@ -790,6 +820,7 @@ impl ShapeManager {
         self.selected_ids.retain(|id| self.shapes.contains_key(id));
         self.hovered_ids.retain(|id| self.shapes.contains_key(id));
         self.outlines_dirty = true;
+        self.borders_dirty = true; // shape set changed
     }
 
     /// Set a preview shape (rendered on top, not stored permanently).

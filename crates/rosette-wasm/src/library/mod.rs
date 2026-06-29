@@ -11,6 +11,7 @@ mod path;
 mod queries;
 mod refs;
 mod serde;
+mod spatial;
 mod text;
 
 use rosette_core::cell::Element;
@@ -167,6 +168,17 @@ pub struct WasmLibrary {
     /// `instance_bbox_cache`. When the active cell changes, the cache is
     /// invalidated so we never return a bbox from a different cell.
     instance_bbox_cache_cell: RefCell<Option<String>>,
+    /// Lazy R-tree spatial index over the active cell's element bounding
+    /// boxes, used to make `hit_test`/`hit_test_rect` ~O(log n + k) instead
+    /// of O(n) per pointer event.
+    ///
+    /// Built on demand by `with_spatial_index`, invalidated by `mark_dirty`
+    /// (any structural mutation) and rebound when the active cell changes
+    /// (tracked by `spatial_index_cell`), mirroring `instance_bbox_cache`.
+    spatial_index: RefCell<Option<rstar::RTree<spatial::IndexedElement>>>,
+    /// Name of the cell the `spatial_index` was built for, or `None` when the
+    /// index is empty/invalid.
+    spatial_index_cell: RefCell<Option<String>>,
 }
 
 /// Pack layer number and datatype into a single u32 key.
@@ -601,6 +613,9 @@ impl WasmLibrary {
     fn invalidate_instance_bbox_cache(&mut self) {
         self.instance_bbox_cache.borrow_mut().clear();
         *self.instance_bbox_cache_cell.borrow_mut() = None;
+        // The spatial index is derived from the same geometry, so drop it too.
+        *self.spatial_index.borrow_mut() = None;
+        *self.spatial_index_cell.borrow_mut() = None;
     }
 
     /// Mark the library as dirty AND invalidate derived caches.

@@ -1,6 +1,7 @@
 //! Read-only element queries: hit-testing, selection grouping,
 //! bounds, and vertex/info extraction.
 
+use super::spatial::{IndexedKind, point_envelope, query_envelope};
 use super::{
     ElementInfo, REF_UUID_PREFIX, WasmLibrary, array_transforms, layer_key,
     parse_ref_uuid_element_index, text_bbox,
@@ -25,87 +26,89 @@ impl WasmLibrary {
 
         let mut hits: Vec<(String, f64)> = Vec::new(); // (uuid, area)
 
-        // Test direct polygon elements
-        for (uuid, elem_ref) in &self.element_refs {
-            if elem_ref.cell_name != *cell_name {
-                continue;
-            }
+        // Broad phase: ask the spatial index for elements whose bbox contains
+        // the point, then run the exact same narrow-phase checks as before.
+        self.with_spatial_index(|tree| {
+            for item in tree.locate_in_envelope_intersecting(&point_envelope(x, y)) {
+                match &item.kind {
+                    IndexedKind::Direct { uuid } => {
+                        match cell.elements().get(item.element_index) {
+                            Some(Element::Polygon { polygon, layer }) => {
+                                // Skip hidden layers (alpha == 0)
+                                let key = layer_key(layer.number, layer.datatype);
+                                if let Some(color) = self.layer_colors.get(&key)
+                                    && color[3] <= 0.0
+                                {
+                                    continue;
+                                }
 
-            match cell.elements().get(elem_ref.element_index) {
-                Some(Element::Polygon { polygon, layer }) => {
-                    // Skip hidden layers (alpha == 0)
-                    let key = layer_key(layer.number, layer.datatype);
-                    if let Some(color) = self.layer_colors.get(&key)
-                        && color[3] <= 0.0
-                    {
-                        continue;
-                    }
+                                let bbox = polygon.bbox();
+                                if !bbox.contains(point) {
+                                    continue;
+                                }
 
-                    let bbox = polygon.bbox();
-                    if !bbox.contains(point) {
-                        continue;
-                    }
+                                if polygon.contains(point) {
+                                    hits.push((uuid.clone(), polygon.area()));
+                                }
+                            }
+                            Some(Element::Path {
+                                points,
+                                width,
+                                layer,
+                                ..
+                            }) => {
+                                let key = layer_key(layer.number, layer.datatype);
+                                if let Some(color) = self.layer_colors.get(&key)
+                                    && color[3] <= 0.0
+                                {
+                                    continue;
+                                }
 
-                    if polygon.contains(point) {
-                        hits.push((uuid.clone(), polygon.area()));
-                    }
-                }
-                Some(Element::Path {
-                    points,
-                    width,
-                    layer,
-                    ..
-                }) => {
-                    let key = layer_key(layer.number, layer.datatype);
-                    if let Some(color) = self.layer_colors.get(&key)
-                        && color[3] <= 0.0
-                    {
-                        continue;
-                    }
+                                if let Some(ribbon) = offset_polygon(points, *width) {
+                                    let bbox = ribbon.bbox();
+                                    if bbox.contains(point) && ribbon.contains(point) {
+                                        hits.push((uuid.clone(), ribbon.area()));
+                                    }
+                                }
+                            }
+                            Some(Element::Text {
+                                text,
+                                position,
+                                layer,
+                                height,
+                            }) => {
+                                let key = layer_key(layer.number, layer.datatype);
+                                if let Some(color) = self.layer_colors.get(&key)
+                                    && color[3] <= 0.0
+                                {
+                                    continue;
+                                }
 
-                    if let Some(ribbon) = offset_polygon(points, *width) {
-                        let bbox = ribbon.bbox();
-                        if bbox.contains(point) && ribbon.contains(point) {
-                            hits.push((uuid.clone(), ribbon.area()));
+                                let bbox = text_bbox(text, position, *height);
+                                if bbox.contains(point) {
+                                    let area = (bbox.max().x - bbox.min().x)
+                                        * (bbox.max().y - bbox.min().y);
+                                    hits.push((uuid.clone(), area));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    IndexedKind::Instance => {
+                        // The indexed bbox already contains the point (broad
+                        // phase); clicking anywhere inside the instance bbox
+                        // selects the whole instance.
+                        let elem_idx = item.element_index;
+                        if item.bbox.contains(point) {
+                            let uuid = format!("{REF_UUID_PREFIX}{elem_idx}:0");
+                            let area = (item.bbox.max().x - item.bbox.min().x)
+                                * (item.bbox.max().y - item.bbox.min().y);
+                            hits.push((uuid, area));
                         }
                     }
                 }
-                Some(Element::Text {
-                    text,
-                    position,
-                    layer,
-                    height,
-                }) => {
-                    let key = layer_key(layer.number, layer.datatype);
-                    if let Some(color) = self.layer_colors.get(&key)
-                        && color[3] <= 0.0
-                    {
-                        continue;
-                    }
-
-                    let bbox = text_bbox(text, position, *height);
-                    if bbox.contains(point) {
-                        let area = (bbox.max().x - bbox.min().x) * (bbox.max().y - bbox.min().y);
-                        hits.push((uuid.clone(), area));
-                    }
-                }
-                _ => {}
             }
-        }
-
-        // Test CellRef instances via bounding box — clicking anywhere inside
-        // the instance bbox selects the whole instance.
-        for (elem_idx, element) in cell.elements().iter().enumerate() {
-            if let Element::CellRef(cell_ref) = element {
-                let bbox = self.instance_bbox_cached(cell_name, elem_idx, cell_ref);
-                if bbox.contains(point) {
-                    // Use first synthetic UUID as the representative hit
-                    let uuid = format!("{REF_UUID_PREFIX}{elem_idx}:0");
-                    let area = (bbox.max().x - bbox.min().x) * (bbox.max().y - bbox.min().y);
-                    hits.push((uuid, area));
-                }
-            }
-        }
+        });
 
         // Return smallest area (topmost in stacking order)
         hits.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -135,79 +138,38 @@ impl WasmLibrary {
 
         let mut hits: Vec<String> = Vec::new();
 
-        // Test direct polygon elements
-        for (uuid, elem_ref) in &self.element_refs {
-            if elem_ref.cell_name != *cell_name {
-                continue;
-            }
-
-            match cell.elements().get(elem_ref.element_index) {
-                Some(Element::Polygon { polygon, layer }) => {
-                    let key = layer_key(layer.number, layer.datatype);
-                    if let Some(color) = self.layer_colors.get(&key)
-                        && color[3] <= 0.0
-                    {
-                        continue;
-                    }
-
-                    let bbox = polygon.bbox();
-                    if bbox.overlaps(&query_bbox) {
-                        hits.push(uuid.clone());
-                    }
-                }
-                Some(Element::Path {
-                    points,
-                    width,
-                    layer,
-                    ..
-                }) => {
-                    let key = layer_key(layer.number, layer.datatype);
-                    if let Some(color) = self.layer_colors.get(&key)
-                        && color[3] <= 0.0
-                    {
-                        continue;
-                    }
-
-                    if let Some(ribbon) = offset_polygon(points, *width) {
-                        let bbox = ribbon.bbox();
-                        if bbox.overlaps(&query_bbox) {
-                            hits.push(uuid.clone());
+        // Broad phase via the spatial index; the index stores the same
+        // bboxes the previous linear scan computed (ribbon bbox for paths,
+        // text bbox for text, instance bbox for refs), so the only remaining
+        // narrow-phase work is the layer-visibility (alpha) filter.
+        self.with_spatial_index(|tree| {
+            let envelope = query_envelope(min_x, min_y, max_x, max_y);
+            for item in tree.locate_in_envelope_intersecting(&envelope) {
+                match &item.kind {
+                    IndexedKind::Direct { uuid } => match cell.elements().get(item.element_index) {
+                        Some(Element::Polygon { layer, .. })
+                        | Some(Element::Path { layer, .. })
+                        | Some(Element::Text { layer, .. }) => {
+                            let key = layer_key(layer.number, layer.datatype);
+                            if let Some(color) = self.layer_colors.get(&key)
+                                && color[3] <= 0.0
+                            {
+                                continue;
+                            }
+                            if item.bbox.overlaps(&query_bbox) {
+                                hits.push(uuid.clone());
+                            }
+                        }
+                        _ => {}
+                    },
+                    IndexedKind::Instance => {
+                        if item.bbox.overlaps(&query_bbox) {
+                            hits.push(format!("{REF_UUID_PREFIX}{}:0", item.element_index));
                         }
                     }
                 }
-                Some(Element::Text {
-                    text,
-                    position,
-                    layer,
-                    height,
-                }) => {
-                    let key = layer_key(layer.number, layer.datatype);
-                    if let Some(color) = self.layer_colors.get(&key)
-                        && color[3] <= 0.0
-                    {
-                        continue;
-                    }
-
-                    let bbox = text_bbox(text, position, *height);
-                    if bbox.overlaps(&query_bbox) {
-                        hits.push(uuid.clone());
-                    }
-                }
-                _ => {}
             }
-        }
-
-        // Test CellRef instances via bounding box.
-        // Return a single representative UUID per instance (`ref:N:0`);
-        // the instance is selected as a single entity.
-        for (elem_idx, element) in cell.elements().iter().enumerate() {
-            if let Element::CellRef(cell_ref) = element {
-                let bbox = self.instance_bbox_cached(cell_name, elem_idx, cell_ref);
-                if bbox.overlaps(&query_bbox) {
-                    hits.push(format!("{REF_UUID_PREFIX}{elem_idx}:0"));
-                }
-            }
-        }
+        });
 
         hits
     }
