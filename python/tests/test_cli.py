@@ -10,6 +10,7 @@ import pytest
 
 from rosette.cli import (
     _build_parser,
+    _check_reference_staleness,
     _cli_manifest,
     _parse_tool_spec,
     _sanitize_project_name,
@@ -1321,6 +1322,10 @@ class TestCliManifest:
         assert m["prog"] == "rosette"
         assert cast("int", m["schema"]) >= 1  # manifest schema
         assert cast("int", m["json_schema"]) >= 1  # --json output schema
+        # Stamps the installed librosette version for staleness detection.
+        from rosette import __version__
+
+        assert m["package_version"] == __version__
         commands = cast("dict[str, Any]", m["commands"])
         assert isinstance(commands, dict)
         # Every user-facing command is represented, including dfm and shot
@@ -1418,3 +1423,75 @@ class TestCliManifest:
 
         parsed = json.loads(manifest_path.read_text())
         assert "check" in parsed["commands"]
+
+
+class TestReferenceStaleness:
+    """Tests for the .rosette/ staleness nudge (_check_reference_staleness)."""
+
+    def _make_project_with_manifest(self, tmp_path: Path, stamped_version: str) -> Path:
+        """A minimal project whose .rosette/cli.json stamps ``stamped_version``."""
+        import json
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        (project_dir / "rosette.toml").write_text('[project]\nname = "proj"\n')
+        rosette_dir = project_dir / ".rosette"
+        rosette_dir.mkdir()
+        (rosette_dir / "cli.json").write_text(
+            json.dumps({"package_version": stamped_version, "commands": {}})
+        )
+        return project_dir
+
+    def test_warns_on_version_drift(self, tmp_path: Path, monkeypatch, capsys):
+        """A stamp different from the installed version prints a stderr nudge."""
+        project_dir = self._make_project_with_manifest(tmp_path, "0.0.1")
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setattr("rosette.__version__", "9.9.9")
+
+        _check_reference_staleness()
+
+        err = capsys.readouterr().err
+        assert "rosette update" in err
+        assert "0.0.1" in err
+        assert "9.9.9" in err
+
+    def test_silent_when_versions_match(self, tmp_path: Path, monkeypatch, capsys):
+        """No nudge when the stamp matches the installed version."""
+        project_dir = self._make_project_with_manifest(tmp_path, "1.2.3")
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setattr("rosette.__version__", "1.2.3")
+
+        _check_reference_staleness()
+
+        assert capsys.readouterr().err == ""
+
+    def test_silent_outside_project(self, tmp_path: Path, monkeypatch, capsys):
+        """No nudge (and no error) when not inside a rosette project."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("rosette.__version__", "9.9.9")
+
+        _check_reference_staleness()
+
+        assert capsys.readouterr().err == ""
+
+    def test_silent_on_missing_manifest(self, tmp_path: Path, monkeypatch, capsys):
+        """A project without .rosette/cli.json is treated as can't-tell."""
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        (project_dir / "rosette.toml").write_text('[project]\nname = "proj"\n')
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setattr("rosette.__version__", "9.9.9")
+
+        _check_reference_staleness()
+
+        assert capsys.readouterr().err == ""
+
+    def test_silent_on_dev_sentinel(self, tmp_path: Path, monkeypatch, capsys):
+        """The 0.0.0-dev sentinel never triggers a false-positive nudge."""
+        project_dir = self._make_project_with_manifest(tmp_path, "0.0.0-dev")
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setattr("rosette.__version__", "9.9.9")
+
+        _check_reference_staleness()
+
+        assert capsys.readouterr().err == ""

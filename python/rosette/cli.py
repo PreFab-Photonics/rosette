@@ -38,6 +38,24 @@ COMPONENTS_DIR = Path(__file__).parent / "components"
 DESIGNS_DIR = "designs"  # picker source convention for design .py files
 OUTPUT_DIR = "output"  # default location for built GDS (created on first build)
 
+# The framework-managed, gitignored reference/runtime directory inside each
+# project. It holds two distinct kinds of content with *different lifecycles*:
+#
+#   Managed reference (regenerated wholesale by `rosette init`/`update`, pinned
+#   to the installed librosette build):
+#     .rosette/api.pyi   -- typed API stub (copied from the package's _core.pyi)
+#     .rosette/cli.json  -- CLI manifest (regenerated from the argparse parser;
+#                           stamps `package_version` for staleness detection)
+#
+#   Runtime output (created on demand, never touched by init/update, pruned by
+#   retention policy -- ephemeral, safe to delete):
+#     .rosette/snapshots/ -- `rosette shot` PNGs + sidecar JSON
+#
+# `update` only ever regenerates the managed-reference files; it must not write
+# or prune anything under snapshots/. Keep `update_project`'s docstring in sync
+# with this split.
+ROSETTE_DIR = ".rosette"  # framework-managed reference + runtime output dir
+
 # Marker comments for framework-managed sections in agent files
 _MARKER_BEGIN = "<!-- BEGIN:rosette-agent-rules -->"
 _MARKER_END = "<!-- END:rosette-agent-rules -->"
@@ -937,6 +955,14 @@ def main() -> None:
             parser.print_help()
             sys.exit(0)
 
+    # Nudge if the project's .rosette/ reference is pinned to a different
+    # librosette version than what's installed (drift from upgrading without
+    # `rosette update`). Skipped for init/update (which refresh the reference)
+    # and cli-manifest (handled above). Goes to stderr so it never pollutes the
+    # machine-readable stdout of the --json commands.
+    if args.command not in ("init", "update"):
+        _check_reference_staleness()
+
     if args.command == "init":
         init_project(
             template=args.template,
@@ -1408,10 +1434,10 @@ def init_project(
     _copy_components(project_dir, minimal=(template == "blank"))
 
     # Copy API stub for agent reference
-    _copy_api_stub(project_dir / ".rosette")
+    _copy_api_stub(project_dir / ROSETTE_DIR)
 
     # Write the CLI manifest (discoverable command contract, parallel to api.pyi)
-    _write_cli_manifest(project_dir / ".rosette")
+    _write_cli_manifest(project_dir / ROSETTE_DIR)
 
     tool_label = ", ".join(harness_keys) if harness_keys else "none"
     print(f"Initialized rosette project '{name}' (template: {template}, tool: {tool_label})")
@@ -1490,13 +1516,18 @@ def update_project():
       configured harness via the HARNESSES adapter.
     - Skills: each configured harness's skills dir (.agents/skills,
       .claude/skills, ...) is refreshed from the template's canonical skills/
-    - .rosette/api.pyi: fully replaced with latest API stub
-    - .rosette/cli.json: regenerated CLI manifest (command contract)
+    - .rosette/ managed reference is fully regenerated, pinned to the installed
+      librosette build (see the ROSETTE_DIR comment for the full layout):
+      - .rosette/api.pyi: fully replaced with latest API stub
+      - .rosette/cli.json: regenerated CLI manifest (command contract; stamps
+        the installed version for staleness detection)
     - Only updates files for tools that are already configured
-    - User-owned files are never touched:
+    - User-owned files and runtime output are never touched:
       - designs/ - your design files
       - components/ - your customizable components (shadcn-style)
       - rosette.toml - your project config
+      - .rosette/snapshots/ - ephemeral `rosette shot` output (runtime, not
+        managed reference; pruned by retention policy, not by update)
 
     Components are intentionally NOT refreshed here. The shadcn-style copy
     in ``components/`` is yours to edit, and ``rosette update`` must not
@@ -1560,10 +1591,10 @@ def update_project():
         _install_skills(template_dir, project_dir / harness.skills_dir)
 
     # Update API stub for agent reference
-    _copy_api_stub(project_dir / ".rosette")
+    _copy_api_stub(project_dir / ROSETTE_DIR)
 
     # Refresh the CLI manifest (discoverable command contract, parallel to api.pyi)
-    _write_cli_manifest(project_dir / ".rosette")
+    _write_cli_manifest(project_dir / ROSETTE_DIR)
 
     tool_names = ", ".join(sorted(tools))
     print(f"Updated project to latest templates (tools: {tool_names})")
@@ -1709,7 +1740,13 @@ def _cli_manifest() -> dict[str, object]:
     with its help/description/epilog, the kind of file it needs, and its full
     argument list. The top level carries the manifest schema version and the
     --json output schema version so a consumer can check both contracts.
+
+    It also stamps ``package_version`` (the installed ``librosette`` version),
+    so a project can detect when its ``.rosette/`` reference is stale relative
+    to the installed package — see ``_check_reference_staleness``.
     """
+    from rosette import __version__
+
     parser = _build_parser()
 
     # The subparsers action is the one with `choices` mapping name -> subparser.
@@ -1740,6 +1777,7 @@ def _cli_manifest() -> dict[str, object]:
         "prog": parser.prog,
         "description": parser.description,
         "json_schema": SCHEMA_VERSION,
+        "package_version": __version__,
         "commands": commands,
     }
 
@@ -1752,6 +1790,48 @@ def _write_cli_manifest(rosette_dir: Path) -> None:
     """
     rosette_dir.mkdir(parents=True, exist_ok=True)
     (rosette_dir / "cli.json").write_text(json.dumps(_cli_manifest(), indent=2) + "\n")
+
+
+def _check_reference_staleness() -> None:
+    """Nudge when the project's ``.rosette/`` reference is stale.
+
+    ``.rosette/api.pyi`` and ``.rosette/cli.json`` are version-pinned to the
+    ``librosette`` build that last ran ``rosette init``/``update``. Upgrading
+    the package without re-running ``update`` leaves them describing the old
+    API, which silently misleads an agent reading them.
+
+    ``cli.json`` stamps ``package_version`` (see ``_cli_manifest``); compare it
+    to the installed version and print a one-line hint to stderr on drift. This
+    is best-effort and never fatal: any missing/unreadable manifest, missing
+    stamp, or unknown installed version is treated as "can't tell" and stays
+    silent so normal use is never blocked.
+    """
+    from rosette import __version__, _find_rosette_toml
+
+    toml = _find_rosette_toml()
+    if toml is None:
+        return  # not inside a project
+    manifest_path = toml.parent / ROSETTE_DIR / "cli.json"
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return  # no/unreadable manifest -- nothing to compare against
+    stamped = manifest.get("package_version")
+    if not isinstance(stamped, str):
+        return  # pre-stamp manifest -- can't tell
+    # "0.0.0-dev" is the editable/unknown sentinel (see rosette.__init__); skip
+    # comparisons involving it to avoid false positives in dev checkouts.
+    if "0.0.0-dev" in (stamped, __version__):
+        return
+    if stamped != __version__:
+        print(
+            _yellow(
+                f"Warning: .rosette/ reference is for librosette {stamped} but "
+                f"{__version__} is installed. Run `rosette update` to refresh "
+                "api.pyi and cli.json."
+            ),
+            file=sys.stderr,
+        )
 
 
 def _design_str(file_path: Path | None) -> str | None:
@@ -2616,7 +2696,7 @@ def _project_snapshot_dir() -> Path | None:
     toml = _find_rosette_toml()
     if toml is None:
         return None
-    return toml.parent / ".rosette" / "snapshots"
+    return toml.parent / ROSETTE_DIR / "snapshots"
 
 
 def _load_retain_config() -> int:
