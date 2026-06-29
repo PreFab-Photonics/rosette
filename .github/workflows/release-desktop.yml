@@ -23,7 +23,7 @@ jobs:
           targets: aarch64-apple-darwin
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -107,7 +107,7 @@ jobs:
           echo "dmg=${DMG_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Rosette-${{ inputs.version }}-aarch64
           path: |

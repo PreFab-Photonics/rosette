@@ -53,7 +53,7 @@ jobs:
         working-directory: app
       - name: Bundle webapp into Python package
         run: cp -r app/dist python/rosette/_webapp
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: webapp-bundle
           path: python/rosette/_webapp/
@@ -72,7 +72,7 @@ jobs:
             runner: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: webapp-bundle
           path: python/rosette/_webapp/
@@ -90,7 +90,7 @@ jobs:
       # missing bundled data). Skipped for aarch64 (cross-built under QEMU).
       # --find-links lets pip pick the wheel matching this Python (wheels are
       # version-specific, not abi3) while still resolving deps from PyPI.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         with:
           python-version: "3.13"
@@ -100,7 +100,7 @@ jobs:
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --find-links dist librosette
           /tmp/smoke/bin/python -c "import rosette; print(rosette.__version__)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wheels-linux-${{ matrix.target }}
           path: dist
@@ -112,7 +112,7 @@ jobs:
     if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped') && needs.build-webapp.result == 'success'
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: webapp-bundle
           path: python/rosette/_webapp/
@@ -121,7 +121,7 @@ jobs:
           target: aarch64-apple-darwin
           args: --release --out dist --interpreter 3.11 3.12 3.13 3.14
       # Smoke test: macOS-14 runners are natively arm64, so this is not emulated.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Smoke test wheel
@@ -129,7 +129,7 @@ jobs:
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --find-links dist librosette
           /tmp/smoke/bin/python -c "import rosette; print(rosette.__version__)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wheels-macos-aarch64
           path: dist
@@ -141,7 +141,7 @@ jobs:
     if: always() && (needs.validate-version.result == 'success' || needs.validate-version.result == 'skipped') && needs.build-webapp.result == 'success'
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: webapp-bundle
           path: python/rosette/_webapp/
@@ -149,7 +149,7 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
           args: --release --out dist --interpreter 3.11 3.12 3.13 3.14
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Smoke test wheel
@@ -158,7 +158,7 @@ jobs:
           python -m venv smoke
           .\smoke\Scripts\pip.exe install --find-links dist librosette
           .\smoke\Scripts\python.exe -c "import rosette; print(rosette.__version__)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wheels-windows-x86_64
           path: dist
@@ -176,7 +176,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           pattern: wheels-*
           merge-multiple: true
