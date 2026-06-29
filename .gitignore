@@ -16,10 +16,9 @@ build/
 # Bundled web app (scripts/bundle_webapp.py)
 python/rosette/_webapp/
 
-# Generated output
+# Generated output (output/ is created lazily by `rosette build`)
 *.gds
-output/*.svg
-!output/.gitkeep
+output/
 
 # OS
 .DS_Store

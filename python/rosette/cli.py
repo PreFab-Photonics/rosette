@@ -31,6 +31,13 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 # Components directory location (relative to this file)
 COMPONENTS_DIR = Path(__file__).parent / "components"
 
+# Project layout conventions. Single source of truth for the directory names
+# the CLI assumes. These are *soft* conventions: the interactive picker globs
+# DESIGNS_DIR and `build` defaults its output to OUTPUT_DIR, but every command
+# also accepts an explicit path, so neither directory is enforced.
+DESIGNS_DIR = "designs"  # picker source convention for design .py files
+OUTPUT_DIR = "output"  # default location for built GDS (created on first build)
+
 # Marker comments for framework-managed sections in agent files
 _MARKER_BEGIN = "<!-- BEGIN:rosette-agent-rules -->"
 _MARKER_END = "<!-- END:rosette-agent-rules -->"
@@ -499,7 +506,7 @@ def _copy_components(project_dir: Path, *, minimal: bool = False) -> None:
 
 def _find_design_files() -> list[Path]:
     """Find design .py files in the current project."""
-    designs_dir = Path.cwd() / "designs"
+    designs_dir = Path.cwd() / DESIGNS_DIR
     if not designs_dir.exists():
         return []
     return sorted(f for f in designs_dir.glob("*.py") if not f.name.startswith("_"))
@@ -508,7 +515,7 @@ def _find_design_files() -> list[Path]:
 def _find_gds_files() -> list[Path]:
     """Find .gds files in output/ and current directory."""
     files: list[Path] = []
-    output_dir = Path.cwd() / "output"
+    output_dir = Path.cwd() / OUTPUT_DIR
     if output_dir.exists():
         files.extend(output_dir.glob("*.gds"))
     files.extend(Path.cwd().glob("*.gds"))
@@ -556,7 +563,7 @@ def _select_command_interactive() -> tuple[str, str | None]:
     if command in _NEEDS_GDS:
         gds_files = _find_gds_files()
         if not gds_files:
-            print("No .gds files found in output/ or current directory")
+            print(f"No .gds files found in {OUTPUT_DIR}/ or current directory")
             print("Build a design first:")
             print("  rosette build <path/to/design.py>")
             sys.exit(1)
@@ -573,7 +580,7 @@ def _select_command_interactive() -> tuple[str, str | None]:
     # Commands that need a design .py file
     design_files = _find_design_files()
     if not design_files:
-        print("No design files found in designs/")
+        print(f"No design files found in {DESIGNS_DIR}/")
         print("Create a design first, or specify one directly:")
         print(f"  rosette {command} <path/to/design.py>")
         sys.exit(1)
@@ -703,7 +710,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # build command
     build_parser = subparsers.add_parser("build", help="Build a design to GDS")
     build_parser.add_argument("design", help="Design file (path or path:target)")
-    build_parser.add_argument("-o", "--output", default="output", help="Output directory")
+    build_parser.add_argument("-o", "--output", default=OUTPUT_DIR, help="Output directory")
     build_parser.add_argument(
         "-v", "--verbose", action="store_true", help="Show detailed build output"
     )
@@ -1391,8 +1398,8 @@ def init_project(
     _apply_template(template_dir, project_dir, name, harnesses=harness_keys)
 
     # Create directories (not part of template)
-    (project_dir / "designs").mkdir(exist_ok=True)
-    (project_dir / "output").mkdir(exist_ok=True)
+    (project_dir / DESIGNS_DIR).mkdir(exist_ok=True)
+    (project_dir / OUTPUT_DIR).mkdir(exist_ok=True)
 
     # Copy components for user customization (shadcn-style).
     # Blank template gets a minimal scaffold (just __init__.py + shared

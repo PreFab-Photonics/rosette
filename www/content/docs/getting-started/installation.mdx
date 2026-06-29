@@ -205,7 +205,9 @@ my-chip/
   `[project]` section — add layers and rules as you need them.
 - **`designs/`**: where you write your layout scripts. Each script defines cells and
   geometry that Rosette compiles to GDS-II.
-- **`output/`**: build artifacts. Running `rosette build` writes GDS files here.
+- **`output/`**: build artifacts. Running `rosette build` writes GDS files here
+  (and recreates the directory if you delete it). GDS files are gitignored by
+  default since they're regenerated from your design scripts.
 - **`components/`**: a library of photonic building blocks (S-bends, MMIs, rings,
   couplers, and more). These are copied into your project so you can read and modify them
   freely.
