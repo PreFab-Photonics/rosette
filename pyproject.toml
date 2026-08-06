@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "librosette"
 dynamic = ["version"]
-description = "A fast, intelligent, and accessible layout editor"
+description = "A fast, intelligent, and accessible GDSII layout editor for integrated circuits"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

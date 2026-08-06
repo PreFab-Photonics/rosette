@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Layout editor for integrated photonic circuits. Rust core with Python bindings, web-based viewer app, docs site.
+AI-native, scriptable GDSII layout editor for integrated circuits, focused on silicon photonics. Rust core with Python bindings, web-based viewer app, docs site.
 
 ## Structure
 
@@ -15,9 +15,10 @@ crates/rosette-python   PyO3 bindings -> rosette._core
 crates/rosette-wasm     WASM + WebGPU renderer
 
 python/rosette/         Python API, CLI, dev server
+  components/           Photonics devices (mmi, ring, sbend, grating_coupler, ...)
 app/                    Viewer app (React/TS, WebGPU canvas)
 app/src-tauri/          Tauri desktop wrapper
-www/                    Docs site (Next.js + fumadocs)
+www/                    Docs site (Next.js + fumadocs) — see www/AGENTS.md
 designs/                Example design scripts
 ```
 
@@ -30,33 +31,26 @@ cargo test && uv run pytest                        # Full test suite
 uv run maturin develop                             # Rebuild bindings after ANY Rust change
 cargo test -p rosette-core waveguide               # Single Rust test
 uv run pytest python/tests/test_file.py::Test -v   # Single Python test
+bun run test                                       # App tests (vitest, from app/)
 
 cargo fmt && cargo clippy -- -D warnings           # Rust lint
 uv run ruff check python/ && uv run ruff format python/  # Python lint
-uv run basedpyright python/                        # Python type check
+uv run basedpyright python/rosette                 # Python type check (tests excluded)
 bun run lint && bun run fmt                        # App lint (run from app/)
+bun run tsc --noEmit                               # App type check (from app/)
 
 bun dev                                            # App dev server (from app/)
 bun run build:wasm                                 # Rebuild WASM (from app/)
 ```
 
+CI gates on the non-mutating forms: `ruff format --check python/` and `bun fmt:check`.
+
 ### CLI commands (user-facing)
 
-```bash
-rosette init                                       # Scaffold a new project
-rosette serve [designs/file.py]                    # Dev server with live preview
-rosette build designs/file.py                      # Build design to GDS
-rosette build designs/file.py --check              # Build with DRC pre-check
-rosette check designs/file.py                      # Run all checks (DRC, design checks; --include-dfm)
-rosette drc designs/file.py                        # Run DRC only
-rosette dfm designs/file.py                        # Run DFM prediction (--gds writes predicted polygons)
-rosette shot designs/file.py -o out.png            # Render a design region to PNG (AI visual inspection)
-rosette run output/file.gds                        # View a GDS file
-rosette update                                     # Update AGENTS.md to latest template
-rosette --version                                  # Print version
-```
-
-`ro` is a short alias for `rosette`. Running bare `rosette` with no args opens an interactive command picker.
+`uv run rosette shot designs/file.py -o out.png` renders a design region to PNG — use it
+to visually inspect your own work. Use `uv run` for every `rosette` command; a bare
+`rosette` resolves to a globally installed build that won't reflect local changes.
+Full surface: `uv run rosette --help` or `uv run rosette cli-manifest`.
 
 ## Key Conventions
 
@@ -64,14 +58,21 @@ rosette --version                                  # Print version
 
 **Python wrappers:** `__slots__` on all classes. `_inner` holds the Rust object. `_from_inner` classmethod to wrap existing Rust objects.
 
-**Templates:** `rosette init` copies from `python/rosette/templates/blank/` or `python/rosette/templates/generic/`. The agent instruction body (`agent-rules.md.template`) and `skills/` are stored once per template, harness-neutral; the `HARNESSES` adapter in `cli.py` projects them into each tool's files. Most agents share the `agents` harness (`AGENTS.md` + `.agents/skills/`, covering OpenCode/Codex/Cursor/Gemini/Copilot via aliases); Claude Code is the one diverger (`CLAUDE.md` + `.claude/skills/`). `--tool` accepts aliases and comma-separated lists (e.g. `agents,claude`). To support a tool with the same convention, add an alias to the matching `_Harness`; to support a genuinely different one, add a new `HARNESSES` entry — no new template files needed. Check if changes need template updates.
+**Templates:** `rosette init` scaffolds from `python/rosette/templates/{blank,generic}/`. Each template stores one harness-neutral instruction body (`agent-rules.md.template`) plus `skills/`; the `HARNESSES` adapter in `cli.py` projects them into each tool's files (`AGENTS.md` + `.agents/skills/` for most, `CLAUDE.md` + `.claude/skills/` for Claude Code). Read `HARNESSES` and `update_project()` in `cli.py` before changing any of this. Check whether your change needs a template update.
 
-**API docs:** Every `__all__` symbol (in `python/rosette/__init__.py`) needs a docs page in `www/content/docs/api-reference/` — classes get their own `.mdx`, functions/constants go on `index.mdx`. Verify with `uv run python www/scripts/check-api-docs.py`; update docs when changing public API.
+**API docs:** Every `__all__` symbol (in `python/rosette/__init__.py`) needs a docs page in `www/content/docs/api-reference/` — classes get their own `.mdx`, functions/constants go on `index.mdx`. New class pages must also be listed in `api-reference/meta.json` or the sidebar check fails. Verify with `uv run --no-project python www/scripts/check-api-docs.py`; update docs when changing public API.
 
-**WASM bindings:** The app type-checks against `app/src/wasm/rosette_wasm.d.ts`, a checked-in cache of `wasm-pack` output (the rest of `app/src/wasm/` is gitignored). After changing the `rosette-wasm` crate's public API, run `bun run build:wasm` (from `app/`) and commit the regenerated stub with `git add -f` (wasm-pack writes a `src/wasm/.gitignore` of `*`). CI rebuilds wasm and fails if the committed stub's public API (the export declarations before `export interface InitOutput`) drifted; the internal `InitOutput` table isn't checked since its ordering and closure hashes vary per build.
+**WASM bindings:** The app type-checks against `app/src/wasm/rosette_wasm.d.ts`, a checked-in cache of `wasm-pack` output (the rest of `app/src/wasm/` is gitignored). CI rebuilds wasm and fails if the committed stub's public API drifted. See Boundaries for how to regenerate it.
 
-## Bundling & Release
+## Boundaries
 
-The wheel embeds a gitignored bundle, regenerated before any local wheel build (CI does this automatically on `v*` tags):
+Never edit (generated): `target/`, `output/`, `app/src/wasm/*`, and `python/rosette/_webapp/` (viewer bundle built by `scripts/bundle_webapp.py`, gitignored, regenerated for wheel builds).
 
-- **Web app** (`python/rosette/_webapp/`): viewer served by `rosette serve`/`run`. Build with `scripts/bundle_webapp.py` (runs `bun run build:wasm` then `bun run build` in `app/`, copies `app/dist/`; requires `wasm-pack`). Included via `pyproject.toml` `include`.
+Exception: `app/src/wasm/rosette_wasm.d.ts` is a committed cache. After changing the `rosette-wasm` public API, run `bun run build:wasm` (from `app/`) and commit the stub with `git add -f` — wasm-pack writes a `src/wasm/.gitignore` of `*`.
+
+Ask first: version bumps, PyPI publish, `.github/workflows/`.
+
+## Gotchas
+
+- Python 3.11 is the floor (`requires-python = ">=3.11"`; CI tests 3.11 and 3.14). Don't use 3.12+ syntax.
+- `CHANGELOG.md` headings are parsed by `release-python.yml` to build the GitHub release — keep the `## [x.y.z] - YYYY-MM-DD` Keep a Changelog format.
