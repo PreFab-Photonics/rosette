@@ -3,13 +3,11 @@
 
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.so
 *.egg-info/
 .venv/
-dist/
-build/
+/dist/
 .pytest_cache/
 .ruff_cache/
 
@@ -17,19 +15,10 @@ build/
 python/rosette/_webapp/
 
 # Generated output (output/ is created lazily by `rosette build`)
-*.gds
 output/
 
 # OS
 .DS_Store
-
-# Editor / tools
-.opencode/
-opencode.json
-opencode.jsonc
-
-# Personal notes (not committed)
-/RELEASING.md
 
 # Project (user .rosette/ dirs, but not template ones)
 .rosette/
