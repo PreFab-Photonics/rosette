@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { ComingSoonButton } from "@/components/coming-soon-button";
 import { blog } from "@/lib/source";
 import { CopyButton } from "./components/copy-button";
 import { RedactedText } from "./components/redacted-text";
@@ -43,23 +42,15 @@ function Hero() {
           </p>
 
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
-            {/* pip install — Python SDK */}
+            {/* uv add — Python SDK */}
             <div className="flex flex-col items-center gap-1.5">
               <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
                 <span className="select-none text-emerald-400">~&nbsp;</span>
-                pip install librosette
-                <CopyButton text="pip install librosette" />
+                uv add librosette
+                <CopyButton text="uv add librosette" />
               </div>
               <span className="text-[11px] text-fd-muted-foreground">
                 Python SDK
-              </span>
-            </div>
-
-            {/* Download — Desktop app */}
-            <div className="flex flex-col items-center gap-1.5">
-              <ComingSoonButton className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-6 text-sm font-medium text-fd-muted-foreground shadow-sm" />
-              <span className="text-[11px] text-fd-muted-foreground">
-                Desktop app &middot; coming soon
               </span>
             </div>
 
@@ -460,13 +451,6 @@ function ClosingCTA() {
               </Link>
               <span className="text-[11px] text-fd-muted-foreground">
                 Quick start
-              </span>
-            </div>
-
-            <div className="flex flex-col items-center gap-1.5">
-              <ComingSoonButton className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-6 text-sm font-medium text-fd-muted-foreground shadow-sm" />
-              <span className="text-[11px] text-fd-muted-foreground">
-                Desktop app &middot; coming soon
               </span>
             </div>
           </div>
