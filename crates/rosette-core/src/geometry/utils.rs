@@ -333,8 +333,15 @@ mod tests {
         let centerline = vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0)];
         let poly = offset_polygon(&centerline, 2.0).unwrap();
 
-        // Should create a rectangle
-        assert_eq!(poly.len(), 4);
+        assert_eq!(
+            poly.vertices(),
+            &[
+                Point::new(0.0, 1.0),
+                Point::new(10.0, 1.0),
+                Point::new(10.0, -1.0),
+                Point::new(0.0, -1.0),
+            ]
+        );
 
         // Check area (should be 10 * 2 = 20)
         assert!((poly.area() - 20.0).abs() < 0.1);
@@ -351,6 +358,47 @@ mod tests {
 
         // Should create an L-shaped polygon
         assert_eq!(poly.len(), 6);
+
+        let corner_offset = 1.0 / 2.0_f64.sqrt();
+        let expected = [
+            Point::new(0.0, 0.5),
+            Point::new(10.0 - corner_offset / 2.0, corner_offset / 2.0),
+            Point::new(9.5, 10.0),
+            Point::new(10.5, 10.0),
+            Point::new(10.0 + corner_offset / 2.0, -corner_offset / 2.0),
+            Point::new(0.0, -0.5),
+        ];
+        for (actual, expected) in poly.vertices().iter().zip(expected) {
+            assert!(approx_eq(actual.x, expected.x));
+            assert!(approx_eq(actual.y, expected.y));
+        }
+    }
+
+    #[test]
+    fn test_offset_polygon_duplicate_points_are_preserved() {
+        let centerline = vec![Point::origin(), Point::origin(), Point::new(10.0, 0.0)];
+        let poly = offset_polygon(&centerline, 2.0).unwrap();
+
+        assert_eq!(
+            poly.vertices(),
+            &[
+                Point::origin(),
+                Point::new(0.0, 1.0),
+                Point::new(10.0, 1.0),
+                Point::new(10.0, -1.0),
+                Point::new(0.0, -1.0),
+                Point::origin(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_offset_polygon_all_equal_points_is_degenerate() {
+        let centerline = vec![Point::new(2.0, 3.0); 3];
+        let poly = offset_polygon(&centerline, 2.0).unwrap();
+
+        assert_eq!(poly.vertices(), &[Point::new(2.0, 3.0); 6]);
+        assert_eq!(poly.area(), 0.0);
     }
 
     #[test]

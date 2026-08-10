@@ -227,7 +227,21 @@ fn flatten_cell_recursive(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Cell, Layer, Library, Point, Polygon};
+    use crate::{Cell, CellRef, Layer, Library, PathEndType, Point, Polygon};
+
+    fn flat_bbox(vertices: &[f64]) -> (f64, f64, f64, f64) {
+        let mut min_x = f64::INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for point in vertices.chunks_exact(2) {
+            min_x = min_x.min(point[0]);
+            min_y = min_y.min(point[1]);
+            max_x = max_x.max(point[0]);
+            max_y = max_y.max(point[1]);
+        }
+        (min_x, min_y, max_x, max_y)
+    }
 
     #[test]
     fn test_flatten_simple() {
@@ -264,8 +278,6 @@ mod tests {
 
     #[test]
     fn test_flatten_hierarchy() {
-        use crate::CellRef;
-
         // Create child cell
         let mut child = Cell::new("child");
         child.add_polygon(Polygon::rect(Point::origin(), 5.0, 5.0), Layer::new(1, 0));
@@ -358,6 +370,103 @@ mod tests {
             (centers[1].1 - 10.0).abs() < 1e-9,
             "copy1.y = {}",
             centers[1].1
+        );
+    }
+
+    #[test]
+    fn test_flatten_path_end_types_currently_share_geometry() {
+        let points = vec![Point::origin(), Point::new(10.0, 0.0)];
+        let mut cell = Cell::new("paths");
+        cell.add_path(points.clone(), 2.0, Layer::new(1, 0), PathEndType::Flush);
+        cell.add_path(points.clone(), 2.0, Layer::new(2, 0), PathEndType::Round);
+        cell.add_path(
+            points,
+            2.0,
+            Layer::new(3, 0),
+            PathEndType::HalfWidthExtension,
+        );
+        let mut library = Library::new("paths");
+        library.add_cell(cell).unwrap();
+
+        let flat = flatten_library(&library, 1.0);
+        assert_eq!(flat.polygons.len(), 3);
+        assert_eq!(flat.polygons[0].vertices, flat.polygons[1].vertices);
+        assert_eq!(flat.polygons[0].vertices, flat.polygons[2].vertices);
+        assert_eq!(
+            flat_bbox(&flat.polygons[0].vertices),
+            (0.0, -1.0, 10.0, 1.0)
+        );
+    }
+
+    #[test]
+    fn test_flatten_reflected_path_characterization() {
+        let mut child = Cell::new("path");
+        child.add_path_simple(
+            vec![
+                Point::origin(),
+                Point::new(10.0, 0.0),
+                Point::new(10.0, 10.0),
+            ],
+            2.0,
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("path").mirror_x());
+        let mut library = Library::new("reflected");
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
+
+        let flat = flatten_library(&library, 1.0);
+        assert_eq!(flat.polygons.len(), 1);
+        let bbox = flat_bbox(&flat.polygons[0].vertices);
+        assert_eq!(bbox, (0.0, -10.0, 11.0, 1.0));
+    }
+
+    #[test]
+    fn test_flatten_uniform_path_scale_scales_width() {
+        let mut child = Cell::new("path");
+        child.add_path_simple(
+            vec![Point::origin(), Point::new(10.0, 0.0)],
+            2.0,
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("path").scale(2.0));
+        let mut library = Library::new("scaled");
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
+
+        let flat = flatten_library(&library, 1.0);
+        assert_eq!(
+            flat_bbox(&flat.polygons[0].vertices),
+            (0.0, -2.0, 20.0, 2.0)
+        );
+    }
+
+    #[test]
+    fn test_nonuniform_path_scale_currently_differs_from_bbox() {
+        let mut child = Cell::new("path");
+        child.add_path_simple(
+            vec![Point::origin(), Point::new(10.0, 0.0)],
+            2.0,
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::with_transform("path", Transform::scale(2.0, 3.0)));
+        let mut library = Library::new("scaled");
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
+
+        let flat = flatten_library(&library, 1.0);
+        assert_eq!(
+            flat_bbox(&flat.polygons[0].vertices),
+            (0.0, -2.0, 20.0, 2.0)
+        );
+
+        let bbox = library.cell_bbox("top").unwrap();
+        assert_eq!(
+            (bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y),
+            (0.0, -3.0, 20.0, 3.0)
         );
     }
 }

@@ -1012,6 +1012,54 @@ mod tests {
         assert!(result.warnings.is_empty());
         assert_eq!(result.polygons.len(), 1); // Single straight segment
         assert!(approx_eq(result.path_length, 100.0));
+        assert_eq!(
+            result.polygons[0].vertices(),
+            &[
+                Point::new(0.0, 0.25),
+                Point::new(100.0, 0.25),
+                Point::new(100.0, -0.25),
+                Point::new(0.0, -0.25),
+            ]
+        );
+    }
+
+    fn width_transition(auto_taper: bool, taper_length: f64) -> RouteResult {
+        let mut route = Route::new(Layer::new(1, 0))
+            .with_width(0.5)
+            .with_auto_taper(auto_taper)
+            .with_taper_length(taper_length);
+        route.start_at(0.0, 0.0, 0.0);
+        route.to_width(20.0, 0.0, 1.5);
+        route.end_at(20.0, 0.0, 0.0);
+        route.generate()
+    }
+
+    #[test]
+    fn test_route_width_change_spans_entire_segment() {
+        let result = width_transition(true, 10.0);
+
+        assert_eq!(result.polygons.len(), 1);
+        assert_eq!(
+            result.polygons[0].vertices(),
+            &[
+                Point::new(0.0, 0.25),
+                Point::new(20.0, 0.75),
+                Point::new(20.0, -0.75),
+                Point::new(0.0, -0.25),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_route_taper_options_currently_do_not_change_output() {
+        let default = width_transition(true, 10.0);
+        let disabled = width_transition(false, 10.0);
+        let short = width_transition(true, 1.0);
+
+        assert_eq!(default.polygons, disabled.polygons);
+        assert_eq!(default.polygons, short.polygons);
+        assert_eq!(default.path_length, disabled.path_length);
+        assert_eq!(default.path_length, short.path_length);
     }
 
     #[test]

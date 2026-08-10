@@ -16,6 +16,7 @@ Exit codes:
 from __future__ import annotations
 
 import ast
+from collections import Counter
 import json
 import re
 import sys
@@ -25,6 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 DOCS_DIR = ROOT / "www" / "content" / "docs" / "api-reference"
 META_JSON = DOCS_DIR / "meta.json"
 ROSETTE_INIT = ROOT / "python" / "rosette" / "__init__.py"
+AGENT_REFERENCE = ROOT / "python" / "rosette" / "_core.pyi"
 
 
 def extract_all(filepath: Path) -> list[str]:
@@ -70,6 +72,38 @@ def find_documented_attrs(index_mdx: Path) -> set[str]:
     return set(re.findall(r'<PyAttribute\s+name=\{"([^"]+)"\}', content))
 
 
+def find_landing_class_cards(index_mdx: Path) -> set[str]:
+    """Find class pages linked from cards on the API landing page."""
+    content = index_mdx.read_text()
+    pages = set(re.findall(r'href=\{"/docs/api-reference/([A-Z][^"]*)"\}', content))
+    return pages
+
+
+def find_documented_methods(page: Path) -> set[str]:
+    """Find methods represented by PyFunction components on a class page."""
+    return set(re.findall(r'<PyFunction\s+name=\{"([^"]+)"\}', page.read_text()))
+
+
+def extract_stub_class_methods(filepath: Path) -> dict[str, set[str]]:
+    """Extract public, non-property methods from the agent API reference."""
+    tree = ast.parse(filepath.read_text())
+    methods: dict[str, set[str]] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        methods[node.name] = {
+            child.name
+            for child in node.body
+            if isinstance(child, ast.FunctionDef)
+            and not child.name.startswith("_")
+            and not any(
+                isinstance(decorator, ast.Name) and decorator.id == "property"
+                for decorator in child.decorator_list
+            )
+        }
+    return methods
+
+
 def find_nav_pages(meta_json: Path) -> set[str]:
     """Find page entries listed in the api-reference sidebar nav (meta.json).
 
@@ -98,13 +132,16 @@ def main() -> int:
         print(f"ERROR: Could not parse __all__ from {ROSETTE_INIT}", file=sys.stderr)
         return 1
 
+    duplicates = [name for name, count in Counter(all_symbols).items() if count > 1]
+    for symbol in duplicates:
+        errors.append(f"Symbol '{symbol}' appears more than once in __all__")
+
     # Separate classes (uppercase, not ALL_CAPS) from functions/constants.
     # ALL_CAPS names like DEFAULT_LAYERS are constants documented on index.mdx.
     # The leading `s and` guards against a malformed (empty) __all__ entry.
     classes = [s for s in all_symbols if s and s[0].isupper() and not s.isupper()]
     functions = [s for s in all_symbols if s and s[0].islower()]
     constants = [s for s in all_symbols if s and s.isupper()]
-
     # ── Check docs exist ───────────────────────────────────────────────
     mdx_pages = find_mdx_pages(DOCS_DIR)
     index_mdx = DOCS_DIR / "index.mdx"
@@ -114,23 +151,42 @@ def main() -> int:
         if cls not in mdx_pages:
             errors.append(f"Class '{cls}' is in __all__ but has no docs page")
 
+    landing_classes = find_landing_class_cards(index_mdx) if index_mdx.exists() else set()
+    for cls in set(classes) - landing_classes:
+        errors.append(f"Class '{cls}' is missing from the API landing-page cards")
+    for cls in landing_classes - set(classes):
+        errors.append(f"Landing-page class card '{cls}' is not in __all__")
+
+    stub_methods = extract_stub_class_methods(AGENT_REFERENCE)
+    for cls in classes:
+        page = DOCS_DIR / f"{cls}.mdx"
+        if not page.exists() or cls not in stub_methods:
+            continue
+        missing_methods = stub_methods[cls] - find_documented_methods(page)
+        for method in sorted(missing_methods):
+            errors.append(f"Method '{cls}.{method}' is missing from {cls}.mdx")
+
     # Functions: each needs a <PyFunction> entry on index.mdx
     documented_functions = find_documented_functions(index_mdx) if index_mdx.exists() else set()
     for func in functions:
         if func not in documented_functions:
             errors.append(f"Function '{func}' is in __all__ but not documented in index.mdx")
+    for func in documented_functions - set(functions):
+        errors.append(f"Function '{func}' is documented in index.mdx but is not in __all__")
 
     # Constants: each needs a <PyAttribute> entry on index.mdx
     documented_attrs = find_documented_attrs(index_mdx) if index_mdx.exists() else set()
     for const in constants:
         if const not in documented_attrs:
             errors.append(f"Constant '{const}' is in __all__ but not documented in index.mdx")
+    for attr in documented_attrs - set(constants):
+        errors.append(f"Constant '{attr}' is documented in index.mdx but is not in __all__")
 
-    # Orphan check: pages that exist but aren't in __all__
+    # Orphan check: pages that exist but aren't public classes.
     known_symbols = set(all_symbols)
     for page in mdx_pages:
         if page not in known_symbols:
-            warnings.append(f"Docs page '{page}.mdx' exists but '{page}' is not in __all__")
+            errors.append(f"Docs page '{page}.mdx' exists but '{page}' is not in __all__")
 
     # ── Check sidebar nav (meta.json) ──────────────────────────────────
     # A class page can exist and be public yet still be invisible in the

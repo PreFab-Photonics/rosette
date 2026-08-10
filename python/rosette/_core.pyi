@@ -1,6 +1,10 @@
-"""Type stubs for rosette._core (Rust extension module).
+"""Rosette API reference used for extension typing and project agent context.
 
 All coordinates, dimensions, and distances are in microns (um).
+
+In initialized projects this file is copied to ``.rosette/api.pyi`` as an
+agent-readable reference. Editable component APIs live in ``components/`` and
+are intentionally not declared here.
 """
 
 from collections.abc import Iterator
@@ -183,6 +187,8 @@ class Instance:
     new bounds when choosing placement coordinates.
 
     Example:
+        from components import grating_coupler
+
         gc_cell = grating_coupler(layer=layer)
         gc_in = gc_cell.at(0, 0)              # Position at origin
         gc_out = gc_cell.at(0, 127)           # Position at fiber pitch
@@ -204,9 +210,21 @@ class Instance:
         rotated45 = block.at(0, 0).rotate(45).at(x + 4, y - 2)
     """
 
+    def __init__(
+        self,
+        cell: Cell,
+        transform: Transform | None = None,
+        repetition: tuple[int, int, float, float]
+        | tuple[int, int, float, float, float, float]
+        | None = None,
+    ) -> None: ...
     @property
     def cell(self) -> Cell:
         """The underlying cell definition."""
+        ...
+    @property
+    def transform(self) -> Transform:
+        """The current transform applied to this instance."""
         ...
     @property
     def cell_name(self) -> str:
@@ -350,7 +368,7 @@ class Instance:
             p = flipped.port("opt")   # direction is now (-1, 0)
 
             # Arrayed: address a specific copy.
-            bank = ring_cell.array(8, 1, 30.0, 0.0)
+            bank = ring_cell.at(0, 0).array(8, 1, 30.0, 0.0)
             p = bank.port("in", col=3)
         """
         ...
@@ -380,6 +398,9 @@ class Instance:
         ...
     def __len__(self) -> int:
         """Number of copies (``columns * rows``; 1 for non-arrayed)."""
+        ...
+    def to_ref(self) -> CellRef:
+        """Convert to a CellRef with the same transform and repetition."""
         ...
     def __repr__(self) -> str: ...
 
@@ -580,6 +601,8 @@ class CellRef:
             KeyError: If the port is not found in the cell
 
         Example:
+            from components import grating_coupler
+
             gc_cell = grating_coupler(layer=layer)
             gc_ref = CellRef(gc_cell).at(100, 50)
 
@@ -746,6 +769,9 @@ class Cell:
             Sorted list of unique cell names that this cell references (direct children only).
         """
         ...
+    def get_child_cells(self) -> set[Cell]:
+        """Get child cells tracked through Instance placement."""
+        ...
     def bbox(self) -> BBox | None: ...
     def at(self, x: float, y: float) -> Instance:
         """Create a positioned instance of this cell.
@@ -762,6 +788,8 @@ class Cell:
             An Instance positioned at (x, y)
 
         Example:
+            from components import grating_coupler
+
             gc_cell = grating_coupler(layer=layer)
             gc_in = gc_cell.at(0, 0)
             gc_out = gc_cell.at(0, 127)
@@ -1099,7 +1127,7 @@ class Route:
 # I/O Functions
 # =============================================================================
 
-def read_gds(path: str) -> Library:
+def read_gds(path: str | Path) -> Library:
     """Read a GDS file and return a Library.
 
     Args:
@@ -1111,9 +1139,10 @@ def read_gds(path: str) -> Library:
     ...
 
 def write_gds(
-    path: str,
+    path: str | Path,
     design: Cell | Library,
     cells: list[Cell] | None = None,
+    *,
     quiet: bool = False,
     verbose: bool = False,
 ) -> None:
@@ -1154,6 +1183,8 @@ def to_json(
 # Layer Map (project configuration)
 # =============================================================================
 
+DEFAULT_LAYERS: list[dict[str, object]]
+
 class LayerInfo:
     """A single layer definition with metadata.
 
@@ -1178,6 +1209,15 @@ class LayerInfo:
     fill: str
     opacity: float
     description: str
+    def __init__(
+        self,
+        name: str,
+        layer: Layer,
+        color: str = "#808080",
+        fill: str = "solid",
+        opacity: float = 0.7,
+        description: str = "",
+    ) -> None: ...
 
 class LayerMap:
     """Named layer definitions from rosette.toml.
@@ -1190,12 +1230,16 @@ class LayerMap:
         layers.silicon.color  # "#ff69b4"
     """
 
+    def __init__(self, layer_infos: list[LayerInfo] | None = None) -> None: ...
     def __getattr__(self, name: str) -> LayerInfo: ...
     def get(self, name: str) -> LayerInfo | None:
         """Get a layer by name, or None if not found."""
         ...
     def names(self) -> list[str]:
         """Get all layer names."""
+        ...
+    def to_dict_list(self) -> list[dict[str, object]]:
+        """Export layer definitions for serialization and viewer use."""
         ...
     def __contains__(self, name: str) -> bool: ...
     def __iter__(self) -> Iterator[LayerInfo]: ...
@@ -1209,6 +1253,8 @@ def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
     attribute-style access to each named layer.
 
     Example::
+
+        from components import grating_coupler
 
         layers = load_layer_map()
         silicon = layers.silicon.layer   # Layer(1, 0)
@@ -1645,6 +1691,10 @@ class DrcCache:
         """Drop all cached entries."""
         ...
 
+def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
+    """Load DRC rules from ``rosette.toml``."""
+    ...
+
 def run_drc(
     cell: Cell,
     rules: DrcRules,
@@ -1673,57 +1723,6 @@ def run_drc(
         else:
             for v in result.violations:
                 print(f"  {v.message}")
-    """
-    ...
-
-# =============================================================================
-# Component Reference (NOT part of rosette._core)
-# =============================================================================
-#
-# The stubs below document components from the project's components/ directory.
-# They are NOT importable from rosette -- import them as:
-#     from components import grating_coupler, mmi, ...
-#
-# These stubs are included here as a quick reference for type signatures and
-# placement notes. The editable source lives in components/.
-
-def grating_coupler(
-    layer: Layer,
-    waveguide_width: float = 0.5,
-    period: float = 0.63,
-    fill_factor: float = 0.5,
-    num_periods: int = 25,
-    grating_type: Literal["uniform", "apodized"] = "uniform",
-    focusing_angle: float | None = 20.0,
-    grating_width: float | None = None,
-    taper_length: float = 20.0,
-) -> Cell:
-    """Create a grating coupler for fiber-to-chip coupling.
-
-    Geometry: taper + teeth extend in **-X** from the origin.
-    Port: ``"opt"`` at ``(0, 0)``, facing **+X**.
-
-    Placement: rotate the GC so ``"opt"`` faces **toward** the target
-    port.  The grating body (taper + teeth) will then extend **away**.
-
-    ============  ==============  ======================
-    opt faces     Rotation        Grating body extends
-    ============  ==============  ======================
-    +X (right)    0 (default)     -X (left)
-    -X (left)     180             +X (right)
-    +Y (up)       90              -Y (down)
-    -Y (down)     -90             +Y (up)
-    ============  ==============  ======================
-
-    Example — connect to a port facing +X (e.g. MMI output)::
-
-        # GC opt must face -X (toward the port) -> rotate 180
-        gc_out = gc.at(0, 0).rotate(180).at(x, y)
-
-    Example — connect to a port facing -X (e.g. MMI input)::
-
-        # GC opt already faces +X (toward the port) -> no rotation
-        gc_in = gc.at(x, y)
     """
     ...
 
@@ -1869,6 +1868,12 @@ class DfmResult:
     def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
 
+def load_dfm_config(
+    config_path: str | Path | None = None,
+) -> tuple[DfmConfig, GaussianModel, list[Layer]] | None:
+    """Load DFM configuration from ``rosette.toml``."""
+    ...
+
 def run_dfm(
     cell: Cell,
     layers: list[Layer],
@@ -1898,6 +1903,14 @@ def run_dfm(
             if m:
                 print(f"  Layer {lp.layer}: edge dev {m.max_edge_deviation:.3f} um")
     """
+    ...
+
+def add_dfm_predictions(
+    cell: Cell,
+    result: DfmResult,
+    datatype_offset: int = 100,
+) -> None:
+    """Add predicted polygons to offset datatypes on a cell."""
     ...
 
 # ---------------------------------------------------------------------------
@@ -1966,6 +1979,10 @@ class ChecksResult:
     def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
 
+def load_checks_config(config_path: str | Path | None = None) -> ChecksConfig:
+    """Load design-check configuration from ``rosette.toml``."""
+    ...
+
 def run_checks(
     cell: Cell,
     config: ChecksConfig | None = None,
@@ -2033,7 +2050,7 @@ class RenderResult:
     def __repr__(self) -> str: ...
 
 def render_png(
-    library: Library,
+    design: Cell | Library,
     *,
     bbox: BBox | None = None,
     cell: str | None = None,
@@ -2045,10 +2062,10 @@ def render_png(
     fill_alpha: int = 178,
     palette: dict[int, str] | None = None,
 ) -> RenderResult:
-    """Render a library to a PNG image.
+    """Render a Cell or Library to a PNG image.
 
     Args:
-        library: The Library to render.
+        design: The Cell or Library to render.
         bbox: Optional explicit world-space region (microns). If omitted, derived
             from `cell` or the full library extent.
         cell: Render only the named cell instead of the top cell.

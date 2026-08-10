@@ -8,6 +8,8 @@ Provides attribute-style access to layers by semantic name, so
 components and designs can reference layers without hardcoded numbers.
 
 ```python
+from rosette.components import grating_coupler
+
 layers = load_layer_map()
 layers.silicon        # -> LayerInfo('silicon', Layer(1, 0), color='#ff69b4')
 layers.silicon.layer  # -> Layer(1, 0)

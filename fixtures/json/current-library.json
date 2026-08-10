@@ -1,0 +1,224 @@
+{
+  "name": "phase0_contract",
+  "cells": [
+    {
+      "name": "leaf",
+      "elements": [
+        {
+          "Polygon": {
+            "polygon": {
+              "vertices": [
+                {
+                  "x": -1.0,
+                  "y": -0.5
+                },
+                {
+                  "x": 1.0,
+                  "y": -0.5
+                },
+                {
+                  "x": 1.0,
+                  "y": 0.5
+                },
+                {
+                  "x": -1.0,
+                  "y": 0.5
+                }
+              ]
+            },
+            "layer": {
+              "number": 1,
+              "datatype": 2
+            }
+          }
+        },
+        {
+          "Path": {
+            "points": [
+              {
+                "x": 0.0,
+                "y": 0.0
+              },
+              {
+                "x": 5.0,
+                "y": 0.0
+              },
+              {
+                "x": 5.0,
+                "y": 2.0
+              }
+            ],
+            "width": 0.4,
+            "layer": {
+              "number": 3,
+              "datatype": 0
+            },
+            "end_type": "Round"
+          }
+        },
+        {
+          "Text": {
+            "text": "leaf-label",
+            "position": {
+              "x": 1.0,
+              "y": 2.0
+            },
+            "layer": {
+              "number": 10,
+              "datatype": 0
+            },
+            "height": 1.5
+          }
+        }
+      ],
+      "ports": [
+        {
+          "name": "opt",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "direction": {
+            "x": -1.0,
+            "y": 0.0
+          },
+          "width": 0.4
+        }
+      ],
+      "metadata": {
+        "path_length": 7.25,
+        "bends": [
+          {
+            "radius": 3.0,
+            "position": {
+              "x": 5.0,
+              "y": 0.0
+            },
+            "requested_radius": 4.0
+          }
+        ],
+        "warnings": [
+          "radius reduced"
+        ]
+      },
+      "origin": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "drc_skip": true,
+      "drc_waive_regions": [
+        {
+          "min": {
+            "x": -0.5,
+            "y": -0.5
+          },
+          "max": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "middle",
+      "elements": [
+        {
+          "CellRef": {
+            "cell_name": "leaf",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 2.0,
+              "ty": 4.0
+            },
+            "repetition": null
+          }
+        }
+      ],
+      "ports": [],
+      "metadata": {
+        "path_length": null,
+        "bends": [],
+        "warnings": []
+      },
+      "origin": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "drc_skip": false,
+      "drc_waive_regions": []
+    },
+    {
+      "name": "top",
+      "elements": [
+        {
+          "CellRef": {
+            "cell_name": "middle",
+            "transform": {
+              "a": 0.8660254037844387,
+              "b": -0.49999999999999994,
+              "c": 0.49999999999999994,
+              "d": 0.8660254037844387,
+              "tx": -1.339745962155611,
+              "ty": 22.320508075688775
+            },
+            "repetition": null
+          }
+        },
+        {
+          "CellRef": {
+            "cell_name": "leaf",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": -5.0,
+              "ty": 3.0
+            },
+            "repetition": {
+              "columns": 3,
+              "rows": 2,
+              "col_vector": {
+                "x": 8.0,
+                "y": 1.0
+              },
+              "row_vector": {
+                "x": 2.0,
+                "y": 6.0
+              }
+            }
+          }
+        },
+        {
+          "CellRef": {
+            "cell_name": "missing",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 100.0,
+              "ty": 100.0
+            },
+            "repetition": null
+          }
+        }
+      ],
+      "ports": [],
+      "metadata": {
+        "path_length": null,
+        "bends": [],
+        "warnings": []
+      },
+      "origin": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "drc_skip": false,
+      "drc_waive_regions": []
+    }
+  ]
+}

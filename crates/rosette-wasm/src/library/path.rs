@@ -283,3 +283,74 @@ pub(super) fn constant_width_path_rounded(
     let smooth = densify_centerline_with_arcs(centerline, corner_radius, num_arc_points);
     constant_width_path(&smooth, width)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constant_width_straight_vertices_are_stable() {
+        let polygon = constant_width_path(&[Point::origin(), Point::new(10.0, 0.0)], 2.0).unwrap();
+
+        assert_eq!(
+            polygon.vertices(),
+            &[
+                Point::new(0.0, 1.0),
+                Point::new(10.0, 1.0),
+                Point::new(10.0, -1.0),
+                Point::new(0.0, -1.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn constant_width_right_angle_uses_miter_join() {
+        let polygon = constant_width_path(
+            &[
+                Point::origin(),
+                Point::new(10.0, 0.0),
+                Point::new(10.0, 10.0),
+            ],
+            2.0,
+        )
+        .unwrap();
+
+        let expected = [
+            Point::new(0.0, 1.0),
+            Point::new(9.0, 1.0),
+            Point::new(9.0, 10.0),
+            Point::new(11.0, 10.0),
+            Point::new(11.0, -1.0),
+            Point::new(0.0, -1.0),
+        ];
+        for (actual, expected) in polygon.vertices().iter().zip(expected) {
+            assert!((actual.x - expected.x).abs() < 1e-12);
+            assert!((actual.y - expected.y).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn duplicate_start_currently_produces_no_polygon() {
+        assert!(
+            constant_width_path(
+                &[Point::origin(), Point::origin(), Point::new(10.0, 0.0)],
+                2.0,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn zero_corner_radius_matches_unrounded_path() {
+        let points = [
+            Point::origin(),
+            Point::new(10.0, 0.0),
+            Point::new(10.0, 10.0),
+        ];
+
+        assert_eq!(
+            constant_width_path_rounded(&points, 2.0, 0.0, 16),
+            constant_width_path(&points, 2.0)
+        );
+    }
+}

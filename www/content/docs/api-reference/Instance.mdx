@@ -70,7 +70,7 @@ meaningful without checking whether `array()` was called.
 
 ## Methods
 
-<PyFunction name={"__init__"} type={"(cell, transform=None) -> None"}>
+<PyFunction name={"__init__"} type={"(cell, transform=None, repetition=None) -> None"}>
 
 Create an Instance from a Cell and optional transform.
 
@@ -86,6 +86,11 @@ The cell definition.
 <PyParameter name={"transform"} type={"Transform | None"} value={"None"}>
 
 Optional transform. Defaults to identity.
+
+</PyParameter>
+<PyParameter name={"repetition"} type={"tuple[int, int, float, float] | tuple[int, int, float, float, float, float] | None"} value={"None"}>
+
+Optional AREF lattice. Prefer `array()` or `array_vectors()` for normal use.
 
 </PyParameter>
 
@@ -265,7 +270,7 @@ from rosette import Vector2
 
 # Hex packing (flat-top): adjacent rows staggered by pitch/2.
 pitch = 10.0
-arr = unit_cell.array_vectors(
+arr = unit_cell.at(0, 0).array_vectors(
     6, 4,
     Vector2(pitch, 0.0),
     Vector2(pitch / 2.0, pitch * math.sqrt(3.0) / 2.0),
@@ -334,7 +339,7 @@ flipped = gc_cell.at(0, 0).rotate(180).at(50, 0)
 p = flipped.port("opt")   # direction is now (-1, 0)
 
 # Arrayed: address a specific copy.
-bank = ring_cell.array(8, 1, 30.0, 0.0)
+bank = ring_cell.at(0, 0).array(8, 1, 30.0, 0.0)
 p = bank.port("in", col=3)
 ```
 
@@ -390,7 +395,7 @@ Equivalent to `iter(instance)`.
 <Callout title={"Example"} type={"example"}>
 
 ```python
-bank = ring_cell.array(8, 1, 30.0, 0.0)
+bank = ring_cell.at(0, 0).array(8, 1, 30.0, 0.0)
 top.add_ref(bank)                        # one AREF
 
 for copy in bank.copies():

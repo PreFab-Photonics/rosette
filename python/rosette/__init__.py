@@ -181,6 +181,8 @@ class Instance:
     Cell reference is preserved, allowing direct port queries.
 
     Example:
+        from rosette.components import grating_coupler
+
         # Old pattern (redundant):
         gc_cell = grating_coupler(...)
         gc_ref = CellRef(gc_cell).at(0, 0)
@@ -404,7 +406,7 @@ class Instance:
             import math
             pitch = 10.0
             # Hex packing (flat-top): adjacent rows staggered by pitch/2.
-            arr = unit_cell.array_vectors(
+            arr = unit_cell.at(0, 0).array_vectors(
                 6, 4,
                 Vector2(pitch, 0.0),
                 Vector2(pitch / 2.0, pitch * math.sqrt(3.0) / 2.0),
@@ -450,7 +452,7 @@ class Instance:
             opt_port = gc.port("opt")  # No need to pass gc_cell!
 
             # Arrayed: address a specific copy.
-            bank = ring_cell.array(8, 1, 30.0, 0.0)
+            bank = ring_cell.at(0, 0).array(8, 1, 30.0, 0.0)
             p = bank.port("in", col=3)
         """
         original_port = self._cell.port(name)
@@ -509,7 +511,7 @@ class Instance:
         called.
 
         Example:
-            bank = ring_cell.array(8, 1, 30.0, 0.0)
+            bank = ring_cell.at(0, 0).array(8, 1, 30.0, 0.0)
             top.add_ref(bank)                        # one AREF
             for copy in bank.copies():
                 top.add_text(
@@ -646,7 +648,7 @@ class ArrayCopy:
     GDS with ``columns * rows`` extra SREFs.
 
     Example:
-        pds = pd_cell.array(8, 8, 50.0, 50.0)
+        pds = pd_cell.at(0, 0).array(8, 8, 50.0, 50.0)
         top.add_ref(pds)                             # one AREF
 
         netlist = []
@@ -1163,6 +1165,10 @@ class Cell:
         """Number of cell references."""
         return self._inner.ref_count()
 
+    def cell_ref_names(self) -> list[str]:
+        """Get the sorted unique names of directly referenced cells."""
+        return self._inner.cell_ref_names()
+
     def bbox(self) -> BBox | None:
         """Calculate the bounding box of the geometry directly in this cell.
 
@@ -1195,6 +1201,8 @@ class Cell:
             An Instance positioned at (x, y)
 
         Example:
+            from rosette.components import grating_coupler
+
             gc_cell = grating_coupler(...)
             gc_in = gc_cell.at(0, 0)
             gc_out = gc_cell.at(0, 127)
@@ -2459,7 +2467,7 @@ def write_gds(
     if os.environ.get("ROSETTE_VERBOSE"):
         verbose = True
 
-    _write_gds(str(path), inner_design, inner_cells, quiet, verbose)
+    _write_gds(str(path), inner_design, inner_cells, quiet=quiet, verbose=verbose)
 
 
 def render_png(
@@ -2584,7 +2592,7 @@ def render_png(
 
 
 # =============================================================================
-# LayerMap: Named layer definitions with colors from layers.toml
+# LayerMap: Named layer definitions with colors from rosette.toml
 # =============================================================================
 
 # Valid fill pattern values (matches app/WASM renderer)
@@ -2702,12 +2710,14 @@ class LayerInfo:
 
 
 class LayerMap:
-    """Named layer definitions loaded from layers.toml.
+    """Named layer definitions loaded from rosette.toml.
 
     Provides attribute-style access to layers by semantic name, so
     components and designs can reference layers without hardcoded numbers.
 
     Example:
+        from rosette.components import grating_coupler
+
         layers = load_layer_map()
         layers.silicon        # -> LayerInfo('silicon', Layer(1, 0), color='#ff69b4')
         layers.silicon.layer  # -> Layer(1, 0)

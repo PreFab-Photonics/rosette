@@ -196,7 +196,8 @@ my-chip/
 │   ├── grating_coupler.py
 │   └── ...
 ├── .rosette/
-│   └── api.pyi           # Typed API stub for editor autocomplete
+│   ├── api.pyi           # Agent-readable core API reference
+│   └── cli.json          # Machine-readable CLI contract
 └── AGENTS.md             # AI agent instructions (if selected)
 ```
 
@@ -211,8 +212,14 @@ my-chip/
 - **`components/`**: a library of photonic building blocks (S-bends, MMIs, rings,
   couplers, and more). These are copied into your project so you can read and modify them
   freely.
-- **`.rosette/api.pyi`**: a type stub for the core Rosette API. This powers
-  autocomplete and type checking in your editor.
+- **`.rosette/api.pyi`**: the core Rosette API reference for agents. It uses
+  stub syntax for compactness, but is not intended as an editor type stub.
+- **`.rosette/cli.json`**: the complete machine-readable CLI contract, including
+  commands, flags, exit codes, and JSON output schemas.
+
+The `.rosette/` directory is gitignored because these references are tied to the
+installed Rosette version. After a fresh clone, restore both files with
+`uv run rosette update`. Do not rerun `rosette init` in an existing project.
 
 ## Run the dev server
 

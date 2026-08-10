@@ -1,0 +1,67 @@
+{
+  "name": "cycle",
+  "cells": [
+    {
+      "name": "cycle_a",
+      "elements": [
+        {
+          "CellRef": {
+            "cell_name": "cycle_b",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "repetition": null
+          }
+        }
+      ],
+      "ports": [],
+      "metadata": {
+        "path_length": null,
+        "bends": [],
+        "warnings": []
+      },
+      "origin": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "drc_skip": false,
+      "drc_waive_regions": []
+    },
+    {
+      "name": "cycle_b",
+      "elements": [
+        {
+          "CellRef": {
+            "cell_name": "cycle_a",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "repetition": null
+          }
+        }
+      ],
+      "ports": [],
+      "metadata": {
+        "path_length": null,
+        "bends": [],
+        "warnings": []
+      },
+      "origin": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "drc_skip": false,
+      "drc_waive_regions": []
+    }
+  ]
+}

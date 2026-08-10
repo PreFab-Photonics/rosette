@@ -8,12 +8,14 @@ Rosette photonic design project. Python scripts in `designs/` produce GDSII layo
 
 Before writing or modifying any Rosette code, read these files:
 
-- `.rosette/api.pyi` -- complete typed API (source of truth for all classes and functions)
+- `.rosette/api.pyi` -- core Rosette API reference for agents (not an editor type stub)
 - `.rosette/cli.json` -- complete CLI contract (every command, its flags, exit codes, and `--json` schema), discoverable without prose. Equivalent to `rosette cli-manifest`.
 - `rosette.toml` -- project config, layer definitions (named layers), DRC rules, DFM config
-- `components/` -- editable component source
+- `components/` -- editable component APIs and source; component functions are intentionally documented here rather than in `.rosette/api.pyi`
 
 Your training data may be outdated -- these files match your installed version.
+
+`.rosette/` is gitignored and may be absent after a fresh clone. If either reference file is missing, run `uv run rosette update`; do not rerun `rosette init` in an existing project.
 
 ## ALWAYS build then check
 

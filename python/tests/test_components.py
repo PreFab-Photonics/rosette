@@ -4,10 +4,13 @@ Components are now Python functions in rosette.components that return Cells.
 These tests verify the component functions generate valid cells with ports.
 """
 
+import importlib
 import math
+from pathlib import Path
 
 import pytest
 
+import rosette.components
 from rosette import Cell, Layer, Route, write_gds
 from rosette.components import (
     bragg_grating,
@@ -30,6 +33,24 @@ def layer() -> Layer:
 # =============================================================================
 # Parameterized tests for common component behavior
 # =============================================================================
+
+
+def test_public_component_catalog_matches_modules():
+    components_dir = Path(rosette.components.__file__).parent
+    module_names = {
+        path.stem
+        for path in components_dir.glob("*.py")
+        if path.name != "__init__.py" and not path.name.startswith("_")
+    }
+
+    assert len(rosette.components.__all__) == len(set(rosette.components.__all__))
+    assert set(rosette.components.__all__) == module_names
+    for name in rosette.components.__all__:
+        component = getattr(rosette.components, name)
+        assert callable(component)
+        assert component.__module__ == f"rosette.components.{name}"
+        module = importlib.import_module(component.__module__)
+        assert module.__all__ == [name]
 
 
 @pytest.mark.parametrize(

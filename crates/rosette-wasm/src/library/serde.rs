@@ -354,3 +354,39 @@ impl WasmLibrary {
             .map_err(|e| JsValue::from_str(&format!("JSON serialize error: {}", e)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CURRENT_LIBRARY: &str = include_str!("../../../../fixtures/json/current-library.json");
+    const CYCLE: &str = include_str!("../../../../fixtures/json/cycle.json");
+    const MULTI_ROOT: &str = include_str!("../../../../fixtures/json/multi-root.json");
+
+    #[test]
+    fn hierarchical_json_round_trip_preserves_skew_repetition() {
+        let wasm = WasmLibrary::from_library_json(CURRENT_LIBRARY).unwrap();
+        let restored = rosette_io::json::from_string(&wasm.to_library_json().unwrap()).unwrap();
+
+        assert_eq!(restored.cells().len(), 3);
+        assert_eq!(restored.top_cell().unwrap().name(), "top");
+        let refs: Vec<_> = restored.cell("top").unwrap().cell_refs().collect();
+        let repetition = refs[1].repetition.unwrap();
+        assert_eq!((repetition.columns, repetition.rows), (3, 2));
+        assert!((repetition.col_vector.x - 8.0).abs() < 1e-12);
+        assert!((repetition.col_vector.y - 1.0).abs() < 1e-12);
+        assert!((repetition.row_vector.x - 2.0).abs() < 1e-12);
+        assert!((repetition.row_vector.y - 6.0).abs() < 1e-12);
+        assert_eq!(refs[2].cell_name, "missing");
+    }
+
+    #[test]
+    fn hierarchy_edge_case_fixtures_are_accepted() {
+        let cycle = WasmLibrary::from_library_json(CYCLE).unwrap();
+        assert_eq!(cycle.library.cells().len(), 2);
+
+        let multi_root = WasmLibrary::from_library_json(MULTI_ROOT).unwrap();
+        assert_eq!(multi_root.library.cells().len(), 2);
+        assert_eq!(multi_root.active_cell.as_deref(), Some("root_b"));
+    }
+}

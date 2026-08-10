@@ -356,6 +356,14 @@ Number of cell references.
 
 </PyFunction>
 
+<PyFunction name={"cell_ref_names"} type={"() -> list[str]"}>
+
+Get the sorted unique names of cells referenced directly by this cell.
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+
 ### Bounding box
 
 <PyFunction name={"bbox"} type={"() -> BBox | None"}>
@@ -386,6 +394,8 @@ redundantly passing the cell.
 <Callout title={"Example"} type={"example"}>
 
 ```python
+from rosette.components import grating_coupler
+
 gc_cell = grating_coupler(layer=layers.silicon.layer)
 gc_in = gc_cell.at(0, 0)
 gc_out = gc_cell.at(0, 127)

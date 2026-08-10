@@ -26,27 +26,36 @@ my-chip/
 ├── designs/             # your design scripts
 ├── output/              # GDS build artifacts
 └── .rosette/
-    └── api.pyi          # complete typed API for this version
+    ├── api.pyi          # core API reference for agents
+    └── cli.json         # complete machine-readable CLI contract
 ```
 
 Each piece plays a specific role:
 
 - **`AGENTS.md` / `CLAUDE.md`**: short instruction file the agent reads
   on startup. Tells it to read the reference files first, build then
-  check after every change, and never hardcode layer numbers. The
-  generic template includes a `components/` line; the blank template
-  doesn't.
-- **`.rosette/api.pyi`**: complete typed stub for the installed version
-  of Rosette. Every class, every method, every type. The agent reads
-  this instead of relying on its training data, which is almost
-  certainly stale.
+  check after every change, and never hardcode layer numbers.
+- **`.rosette/api.pyi`**: core API reference for the installed version
+  of Rosette. It uses compact stub syntax for agent context, but is not
+  an editor type stub. Component APIs live in the editable `components/`
+  source instead.
+- **`.rosette/cli.json`**: complete CLI contract for the installed version,
+  including commands, flags, exit codes, and JSON output schemas.
 - **`rosette.toml`**: layer definitions, DRC rules, DFM config. The
   physical constraints of your design, machine-readable. Agents pick
   semantic layer names from `[layers]` instead of guessing GDS numbers.
 - **`components/`**: editable Python source for waveguides, bends,
   MMIs, grating couplers, ring resonators, and more. The agent reads
-  the docstrings and signatures, then composes them. Generic template
-  only.
+  the docstrings and signatures, then composes them. The generic template
+  includes the full catalog; the blank template starts with shared helpers
+  for components you add later.
+
+<Callout title={"Restore references after cloning"} type={"info"}>
+`.rosette/` is gitignored because its references match the installed Rosette
+version. After a fresh clone, run `uv run rosette update` to recreate
+`.rosette/api.pyi` and `.rosette/cli.json`. Do not rerun `rosette init` in an
+existing project.
+</Callout>
 
 <Callout title={"Pick a tool when you init"} type={"info"}>
 `rosette init` accepts `--tool opencode` or `--tool claude` if you want

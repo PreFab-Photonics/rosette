@@ -43,7 +43,7 @@ OUTPUT_DIR = "output"  # default location for built GDS (created on first build)
 #
 #   Managed reference (regenerated wholesale by `rosette init`/`update`, pinned
 #   to the installed librosette build):
-#     .rosette/api.pyi   -- typed API stub (copied from the package's _core.pyi)
+#     .rosette/api.pyi   -- agent API reference (copied from the package's _core.pyi)
 #     .rosette/cli.json  -- CLI manifest (regenerated from the argparse parser;
 #                           stamps `package_version` for staleness detection)
 #
@@ -357,7 +357,7 @@ _COMPONENT_COPY_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
 
 
 def _rewrite_component_imports(src: str) -> str:
-    """Rewrite ``rosette.components.*`` imports to package-relative form.
+    """Rewrite ``rosette.components`` imports for a project-local package.
 
     The stdlib components package uses absolute imports like
     ``from rosette.components._utils import safe_cell_name`` and
@@ -368,10 +368,10 @@ def _rewrite_component_imports(src: str) -> str:
     ``components/mmi.py`` are silently ignored. That defeats the whole
     shadcn-style "copy into the project and edit" workflow.
 
-    This rewrites only **top-level** (column-zero) ``from
-    rosette.components[.X] import ...`` statements to their relative
-    form. Indented occurrences (docstring examples that teach users the
-    public import path against the installed package) are left alone.
+    Top-level imports become package-relative so the copied package is
+    self-contained. Indented imports in docstrings and function bodies become
+    project-absolute ``components`` imports so examples teach users to call
+    their editable local copies rather than the installed package.
 
     Leaves ``from rosette import ...`` -- the core package -- untouched.
 
@@ -394,9 +394,6 @@ def _rewrite_component_imports(src: str) -> str:
     """
     out_lines: list[str] = []
     for line in src.splitlines(keepends=True):
-        # Only rewrite lines that start at column 0. Docstring examples
-        # are always indented inside triple-quoted strings, so this
-        # cleanly separates real imports from prose.
         if line.startswith("from rosette.components."):
             # e.g. "from rosette.components._utils import X"
             #  ->  "from ._utils import X"
@@ -415,6 +412,12 @@ def _rewrite_component_imports(src: str) -> str:
                 "in cli.py to handle `import rosette.components[.X]`, or "
                 "change the source to use `from rosette.components[.X] import ...` "
                 "instead."
+            )
+        elif "from rosette.components." in line:
+            out_lines.append(line.replace("from rosette.components.", "from components.", 1))
+        elif "from rosette.components import " in line:
+            out_lines.append(
+                line.replace("from rosette.components import ", "from components import ", 1)
             )
         else:
             out_lines.append(line)
@@ -1456,7 +1459,7 @@ def init_project(
 
 
 def _copy_api_stub(rosette_dir: Path):
-    """Copy the typed API stub to .rosette/ for agent reference."""
+    """Copy the API reference to .rosette/ for agents to read."""
     package_dir = Path(__file__).parent
 
     pyi_file = package_dir / "_core.pyi"
@@ -1518,7 +1521,7 @@ def update_project():
       .claude/skills, ...) is refreshed from the template's canonical skills/
     - .rosette/ managed reference is fully regenerated, pinned to the installed
       librosette build (see the ROSETTE_DIR comment for the full layout):
-      - .rosette/api.pyi: fully replaced with latest API stub
+      - .rosette/api.pyi: fully replaced with latest agent API reference
       - .rosette/cli.json: regenerated CLI manifest (command contract; stamps
         the installed version for staleness detection)
     - Only updates files for tools that are already configured

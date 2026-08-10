@@ -18,7 +18,7 @@ the GDS with `columns * rows` extra SREFs.
 
 ```python
 # 8x8 photodiode array: one AREF in the GDS, per-copy metadata in Python.
-pds = pd_cell.array(8, 8, 50.0, 50.0)
+pds = pd_cell.at(0, 0).array(8, 8, 50.0, 50.0)
 top.add_ref(pds)
 
 netlist = []
@@ -86,7 +86,7 @@ Equivalent to `parent.port(name, col=self.col, row=self.row)`.
 
 ```python
 # Ring bank with per-ring labels.
-bank = ring_cell.array(8, 1, 30.0, 0.0)
+bank = ring_cell.at(0, 0).array(8, 1, 30.0, 0.0)
 top.add_ref(bank)
 for copy in bank.copies():
     top.add_text(

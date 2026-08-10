@@ -164,6 +164,8 @@ class TestRosetteInit:
         stub_content = api_stub.read_text()
         assert "class Route" in stub_content
         assert "class Cell" in stub_content
+        packaged_stub = Path(__file__).parents[1] / "rosette" / "_core.pyi"
+        assert api_stub.read_bytes() == packaged_stub.read_bytes()
 
         # Rust source files are NOT bundled (agents work in Python only)
         src_dir = project_dir / ".rosette" / "src"
@@ -532,10 +534,19 @@ class TestRosetteInit:
 
         init_project("generic", tool="opencode")
 
+        stale_imports = {
+            path.name
+            for path in (project_dir / "components").glob("*.py")
+            if "from rosette.components" in path.read_text()
+        }
+        assert stale_imports == set()
+
         # Put the project root at the front of sys.path, import `components`,
         # and verify the public re-exports resolve to the local copies.
         import importlib
         import sys
+
+        import rosette.components as stdlib_components
 
         sys.path.insert(0, str(project_dir))
         # Evict any prior `components` module from other tests / repo root.
@@ -544,7 +555,8 @@ class TestRosetteInit:
                 del sys.modules[mod]
         try:
             components = importlib.import_module("components")
-            for name in ("mmi", "ring", "grating_coupler", "bragg_grating"):
+            assert components.__all__ == stdlib_components.__all__
+            for name in stdlib_components.__all__:
                 assert hasattr(components, name), f"components.{name} missing"
                 func = getattr(components, name)
                 assert callable(func)
@@ -930,8 +942,8 @@ class TestRewriteComponentImports:
         src = "from rosette import Cell, Layer, Point\n"
         assert _rewrite_component_imports(src) == src
 
-    def test_leaves_indented_docstring_examples_alone(self):
-        """Docstring examples teach the installed-package import path; leave them."""
+    def test_rewrites_indented_examples_to_local_package(self):
+        """Copied examples must teach the editable project-local import path."""
         from rosette.cli import _rewrite_component_imports
 
         src = (
@@ -941,7 +953,22 @@ class TestRewriteComponentImports:
             "    >>> mmi(...)\n"
             '"""\n'
         )
-        assert _rewrite_component_imports(src) == src
+        expected = (
+            '"""My docstring.\n\n'
+            "Example::\n\n"
+            "    >>> from components import mmi\n"
+            "    >>> mmi(...)\n"
+            '"""\n'
+        )
+        assert _rewrite_component_imports(src) == expected
+
+    def test_rewrites_indented_submodule_examples_to_local_package(self):
+        from rosette.cli import _rewrite_component_imports
+
+        src = "    from rosette.components._utils import safe_cell_name\n"
+        assert _rewrite_component_imports(src) == (
+            "    from components._utils import safe_cell_name\n"
+        )
 
     def test_preserves_other_lines_verbatim(self):
         from rosette.cli import _rewrite_component_imports
@@ -1162,6 +1189,45 @@ class TestRosetteUpdate:
         assert "<!-- BEGIN:rosette-agent-rules -->" in restored
         assert "ALWAYS read the reference files" in restored
         assert api_stub.exists()
+        packaged_stub = Path(__file__).parents[1] / "rosette" / "_core.pyi"
+        assert api_stub.read_bytes() == packaged_stub.read_bytes()
+
+    @pytest.mark.parametrize("template", ["blank", "generic"])
+    def test_update_bootstraps_gitignored_references_after_clone(
+        self, tmp_path: Path, monkeypatch, template: str
+    ):
+        """A fresh clone can restore all version-pinned references with update."""
+        import json
+        import shutil
+
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project(template, tool="opencode")
+
+        agents_md = project_dir / "AGENTS.md"
+        agents_md.write_text(agents_md.read_text() + "\n## User rules\n\nKeep this.\n")
+        components_before = {
+            path.relative_to(project_dir): path.read_bytes()
+            for path in (project_dir / "components").rglob("*.py")
+        }
+        config_before = (project_dir / "rosette.toml").read_bytes()
+        shutil.rmtree(project_dir / ".rosette")
+
+        update_project()
+
+        rosette_dir = project_dir / ".rosette"
+        packaged_stub = Path(__file__).parents[1] / "rosette" / "_core.pyi"
+        assert (rosette_dir / "api.pyi").read_bytes() == packaged_stub.read_bytes()
+        manifest = json.loads((rosette_dir / "cli.json").read_text())
+        assert manifest["package_version"]
+        assert manifest["commands"]
+        assert "Keep this." in agents_md.read_text()
+        assert (project_dir / "rosette.toml").read_bytes() == config_before
+        assert {
+            path.relative_to(project_dir): path.read_bytes()
+            for path in (project_dir / "components").rglob("*.py")
+        } == components_before
 
     def test_update_preserves_user_content(self, tmp_path: Path, monkeypatch):
         """rosette update preserves user content outside markers in AGENTS.md."""
