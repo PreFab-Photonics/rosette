@@ -13,33 +13,31 @@
     "format": "biome format --write"
   },
   "dependencies": {
-    "@takumi-rs/image-response": "^0.73.1",
     "@vercel/analytics": "^2.0.1",
-    "fumadocs-core": "^16.10.4",
-    "fumadocs-mdx": "^15.0.12",
-    "fumadocs-python": "^0.0.11",
-    "fumadocs-ui": "^16.10.4",
-    "lucide-react": "^0.577.0",
-    "next": "16.2.9",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "shiki": "^4.0.2"
+    "fumadocs-core": "^16.14.3",
+    "fumadocs-mdx": "^15.2.3",
+    "fumadocs-python": "^0.1.1",
+    "fumadocs-ui": "^16.14.3",
+    "next": "16.3.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "shiki": "^4.4.3",
+    "takumi-js": "^2.7.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.9",
-    "@tailwindcss/postcss": "^4.2.2",
-    "@types/mdx": "^2.0.13",
-    "@types/node": "^25.5.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "postcss": "^8.5.8",
-    "tailwindcss": "^4.2.2",
+    "@biomejs/biome": "^2.5.7",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/mdx": "^2.0.14",
+    "@types/node": "^25.9.5",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3"
   },
   "overrides": {
     "path-to-regexp": ">=8.4.0",
     "picomatch": ">=4.0.4",
-    "postcss": ">=8.5.15",
-    "js-yaml": ">=4.2.0"
+    "postcss": ">=8.5.23"
   }
 }
