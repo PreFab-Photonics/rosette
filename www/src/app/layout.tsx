@@ -52,6 +52,13 @@ export default function Layout({ children }: LayoutProps<"/">) {
       <body className="flex flex-col min-h-screen font-[family-name:var(--font-geist-sans)]">
         <RootProvider
           theme={{
+            // The site has no theme switcher — appearance follows the OS.
+            // next-themes still reads its storage key first (`localStorage
+            // .getItem(key) || defaultTheme`), so a leftover value pins the
+            // theme with no UI left to change it. A site-scoped key sidesteps
+            // both the stale `theme` entry written by the toggle this site used
+            // to ship, and any unrelated app sharing the localhost origin.
+            storageKey: "rosette-theme",
             defaultTheme: "system",
             enableSystem: true,
             disableTransitionOnChange: true,

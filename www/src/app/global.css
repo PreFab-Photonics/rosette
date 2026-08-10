@@ -40,6 +40,72 @@
     0 12px 12px -6px rgba(0, 0, 0, 0.18);
 }
 
+/* ── Agent flow hero: staggered reveal + typed prompt ───────────────────── */
+
+@keyframes rosette-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes rosette-char-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The caret is a sibling after the prompt's character spans, so it always sits
+   at the end of the full string. Blinking it from frame 0 would park a cursor
+   past text that has not been typed yet, so the element is hidden by default and
+   the blink is delayed until typing finishes (see `CARET_DELAY_MS`). Explicit
+   `from`/`to` stops are required: with the element's own `opacity: 0` supplying
+   the implicit stops, a lone `50%` frame would never make it visible. */
+@keyframes rosette-caret {
+  from {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Motion is opt-in: with `prefers-reduced-motion: reduce` no animation is
+   applied at all, so the `both` fill mode never leaves content hidden. The caret
+   is the exception — it stays hidden, since a static cursor is pure decoration. */
+
+@utility animate-line-in {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: rosette-line-in 380ms ease-out both;
+  }
+}
+
+@utility animate-char-in {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: rosette-char-in 1ms linear both;
+  }
+}
+
+@utility animate-caret {
+  opacity: 0;
+
+  @media (prefers-reduced-motion: no-preference) {
+    /* No fill mode: during `animation-delay` the element's own `opacity: 0`
+       applies, so the caret stays hidden until typing is done. */
+    animation: rosette-caret 1s step-end infinite;
+  }
+}
+
 /* ── Sidebar: match main content background ─────────────────────────────── */
 
 #nd-sidebar {

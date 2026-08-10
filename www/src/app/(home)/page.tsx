@@ -2,15 +2,16 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { blog } from "@/lib/source";
+import { AgentFlow } from "./components/agent-flow";
 import { CopyButton } from "./components/copy-button";
 import { RedactedText } from "./components/redacted-text";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Rosette - The modern chip layout editor",
+    absolute: "Rosette - Chip design tools for agents",
   },
   description:
-    "A fast, intelligent, and accessible GDSII layout editor. Rust core, Python SDK, and a WebGPU desktop app for integrated photonic circuit design.",
+    "Rosette gives coding agents the instructions, context, and verification tools to design photonic chips. Rust core, Python API, and a WebGPU desktop app.",
   keywords: [
     "GDSII",
     "layout editor",
@@ -19,12 +20,18 @@ export const metadata: Metadata = {
     "Python",
     "EDA",
     "photonic design",
+    "AI agents",
+    "agentic design",
+    "Claude Code",
+    "OpenCode",
   ],
 };
 
 /* -------------------------------------------------------------------------- */
 /*  Hero                                                                      */
 /* -------------------------------------------------------------------------- */
+
+const INIT_COMMAND = "uvx --from librosette rosette init my-chip";
 
 function Hero() {
   return (
@@ -33,24 +40,27 @@ function Hero() {
         {/* Hero text */}
         <div className="mx-auto max-w-4xl text-center">
           <h1 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-fd-foreground uppercase sm:text-4xl lg:text-5xl">
-            Chip layouts at the speed of thought
+            Photonic design tools for agents + humans
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-fd-muted-foreground">
-            A fast, intelligent, and accessible GDSII layout editor built for
-            modern workflows
+            Rosette gives coding agents the instructions, context, and
+            verification they need to design photonic chips — and gives you a
+            fast editor to check their work
           </p>
 
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
-            {/* uv add — Python SDK */}
-            <div className="flex flex-col items-center gap-1.5">
-              <div className="inline-flex h-11 items-center rounded-lg border border-fd-border bg-fd-background px-5 shadow-sm font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
-                <span className="select-none text-emerald-400">~&nbsp;</span>
-                uv add librosette
-                <CopyButton text="uv add librosette" />
+            {/* rosette init — agent-ready project */}
+            <div className="flex w-full min-w-0 flex-col items-center gap-1.5 sm:w-auto">
+              <div className="inline-flex h-11 w-full min-w-0 items-center rounded-lg border border-fd-border bg-fd-background px-4 shadow-sm font-[family-name:var(--font-geist-mono)] text-xs text-fd-foreground sm:w-auto sm:px-5 sm:text-sm">
+                <span className="flex min-w-0 flex-1 items-center overflow-x-auto">
+                  <span className="select-none text-emerald-400">~&nbsp;</span>
+                  <span className="whitespace-nowrap">{INIT_COMMAND}</span>
+                </span>
+                <CopyButton text={INIT_COMMAND} />
               </div>
               <span className="text-[11px] text-fd-muted-foreground">
-                Python SDK
+                New agent-ready project
               </span>
             </div>
 
@@ -82,28 +92,9 @@ function Hero() {
         </div>
       </div>
 
-      {/* Full-width static preview (wider than the hero text) */}
-      <div className="mx-auto mt-10 max-w-6xl px-6 pb-8">
-        <div className="relative aspect-[2388/1544] w-full select-none overflow-hidden rounded-xl border border-fd-border shadow-md dark:shadow-elevation ring-1 ring-inset ring-fd-accent">
-          {/* Light theme */}
-          <Image
-            src="/hero-preview-light-v2.png"
-            alt="A photonic circuit laid out in the Rosette editor"
-            fill
-            priority
-            sizes="(max-width: 1152px) 100vw, 1152px"
-            className="object-cover dark:hidden"
-          />
-          {/* Dark theme */}
-          <Image
-            src="/hero-preview-dark-v2.png"
-            alt="A photonic circuit laid out in the Rosette editor"
-            fill
-            priority
-            sizes="(max-width: 1152px) 100vw, 1152px"
-            className="hidden object-cover dark:block"
-          />
-        </div>
+      {/* Agent transcript */}
+      <div className="mx-auto mt-12 max-w-4xl px-6 pb-8">
+        <AgentFlow />
       </div>
     </section>
   );
@@ -117,17 +108,17 @@ const reasons = [
   {
     title: "Fast",
     description:
-      "A Rust core and GPU rendering that keeps you in the flow. From geometry operations to live preview, every layer of the stack is built for speed.",
+      "A Rust core and GPU acceleration that keeps you in the flow. From geometry operations to live preview, every layer of the stack is built for speed.",
   },
   {
     title: "Intelligent",
     description:
-      "AI-native from the ground up. Built for models and agents to enhance the fabrication, simulation, and design capabilities of your workflow.",
+      "AI-native from the ground up. Built for models and agents to enhance the design, simulation, and fabrication capabilities of your workflow.",
   },
   {
     title: "Accessible",
     description:
-      "A clean Python SDK, a modern desktop app, and documentation written for engineers. Professional tools without the learning cliff.",
+      "A minimal Python API, a modern interface, and documentation written for engineers and agents. Professional tools without the learning cliff.",
   },
 ];
 
@@ -166,27 +157,75 @@ function WhyRosette() {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Editor preview (supplementary)                                            */
+/* -------------------------------------------------------------------------- */
+
+function EditorPreview() {
+  return (
+    <section className="relative mx-auto max-w-6xl px-6 py-16">
+      {/* Subtle divider */}
+      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
+
+      <div className="flex items-center gap-3 mb-3">
+        <span
+          aria-hidden="true"
+          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
+        >
+          ◎
+        </span>
+        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
+          Editor
+        </span>
+      </div>
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
+        Inspect and modify layouts
+      </h2>
+      <p className="mt-3 max-w-2xl text-sm leading-relaxed text-fd-muted-foreground">
+        Agents write and verify the design. You review it. The editor renders on
+        the GPU and hot-reloads as the design changes, so you can go from the
+        whole chip down to individual grating teeth without waiting.
+      </p>
+
+      <div className="mt-10">
+        <div className="relative aspect-[2732/1740] w-full select-none overflow-hidden rounded-xl border border-fd-border shadow-md ring-1 ring-inset ring-fd-accent dark:shadow-elevation">
+          {/* Light theme */}
+          <Image
+            src="/editor-loopback-light.png"
+            alt="A grating coupler from the fiber loopback design, open in the Rosette editor"
+            fill
+            // Sits ~1384px down the page, so it lands inside the initial
+            // viewport on tall windows and gets picked as the LCP element.
+            // Eager (not `priority`) starts the request without taking
+            // fetch priority from the fonts. Delivered webp is 25KB / 63KB@2x.
+            loading="eager"
+            sizes="(max-width: 1152px) 100vw, 1152px"
+            className="object-cover dark:hidden"
+          />
+          {/* Dark theme */}
+          <Image
+            src="/editor-loopback-dark.png"
+            alt="A grating coupler from the fiber loopback design, open in the Rosette editor"
+            fill
+            loading="eager"
+            sizes="(max-width: 1152px) 100vw, 1152px"
+            className="hidden object-cover dark:block"
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  What's Inside                                                             */
 /* -------------------------------------------------------------------------- */
 
 const capabilities = [
   {
-    label: "app",
-    title: "Desktop app",
-    description:
-      "A native app with a WebGPU-rendered viewer, hot-reloading preview, and design rule overlays. See your layout update in real time as you write code.",
-  },
-  {
     label: "python",
-    title: "Python SDK",
+    title: "Python API",
     description:
-      "A clean, typed Python interface over a compiled Rust core. Ergonomic placement, automatic routing, and hierarchical cells.",
-  },
-  {
-    label: "agents",
-    title: "Agentic workflows",
-    description:
-      "AI-native from day one. Agent instructions and direct code access gives LLM agents the context to design circuits alongside you.",
+      "A minimal, typed Python interface over a compiled Rust core. Ergonomic placement, automatic routing, and hierarchical cells.",
   },
   {
     label: "cli",
@@ -195,10 +234,22 @@ const capabilities = [
       "Build, check, and preview from the terminal. One command to init a project, one to export GDS, and a dev server that live-reloads as you edit.",
   },
   {
+    label: "app",
+    title: "Layout editor",
+    description:
+      "A modern app with a WebGPU-rendered viewer, hot-reloading preview, and ergonomic keyboard-based workflows.",
+  },
+  {
+    label: "agents",
+    title: "Agentic workflows",
+    description:
+      "AI-native from day one. Agent instructions and direct code access gives LLM agents the context to design circuits alongside you.",
+  },
+  {
     label: "docs",
     title: "Documentation",
     description:
-      "Guides, API references, and copy-paste recipes written for engineers. From first install to tapeout, every step is documented.",
+      "Guides, API references, and copy-paste recipes written for engineers and agents. From first install to tapeout, every step is documented.",
   },
   {
     label: "more",
@@ -469,6 +520,7 @@ export default function HomePage() {
     <>
       <Hero />
       <WhyRosette />
+      <EditorPreview />
       <WhatsInside />
       <RecentPosts />
       <ClosingCTA />
