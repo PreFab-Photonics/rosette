@@ -324,7 +324,7 @@ impl PyPolygon {
 
 /// Iterator over polygon vertices.
 #[pyclass(name = "PolygonIterator")]
-pub struct PyPolygonIterator {
+struct PyPolygonIterator {
     vertices: Vec<PyPoint>,
     index: usize,
 }

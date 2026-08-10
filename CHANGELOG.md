@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `connect_transform` is now an intentional public Python facade function for
+  atomic port alignment.
+
+### Changed
+
+- Route width changes are documented as linear interpolation across the full
+  segment ending at the width-changing waypoint.
+
+### Removed
+
+- Removed the inert `Route` `auto_taper` and `taper_length` controls. Waypoint
+  spacing now explicitly determines transition length.
+- Removed unused Rust component traits, generic placement, metadata access,
+  route internals, and unconsumed root aliases.
+- Removed the public `PolygonIterator` extension symbol; `Polygon` remains
+  iterable through the standard Python iterator protocol.
+
 ## [0.4.2] - 2026-06-26
 
 An agent-ergonomics release: machine-readable CLI and structured output for the

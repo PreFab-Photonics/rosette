@@ -46,14 +46,14 @@ pub struct FlatGeometry {
 
 impl FlatGeometry {
     /// Create an empty flat geometry.
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             polygons: Vec::new(),
         }
     }
 
     /// Add a polygon to the flat geometry.
-    pub fn add_polygon(&mut self, polygon: &Polygon, layer: &Layer, group: Option<u32>) {
+    fn add_polygon(&mut self, polygon: &Polygon, layer: &Layer, group: Option<u32>) {
         let vertices: Vec<f64> = polygon.vertices().iter().flat_map(|p| [p.x, p.y]).collect();
 
         if vertices.len() >= 6 {

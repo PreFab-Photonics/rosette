@@ -23,8 +23,8 @@ use dfm::{
 };
 use drc::{PyDrcCache, PyDrcResult, PyDrcRules, PyDrcViolation, py_run_drc};
 use geometry::{
-    PyBBox, PyPoint, PyPolygon, PyPolygonIterator, PyTransform, PyVector2, py_arc_points,
-    py_fresnel_c, py_fresnel_s, py_offset_polygon, py_offset_polygon_varying, py_path_length,
+    PyBBox, PyPoint, PyPolygon, PyTransform, PyVector2, py_arc_points, py_fresnel_c, py_fresnel_s,
+    py_offset_polygon, py_offset_polygon_varying, py_path_length,
 };
 use layout::{PyCell, PyCellRef, PyLayer, PyLibrary, PyPathEndType, PyPort, py_connect_transform};
 use render::{PyRenderResult, py_render_png};
@@ -75,9 +75,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Route (core routing infrastructure, not a component)
     m.add_class::<PyRoute>()?;
-
-    // Iterators
-    m.add_class::<PyPolygonIterator>()?;
 
     // Check types
     m.add_class::<PyChecksConfig>()?;

@@ -36,13 +36,10 @@ pub mod layer;
 pub mod port;
 
 // Re-export primary types at crate root for convenience
-pub use cell::{BendInfo, Cell, CellMetadata, CellRef, Library, PathEndType, Repetition};
-pub use component::{
-    BendProfile, Component, ComponentBuilder, Route, RouteResult, Waypoint, connect_transform,
-    place_at_port,
-};
+pub use cell::{BendInfo, Cell, CellRef, Library, PathEndType, Repetition};
+pub use component::{BendProfile, Route};
 pub use error::{CellNameError, validate_cell_name};
-pub use flatten::{FlatGeometry, FlatPolygon, flatten_cell, flatten_library};
+pub use flatten::{FlatPolygon, flatten_cell, flatten_library};
 pub use geometry::{
     BBox,
     Point,
@@ -57,7 +54,6 @@ pub use geometry::{
     offset_polygon_varying,
     path_length,
     // Geo conversion helpers for boolean operations
-    polygon_from_geo,
     polygon_to_geo,
     polygons_from_geo_multi,
 };

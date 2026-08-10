@@ -819,16 +819,13 @@ impl PyLibrary {
 ///
 /// Example:
 ///     ```python
-///     from rosette import connect_transform, Waveguide, Layer
-///     
-///     wg1 = Waveguide(10.0, 0.5)
-///     wg2 = Waveguide(5.0, 0.5)
-///     
-///     # Calculate transform to connect wg2's input to wg1's output
-///     transform = connect_transform(wg2.port_in(), wg1.port_out())
-///     
-///     # Apply transform to position wg2
-///     ref = CellRef("wg2").at(transform.tx, transform.ty).rotate(transform.rotation)
+///     from rosette import Cell, Instance, Point, Port, Vector2, connect_transform
+///
+///     child = Cell("child")
+///     child_port = Port("in", Point(0, 0), Vector2(-1, 0), width=0.5)
+///     target_port = Port("out", Point(10, 0), Vector2(1, 0), width=0.5)
+///     transform = connect_transform(child_port, target_port)
+///     instance = Instance(child, transform)
 ///     ```
 #[pyfunction]
 #[pyo3(name = "connect_transform")]

@@ -5,8 +5,8 @@ title: Route
 Waypoint-based waveguide route.
 
 Route connects an ordered sequence of waypoints with straight segments,
-inserting bends at corners and tapers for width transitions. The corner
-shape is controlled by the `bend_profile` parameter: `"circular"`
+inserting bends at corners and interpolating width across each segment.
+The corner shape is controlled by the `bend_profile` parameter: `"circular"`
 (default) uses a constant-radius arc fillet, while `"euler"` uses a
 clothoid (Cornu-spiral) fillet whose curvature varies linearly with arc
 length. Lower-loss on high-index-contrast platforms, at the cost of a
@@ -58,7 +58,7 @@ Warnings from route generation (e.g., auto-reduced bend radii).
 
 ## Methods
 
-<PyFunction name={"__init__"} type={"(layer, width=0.5, bend_radius=5.0, auto_taper=True, taper_length=10.0, bend_profile='circular') -> None"}>
+<PyFunction name={"__init__"} type={"(layer, width=0.5, bend_radius=5.0, bend_profile='circular') -> None"}>
 
 Create a new Route.
 
@@ -79,16 +79,6 @@ Default waveguide width.
 Default bend radius. With `bend_profile="circular"` this is the constant
 arc radius of each corner. With `bend_profile="euler"` this is the
 *minimum* radius of curvature, reached at the midpoint of each corner.
-
-</PyParameter>
-<PyParameter name={"auto_taper"} type={"bool"} value={"True"}>
-
-Whether to automatically add tapers for width changes.
-
-</PyParameter>
-<PyParameter name={"taper_length"} type={"float"} value={"10.0"}>
-
-Length of auto-generated tapers.
 
 </PyParameter>
 <PyParameter name={"bend_profile"} type={"Literal['circular', 'euler']"} value={"'circular'"}>
@@ -182,8 +172,9 @@ Y coordinate of the waypoint.
 </PyParameter>
 <PyParameter name={"width"} type={"float | None"} value={"None"}>
 
-Override width at this waypoint. If set and `auto_taper` is enabled,
-a taper is inserted.
+Override width at this waypoint. The width is interpolated across the
+full segment ending at this waypoint. Add a preceding waypoint to set
+where the transition starts.
 
 </PyParameter>
 <PyParameter name={"bend_radius"} type={"float | None"} value={"None"}>

@@ -1,7 +1,7 @@
 //! Path-based routing for waveguides.
 //!
 //! The [`Route`] struct provides a flexible API for creating waveguide paths
-//! that automatically generate bends at corners and tapers for width transitions.
+//! that automatically generate bends at corners and interpolate width across segments.
 //!
 //! # Example
 //!
@@ -50,70 +50,49 @@ pub enum BendProfile {
     Euler,
 }
 
-/// A waypoint along a route path.
+/// Internal waypoint along a route path.
 #[derive(Debug, Clone)]
-pub struct Waypoint {
+struct Waypoint {
     /// Position of the waypoint.
-    pub position: Point,
+    position: Point,
     /// Width override from this point onward (None = use previous width).
-    pub width: Option<f64>,
+    width: Option<f64>,
     /// Bend radius override at this corner (None = use default).
-    pub bend_radius: Option<f64>,
+    bend_radius: Option<f64>,
 }
 
 impl Waypoint {
     /// Create a new waypoint at the given position.
-    pub fn new(x: f64, y: f64) -> Self {
+    fn new(x: f64, y: f64) -> Self {
         Self {
             position: Point::new(x, y),
             width: None,
             bend_radius: None,
         }
     }
-
-    /// Create a waypoint from a Point.
-    pub fn from_point(point: Point) -> Self {
-        Self {
-            position: point,
-            width: None,
-            bend_radius: None,
-        }
-    }
-
-    /// Set width override for this waypoint.
-    pub fn with_width(mut self, width: f64) -> Self {
-        self.width = Some(width);
-        self
-    }
-
-    /// Set bend radius override for this corner.
-    pub fn with_bend_radius(mut self, radius: f64) -> Self {
-        self.bend_radius = Some(radius);
-        self
-    }
 }
 
-/// Result of route geometry generation.
+/// Internal result of route geometry generation.
 #[derive(Debug)]
-pub struct RouteResult {
+struct RouteResult {
     /// Generated polygons.
-    pub polygons: Vec<Polygon>,
+    polygons: Vec<Polygon>,
     /// Total optical path length.
-    pub path_length: f64,
+    path_length: f64,
     /// Input port.
-    pub port_in: Port,
+    port_in: Port,
     /// Output port.
-    pub port_out: Port,
+    port_out: Port,
     /// Warnings generated during routing.
-    pub warnings: Vec<String>,
+    warnings: Vec<String>,
     /// Bend information for each non-trivial corner.
-    pub bends: Vec<BendInfo>,
+    bends: Vec<BendInfo>,
 }
 
 /// A path-based waveguide route.
 ///
 /// Routes generate continuous waveguide geometry from a series of waypoints,
-/// automatically inserting bends at corners and tapers for width transitions.
+/// automatically inserting bends at corners and interpolating width across segments.
 #[derive(Debug, Clone)]
 pub struct Route {
     /// Waypoints along the route (not including start/end ports).
@@ -134,10 +113,6 @@ pub struct Route {
     default_width: f64,
     /// Default bend radius.
     default_bend_radius: f64,
-    /// Whether to auto-insert tapers for width transitions.
-    auto_taper: bool,
-    /// Length of auto-inserted tapers.
-    taper_length: f64,
     /// Corner bend profile (circular or Euler).
     bend_profile: BendProfile,
     /// Layer for the route.
@@ -157,8 +132,6 @@ impl Route {
             end_width: None,
             default_width: 0.5,
             default_bend_radius: 5.0,
-            auto_taper: true,
-            taper_length: 10.0,
             bend_profile: BendProfile::Circular,
             layer,
         }
@@ -175,19 +148,6 @@ impl Route {
     pub fn with_bend_radius(mut self, radius: f64) -> Self {
         assert!(radius > 0.0, "Bend radius must be positive");
         self.default_bend_radius = radius;
-        self
-    }
-
-    /// Enable or disable automatic taper insertion.
-    pub fn with_auto_taper(mut self, enabled: bool) -> Self {
-        self.auto_taper = enabled;
-        self
-    }
-
-    /// Set the length of auto-inserted tapers.
-    pub fn with_taper_length(mut self, length: f64) -> Self {
-        assert!(length > 0.0, "Taper length must be positive");
-        self.taper_length = length;
         self
     }
 
@@ -230,19 +190,6 @@ impl Route {
         self
     }
 
-    /// Add a waypoint with a width change.
-    pub fn to_width(&mut self, x: f64, y: f64, width: f64) -> &mut Self {
-        self.waypoints.push(Waypoint::new(x, y).with_width(width));
-        self
-    }
-
-    /// Add a waypoint with a custom bend radius.
-    pub fn to_bend(&mut self, x: f64, y: f64, bend_radius: f64) -> &mut Self {
-        self.waypoints
-            .push(Waypoint::new(x, y).with_bend_radius(bend_radius));
-        self
-    }
-
     /// Add a waypoint with both width and bend radius overrides.
     pub fn to_full(
         &mut self,
@@ -272,11 +219,6 @@ impl Route {
         self.end_angle = Some(port.direction.angle() + PI);
         self.end_width = port.width;
         self
-    }
-
-    /// Get the layer for this route.
-    pub fn layer(&self) -> Layer {
-        self.layer
     }
 
     /// Build the complete list of path points including start and end.
@@ -370,7 +312,7 @@ impl Route {
     }
 
     /// Generate the route geometry.
-    pub fn generate(&self) -> RouteResult {
+    fn generate(&self) -> RouteResult {
         let points = self.build_path_points();
         let mut warnings = Vec::new();
 
@@ -1023,20 +965,17 @@ mod tests {
         );
     }
 
-    fn width_transition(auto_taper: bool, taper_length: f64) -> RouteResult {
-        let mut route = Route::new(Layer::new(1, 0))
-            .with_width(0.5)
-            .with_auto_taper(auto_taper)
-            .with_taper_length(taper_length);
+    fn width_transition() -> RouteResult {
+        let mut route = Route::new(Layer::new(1, 0)).with_width(0.5);
         route.start_at(0.0, 0.0, 0.0);
-        route.to_width(20.0, 0.0, 1.5);
+        route.to_full(20.0, 0.0, Some(1.5), None);
         route.end_at(20.0, 0.0, 0.0);
         route.generate()
     }
 
     #[test]
     fn test_route_width_change_spans_entire_segment() {
-        let result = width_transition(true, 10.0);
+        let result = width_transition();
 
         assert_eq!(result.polygons.len(), 1);
         assert_eq!(
@@ -1048,18 +987,6 @@ mod tests {
                 Point::new(0.0, -0.25),
             ]
         );
-    }
-
-    #[test]
-    fn test_route_taper_options_currently_do_not_change_output() {
-        let default = width_transition(true, 10.0);
-        let disabled = width_transition(false, 10.0);
-        let short = width_transition(true, 1.0);
-
-        assert_eq!(default.polygons, disabled.polygons);
-        assert_eq!(default.polygons, short.polygons);
-        assert_eq!(default.path_length, disabled.path_length);
-        assert_eq!(default.path_length, short.path_length);
     }
 
     #[test]
@@ -1157,18 +1084,6 @@ mod tests {
         assert!(cell.polygon_count() > 0);
         assert!(cell.port("in").is_some());
         assert!(cell.port("out").is_some());
-    }
-
-    #[test]
-    fn test_waypoint_builder() {
-        let wp = Waypoint::new(10.0, 20.0)
-            .with_width(0.8)
-            .with_bend_radius(10.0);
-
-        assert!(approx_eq(wp.position.x, 10.0));
-        assert!(approx_eq(wp.position.y, 20.0));
-        assert_eq!(wp.width, Some(0.8));
-        assert_eq!(wp.bend_radius, Some(10.0));
     }
 
     #[test]

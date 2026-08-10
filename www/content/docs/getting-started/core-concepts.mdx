@@ -182,8 +182,8 @@ construction and reach for
 ## Routing
 
 A [`Route`](/docs/api-reference/Route) connects a sequence of waypoints
-with straight segments, inserting bends at corners and tapers at width
-changes. It is **not** an auto-router. You supply the waypoints. A
+with straight segments, inserting bends at corners and interpolating width
+changes across segments. It is **not** an auto-router. You supply the waypoints. A
 minimal route between two ports looks like:
 
 ```python
@@ -202,7 +202,7 @@ top = Cell("top")
 top.add_ref(route.to_cell("wg"))
 ```
 
-The full story (Euler vs. circular bends, taper control, common pitfalls)
+The full story (Euler vs. circular bends, width transitions, common pitfalls)
 lives in the [Routing guide](/docs/guides/routing).
 
 ## Where to next

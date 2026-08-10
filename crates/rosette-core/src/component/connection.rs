@@ -3,11 +3,8 @@
 //! This module provides utilities for connecting components together by
 //! aligning their ports.
 
-use crate::cell::CellRef;
 use crate::geometry::Transform;
 use crate::port::Port;
-
-use super::Component;
 
 /// Calculate the transform needed to connect a component's port to a target port.
 ///
@@ -59,26 +56,6 @@ pub fn connect_transform(component_port: &Port, target_port: &Port) -> Transform
     let translation = target_port.position - rotated_port_pos;
 
     Transform::translate(translation.x, translation.y).then(&Transform::rotate(rotation))
-}
-
-/// Place a component by connecting one of its ports to a target port.
-///
-/// Returns a CellRef with the appropriate transform applied.
-///
-/// # Arguments
-/// * `component` - The component to place
-/// * `cell_name` - Name for the cell reference
-/// * `component_port_name` - Name of the port on the component to align
-/// * `target_port` - The port to connect to
-pub fn place_at_port<C: Component>(
-    component: &C,
-    cell_name: impl Into<String>,
-    component_port_name: &str,
-    target_port: &Port,
-) -> Option<CellRef> {
-    let component_port = component.port(component_port_name)?;
-    let transform = connect_transform(&component_port, target_port);
-    Some(CellRef::with_transform(cell_name, transform))
 }
 
 #[cfg(test)]

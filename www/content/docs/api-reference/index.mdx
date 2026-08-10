@@ -217,6 +217,48 @@ If `True`, print detailed build info including port positions.
 
 </PyFunction>
 
+### Placement
+
+<PyFunction name={"connect_transform"} type={"(component_port, target_port) -> Transform"}>
+
+Calculate the transform that aligns a component port with a target port,
+with their directions facing each other.
+
+<Callout title={"Example"} type={"example"}>
+
+```python
+child = Cell("child")
+child_port = Port("in", Point(0, 0), Vector2(-1, 0), width=0.5)
+target_port = Port("out", Point(10, 0), Vector2(1, 0), width=0.5)
+transform = connect_transform(child_port, target_port)
+instance = Instance(child, transform)
+```
+
+</Callout>
+
+<div>
+
+<PyParameter name={"component_port"} type={"Port"}>
+
+Port on the component being placed.
+
+</PyParameter>
+<PyParameter name={"target_port"} type={"Port"}>
+
+Port to connect to.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"Transform"}>
+
+Transform that aligns the two ports.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
 ### Configuration
 
 <PyFunction name={"load_layer_map"} type={"(config_path=None) -> LayerMap"}>

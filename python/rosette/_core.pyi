@@ -123,14 +123,8 @@ class Polygon:
             List of result polygons (empty if polygons are identical).
         """
         ...
-    def __iter__(self) -> PolygonIterator: ...
+    def __iter__(self) -> Iterator[Point]: ...
     def __repr__(self) -> str: ...
-
-class PolygonIterator:
-    """Iterator over polygon vertices."""
-
-    def __iter__(self) -> PolygonIterator: ...
-    def __next__(self) -> Point: ...
 
 class Transform:
     def __init__(self) -> None: ...
@@ -896,7 +890,7 @@ class Route:
     """Waypoint-based waveguide route.
 
     Route connects an ordered sequence of waypoints with straight segments,
-    inserting circular bends at corners and tapers for width transitions.
+    inserting circular bends at corners and interpolating width across segments.
     It is **not** an auto-router — you must supply intermediate waypoints
     to create the path shape you want.
 
@@ -1019,8 +1013,6 @@ class Route:
         layer: Layer | int | tuple[int, int],
         width: float = 0.5,
         bend_radius: float = 5.0,
-        auto_taper: bool = True,
-        taper_length: float = 10.0,
         bend_profile: Literal["circular", "euler"] = "circular",
     ) -> None: ...
     def start_at(self, x: float, y: float, angle: float = 0.0) -> None:
@@ -1048,8 +1040,9 @@ class Route:
 
         The route draws a straight segment from the previous waypoint to
         (x, y), inserting a circular bend at the corner if the direction
-        changes. Provide intermediate waypoints to create L-bends and
-        S-bends — the router does not infer turns on its own.
+        changes. A width override is interpolated across the full segment
+        ending at this waypoint. Provide intermediate waypoints to create
+        L-bends and S-bends — the router does not infer turns on its own.
         """
         ...
     def end_at(self, x: float, y: float, angle: float = 0.0) -> None:
@@ -1164,11 +1157,10 @@ def to_json(
     design: Cell | Library,
     cells: list[Cell] | None = None,
 ) -> str:
-    """Serialize a Cell or Library to compact JSON.
+    """Internal extension helper for compact viewer JSON serialization.
 
-    Preserves the full hierarchical structure including cells, cell references,
-    paths, text, and ports. Used internally by `rosette serve` to send the
-    complete design to the web viewer.
+    This is intentionally available only from ``rosette._core`` for the serve
+    implementation. It is not part of the public ``rosette`` facade.
 
     Args:
         design: Cell or Library to serialize

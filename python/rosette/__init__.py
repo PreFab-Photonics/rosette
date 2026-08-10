@@ -66,6 +66,7 @@ from rosette._core import (
     Vector2,
     # Geometry utilities (for component authoring)
     arc_points,
+    connect_transform,
     fresnel_c,
     fresnel_s,
     offset_polygon,
@@ -1314,7 +1315,7 @@ class Route:
     """Waypoint-based waveguide route.
 
     Route connects an ordered sequence of waypoints with straight segments,
-    inserting circular bends at corners and tapers for width transitions.
+    inserting circular bends at corners and interpolating width across segments.
     It is **not** an auto-router — you must supply intermediate waypoints
     to create the path shape you want. Returns wrapped Cell objects from
     to_cell(), enabling the ergonomic Instance API.
@@ -1350,8 +1351,6 @@ class Route:
         layer: Layer | int | tuple[int, int],
         width: float = 0.5,
         bend_radius: float = 5.0,
-        auto_taper: bool = True,
-        taper_length: float = 10.0,
         bend_profile: Literal["circular", "euler"] = "circular",
     ) -> None:
         """Create a new Route.
@@ -1363,8 +1362,6 @@ class Route:
                 this is the constant arc radius of each corner. With
                 ``bend_profile="euler"`` this is the *minimum* radius of
                 curvature, reached at the midpoint of each corner.
-            auto_taper: Whether to automatically add tapers for width changes
-            taper_length: Length of auto-generated tapers
             bend_profile: Corner bend shape. ``"circular"`` (default) inserts
                 a constant-radius arc fillet. ``"euler"`` inserts a clothoid
                 (Cornu-spiral) fillet whose curvature varies linearly with
@@ -1381,11 +1378,9 @@ class Route:
         """
         self._inner = _Route(
             layer,
-            width,
-            bend_radius,
-            auto_taper,
-            taper_length,
-            bend_profile,
+            width=width,
+            bend_radius=bend_radius,
+            bend_profile=bend_profile,
         )
 
     def start_at(self, x: float, y: float, angle: float = 0.0) -> None:
@@ -1415,8 +1410,9 @@ class Route:
 
         The route draws a straight segment from the previous waypoint to
         (x, y), inserting a circular bend at the corner if the direction
-        changes. Provide intermediate waypoints to create L-bends and
-        S-bends — the router does not infer turns on its own.
+        changes. A width override is interpolated across the full segment
+        ending at this waypoint. Provide intermediate waypoints to create
+        L-bends and S-bends — the router does not infer turns on its own.
         """
         self._inner.to(x, y, width, bend_radius)
 
@@ -2953,6 +2949,7 @@ __all__ = [
     "Vector2",
     "add_dfm_predictions",
     "arc_points",
+    "connect_transform",
     "fresnel_c",
     "fresnel_s",
     "load_checks_config",

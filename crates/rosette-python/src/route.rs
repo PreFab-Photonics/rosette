@@ -22,7 +22,7 @@ fn parse_bend_profile(s: &str) -> PyResult<BendProfile> {
 /// A path-based waveguide route.
 ///
 /// Routes generate continuous waveguide geometry from a series of waypoints,
-/// automatically inserting bends at corners and tapers for width transitions.
+/// automatically inserting bends at corners and interpolating width across segments.
 ///
 /// Example:
 ///     route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
@@ -44,21 +44,17 @@ impl PyRoute {
     ///     layer: The layer for the route geometry
     ///     width: Default waveguide width (default: 0.5)
     ///     bend_radius: Default bend radius at corners (default: 5.0)
-    ///     auto_taper: Auto-insert tapers for width transitions (default: True)
-    ///     taper_length: Length of auto-inserted tapers (default: 10.0)
     ///     bend_profile: Corner bend shape — "circular" (constant radius arc) or
     ///         "euler" (clothoid, linearly varying curvature). "euler" gives a
     ///         smoother transition at the cost of a longer fillet; the
     ///         specified bend_radius is interpreted as the *minimum* radius
     ///         of curvature, reached at the corner midpoint. Default: "circular".
     #[new]
-    #[pyo3(signature = (layer, width=0.5, bend_radius=5.0, auto_taper=true, taper_length=10.0, bend_profile="circular"))]
+    #[pyo3(signature = (layer, width=0.5, bend_radius=5.0, bend_profile="circular"))]
     fn new(
         layer: &Bound<'_, PyAny>,
         width: f64,
         bend_radius: f64,
-        auto_taper: bool,
-        taper_length: f64,
         bend_profile: &str,
     ) -> PyResult<Self> {
         let layer = extract_layer(layer)?;
@@ -73,24 +69,12 @@ impl PyRoute {
                 "bend_radius must be positive",
             ));
         }
-        if taper_length <= 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "taper_length must be positive",
-            ));
-        }
-
         let profile = parse_bend_profile(bend_profile)?;
 
-        let mut route = Route::new(layer)
+        let route = Route::new(layer)
             .with_width(width)
             .with_bend_radius(bend_radius)
             .with_bend_profile(profile);
-
-        if auto_taper {
-            route = route.with_auto_taper(true).with_taper_length(taper_length);
-        } else {
-            route = route.with_auto_taper(false);
-        }
 
         Ok(PyRoute { route })
     }
@@ -119,7 +103,8 @@ impl PyRoute {
     /// Args:
     ///     x: X coordinate
     ///     y: Y coordinate
-    ///     width: Optional width override from this point onward
+    ///     width: Optional width override at this point. A width change is
+    ///         interpolated across the full segment ending at this waypoint.
     ///     bend_radius: Optional bend radius override at this corner
     #[pyo3(signature = (x, y, width=None, bend_radius=None))]
     fn to(&mut self, x: f64, y: f64, width: Option<f64>, bend_radius: Option<f64>) {

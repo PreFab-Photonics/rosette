@@ -35,7 +35,6 @@ EXTENSION_EXPORTS = {
     "PathEndType",
     "Point",
     "Polygon",
-    "PolygonIterator",
     "Port",
     "RenderResult",
     "Route",
@@ -70,8 +69,6 @@ STUB_ONLY_VS_EXTENSION = {
     "load_layer_map",
 }
 STUB_ONLY_VS_FACADE = {
-    "PolygonIterator",
-    "connect_transform",
     "to_json",
 }
 
@@ -152,6 +149,13 @@ def test_known_top_level_contract_differences_are_explicit():
     assert stub_names - facade_names == STUB_ONLY_VS_FACADE
 
 
+def test_extension_only_symbols_have_explicit_visibility():
+    assert rosette.connect_transform is core.connect_transform
+    assert hasattr(core, "to_json")
+    assert not hasattr(rosette, "to_json")
+    assert not hasattr(core, "PolygonIterator")
+
+
 def test_every_advertised_method_exists_at_runtime():
     missing: dict[str, set[str]] = {}
     for name, node in _stub_symbols().items():
@@ -201,6 +205,28 @@ def test_shared_function_signature_shapes_are_characterized():
             mismatches[name] = (stub_shape, runtime_shape)
 
     assert mismatches == {}
+
+
+def test_route_constructor_signatures_match_agent_reference():
+    route = _stub_symbols()["Route"]
+    assert isinstance(route, ast.ClassDef)
+    init = next(
+        child
+        for child in route.body
+        if isinstance(child, ast.FunctionDef) and child.name == "__init__"
+    )
+    stub_shape = _stub_parameter_shape(init)[1:]
+    stub_defaults = tuple(ast.literal_eval(default) for default in init.args.defaults)
+
+    assert _runtime_parameter_shape(rosette.Route) == stub_shape
+    assert _runtime_parameter_shape(core.Route) == stub_shape
+    assert stub_defaults == (0.5, 5.0, "circular")
+    for runtime in (rosette.Route, core.Route):
+        parameters = inspect.signature(runtime).parameters
+        assert tuple(parameter.default for parameter in parameters.values()) == (
+            inspect.Parameter.empty,
+            *stub_defaults,
+        )
 
 
 def test_corrected_agent_reference_annotations_match_facade_contract():

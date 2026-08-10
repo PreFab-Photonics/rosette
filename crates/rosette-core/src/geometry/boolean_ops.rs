@@ -36,7 +36,7 @@ pub fn polygon_to_geo(poly: &Polygon) -> GeoPolygon<f64> {
 ///
 /// If the geo polygon has interior rings (holes), they are keyholed into the
 /// exterior ring to produce a single continuous vertex list.
-pub fn polygon_from_geo(geo_poly: &GeoPolygon<f64>) -> Option<Polygon> {
+fn polygon_from_geo(geo_poly: &GeoPolygon<f64>) -> Option<Polygon> {
     let exterior = ring_to_points(geo_poly.exterior());
     if exterior.len() < 3 {
         return None;

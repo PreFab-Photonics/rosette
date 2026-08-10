@@ -284,23 +284,18 @@ impl BendInfo {
             requested_radius: Some(requested_radius),
         }
     }
-
-    /// Whether this bend was auto-reduced from a larger requested radius.
-    pub fn was_auto_reduced(&self) -> bool {
-        self.requested_radius.is_some()
-    }
 }
 
 /// Metadata associated with a cell.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct CellMetadata {
+struct CellMetadata {
     /// Total optical path length (if built from a Route).
-    pub path_length: Option<f64>,
+    path_length: Option<f64>,
     /// Bend information for bends in this cell.
-    pub bends: Vec<BendInfo>,
+    bends: Vec<BendInfo>,
     /// Warnings generated during cell construction.
-    pub warnings: Vec<String>,
+    warnings: Vec<String>,
 }
 
 /// A cell containing geometry and references to other cells.
@@ -350,18 +345,6 @@ impl Cell {
         &self.name
     }
 
-    /// Set the cell name.
-    ///
-    /// # Errors
-    /// Returns [`CellNameError`] if the name is empty, too long, or contains
-    /// non-printable-ASCII characters.
-    pub fn set_name(&mut self, name: impl Into<String>) -> Result<(), CellNameError> {
-        let name = name.into();
-        validate_cell_name(&name)?;
-        self.name = name;
-        Ok(())
-    }
-
     /// Set the cell name without validation.
     ///
     /// This is used internally when the name is already known to be valid
@@ -395,16 +378,6 @@ impl Cell {
     /// Get a port by name.
     pub fn port(&self, name: &str) -> Option<&Port> {
         self.ports.iter().find(|p| p.name == name)
-    }
-
-    /// Get cell metadata.
-    pub fn metadata(&self) -> &CellMetadata {
-        &self.metadata
-    }
-
-    /// Get mutable cell metadata.
-    pub fn metadata_mut(&mut self) -> &mut CellMetadata {
-        &mut self.metadata
     }
 
     /// Set the path length metadata.

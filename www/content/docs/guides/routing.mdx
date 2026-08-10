@@ -6,7 +6,7 @@ description: Connect components with Route, ports, and bends.
 [`Route`](/docs/api-reference/Route) is Rosette's waypoint-based router.
 You hand it a sequence of points (plus optional start and end
 [`Port`](/docs/api-reference/Port)s) and it emits a waveguide polygon with
-straight segments, bends at corners, and tapers at width transitions.
+straight segments, bends at corners, and linear width transitions.
 
 Route is not an auto-router. You supply the path; it fills in the geometry.
 
@@ -110,28 +110,25 @@ bend; use `Route` for routing.
 
 ## Tapers and variable width
 
-When you change width mid-route, Rosette inserts a linear taper
-automatically. You can tune or disable this from the constructor:
+When a waypoint changes the width, Rosette interpolates linearly across
+the full segment ending at that waypoint. Place a preceding waypoint to
+control where the transition starts:
 
 ```python
 from rosette import Layer, Route
 
-route = Route(
-    Layer(1, 0),
-    width=0.5,
-    bend_radius=5.0,
-    auto_taper=True,      # default
-    taper_length=10.0,    # default length of auto-tapers (um)
-)
+route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
 route.start_at(0, 0, angle=0)
-route.to(50, 0, width=1.5)   # widens from 0.5 to 1.5 via a 10 um taper
+route.to(40, 0)              # stays at 0.5
+route.to(50, 0, width=1.5)   # widens across this 10 um segment
 route.to(100, 0)             # stays at 1.5
 route.end_at(100, 0, angle=0)
 cell = route.to_cell("taper_route")
 ```
 
-If `auto_taper=False` you get abrupt width transitions, useful when you
-need to drop a taper in manually.
+Route has no separate taper-length or abrupt-transition control. For a
+specialized profile, construct the taper geometry explicitly and route
+the constant-width sections on either side.
 
 ## Common pitfalls
 

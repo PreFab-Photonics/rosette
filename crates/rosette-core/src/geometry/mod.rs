@@ -23,7 +23,7 @@ pub mod transform;
 pub mod utils;
 
 pub use bbox::BBox;
-pub use boolean_ops::{polygon_from_geo, polygon_to_geo, polygons_from_geo_multi};
+pub use boolean_ops::{polygon_to_geo, polygons_from_geo_multi};
 pub use point::{Point, Vector2};
 pub use polygon::Polygon;
 pub use transform::Transform;

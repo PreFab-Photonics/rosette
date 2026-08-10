@@ -1,8 +1,7 @@
 //! Core component infrastructure for photonic layout.
 //!
-//! This module provides the core infrastructure for building photonic layouts:
+//! This module provides routing and connection utilities for photonic layouts:
 //!
-//! - [`Component`]: The core trait that all components implement
 //! - [`connect_transform`]: Calculate transforms to connect ports
 //! - [`Route`]: Flexible waveguide routing between ports
 //!
@@ -10,11 +9,8 @@
 //! implemented in Python as user-customizable code. See `rosette.components`
 //! in Python for the component library.
 
-#[allow(clippy::module_inception)]
-mod component;
 mod connection;
 mod route;
 
-pub use component::{Component, ComponentBuilder};
-pub use connection::{connect_transform, place_at_port};
-pub use route::{BendProfile, Route, RouteResult, Waypoint};
+pub use connection::connect_transform;
+pub use route::{BendProfile, Route};

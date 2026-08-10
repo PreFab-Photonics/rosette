@@ -178,6 +178,14 @@ class TestRouteWidthTransition:
         cell = route.to_cell("width_change")
         assert cell.polygon_count() >= 1
 
+    @pytest.mark.parametrize(
+        ("keyword", "value"),
+        [("auto_taper", False), ("taper_length", 10.0)],
+    )
+    def test_removed_taper_controls_are_rejected(self, keyword, value):
+        with pytest.raises(TypeError):
+            Route(Layer(1, 0), **{keyword: value})
+
 
 def _euler_setback_ratio(turn_angle: float) -> float:
     """Ground-truth Euler setback / bend_radius, computed from the Fresnel integrals.

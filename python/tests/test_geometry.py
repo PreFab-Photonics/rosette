@@ -122,6 +122,16 @@ class TestPolygon:
         poly = Polygon.rect(Point(0, 0), 10.0, 5.0)
         assert len(poly) == 4
 
+    def test_iteration_uses_python_protocol_without_public_iterator_class(self):
+        poly = Polygon.rect(Point(0, 0), 10.0, 5.0)
+
+        assert [(point.x, point.y) for point in poly] == [
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 5.0),
+            (0.0, 5.0),
+        ]
+
 
 class TestPolygonBooleanOps:
     """Tests for Polygon boolean operations - Python binding behavior."""
