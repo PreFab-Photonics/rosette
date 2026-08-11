@@ -532,7 +532,7 @@ impl<W: Write> GdsWriter<W> {
 
     fn transform_magnification(t: &Transform) -> f64 {
         // Extract scale factor from transform
-        (t.a * t.a + t.c * t.c).sqrt()
+        t.a.hypot(t.c)
     }
 
     fn f64_to_gds_real(value: f64) -> [u8; 8] {

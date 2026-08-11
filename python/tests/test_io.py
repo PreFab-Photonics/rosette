@@ -5,7 +5,6 @@ from pathlib import Path
 
 from rosette import (
     Cell,
-    CellRef,
     Layer,
     Library,
     Point,
@@ -60,8 +59,8 @@ class TestWriteGds:
         lib.add_cell(child)
 
         parent = Cell("parent")
-        parent.add_ref(CellRef("child").at(10, 10))
-        parent.add_ref(CellRef("child").at(20, 10))
+        parent.add_ref(child.at(10, 10))
+        parent.add_ref(child.at(20, 10))
         lib.add_cell(parent)
 
         output = tmp_path / "hierarchy.gds"
@@ -280,12 +279,14 @@ class TestGdsEdgeCases:
         lib = Library("deep")
 
         # Create chain of cells
+        previous = None
         for i in range(5):
             cell = Cell(f"level_{i}")
             cell.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
-            if i > 0:
-                cell.add_ref(CellRef(f"level_{i - 1}").at(10, 0))
+            if previous is not None:
+                cell.add_ref(previous.at(10, 0))
             lib.add_cell(cell)
+            previous = cell
 
         output = tmp_path / "deep.gds"
         write_gds(str(output), lib)
@@ -312,10 +313,10 @@ class TestGdsEdgeCases:
         lib.add_cell(child)
 
         parent = Cell("parent")
-        parent.add_ref(CellRef("child").at(0, 0))
-        parent.add_ref(CellRef("child").at(20, 0).rotate(45))
-        parent.add_ref(CellRef("child").at(40, 0).mirror_x())
-        parent.add_ref(CellRef("child").at(60, 0).scale(0.5))
+        parent.add_ref(child.at(0, 0))
+        parent.add_ref(child.at(20, 0).rotate(45))
+        parent.add_ref(child.at(40, 0).mirror_x())
+        parent.add_ref(child.at(60, 0).scale(0.5))
         lib.add_cell(parent)
 
         output = tmp_path / "transformed.gds"

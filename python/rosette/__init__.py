@@ -34,7 +34,7 @@ from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import Literal, TypedDict, TypeVar
+from typing import Literal, TypedDict
 
 from rosette._core import (
     # Geometry
@@ -96,13 +96,10 @@ _DFM_DEFAULT_SIGMA = 0.08
 _GDS_ARRAY_MAX = 32767
 
 
-# Either the Rust core CellRef or the Python wrapper; _apply_repetition is
-# duck-typed over both (they share .array()/.array_vectors()).
-_RefT = TypeVar("_RefT", "_CellRef", "CellRef")
-
-
-def _apply_repetition(ref: _RefT, repetition: tuple[int, int, float, float, float, float]) -> _RefT:
-    """Apply an `Instance._repetition` 6-tuple to a CellRef-like object.
+def _apply_repetition(
+    ref: _CellRef, repetition: tuple[int, int, float, float, float, float]
+) -> _CellRef:
+    """Apply an `Instance._repetition` 6-tuple to a native CellRef.
 
     ``repetition`` is ``(columns, rows, col_x, col_y, row_x, row_y)``.  If
     the lattice is axis-aligned (``col_y == 0`` and ``row_x == 0``) we use
@@ -132,6 +129,12 @@ def _validate_array_dims(columns: int, rows: int) -> None:
         raise ValueError(
             f"columns and rows must be in [1, {_GDS_ARRAY_MAX}], got columns={columns}, rows={rows}"
         )
+
+
+def _require_array_index(value: object) -> int:
+    if not isinstance(value, int):
+        raise TypeError("col and row must be integers")
+    return value
 
 
 def _transform_port(original_port: Port, transform: Transform) -> Port:
@@ -177,22 +180,15 @@ def _repetition_copy_offset(
 class Instance:
     """A cell placed at a specific location with optional transformations.
 
-    Instance solves the ergonomic problem of needing to pass the Cell twice:
-    once to create a CellRef, and again to query ports. With Instance, the
-    Cell reference is preserved, allowing direct port queries.
+    An Instance preserves its Cell definition, allowing direct transformed-port
+    queries and automatic child tracking when it is added to a parent Cell.
 
     Example:
         from rosette.components import grating_coupler
 
-        # Old pattern (redundant):
-        gc_cell = grating_coupler(...)
-        gc_ref = CellRef(gc_cell).at(0, 0)
-        port = gc_ref.port("opt", gc_cell)  # Must pass gc_cell again
-
-        # New pattern (ergonomic):
         gc_cell = grating_coupler(...)
         gc_in = gc_cell.at(0, 0)            # Returns Instance
-        port = gc_in.port("opt")            # No redundancy!
+        port = gc_in.port("opt")
 
     Instances can be added directly to cells and support transform chaining:
         gc = gc_cell.at(100, 50)
@@ -256,9 +252,13 @@ class Instance:
         self._transform = transform if transform is not None else Transform.identity()
         # Normalize to the internal 6-tuple form
         # (columns, rows, col_x, col_y, row_x, row_y).
-        if repetition is not None and len(repetition) == 4:
-            cols, rws, cs, rs = repetition
-            repetition = (cols, rws, cs, 0.0, 0.0, rs)
+        if repetition is not None:
+            if len(repetition) == 4:
+                cols, rws, cs, rs = repetition
+                repetition = (cols, rws, cs, 0.0, 0.0, rs)
+            elif len(repetition) != 6:
+                raise ValueError("repetition must contain 4 or 6 values")
+            _validate_array_dims(repetition[0], repetition[1])
         self._repetition = repetition
 
     @property
@@ -273,7 +273,7 @@ class Instance:
 
     @property
     def cell_name(self) -> str:
-        """Name of the referenced cell (for compatibility with CellRef)."""
+        """Name of the referenced cell."""
         return self._cell.name
 
     def at(self, x: float, y: float) -> Instance:
@@ -424,8 +424,8 @@ class Instance:
     def port(self, name: str, col: int = 0, row: int = 0) -> Port:
         """Get a transformed port from this instance.
 
-        Unlike CellRef.port(), this doesn't require passing the Cell again
-        since the Instance already knows its cell definition.
+        The Instance already knows its cell definition, so only the port name
+        and optional array coordinates are needed.
 
         For arrayed instances (see :meth:`array` / :meth:`array_vectors`),
         pass ``col`` and ``row`` to address a specific copy in the
@@ -479,6 +479,8 @@ class Instance:
         Validates the indices and composes the outer transform with
         the local copy offset: ``outer ∘ translate(copy_offset)``.
         """
+        col = _require_array_index(col)
+        row = _require_array_index(row)
         columns, rows = self.array_shape
         if not (0 <= col < columns):
             raise IndexError(f"col {col} out of range for array with {columns} column(s)")
@@ -542,86 +544,12 @@ class Instance:
         columns, rows = self.array_shape
         return columns * rows
 
-    def to_ref(self) -> CellRef:
-        """Convert to a CellRef for use with low-level APIs.
-
-        Returns:
-            A CellRef with the same cell name, transform, and array repetition
-        """
-        # Decompose into GDS-compatible: mirror_x (innermost),
-        # then rotation, then translation (outermost).
-        ref = CellRef(self._cell.name)
-        angle, is_mirrored = self._decompose_transform()
-        # Mirror first (innermost -- applied first to geometry)
-        if is_mirrored:
-            ref = ref.mirror_x()
-        # Then rotation (wraps outside the mirror)
-        if abs(angle) > 0.001:
-            ref = ref.rotate(angle)
-        pos = self._transform.apply(Point.origin())
-        ref = ref.at(pos.x, pos.y)
-        # Propagate array repetition if set
+    def _to_inner_ref(self) -> _CellRef:
+        """Lower this resolved placement to the native hierarchy record."""
+        ref = _CellRef._from_transform(self._cell.name, self._transform)
         if self._repetition is not None:
             ref = _apply_repetition(ref, self._repetition)
         return ref
-
-    def _decompose_transform(self) -> tuple[float, bool]:
-        """Decompose transform into rotation angle (degrees) and mirror flag.
-
-        Returns (angle_deg, is_mirrored) matching GDS convention:
-        the transform is equivalent to mirror_x (if flagged) then rotate.
-
-        Uses the determinant of the 2x2 linear part to detect reflection
-        (det < 0) instead of checking individual axis signs, which gives
-        false positives for rotations > 90 degrees.
-        """
-        origin = self._transform.apply(Point.origin())
-        ux = self._transform.apply(Point(1.0, 0.0))
-        uy = self._transform.apply(Point(0.0, 1.0))
-
-        # Basis vectors of the 2x2 linear part
-        ax = ux.x - origin.x  # transform matrix a
-        ay = ux.y - origin.y  # transform matrix c
-        bx = uy.x - origin.x  # transform matrix b
-        by = uy.y - origin.y  # transform matrix d
-
-        det = ax * by - ay * bx
-        is_mirrored = det < 0
-
-        if is_mirrored:
-            # GDS convention: mirror_x first (negate Y), then rotate.
-            # After removing mirror_x, the effective rotation matrix is:
-            #   [a, -b; c, -d]  (since mirror_x negates row 2)
-            # But we can simply use atan2(c, a) which gives the correct
-            # angle for the GDS decomposition R * mirror_x.
-            angle = math.atan2(ay, ax) * 180.0 / math.pi
-        else:
-            angle = math.atan2(ay, ax) * 180.0 / math.pi
-
-        return angle, is_mirrored
-
-    def _rotation_angle(self) -> float:
-        """Extract rotation angle from transform (in degrees)."""
-        angle, _ = self._decompose_transform()
-        return angle
-
-    def _is_mirrored_x(self) -> bool:
-        """Check if transform includes reflection (mirror about X axis).
-
-        Uses determinant-based detection to avoid false positives from
-        rotations > 90 degrees.
-        """
-        _, is_mirrored = self._decompose_transform()
-        return is_mirrored
-
-    def _is_mirrored_y(self) -> bool:
-        """Check if transform includes Y-axis mirroring.
-
-        With determinant-based decomposition, mirroring is always
-        decomposed as mirror_x + rotation (GDS convention), so
-        mirror_y is never needed.
-        """
-        return False
 
     def __repr__(self) -> str:
         pos = self._transform.apply(Point.origin())
@@ -663,7 +591,7 @@ class ArrayCopy:
             })
     """
 
-    __slots__ = ("_instance", "_transform", "col", "row")
+    __slots__ = ("_col", "_instance", "_row", "_transform")
 
     def __init__(self, instance: Instance, col: int, row: int) -> None:
         """Create an ArrayCopy view.
@@ -677,11 +605,21 @@ class ArrayCopy:
             row: Grid row of this copy (0-indexed).
         """
         self._instance = instance
-        self.col = col
-        self.row = row
+        self._col = col
+        self._row = row
         # Precompute the world-space transform so repeated `.transform`
         # or `.port(...)` calls don't redo the work.
         self._transform = instance._copy_transform(col, row)
+
+    @property
+    def col(self) -> int:
+        """Grid column of this copy (0-indexed)."""
+        return self._col
+
+    @property
+    def row(self) -> int:
+        """Grid row of this copy (0-indexed)."""
+        return self._row
 
     @property
     def transform(self) -> Transform:
@@ -733,169 +671,6 @@ class ArrayCopy:
             f"ArrayCopy('{self.cell_name}', col={self.col}, row={self.row}, "
             f"at=({pos.x:.2f}, {pos.y:.2f}))"
         )
-
-
-# =============================================================================
-# CellRef wrapper: Accepts our Cell wrapper
-# =============================================================================
-
-
-class CellRef:
-    """A reference to another cell with transformation.
-
-    This wrapper around the core CellRef accepts our Cell wrapper in addition
-    to cell names and Rust Cell objects.
-    """
-
-    __slots__ = ("_inner",)
-
-    def __init__(self, cell_or_name: Cell | _Cell | str) -> None:
-        """Create a new cell reference.
-
-        Args:
-            cell_or_name: Either a Cell object or a cell name string.
-
-        Example:
-            ref1 = CellRef("my_cell")      # From string
-            ref2 = CellRef(waveguide_cell) # From Cell object
-        """
-        if isinstance(cell_or_name, Cell):
-            # Our wrapper Cell - extract name
-            self._inner = _CellRef(cell_or_name.name)
-        elif isinstance(cell_or_name, str):
-            self._inner = _CellRef(cell_or_name)
-        else:
-            # Rust _Cell
-            self._inner = _CellRef(cell_or_name)
-
-    @classmethod
-    def _from_inner(cls, inner: _CellRef) -> CellRef:
-        """Create a CellRef wrapper from an existing Rust CellRef."""
-        ref = object.__new__(cls)
-        ref._inner = inner
-        return ref
-
-    @property
-    def cell_name(self) -> str:
-        """Cell name being referenced."""
-        return self._inner.cell_name
-
-    def at(self, x: float, y: float) -> CellRef:
-        """Set the position."""
-        return CellRef._from_inner(self._inner.at(x, y))
-
-    def rotate(self, angle_deg: float) -> CellRef:
-        """Rotate by angle (in degrees)."""
-        return CellRef._from_inner(self._inner.rotate(angle_deg))
-
-    def mirror_x(self) -> CellRef:
-        """Mirror across X axis."""
-        return CellRef._from_inner(self._inner.mirror_x())
-
-    def mirror_y(self) -> CellRef:
-        """Mirror across Y axis."""
-        return CellRef._from_inner(self._inner.mirror_y())
-
-    def scale(self, s: float) -> CellRef:
-        """Scale uniformly."""
-        return CellRef._from_inner(self._inner.scale(s))
-
-    def array(
-        self,
-        columns: int,
-        rows: int,
-        col_spacing: float,
-        row_spacing: float,
-    ) -> CellRef:
-        """Set array repetition (columns x rows rectangular grid with given pitch).
-
-        Creates a GDS AREF - a single compact array reference instead of
-        many individual references. In the viewer, the entire array is
-        selected as one object.
-
-        Args:
-            columns: Number of columns (1 to 32767).
-            rows: Number of rows (1 to 32767).
-            col_spacing: Column pitch - center-to-center distance between
-                adjacent copies along local +X, in um. Negative values
-                place copies along local -X.
-            row_spacing: Row pitch - center-to-center distance between
-                adjacent copies along local +Y, in um. Negative values
-                place copies along local -Y.
-
-        Returns:
-            A new CellRef with array repetition set.
-
-        Raises:
-            ValueError: If columns or rows is outside the range [1, 32767].
-                The upper bound is the GDS COLROW INT16 limit.
-
-        Note:
-            For hex packings or any skewed / non-orthogonal grid, use
-            :meth:`array_vectors` instead.
-
-        Example:
-            ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
-            top.add_ref(ref)  # Single AREF, not 50 individual refs
-        """
-        _validate_array_dims(columns, rows)
-        return CellRef._from_inner(self._inner.array(columns, rows, col_spacing, row_spacing))
-
-    def array_vectors(
-        self,
-        columns: int,
-        rows: int,
-        col_vector: Vector2,
-        row_vector: Vector2,
-    ) -> CellRef:
-        """Set array repetition from arbitrary column and row displacement vectors.
-
-        Lower-level constructor supporting non-orthogonal lattices - hex
-        packings, skewed test arrays, etc. Vectors are defined in the
-        CellRef's local (pre-transform) coordinate space, in um.
-
-        Args:
-            columns: Number of columns (1 to 32767).
-            rows: Number of rows (1 to 32767).
-            col_vector: Column displacement - the offset between copy
-                ``(c, r)`` and ``(c+1, r)``, in um.
-            row_vector: Row displacement - the offset between copy
-                ``(c, r)`` and ``(c, r+1)``, in um.
-
-        Returns:
-            A new CellRef with array repetition set.
-
-        Raises:
-            ValueError: If columns or rows is outside the range [1, 32767].
-
-        Example:
-            import math
-            pitch = 10.0
-            # Hex packing (flat-top): adjacent rows staggered by pitch/2.
-            ref = CellRef("unit").array_vectors(
-                6, 4,
-                Vector2(pitch, 0.0),
-                Vector2(pitch / 2.0, pitch * math.sqrt(3.0) / 2.0),
-            )
-        """
-        _validate_array_dims(columns, rows)
-        return CellRef._from_inner(self._inner.array_vectors(columns, rows, col_vector, row_vector))
-
-    def port(self, name: str, cell: Cell | _Cell) -> Port:
-        """Get a transformed port from this cell reference.
-
-        Args:
-            name: Name of the port to retrieve
-            cell: The source Cell object containing the port definition
-
-        Returns:
-            The port with position and direction transformed
-        """
-        inner_cell = cell._inner if isinstance(cell, Cell) else cell
-        return self._inner.port(name, inner_cell)
-
-    def __repr__(self) -> str:
-        return repr(self._inner)
 
 
 # =============================================================================
@@ -1174,16 +949,11 @@ class Cell:
         """Calculate the bounding box of the geometry directly in this cell.
 
         Includes polygons and paths. Does **not** resolve cell references —
-        if this cell contains CellRefs or AREFs, their contribution is
+        if this cell contains SREFs or AREFs, their contribution is
         ignored.  Use ``Library.cell_bbox(name)`` for the fully resolved
         bounding box of a cell inside a library.
         """
         return self._inner.bbox()
-
-    def place_at_port(self, cell_ref: CellRef, cell_port: Port, target_port: Port) -> CellRef:
-        """Place a cell reference by aligning its port to a target port."""
-        result = self._inner.place_at_port(cell_ref._inner, cell_port, target_port)
-        return CellRef._from_inner(result)
 
     # --- New ergonomic methods ---
 
@@ -1217,8 +987,8 @@ class Cell:
         """
         return Instance(self, Transform.translate(x, y))
 
-    def add_ref(self, ref: Cell | CellRef | Instance) -> None:
-        """Add a cell, cell reference, or instance.
+    def add_ref(self, ref: Cell | Instance) -> None:
+        """Add a cell or resolved instance.
 
         When adding a Cell or Instance, the child cell is automatically
         tracked for write_gds().
@@ -1233,66 +1003,25 @@ class Cell:
             top.add_ref(unit.at(0, 0).array(cols, rows, pitch_x, pitch_y))
 
         Args:
-            ref: A Cell (placed at origin), Instance, or CellRef to add
+            ref: A Cell (placed at origin) or Instance to add
 
         Example:
             top.add_ref(gc_cell.at(0, 0))        # Instance at position
             top.add_ref(route.to_cell("wg"))     # Cell at origin
         """
-        # Convert Cell to Instance at origin
-        if isinstance(ref, Cell):
-            ref = ref.at(0, 0)
+        instance = self._coerce_instance(ref)
+        inner_ref = instance._to_inner_ref()
+        self._child_cells.add(instance.cell)
+        self._child_cells.update(instance.cell._child_cells)
+        self._inner.add_ref(inner_ref)
 
+    @staticmethod
+    def _coerce_instance(ref: object) -> Instance:
+        if isinstance(ref, Cell):
+            return ref.at(0, 0)
         if isinstance(ref, Instance):
-            instance = ref
-            # Track the child cell for auto-collection
-            self._child_cells.add(instance.cell)
-            # Also recursively include any children from the instance's cell
-            if hasattr(instance.cell, "_child_cells"):
-                self._child_cells.update(instance.cell._child_cells)
-            # Convert to Rust CellRef for the underlying Rust call.
-            #
-            # CellRef uses left-prepend chaining: each method wraps the
-            # outside of the accumulated transform.  To decompose an
-            # Instance transform M into CellRef calls we must apply
-            # rotation/mirror FIRST, then translation LAST:
-            #
-            #   CellRef().rotate(angle).mirror_*().at(pos)
-            #
-            # produces T(pos) * Mirror * R(angle), where pos = M * origin
-            # gives the final translated position.  This correctly
-            # reconstructs M for any combination of rotate + translate.
-            #
-            # The previous order (.at(pos).rotate(angle)) was wrong
-            # because it produced R(angle) * T(pos), double-rotating
-            # the translation component.
-            rust_ref = _CellRef(instance.cell.name)
-            # Decompose into GDS-compatible: mirror_x (innermost),
-            # then rotation, then translation (outermost).
-            angle, is_mirrored = instance._decompose_transform()
-            # Mirror first (innermost -- applied first to geometry)
-            if is_mirrored:
-                rust_ref = rust_ref.mirror_x()
-            # Then rotation (wraps outside the mirror)
-            if abs(angle) > 0.001:
-                rust_ref = rust_ref.rotate(angle)
-            # Translation last (outermost transform)
-            pos = instance.transform.apply(Point.origin())
-            rust_ref = rust_ref.at(pos.x, pos.y)
-            # Propagate array repetition if set
-            if instance._repetition is not None:
-                rust_ref = _apply_repetition(rust_ref, instance._repetition)
-            self._inner.add_ref(rust_ref)
-        else:
-            # Raw CellRef - issue warning about untracked cell
-            warnings.warn(
-                f"Adding CellRef('{ref.cell_name}') without automatic child tracking. "
-                "Consider using cell.at(x, y) instead for automatic tracking, "
-                "or pass child cells explicitly to write_gds().",
-                stacklevel=2,
-            )
-            # ref is narrowed to CellRef here; extract the inner Rust object
-            self._inner.add_ref(ref._inner)
+            return ref
+        raise TypeError("ref must be a Cell or Instance")
 
     def get_child_cells(self) -> set[Cell]:
         """Get all tracked child cells (for write_gds auto-collection).
@@ -2920,7 +2649,6 @@ __all__ = [
     "ArrayCopy",
     "BBox",
     "Cell",
-    "CellRef",
     "CheckViolation",
     "ChecksConfig",
     "ChecksResult",

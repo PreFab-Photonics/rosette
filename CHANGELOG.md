@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   segment ending at the width-changing waypoint.
 - Python contracts now separate the native `_core` extension stub from the
   public facade/agent reference, and project guidance uses explicit imports.
+- `Instance` is now the single public cell-placement abstraction. `ArrayCopy`
+  remains a read-only view for inspecting individual copies of a compact AREF.
+
+### Fixed
+
+- Uniform scaling on `Instance` is now preserved when lowering placements to
+  native hierarchy records and GDS.
 
 ### Removed
 
@@ -29,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   route internals, and unconsumed root aliases.
 - Removed the public `PolygonIterator` extension symbol; `Polygon` remains
   iterable through the standard Python iterator protocol.
+- Removed the duplicate public facade `CellRef`, `Instance.to_ref()`, and
+  `Cell.place_at_port()` APIs. The native `_core.CellRef` remains the internal
+  hierarchy and serialization representation.
 
 ## [0.4.2] - 2026-06-26
 

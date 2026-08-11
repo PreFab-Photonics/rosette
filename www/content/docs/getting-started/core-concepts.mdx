@@ -41,9 +41,11 @@ the cell at `(0, 10)`. See the
 [Instance docs](/docs/api-reference/Instance) for the full transform
 order rules.
 
-For large regular grids, use [`Instance.array`](/docs/api-reference/Instance)
-or [`ArrayCopy`](/docs/api-reference/ArrayCopy). One compact GDS array
-reference replaces thousands of individual refs.
+For large regular grids, use [`Instance.array`](/docs/api-reference/Instance).
+One compact GDS array reference replaces thousands of individual refs. When
+you need to inspect a specific copy, iteration yields read-only
+[`ArrayCopy`](/docs/api-reference/ArrayCopy) views. They expose per-copy ports
+and transforms but are not independently placeable.
 
 A [**Library**](/docs/api-reference/Library) is a collection of cells that
 travel together when reading or writing GDS. In most designs you never
@@ -145,12 +147,9 @@ Ports do three jobs:
    [design-checks](/docs/api-reference#run_checks) feature) flags ports
    that are supposed to connect but don't: typos in routing, width
    mismatches, angle mismatches.
-3. **Programmatic placement.**
-   [`cell.place_at_port`](/docs/api-reference/Cell) is a lower-level
-   helper that returns a [`CellRef`](/docs/api-reference/CellRef)
-   aligning one of a child cell's ports to a target port. For most
-   designs, prefer composing ports with `Instance` and
-   [`Route`](/docs/api-reference/Route) instead.
+3. **Placed-cell queries.** [`Instance.port`](/docs/api-reference/Instance)
+   transforms a cell's local ports into world space, ready to use as routing
+   endpoints with [`Route`](/docs/api-reference/Route).
 
 Top-level ports are treated as external I/O and are not flagged as
 unconnected. Use them to mark the chip's inputs and outputs.
@@ -224,7 +223,7 @@ lives in the [Routing guide](/docs/guides/routing).
 <Card
   href={"/docs/guides/cells-and-hierarchy"}
   title={"Cells and hierarchy"}
-  description={"add_ref, Instance, ArrayCopy, and Library."}
+  description={"Place cells with Instance and inspect compact arrays."}
 />
 
 <Card

@@ -133,6 +133,8 @@ def test_facade_stub_exactly_matches_public_exports():
 
 def test_extension_only_symbols_have_explicit_visibility():
     assert rosette.connect_transform is core.connect_transform
+    assert hasattr(core, "CellRef")
+    assert not hasattr(rosette, "CellRef")
     assert hasattr(core, "to_json")
     assert not hasattr(rosette, "to_json")
     assert not hasattr(core, "PolygonIterator")
@@ -155,6 +157,19 @@ def test_native_class_members_exactly_match_runtime():
             )
 
     assert mismatches == {}
+
+
+def test_native_instance_lowering_hook_matches_private_stub():
+    cell_ref = _stub_symbols(NATIVE_STUB_PATH)["CellRef"]
+    assert isinstance(cell_ref, ast.ClassDef)
+    lowering = next(
+        child
+        for child in cell_ref.body
+        if isinstance(child, ast.FunctionDef) and child.name == "_from_transform"
+    )
+
+    assert hasattr(core.CellRef, "_from_transform")
+    assert _stub_parameter_shape(lowering) == _runtime_parameter_shape(core.CellRef._from_transform)
 
 
 def test_public_facade_methods_are_represented_in_agent_reference():

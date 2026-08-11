@@ -1,4 +1,4 @@
-"""Tests for layout types: Layer, Port, Cell, CellRef, Library, Instance.
+"""Tests for layout types: Layer, Port, Cell, Library, Instance.
 
 These tests focus on Python API surface and convenience features.
 Core correctness is tested in Rust.
@@ -14,13 +14,13 @@ from rosette import (
     ArrayCopy,
     BBox,
     Cell,
-    CellRef,
     Instance,
     Layer,
     Library,
     Point,
     Polygon,
     Port,
+    Transform,
     Vector2,
     write_gds,
 )
@@ -140,112 +140,11 @@ class TestCell:
         assert bbox.height() == pytest.approx(5.0)
 
     def test_add_ref(self):
-        """Add cell reference."""
-        cell = Cell("test")
-        ref = CellRef("other_cell")
-        cell.add_ref(ref)
-        assert cell.ref_count() == 1
-
-
-class TestCellRef:
-    """Tests for CellRef class."""
-
-    def test_init_from_string(self):
-        """Create cell reference from string name."""
-        ref = CellRef("my_cell")
-        assert ref.cell_name == "my_cell"
-
-    def test_init_from_cell(self):
-        """Create cell reference from Cell object."""
-        cell = Cell("waveguide")
-        ref = CellRef(cell)
-        assert ref.cell_name == "waveguide"
-
-    def test_init_from_cell_with_transforms(self):
-        """Create cell reference from Cell and chain transforms."""
-        cell = Cell("component")
-        ref = CellRef(cell).at(10.0, 20.0).rotate(90.0)
-        assert ref.cell_name == "component"
-
-    def test_chain_transforms(self):
-        """Chain multiple transforms (fluent API)."""
-        ref = CellRef("my_cell").at(10.0, 0.0).rotate(45.0).scale(0.5)
-        assert ref.cell_name == "my_cell"
-
-    def test_port_with_translation(self):
-        """Get transformed port from translated CellRef."""
-        cell = Cell("component")
-        cell.add_port(Port("opt", Point(5.0, 0.0), Vector2.unit_x(), width=0.5))
-
-        ref = CellRef(cell).at(100.0, 50.0)
-        port = ref.port("opt", cell)
-
-        # Position should be translated
-        assert port.position.x == pytest.approx(105.0)
-        assert port.position.y == pytest.approx(50.0)
-        # Direction should be unchanged
-        assert port.direction.x == pytest.approx(1.0)
-        assert port.direction.y == pytest.approx(0.0)
-        # Width should be preserved
-        assert port.width == pytest.approx(0.5)
-
-    def test_port_with_rotation(self):
-        """Get transformed port from rotated CellRef."""
-        cell = Cell("component")
-        # Port at (10, 0) pointing in +X direction
-        cell.add_port(Port("opt", Point(10.0, 0.0), Vector2.unit_x(), width=0.5))
-
-        # Rotate 90 degrees counter-clockwise
-        ref = CellRef(cell).rotate(90.0)
-        port = ref.port("opt", cell)
-
-        # Position (10, 0) rotated 90 degrees -> (0, 10)
-        assert port.position.x == pytest.approx(0.0)
-        assert port.position.y == pytest.approx(10.0)
-        # Direction +X rotated 90 degrees -> +Y
-        assert port.direction.x == pytest.approx(0.0)
-        assert port.direction.y == pytest.approx(1.0)
-
-    def test_port_with_combined_transforms(self):
-        """Get transformed port from CellRef with multiple transforms."""
-        cell = Cell("component")
-        cell.add_port(Port("opt", Point(10.0, 0.0), Vector2.unit_x(), width=0.5))
-
-        # Translate then rotate
-        ref = CellRef(cell).at(100.0, 0.0).rotate(90.0)
-        port = ref.port("opt", cell)
-
-        # First translate (10,0) -> (110, 0), then rotate 90 degrees -> (0, 110)
-        assert port.position.x == pytest.approx(0.0)
-        assert port.position.y == pytest.approx(110.0)
-        # Direction rotated 90 degrees
-        assert port.direction.x == pytest.approx(0.0)
-        assert port.direction.y == pytest.approx(1.0)
-
-    def test_port_with_mirror(self):
-        """Get transformed port from mirrored CellRef."""
-        cell = Cell("component")
-        cell.add_port(Port("opt", Point(10.0, 5.0), Vector2(1.0, 1.0), width=0.5))
-
-        # Mirror across Y axis (flips X)
-        ref = CellRef(cell).mirror_y()
-        port = ref.port("opt", cell)
-
-        # Position X flipped
-        assert port.position.x == pytest.approx(-10.0)
-        assert port.position.y == pytest.approx(5.0)
-        # Direction X flipped
-        assert port.direction.x == pytest.approx(-1.0 / (2**0.5))
-        assert port.direction.y == pytest.approx(1.0 / (2**0.5))
-
-    def test_port_nonexistent_raises(self):
-        """Getting nonexistent port from CellRef raises KeyError."""
-        cell = Cell("component")
-        cell.add_port(Port("opt", Point(0, 0), Vector2.unit_x()))
-
-        ref = CellRef(cell).at(10.0, 0.0)
-        with pytest.raises(KeyError):
-            ref.port("nonexistent", cell)
+        """Add a resolved child instance."""
+        child = Cell("child")
+        parent = Cell("parent")
+        parent.add_ref(child.at(0, 0))
+        assert parent.ref_count() == 1
 
 
 class TestLibrary:
@@ -284,7 +183,7 @@ class TestLibrary:
 
         # Parent cell that references child
         parent = Cell("parent")
-        parent.add_ref(CellRef("child"))
+        parent.add_ref(child.at(0, 0))
         lib.add_cell(parent)
 
         top = lib.top_cell()
@@ -391,13 +290,11 @@ class TestInstance:
             assert path.exists()
             assert path.stat().st_size > 0
 
-    def test_cellref_warning(self):
-        """Adding raw CellRef triggers a warning about untracked cells."""
+    def test_add_ref_rejects_unresolved_objects(self):
+        """The facade accepts only resolved Cell or Instance placements."""
         cell = Cell("test")
-        ref = CellRef("other_cell")
-
-        with pytest.warns(UserWarning, match="without automatic child tracking"):
-            cell.add_ref(ref)
+        with pytest.raises(TypeError, match="Cell or Instance"):
+            cell.add_ref(object())  # type: ignore[arg-type]
 
     def test_instance_mirror(self):
         """Instance mirror transforms work correctly."""
@@ -423,6 +320,89 @@ class TestInstance:
         # Position should be scaled
         assert port.position.x == pytest.approx(20.0)
         assert port.position.y == pytest.approx(10.0)
+
+    def test_instance_scale_is_preserved_by_native_lowering_and_gds(self):
+        """Uniform scale is identical in ports, hierarchy geometry, and GDS."""
+        from rosette import read_gds
+
+        child = Cell("scaled_child")
+        child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
+
+        parent = Cell("scaled_parent")
+        parent.add_ref(child.at(0, 0).scale(2).at(30, 40))
+
+        library = Library("scaled")
+        library.add_cell(child)
+        library.add_cell(parent)
+        bbox = library.cell_bbox("scaled_parent")
+        assert bbox is not None
+        assert (bbox.min.x, bbox.min.y) == pytest.approx((30, 40))
+        assert (bbox.max.x, bbox.max.y) == pytest.approx((50, 50))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "scaled.gds"
+            write_gds(path, parent)
+            roundtrip = read_gds(path).cell_bbox("scaled_parent")
+
+        assert roundtrip is not None
+        assert (roundtrip.min.x, roundtrip.min.y) == pytest.approx((30, 40))
+        assert (roundtrip.max.x, roundtrip.max.y) == pytest.approx((50, 50))
+
+    def test_instance_rejects_non_gds_transform_when_added(self):
+        """A placed instance must lower to rotation/reflection/uniform scale."""
+        child = Cell("child")
+        parent = Cell("parent")
+        instance = Instance(child, Transform.scale(2, 3))
+
+        with pytest.raises(ValueError, match="uniform non-zero scale"):
+            parent.add_ref(instance)
+
+        assert parent.ref_count() == 0
+        assert parent.get_child_cells() == set()
+
+    def test_instance_rejects_nearly_uniform_nonuniform_scale(self):
+        child = Cell("child")
+        parent = Cell("parent")
+
+        with pytest.raises(ValueError, match="uniform non-zero scale"):
+            parent.add_ref(Instance(child, Transform.scale(1.0, 1.0 + 9e-10)))
+
+    def test_instance_accepts_tiny_scale_after_large_translation(self):
+        child = Cell("child")
+        parent = Cell("parent")
+        instance = child.at(0, 0).scale(1e-10).at(2_000_000, -2_000_000)
+
+        parent.add_ref(instance)
+
+        assert parent.ref_count() == 1
+        assert child in parent.get_child_cells()
+
+    @pytest.mark.parametrize("scale", [1e-100, 1e200])
+    def test_instance_rejects_scale_outside_gds_real_range(self, scale: float):
+        child = Cell("child")
+        parent = Cell("parent")
+
+        with pytest.raises(ValueError, match="uniform non-zero scale"):
+            parent.add_ref(child.at(0, 0).scale(scale))
+
+        assert parent.ref_count() == 0
+        assert parent.get_child_cells() == set()
+
+    def test_instance_constructor_validates_repetition(self):
+        child = Cell("child")
+
+        with pytest.raises(ValueError, match="4 or 6 values"):
+            Instance(child, repetition=(1, 2, 3))  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match=r"\[1, 32767\]"):
+            Instance(child, repetition=(0, 1, 10.0, 10.0))
+
+    def test_instance_port_rejects_fractional_array_indices(self):
+        child = Cell("child")
+        child.add_port(Port("out", Point.origin(), Vector2.unit_x()))
+        array = child.at(0, 0).array(2, 2, 10, 10)
+
+        with pytest.raises(TypeError, match="must be integers"):
+            array.port("out", col=0.5)  # type: ignore[arg-type]
 
     def test_instance_repr(self):
         """Instance has informative repr."""
@@ -550,6 +530,11 @@ class TestInstance:
             assert parent_read is not None
             assert parent_read.ref_count() == 1
 
+            bbox = lib.cell_bbox("top")
+            assert bbox is not None
+            assert (bbox.min.x, bbox.min.y) == pytest.approx((30.0, -5.0))
+            assert (bbox.max.x, bbox.max.y) == pytest.approx((50.0, 0.0))
+
             # Read back the child's bbox through the parent reference
             # If the rotation was lost, the bbox would be wrong
             child_read = lib.cell("asym")
@@ -576,6 +561,11 @@ class TestInstance:
             parent_read = lib.cell("top_mirror")
             assert parent_read is not None
             assert parent_read.ref_count() == 1
+
+            bbox = lib.cell_bbox("top_mirror")
+            assert bbox is not None
+            assert (bbox.min.x, bbox.min.y) == pytest.approx((30.0, -5.0))
+            assert (bbox.max.x, bbox.max.y) == pytest.approx((40.0, 0.0))
 
     def test_instance_rotate_then_translate_gds_roundtrip(self):
         """Rotated Instance port positions are consistent across both idioms.
@@ -622,43 +612,18 @@ class TestInstance:
             assert parent_read is not None
             assert parent_read.ref_count() == 2
 
+            bbox = lib.cell_bbox("parent")
+            assert bbox is not None
+            assert (bbox.min.x, bbox.min.y) == pytest.approx((-63.5, 25.0))
+            assert (bbox.max.x, bbox.max.y) == pytest.approx((25.0, 68.5))
+
             child_read = lib.cell("child")
             assert child_read is not None
             assert child_read.polygon_count() == 1
 
 
-class TestCellRefArray:
-    """Tests for CellRef.array() - GDS AREF support."""
-
-    def test_cellref_array_basic(self):
-        """CellRef.array() returns a CellRef with same name."""
-        ref = CellRef("unit").at(0, 0).array(3, 2, 10.0, 20.0)
-        assert ref.cell_name == "unit"
-
-    def test_cellref_array_gds_roundtrip(self):
-        """CellRef with array writes as AREF and round-trips through GDS."""
-        from rosette import read_gds
-
-        child = Cell("unit")
-        child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
-
-        top = Cell("top")
-        ref = CellRef("unit").at(0, 0).array(3, 2, 10.0, 20.0)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")  # CellRef warning
-            top.add_ref(ref)
-
-        # Should be 1 ref (AREF), not 6 individual SREFs
-        assert top.ref_count() == 1
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "aref.gds"
-            write_gds(path, top, [child])
-
-            lib = read_gds(str(path))
-            top_read = lib.cell("top")
-            assert top_read is not None
-            assert top_read.ref_count() == 1
+class TestInstanceArray:
+    """Tests for Instance.array() and GDS AREF support."""
 
     def test_instance_array_rejects_zero_columns(self):
         """Instance.array() raises ValueError for columns < 1."""
@@ -671,11 +636,6 @@ class TestCellRefArray:
         child = Cell("unit")
         with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
             child.at(0, 0).array(5, 0, 10.0, 10.0)
-
-    def test_cellref_array_rejects_zero(self):
-        """CellRef.array() raises ValueError for columns or rows < 1."""
-        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
-            CellRef("unit").array(0, 0, 10.0, 10.0)
 
     def test_instance_array_rejects_columns_above_gds_max(self):
         """Instance.array() raises ValueError for columns > 32767 (GDS INT16 limit)."""
@@ -694,13 +654,6 @@ class TestCellRefArray:
         with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
             child.at(0, 0).array(1, 32768, 10.0, 10.0)
 
-    def test_cellref_array_rejects_above_gds_max(self):
-        """CellRef.array() raises ValueError for columns or rows > 32767."""
-        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
-            CellRef("unit").array(100_000, 1, 10.0, 10.0)
-        with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
-            CellRef("unit").array(1, 100_000, 10.0, 10.0)
-
     def test_instance_array_accepts_gds_max(self):
         """Instance.array() accepts 32767 (the exact GDS INT16 upper bound)."""
         child = Cell("unit")
@@ -718,7 +671,7 @@ class TestCellRefArray:
         with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
             child.at(0, 0).array(1_000_000, 1, 10.0, 10.0)
         with pytest.raises(ValueError, match=r"columns and rows must be in \[1, 32767\]"):
-            CellRef("unit").array(1, 1_000_000, 10.0, 10.0)
+            child.at(0, 0).array(1, 1_000_000, 10.0, 10.0)
 
     def test_instance_array_basic(self):
         """Instance.array() returns an Instance."""
@@ -773,40 +726,6 @@ class TestCellRefArray:
             top_read = lib.cell("top")
             assert top_read is not None
             assert top_read.ref_count() == 2
-
-    def test_instance_array_to_ref(self):
-        """Instance.to_ref() preserves array repetition."""
-        child = Cell("unit")
-        inst = child.at(5, 10).array(3, 4, 8.0, 12.0)
-        ref = inst.to_ref()
-        assert isinstance(ref, CellRef)
-        assert ref.cell_name == "unit"
-
-    def test_instance_array_to_ref_gds_roundtrip(self):
-        """Instance.to_ref() with array round-trips through GDS as AREF."""
-        from rosette import read_gds
-
-        child = Cell("unit")
-        child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
-
-        inst = child.at(0, 0).array(2, 3, 10.0, 15.0)
-        ref = inst.to_ref()
-
-        top = Cell("top")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            top.add_ref(ref)
-
-        assert top.ref_count() == 1
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "aref_toref.gds"
-            write_gds(path, top, [child])
-
-            lib = read_gds(str(path))
-            top_read = lib.cell("top")
-            assert top_read is not None
-            assert top_read.ref_count() == 1
 
     def test_array_accepts_negative_spacing(self):
         """Negative col_spacing/row_spacing place copies along -X/-Y.
@@ -988,7 +907,7 @@ class TestLibraryCellBbox:
 
         Before the fix, flatten/viewer/cell_bbox applied the AREF pitch in
         the *parent* frame while the GDS writer applied it in the
-        CellRef's local (pre-transform) frame. They only agreed for
+        the reference's local (pre-transform) frame. They only agreed for
         axis-aligned AREFs. This test builds a rotated AREF, writes it to
         GDS, reads it back, and asserts that the fully-resolved bounding
         box matches — which is the round-trip invariant the two code
@@ -1049,7 +968,7 @@ class TestSkewedArefs:
         row = Vector2(pitch / 2.0, pitch * math.sqrt(3) / 2.0)
 
         top = Cell("top")
-        top.add_ref(CellRef("unit").array_vectors(3, 2, col, row))
+        top.add_ref(unit.at(0, 0).array_vectors(3, 2, col, row))
 
         lib = Library("lib")
         lib.add_cell(unit)
@@ -1085,7 +1004,7 @@ class TestSkewedArefs:
         row = Vector2(pitch / 2.0, pitch * math.sqrt(3) / 2.0)
 
         top = Cell("top")
-        top.add_ref(CellRef("unit").array_vectors(4, 3, col, row))
+        top.add_ref(unit.at(0, 0).array_vectors(4, 3, col, row))
 
         lib = Library("lib")
         lib.add_cell(unit)
@@ -1117,10 +1036,10 @@ class TestSkewedArefs:
         unit.add_polygon(Polygon.rect(Point(0, 0), 1.0, 1.0), Layer(1, 0))
 
         top_scalar = Cell("top_scalar")
-        top_scalar.add_ref(CellRef("unit").array(3, 2, 5.0, 7.0))
+        top_scalar.add_ref(unit.at(0, 0).array(3, 2, 5.0, 7.0))
 
         top_vec = Cell("top_vec")
-        top_vec.add_ref(CellRef("unit").array_vectors(3, 2, Vector2(5.0, 0.0), Vector2(0.0, 7.0)))
+        top_vec.add_ref(unit.at(0, 0).array_vectors(3, 2, Vector2(5.0, 0.0), Vector2(0.0, 7.0)))
 
         lib = Library("lib")
         lib.add_cell(unit)
@@ -1136,7 +1055,7 @@ class TestSkewedArefs:
         assert bb_v.max.y == pytest.approx(bb_s.max.y)
 
     def test_instance_array_vectors_roundtrips(self):
-        """`Instance.array_vectors` propagates through `to_ref` and GDS."""
+        """`Instance.array_vectors` lowers to GDS without losing its lattice."""
         import math
 
         from rosette import read_gds
@@ -1178,13 +1097,11 @@ class TestSkewedArefs:
         unit.add_polygon(Polygon.rect(Point(0, 0), 1.0, 1.0), Layer(1, 0))
 
         with pytest.raises(ValueError):
-            CellRef("unit").array_vectors(0, 1, Vector2(1, 0), Vector2(0, 1))
-        with pytest.raises(ValueError):
-            CellRef("unit").array_vectors(1, 0, Vector2(1, 0), Vector2(0, 1))
-        with pytest.raises(ValueError):
-            CellRef("unit").array_vectors(100_000, 1, Vector2(1, 0), Vector2(0, 1))
-        with pytest.raises(ValueError):
             unit.at(0, 0).array_vectors(0, 1, Vector2(1, 0), Vector2(0, 1))
+        with pytest.raises(ValueError):
+            unit.at(0, 0).array_vectors(1, 0, Vector2(1, 0), Vector2(0, 1))
+        with pytest.raises(ValueError):
+            unit.at(0, 0).array_vectors(100_000, 1, Vector2(1, 0), Vector2(0, 1))
 
 
 class TestArrayCopies:
@@ -1243,6 +1160,14 @@ class TestArrayCopies:
         for copy in inst.copies():
             assert isinstance(copy, ArrayCopy)
             assert not isinstance(copy, Instance)
+
+    def test_array_copy_coordinates_are_read_only(self):
+        copy = next(iter(self._unit_cell(False).at(0, 0).array(2, 2, 10.0, 10.0)))
+
+        with pytest.raises(AttributeError):
+            copy.col = 1  # type: ignore[misc]
+        with pytest.raises(AttributeError):
+            copy.row = 1  # type: ignore[misc]
 
     def test_copies_column_major_order(self):
         """Copies are yielded in column-major order: col varies fastest."""

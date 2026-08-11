@@ -5,8 +5,9 @@ title: Transform
 A 2D affine transform (rotation, translation, scaling).
 
 Transforms encode geometric operations that can be applied to points. They
-are used internally by `CellRef` and `Instance` to position and orient
-cells, and can be composed together with `then()`.
+are used by `Instance` to position and orient cells, and can be composed
+together with `then()`. `ArrayCopy` exposes the composed world-space
+transform for an observed array copy.
 
 ```python
 # Rotate 90 degrees then translate

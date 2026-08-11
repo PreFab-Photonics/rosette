@@ -294,8 +294,8 @@ class Instance:
             :meth:`array_vectors` instead.
 
         Example:
-            arr = unit_cell.at(0, 0).array(10, 5, 20.0, 15.0)
-            top.add_ref(arr)
+            unit = Cell("unit")
+            arr = unit.at(0, 0).array(10, 5, 20.0, 15.0)
         """
         ...
     def array_vectors(
@@ -326,8 +326,8 @@ class Instance:
     def port(self, name: str, col: int = 0, row: int = 0) -> Port:
         """Get a transformed port from this instance.
 
-        Unlike CellRef.port(), this doesn't require passing the Cell again
-        since the Instance already knows its cell definition.
+        The Instance already knows its cell definition, so only the port name
+        and optional array coordinates are needed.
 
         Both position and direction are fully transformed (translation,
         rotation, mirroring). For example, a port facing +X will face -X
@@ -392,9 +392,6 @@ class Instance:
     def __len__(self) -> int:
         """Number of copies (``columns * rows``; 1 for non-arrayed)."""
         ...
-    def to_ref(self) -> CellRef:
-        """Convert to a CellRef with the same transform and repetition."""
-        ...
     def __repr__(self) -> str: ...
 
 class ArrayCopy:
@@ -409,11 +406,14 @@ class ArrayCopy:
     does **not** add geometry or a GDS reference when constructed.
     """
 
-    col: int
-    """Grid column of this copy (0-indexed)."""
-
-    row: int
-    """Grid row of this copy (0-indexed)."""
+    @property
+    def col(self) -> int:
+        """Grid column of this copy (0-indexed)."""
+        ...
+    @property
+    def row(self) -> int:
+        """Grid row of this copy (0-indexed)."""
+        ...
 
     def __init__(self, instance: Instance, col: int, row: int) -> None:
         """Create an ArrayCopy view.
@@ -501,106 +501,6 @@ class Port:
 
         Ports can connect if they are at the same position (within tolerance)
         and have opposite directions.
-        """
-        ...
-    def __repr__(self) -> str: ...
-
-class CellRef:
-    cell_name: str
-    def __init__(self, cell_or_name: Cell | str) -> None:
-        """Create a new cell reference.
-
-        Args:
-            cell_or_name: Either a Cell object or a cell name string.
-
-        Example:
-            ref1 = CellRef("my_cell")      # From string
-            ref2 = CellRef(waveguide_cell) # From Cell object
-        """
-        ...
-    def at(self, x: float, y: float) -> CellRef: ...
-    def rotate(self, angle_deg: float) -> CellRef: ...
-    def mirror_x(self) -> CellRef: ...
-    def mirror_y(self) -> CellRef: ...
-    def scale(self, s: float) -> CellRef: ...
-    def array(self, columns: int, rows: int, col_spacing: float, row_spacing: float) -> CellRef:
-        """Set array repetition (columns x rows rectangular grid with given pitch).
-
-        Creates a GDS AREF — a single compact array reference instead of
-        many individual references. In the viewer, the entire array is
-        selected as one object.
-
-        Args:
-            columns: Number of columns (1 to 32767).
-            rows: Number of rows (1 to 32767).
-            col_spacing: Column pitch — center-to-center distance between
-                adjacent copies along local +X, in µm. Negative values
-                place copies along local -X.
-            row_spacing: Row pitch — center-to-center distance between
-                adjacent copies along local +Y, in µm. Negative values
-                place copies along local -Y.
-
-        Raises:
-            ValueError: If columns or rows is outside the range [1, 32767].
-                The upper bound is the GDS COLROW INT16 limit.
-
-        Note:
-            For hex packings or any skewed / non-orthogonal grid, use
-            :meth:`array_vectors` instead.
-
-        Example:
-            ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
-        """
-        ...
-    def array_vectors(
-        self,
-        columns: int,
-        rows: int,
-        col_vector: Vector2,
-        row_vector: Vector2,
-    ) -> CellRef:
-        """Set array repetition from arbitrary column and row displacement vectors.
-
-        Lower-level constructor supporting non-orthogonal lattices — hex
-        packings, skewed test arrays, etc. Vectors are defined in the
-        CellRef's local (pre-transform) coordinate space, in µm.
-
-        Args:
-            columns: Number of columns (1 to 32767).
-            rows: Number of rows (1 to 32767).
-            col_vector: Column displacement — the offset between copy
-                ``(c, r)`` and ``(c+1, r)``, in µm.
-            row_vector: Row displacement — the offset between copy
-                ``(c, r)`` and ``(c, r+1)``, in µm.
-
-        Raises:
-            ValueError: If columns or rows is outside the range [1, 32767].
-        """
-        ...
-    def port(self, name: str, cell: Cell) -> Port:
-        """Get a transformed port from this cell reference.
-
-        Returns the named port from the source cell, transformed by this
-        CellRef's transform (position, rotation, mirror, etc.).
-
-        Args:
-            name: Name of the port to retrieve
-            cell: The source Cell object containing the port definition
-
-        Returns:
-            The port with position and direction transformed
-
-        Raises:
-            KeyError: If the port is not found in the cell
-
-        Example:
-            unit_ref = CellRef(unit_cell).at(100, 50)
-
-            # Get the transformed port
-            io_port = unit_ref.port("io", unit_cell)
-
-            # Use in routing
-            route = Route.through(io_port, ..., layer=layer)
         """
         ...
     def __repr__(self) -> str: ...
@@ -789,8 +689,8 @@ class Cell:
             top.add_ref(unit_cell.at(0, 0).array(10, 10, pitch, pitch))
         """
         ...
-    def add_ref(self, ref: Cell | CellRef | Instance) -> None:
-        """Add a cell, cell reference, or instance.
+    def add_ref(self, ref: Cell | Instance) -> None:
+        """Add a cell or resolved instance.
 
         When adding a Cell or Instance, the child cell is automatically
         tracked for write_gds().
@@ -805,17 +705,11 @@ class Cell:
             top.add_ref(unit.at(0, 0).array(cols, rows, pitch_x, pitch_y))
 
         Args:
-            ref: A Cell (placed at origin), Instance, or CellRef to add
+            ref: A Cell (placed at origin) or Instance to add
 
         Example:
             top.add_ref(unit_cell.at(0, 0))      # Instance at position
             top.add_ref(route.to_cell("wg"))     # Cell at origin
-        """
-        ...
-    def place_at_port(self, cell_ref: CellRef, cell_port: Port, target_port: Port) -> CellRef:
-        """Place a cell reference by aligning its port to a target port.
-
-        Returns a transformed CellRef that can be added with add_ref().
         """
         ...
     def __repr__(self) -> str: ...
@@ -1667,7 +1561,7 @@ def run_drc(
     Args:
         cell: The cell to check
         rules: DRC rules to apply
-        library: Library containing referenced cells. If None, CellRefs
+        library: Library containing referenced cells. If None, cell references
                  cannot be resolved and are skipped during flattening.
         cache: Optional :class:`DrcCache` reused across calls to make
                re-runs incremental (serve loop). Results are identical to a

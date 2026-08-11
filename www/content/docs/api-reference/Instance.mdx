@@ -4,18 +4,13 @@ title: Instance
 
 A cell placed at a specific location with optional transformations.
 
-Instance solves the ergonomic problem of needing to pass the Cell twice:
-once to create a CellRef, and again to query ports. With Instance, the
-Cell reference is preserved, allowing direct port queries.
+`Instance` is Rosette's only public abstraction for placing a `Cell`. It keeps
+the cell definition and transform together, supports direct transformed-port
+queries, and can represent either one placement or a compact GDS array.
 
 ```python
-# Old pattern (redundant):
-gc_ref = CellRef(gc_cell).at(0, 0)
-port = gc_ref.port("opt", gc_cell)  # Must pass gc_cell again
-
-# New pattern (ergonomic):
-gc_in = gc_cell.at(0, 0)            # Returns Instance
-port = gc_in.port("opt")            # No redundancy!
+gc_in = gc_cell.at(0, 0)  # Returns Instance
+port = gc_in.port("opt")  # Port transformed into world space
 ```
 
 Instances can be added directly to cells and support transform chaining:
@@ -56,7 +51,7 @@ The current transform applied to this instance.
 
 <PyAttribute name={"cell_name"} type={"str"}>
 
-Name of the referenced cell (for compatibility with CellRef).
+Name of the underlying cell.
 
 </PyAttribute>
 
@@ -319,9 +314,8 @@ A new Instance with array repetition set.
 
 Get a transformed port from this instance.
 
-Unlike `CellRef.port()`, this doesn't require passing the Cell again
-since the Instance already knows its cell definition. Both position
-and direction are fully transformed (translation, rotation, mirroring).
+The instance already knows its cell definition. Both position and direction
+are fully transformed (translation, rotation, mirroring).
 
 For arrayed instances (see `array` / `array_vectors`), pass `col`
 and `row` to address a specific copy in the lattice. The default
@@ -383,8 +377,9 @@ Iterate over the individual copies in this instance's array.
 Yields one [`ArrayCopy`](./ArrayCopy) per grid position, in
 column-major order (`col` varies fastest). Each yielded object
 exposes `col`, `row`, a world-space `transform`, and a `port(name)`
-convenience, without mutating this instance or adding any extra
-GDS references.
+convenience. These are read-only observational views, not independent
+placements: add this `Instance` to the parent cell, not its copies. Iteration
+does not mutate this instance or add any extra GDS references.
 
 For a non-arrayed instance this yields exactly one copy at
 `(col=0, row=0)`, so code written against `copies()` works
@@ -411,21 +406,6 @@ for copy in bank.copies():
 <PyFunctionReturn type={"Iterator[ArrayCopy]"}>
 
 Iterator yielding one ArrayCopy per grid position.
-
-</PyFunctionReturn>
-
-</PyFunction>
-
-<PyFunction name={"to_ref"} type={"() -> CellRef"}>
-
-Convert to a CellRef for use with low-level APIs.
-
-The transform is decomposed into GDS-compatible components
-(mirror, rotation, translation) following the GDS convention.
-
-<PyFunctionReturn type={"CellRef"}>
-
-A CellRef with the same cell name and transform.
 
 </PyFunctionReturn>
 

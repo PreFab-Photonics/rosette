@@ -186,6 +186,44 @@ impl PyCellRef {
         PyCellRef(CellRef::new(name))
     }
 
+    /// Lower a resolved facade Instance without reconstructing its transform.
+    #[staticmethod]
+    fn _from_transform(cell_name: String, transform: &PyTransform) -> PyResult<Self> {
+        let transform = transform.0;
+        let values = [
+            transform.a,
+            transform.b,
+            transform.c,
+            transform.d,
+            transform.tx,
+            transform.ty,
+        ];
+        let scale_x = transform.a.hypot(transform.c);
+        let scale_y = transform.b.hypot(transform.d);
+        let scale_error = (scale_x - scale_y).abs() / scale_x.max(scale_y);
+        let normalized_dot =
+            (transform.a * transform.b + transform.c * transform.d) / (scale_x * scale_y);
+        let min_gds_magnification = 16.0_f64.powi(-65);
+        let max_gds_magnification = 16.0_f64.powi(63);
+        if !values.iter().all(|value| value.is_finite())
+            || !scale_x.is_finite()
+            || !scale_y.is_finite()
+            || !scale_error.is_finite()
+            || !normalized_dot.is_finite()
+            || scale_x == 0.0
+            || scale_y == 0.0
+            || scale_x < min_gds_magnification
+            || scale_x >= max_gds_magnification
+            || scale_error > 1e-12
+            || normalized_dot.abs() > 1e-12
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Instance transform must contain only translation, rotation, reflection, and uniform non-zero scale representable in GDS REAL8",
+            ));
+        }
+        Ok(PyCellRef(CellRef::with_transform(cell_name, transform)))
+    }
+
     /// Set the position.
     fn at(&self, x: f64, y: f64) -> Self {
         PyCellRef(self.0.clone().at(x, y))

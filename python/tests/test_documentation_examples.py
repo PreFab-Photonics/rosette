@@ -23,7 +23,6 @@ RUNNABLE_API_EXAMPLES = {
     ("Cell.mdx", 12),
     ("Cell.mdx", 46),
     ("Cell.mdx", 87),
-    ("CellRef.mdx", 201),
     ("DfmConfig.mdx", 121),
     ("Layer.mdx", 11),
     ("Layer.mdx", 41),
@@ -37,19 +36,20 @@ RUNNABLE_API_EXAMPLES = {
     ("Port.mdx", 12),
     ("Port.mdx", 59),
     ("Port.mdx", 120),
-    ("Transform.mdx", 11),
-    ("Transform.mdx", 151),
+    ("Transform.mdx", 12),
+    ("Transform.mdx", 152),
     ("Vector2.mdx", 11),
     ("Vector2.mdx", 179),
     ("Vector2.mdx", 185),
     ("Vector2.mdx", 191),
     ("Vector2.mdx", 198),
     ("index.mdx", 32),
-    ("index.mdx", 229),
+    ("index.mdx", 228),
 }
 
 RUNNABLE_STUB_EXAMPLES = (
-    'ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)',
+    """unit = Cell("unit")
+arr = unit.at(0, 0).array(10, 5, 20.0, 15.0)""",
     """route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
 route.start_at(0, 0, angle=0)
 route.to(50, 0)

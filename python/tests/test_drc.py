@@ -11,7 +11,6 @@ import pytest
 from rosette import (
     BBox,
     Cell,
-    CellRef,
     DrcRules,
     Layer,
     Library,
@@ -1244,7 +1243,7 @@ class TestDrcViolation:
         leaf = Cell("leaf")
         leaf.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
         top = Cell("top")
-        top.add_ref(CellRef("leaf").at(100.0, 50.0))
+        top.add_ref(leaf.at(100.0, 50.0))
         lib = Library("prov_py")
         lib.add_cell(leaf)
         lib.add_cell(top)
@@ -1267,8 +1266,8 @@ class TestDrcViolation:
         b = Cell("cell_b")
         b.add_polygon(Polygon.rect(Point(0, 0), 2.0, 2.0), Layer(2, 0))
         top = Cell("top")
-        top.add_ref(CellRef("cell_a").at(0, 0))
-        top.add_ref(CellRef("cell_b").at(1.0, 0.0))  # overlapping
+        top.add_ref(a.at(0, 0))
+        top.add_ref(b.at(1.0, 0.0))  # overlapping
         lib = Library("prov_py2")
         lib.add_cell(a)
         lib.add_cell(b)

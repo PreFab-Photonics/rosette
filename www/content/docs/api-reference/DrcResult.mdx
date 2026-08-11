@@ -73,8 +73,8 @@ Number of violations suppressed by `drc_skip` post-filtering.
 
 A violation is suppressed when every cell it names is within the
 skipped-cell closure (a cell with `drc_skip = True` or any cell reachable
-from it via `CellRef`). Violations with unknown cell-name provenance are
-kept as a safe default. See [`Cell.drc_skip`](./Cell).
+from it through child-cell references). Violations with unknown cell-name
+provenance are kept as a safe default. See [`Cell.drc_skip`](./Cell).
 
 As of the provenance work in ROS-552, per-polygon rules (`MinWidth`,
 `MinArea`, etc.), cross-layer pairwise rules (`Enclosure`,
@@ -89,7 +89,7 @@ check has no single source cell.
 
 Number of unique cells in the skipped-cell closure for this run. That is,
 cells with `drc_skip = True` plus every cell reachable from them via
-`CellRef`. See [`Cell.drc_skip`](./Cell).
+child-cell references. See [`Cell.drc_skip`](./Cell).
 
 </PyAttribute>
 

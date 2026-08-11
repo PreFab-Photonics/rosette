@@ -1,6 +1,6 @@
 ---
 title: Cells and hierarchy
-description: Build complex designs from reusable sub-cells with add_ref, Instance, and ArrayCopy.
+description: Place reusable sub-cells with Instance, inspect array copies, and write compact hierarchy.
 ---
 
 A [`Cell`](/docs/api-reference/Cell) is a named container of geometry. A
@@ -11,9 +11,9 @@ to them keeps the GDS small and the design readable.
 This guide covers:
 
 - Placing sub-cells with `cell.at(x, y)` and `add_ref`
-- Using [`Instance`](/docs/api-reference/Instance) for ergonomic port queries
+- Using [`Instance`](/docs/api-reference/Instance) as the placement model
 - Arraying cells with [`Instance.array`](/docs/api-reference/Instance) and
-  iterating with [`ArrayCopy`](/docs/api-reference/ArrayCopy)
+  observing copies with [`ArrayCopy`](/docs/api-reference/ArrayCopy)
 - Auto-collection in [`write_gds`](/docs/api-reference#write_gds) and when
   you need a [`Library`](/docs/api-reference/Library)
 
@@ -105,8 +105,10 @@ no matter how many copies you stamp out.
 
 If you need per-copy labels, per-copy routing endpoints, or a netlist,
 iterate over the instance. Each yielded
-[`ArrayCopy`](/docs/api-reference/ArrayCopy) is a lightweight view: it
-does **not** add extra GDS references, so you stay compact.
+[`ArrayCopy`](/docs/api-reference/ArrayCopy) is a read-only observational
+view, not another placeable object. Add the parent `Instance` once, then use
+its copies for queries. Iteration does **not** add extra GDS references, so
+the hierarchy stays compact.
 
 ```python
 bank = unit.at(0, 0).array(4, 3, 20.0, 20.0)
@@ -147,17 +149,16 @@ When do you need an explicit `Library`?
   a `Library`, and you can iterate it with `lib.cells()`.
 - You called [`run_drc`](/docs/api-reference#run_drc),
   [`run_checks`](/docs/api-reference#run_checks), or
-  [`run_dfm`](/docs/api-reference#run_dfm) on a cell with references. If
-  the checks can't auto-collect child cells (because you used the raw
-  [`CellRef`](/docs/api-reference/CellRef) API instead of `Instance`),
-  you must pass a `Library` explicitly via the `library=` parameter.
+  [`run_dfm`](/docs/api-reference#run_dfm) on a cell from an imported or
+  explicitly managed hierarchy. Pass its `Library` via the `library=`
+  parameter so the checks can resolve referenced cells.
 
-<Callout title={"Instance vs. CellRef"} type={"info"}>
-`Instance` (returned by `cell.at(...)`) is the recommended API. It tracks
-the underlying `Cell`, supports `inst.port(name)` without passing the cell
-again, and feeds into `write_gds` auto-collection. The low-level
-[`CellRef`](/docs/api-reference/CellRef) exists for compatibility; using
-it directly will emit a warning about untracked children.
+<Callout title={"One placement model"} type={"info"}>
+`Instance`, returned by `cell.at(...)`, is the public placement abstraction.
+It tracks the underlying `Cell`, supports `inst.port(name)`, arrays, and
+transform chaining, and feeds into `write_gds` auto-collection. `ArrayCopy`
+only observes one copy in an array; it is read-only and cannot be passed to
+`add_ref`.
 </Callout>
 
 ## Putting it together
@@ -191,7 +192,6 @@ write_gds("output/grid.gds", top)
 
 - [`Cell`](/docs/api-reference/Cell): cell API reference
 - [`Instance`](/docs/api-reference/Instance): transforms, arrays, ports
-- [`ArrayCopy`](/docs/api-reference/ArrayCopy): per-copy views on arrays
+- [`ArrayCopy`](/docs/api-reference/ArrayCopy): read-only per-copy array views
 - [`Library`](/docs/api-reference/Library): explicit collections of cells
-- [`CellRef`](/docs/api-reference/CellRef): the low-level reference type
 - [Core concepts](/docs/getting-started/core-concepts): the overall mental model

@@ -11,7 +11,6 @@
     "Transform",
     "---Layout---",
     "Cell",
-    "CellRef",
     "Instance",
     "ArrayCopy",
     "Route",

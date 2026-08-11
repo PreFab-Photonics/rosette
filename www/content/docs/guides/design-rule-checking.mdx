@@ -148,11 +148,11 @@ a quick pass/fail, and iterate `result.violations` for details. Each
 (`((x0, y0), (x1, y1))` in um) pointing at the offending geometry so you
 can render it in the viewer or jump to it by coordinate.
 
-If your cell uses references to other cells *without* Instance tracking
-(for example, if you built it via the raw
-[`CellRef`](/docs/api-reference/CellRef) API), pass an explicit
-[`Library`](/docs/api-reference/Library) via `library=` so DRC can
-resolve the hierarchy.
+Cells assembled with public `Instance` placements track their children, so
+`run_drc` can auto-collect the hierarchy. For a cell obtained from an imported
+or explicitly managed hierarchy, pass its
+[`Library`](/docs/api-reference/Library) via `library=` so DRC can resolve all
+referenced cells.
 
 ## Run DRC from the CLI
 
