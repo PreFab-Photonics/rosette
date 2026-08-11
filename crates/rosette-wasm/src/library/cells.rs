@@ -16,6 +16,7 @@ impl WasmLibrary {
         Self {
             library: Library::new(name.to_string()),
             active_cell: None,
+            cell_origins: HashMap::new(),
             element_refs: HashMap::new(),
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
@@ -34,10 +35,13 @@ impl WasmLibrary {
     ///
     /// Returns an error if the name is invalid or already exists.
     pub fn add_cell(&mut self, name: &str) -> Result<(), JsValue> {
+        rosette_io::gds::validate_structure_name(name)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         let cell = Cell::new(name.to_string());
         self.library
             .add_cell(cell)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.cell_origins.insert(name.to_string(), Point::origin());
         if self.active_cell.is_none() {
             self.active_cell = Some(name.to_string());
         }
@@ -49,6 +53,8 @@ impl WasmLibrary {
     /// Returns false if old_name doesn't exist, or throws a JS error if
     /// new_name is invalid or already taken.
     pub fn rename_cell(&mut self, old_name: &str, new_name: &str) -> Result<bool, JsValue> {
+        rosette_io::gds::validate_structure_name(new_name)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         let found = self
             .library
             .rename_cell(old_name, new_name)
@@ -58,6 +64,9 @@ impl WasmLibrary {
             // Update active cell reference if it was renamed
             if self.active_cell.as_deref() == Some(old_name) {
                 self.active_cell = Some(new_name.to_string());
+            }
+            if let Some(origin) = self.cell_origins.remove(old_name) {
+                self.cell_origins.insert(new_name.to_string(), origin);
             }
             // Update element refs that point to the old cell name
             for elem_ref in self.element_refs.values_mut() {
@@ -76,6 +85,7 @@ impl WasmLibrary {
     /// If the removed cell is the active cell, the active cell is cleared.
     pub fn remove_cell(&mut self, name: &str) -> bool {
         if self.library.remove_cell(name) {
+            self.cell_origins.remove(name);
             // Clear active cell if it was removed
             if self.active_cell.as_deref() == Some(name) {
                 self.active_cell = self.library.cells().first().map(|c| c.name().to_string());
@@ -132,6 +142,7 @@ impl WasmLibrary {
 
         // Now remove the cell itself
         self.library.remove_cell(name);
+        self.cell_origins.remove(name);
 
         // Clear active cell if it was removed
         if self.active_cell.as_deref() == Some(name) {
@@ -221,8 +232,12 @@ impl WasmLibrary {
     /// Returns None if no active cell exists.
     pub fn get_cell_origin(&self) -> Option<Vec<f64>> {
         let cell_name = self.active_cell.as_deref()?;
-        let cell = self.library.cell(cell_name)?;
-        let origin = cell.origin();
+        self.library.cell(cell_name)?;
+        let origin = self
+            .cell_origins
+            .get(cell_name)
+            .copied()
+            .unwrap_or_else(Point::origin);
         Some(vec![origin.x, origin.y])
     }
 
@@ -230,8 +245,12 @@ impl WasmLibrary {
     ///
     /// Returns None if the cell does not exist.
     pub fn get_cell_origin_by_name(&self, cell_name: &str) -> Option<Vec<f64>> {
-        let cell = self.library.cell(cell_name)?;
-        let origin = cell.origin();
+        self.library.cell(cell_name)?;
+        let origin = self
+            .cell_origins
+            .get(cell_name)
+            .copied()
+            .unwrap_or_else(Point::origin);
         Some(vec![origin.x, origin.y])
     }
 
@@ -243,8 +262,8 @@ impl WasmLibrary {
             Some(name) => name.to_string(),
             None => return false,
         };
-        if let Some(cell) = self.library.cell_mut(&cell_name) {
-            cell.set_origin(Point::new(x, y));
+        if self.library.contains(&cell_name) {
+            self.cell_origins.insert(cell_name, Point::new(x, y));
             self.mark_dirty();
             true
         } else {
@@ -279,5 +298,27 @@ impl WasmLibrary {
 
             self.mark_dirty();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn origin_state_follows_cell_lifecycle() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("cell").unwrap();
+        assert!(library.set_cell_origin(12.0, -4.0));
+        library.clear_active_cell();
+        assert_eq!(library.get_cell_origin(), Some(vec![12.0, -4.0]));
+
+        assert!(library.rename_cell("cell", "renamed").unwrap());
+        assert_eq!(
+            library.get_cell_origin_by_name("renamed"),
+            Some(vec![12.0, -4.0])
+        );
+        assert!(library.remove_cell("renamed"));
+        assert!(library.get_cell_origin_by_name("renamed").is_none());
     }
 }

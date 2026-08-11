@@ -38,11 +38,13 @@
 
 mod cache;
 mod checks;
+mod policy;
 mod rules;
 mod runner;
 mod violation;
 
 pub use cache::{ContentHash, DrcCache, cell_content_hash};
+pub use policy::DrcPolicy;
 pub use rules::{DrcRules, Rule};
-pub use runner::{DrcResult, DrcRunner, DrcStats, run_drc};
+pub use runner::{DrcResult, DrcRunner, DrcStats, run_drc, run_drc_with_policy};
 pub use violation::{DrcViolation, RuleType, Severity};

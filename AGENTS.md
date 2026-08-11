@@ -5,12 +5,13 @@ AI-native, scriptable GDSII layout editor for integrated circuits, focused on si
 ## Structure
 
 ```
-crates/rosette-core     Geometry, layout, routing, cell hierarchy
+crates/rosette-core     Geometry, atomic layout types, cell hierarchy
 crates/rosette-checks   Check framework (orchestrates DRC, ...)
 crates/rosette-drc      Design rule checking
 crates/rosette-dfm      Design-for-manufacturing models
 crates/rosette-io       GDS-II reader/writer
 crates/rosette-raster   Rasterization
+crates/rosette-route    Photonic routing algorithms and diagnostics
 crates/rosette-python   PyO3 bindings -> rosette._core
 crates/rosette-wasm     WASM + WebGPU renderer
 
@@ -22,7 +23,7 @@ www/                    Docs site (Next.js + fumadocs) — see www/AGENTS.md
 designs/                Example design scripts
 ```
 
-Pipeline: `rosette-core` -> PyO3 (`rosette-python`) -> `rosette._core` -> Python wrapper (`python/rosette/__init__.py`).
+Pipeline: `rosette-core` + feature crates such as `rosette-route` -> PyO3 (`rosette-python`) -> `rosette._core` -> Python wrapper (`python/rosette/__init__.py`).
 
 ## Commands
 

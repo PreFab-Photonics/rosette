@@ -5,8 +5,7 @@
 //! boolean-geometry cost for the outers whose bbox is actually near it.
 //! Mirrors the pattern used by `overlap.rs` and `spacing.rs`.
 
-use geo::{Area, BooleanOps, Distance, Euclidean};
-use rosette_core::{Layer, Polygon, polygon_to_geo};
+use rosette_core::{Layer, Polygon, Region};
 use rstar::{AABB, RTree};
 
 use super::spatial::IndexedPolygon;
@@ -102,19 +101,19 @@ pub fn check_enclosure_bulk(
 
         // Lazily converted — only allocate when we actually have a candidate
         // outer to test against.
-        let mut geo_inner = None;
+        let mut inner_region = None;
 
         let mut best_violation: Option<DrcViolation> = None;
         let mut is_enclosed = false;
 
         for candidate in tree.locate_in_envelope_intersecting(&search_envelope) {
             let (outer_poly, outer_idx) = &outer_polys[candidate.index];
-            let geo_inner = geo_inner.get_or_insert_with(|| polygon_to_geo(inner_poly));
-            let geo_outer = polygon_to_geo(outer_poly);
+            let inner_region = inner_region.get_or_insert_with(|| Region::from_polygon(inner_poly));
+            let outer_region = Region::from_polygon(outer_poly);
 
             // First: inner must be fully contained in outer. `inner - outer`
             // has non-zero area iff some part of the inner extends outside.
-            let outside_area = geo_inner.difference(&geo_outer).unsigned_area();
+            let outside_area = inner_region.subtract(&outer_region).area();
             if outside_area > 1e-10 {
                 // Not fully enclosed — record as a zero-enclosure near-miss
                 // so an inner with no fully-enclosing outer still reports.
@@ -140,7 +139,7 @@ pub fn check_enclosure_bulk(
             }
 
             // Second: minimum boundary-to-boundary distance.
-            let distance = Euclidean::distance(geo_inner.exterior(), geo_outer.exterior());
+            let distance = inner_region.exterior_distance(&outer_region);
             if distance >= min_enclosure {
                 // This outer fully satisfies the rule — inner is covered.
                 is_enclosed = true;
@@ -272,14 +271,14 @@ fn check_enclosure(
     min_enclosure: f64,
     rule_name: Option<&str>,
 ) -> Option<DrcViolation> {
-    let geo_inner = polygon_to_geo(inner);
-    let geo_outer = polygon_to_geo(outer);
+    let inner_region = Region::from_polygon(inner);
+    let outer_region = Region::from_polygon(outer);
 
     // First check: inner must be completely within outer
     // Compute difference: inner - outer. If non-empty, inner extends outside outer.
-    let difference = geo_inner.difference(&geo_outer);
+    let difference = inner_region.subtract(&outer_region);
 
-    let outside_area = difference.unsigned_area();
+    let outside_area = difference.area();
 
     if outside_area > 1e-10 {
         // Inner extends outside outer
@@ -306,10 +305,7 @@ fn check_enclosure(
     }
 
     // Second check: minimum distance from inner boundary to outer boundary
-    let inner_exterior = geo_inner.exterior();
-    let outer_exterior = geo_outer.exterior();
-
-    let distance = Euclidean::distance(inner_exterior, outer_exterior);
+    let distance = inner_region.exterior_distance(&outer_region);
 
     if distance < min_enclosure {
         let mut violation = DrcViolation::new(

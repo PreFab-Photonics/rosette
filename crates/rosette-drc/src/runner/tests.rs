@@ -2423,3 +2423,87 @@ fn cached_tracks_edit_sequence_like_full_rerun() {
         assert_same_violations(&cached, &fresh);
     }
 }
+
+#[test]
+fn explicit_policy_suppresses_without_mutating_cell() {
+    let mut cell = Cell::new("trusted");
+    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("trusted");
+
+    let result = run_drc_with_policy(&cell, &rules, None, &policy);
+    assert!(result.passed());
+    assert_eq!(result.stats.suppressed_violations, 1);
+    assert!(!cell.drc_skip());
+}
+
+#[test]
+fn cached_run_invalidates_full_result_when_policy_changes() {
+    let mut cell = Cell::new("trusted");
+    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let runner = DrcRunner::new(rules);
+    let mut cache = DrcCache::new();
+
+    let first = runner.check_cached_with_policy(&cell, None, &DrcPolicy::new(), &mut cache);
+    assert!(!first.passed());
+
+    let mut skipped = DrcPolicy::new();
+    skipped.skip_cell("trusted");
+    let second = runner.check_cached_with_policy(&cell, None, &skipped, &mut cache);
+    assert!(second.passed());
+    assert_eq!(second.stats.suppressed_violations, 1);
+}
+
+#[test]
+fn content_hash_excludes_drc_policy_annotations() {
+    let mut plain = Cell::new("cell");
+    plain.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
+    let mut annotated = plain.clone();
+    annotated.set_drc_skip(true);
+    annotated.add_drc_waive_region(BBox::new(Point::origin(), Point::new(1.0, 1.0)));
+
+    assert_eq!(
+        cell_content_hash(&plain, None, &mut HashMap::new()),
+        cell_content_hash(&annotated, None, &mut HashMap::new())
+    );
+}
+
+#[test]
+fn cached_full_result_refreshes_provenance_after_rename() {
+    let make_cell = |name: &str| {
+        let mut cell = Cell::new(name);
+        cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+        cell
+    };
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let runner = DrcRunner::new(rules);
+    let mut cache = DrcCache::new();
+
+    let first = runner.check_cached(&make_cell("before"), None, &mut cache);
+    assert_eq!(first.violations[0].cell_name.as_deref(), Some("before"));
+
+    let second = runner.check_cached(&make_cell("after"), None, &mut cache);
+    assert_eq!(second.violations[0].cell_name.as_deref(), Some("after"));
+}
+
+#[test]
+fn cached_full_result_refreshes_name_keyed_policy_after_rename() {
+    let make_cell = |name: &str| {
+        let mut cell = Cell::new(name);
+        cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+        cell
+    };
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let runner = DrcRunner::new(rules);
+    let mut cache = DrcCache::new();
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("before");
+
+    let first = runner.check_cached_with_policy(&make_cell("before"), None, &policy, &mut cache);
+    assert!(first.passed());
+
+    let second = runner.check_cached_with_policy(&make_cell("after"), None, &policy, &mut cache);
+    assert!(!second.passed());
+}

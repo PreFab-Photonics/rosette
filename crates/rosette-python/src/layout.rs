@@ -396,7 +396,7 @@ impl PyCell {
     #[new]
     #[pyo3(signature = (name, *, drc_skip=false))]
     fn new(name: String, drc_skip: bool) -> PyResult<Self> {
-        rosette_core::validate_cell_name(&name)
+        rosette_io::gds::validate_structure_name(&name)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let mut cell = Cell::new(name);
         if drc_skip {
@@ -758,6 +758,8 @@ impl PyLibrary {
     ///     ValueError: If the cell name is invalid or a cell with the
     ///         same name already exists.
     fn add_cell(&mut self, cell: &PyCell) -> PyResult<()> {
+        rosette_io::gds::validate_structure_name(cell.0.name())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         self.0
             .add_cell(cell.0.clone())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
@@ -785,10 +787,10 @@ impl PyLibrary {
         let cells: Vec<Cell> = available_cells.into_iter().map(|c| c.0).collect();
         // Validate all cell names before adding
         for c in &cells {
-            rosette_core::validate_cell_name(c.name())
+            rosette_io::gds::validate_structure_name(c.name())
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         }
-        rosette_core::validate_cell_name(cell.0.name())
+        rosette_io::gds::validate_structure_name(cell.0.name())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         self.0.add_cell_recursive(cell.0.clone(), &cells);
         Ok(())

@@ -163,12 +163,15 @@ impl<'a> GdsReader<'a> {
             match rec.record_type {
                 BGNSTR => {
                     let cell = self.read_cell()?;
-                    // Use add_cell_dedup: names from existing GDS files may
-                    // duplicate (re-defined structures) and we accept whatever
-                    // the file contains. Validation errors from exotic names
-                    // in third-party files are ignored — the name was valid
-                    // enough for the originating tool.
-                    let _ = library.add_cell_dedup(cell);
+                    // Core identities are format-neutral, so representable
+                    // third-party names are retained even when Rosette would
+                    // not emit them as GDS.
+                    library
+                        .add_cell_dedup(cell)
+                        .map_err(|error| GdsError::InvalidRecord {
+                            offset: self.offset(),
+                            message: error.to_string(),
+                        })?;
                 }
                 ENDLIB => break,
                 _ => {
@@ -716,6 +719,21 @@ mod tests {
             w.write_library(lib).unwrap();
         }
         read_bytes(&output).unwrap()
+    }
+
+    #[test]
+    fn reader_retains_representable_noncanonical_structure_names() {
+        let mut library = Library::new("test");
+        library.add_cell(Cell::new("VALIDNAME")).unwrap();
+        let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+        let offset = bytes
+            .windows(b"VALIDNAME".len())
+            .position(|window| window == b"VALIDNAME")
+            .unwrap();
+        bytes[offset..offset + b"HAS SPACE".len()].copy_from_slice(b"HAS SPACE");
+
+        let imported = read_bytes(&bytes).unwrap();
+        assert!(imported.cell("HAS SPACE").is_some());
     }
 
     #[test]

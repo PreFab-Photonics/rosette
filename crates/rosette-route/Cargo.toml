@@ -1,0 +1,15 @@
+[package]
+name = "rosette-route"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Photonic routing algorithms for Rosette"
+
+[dependencies]
+rosette-core.workspace = true
+serde = { workspace = true, optional = true }
+thiserror.workspace = true
+
+[features]
+default = []
+serde = ["dep:serde", "rosette-core/serde"]

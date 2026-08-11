@@ -5,7 +5,7 @@ use crate::geometry::PyPoint;
 use crate::layout::{PyCell, PyPort};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
-use rosette_core::{BendProfile, Route};
+use rosette_route::{BendProfile, Route};
 use std::f64::consts::PI;
 
 /// Parse a `bend_profile` string from Python into the Rust enum.

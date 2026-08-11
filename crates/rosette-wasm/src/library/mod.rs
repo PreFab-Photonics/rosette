@@ -109,6 +109,9 @@ impl CellRefInfo {
 pub struct WasmLibrary {
     library: Library,
     active_cell: Option<String>,
+    /// Editor origins keyed by cell name. Core cells retain origin only as a
+    /// serialized compatibility bridge at import/export boundaries.
+    cell_origins: HashMap<String, Point>,
     /// Maps element UUIDs to their location in the library.
     element_refs: HashMap<String, ElementRef>,
     /// Layer colors for rendering (layer_key -> RGBA).
@@ -513,30 +516,49 @@ impl WasmLibrary {
     ///
     /// If the referenced cell has geometry, returns its bounding box transformed
     /// by the CellRef's transform (and all array-copy transforms, if arrayed).
-    /// If the cell is empty, returns a small placeholder box centered at the
-    /// CellRef's translation point so that empty instances remain visible,
+    /// If the cell is empty, returns small placeholder boxes centered at each
+    /// transformed cell origin so that empty instances remain visible,
     /// selectable, and labeled.
     ///
     /// Prefer `instance_bbox_cached` at call sites that know the element index —
     /// it memoises the result.
     fn compute_instance_bbox(&self, parent_cell: &str, cell_ref: &CellRef) -> BBox {
         let mut combined: Option<BBox> = None;
+        let origin = self
+            .cell_origins
+            .get(&cell_ref.cell_name)
+            .copied()
+            .unwrap_or_else(Point::origin);
         for copy_transform in array_transforms(cell_ref) {
+            let mut copy_bounds = None;
             self.collect_bounds_recursive(
                 &cell_ref.cell_name,
                 &copy_transform,
                 &[parent_cell],
-                &mut combined,
+                &mut copy_bounds,
             );
+            let bounds = copy_bounds.unwrap_or_else(|| {
+                // 500 world units half-size -> 10 nm -> 20 nm x 20 nm placeholder.
+                const HALF: f64 = 500.0;
+                let placed_origin = copy_transform.apply(origin);
+                BBox::new(
+                    Point::new(placed_origin.x - HALF, placed_origin.y - HALF),
+                    Point::new(placed_origin.x + HALF, placed_origin.y + HALF),
+                )
+            });
+            combined = Some(match combined.take() {
+                Some(existing) => existing.merge(&bounds),
+                None => bounds,
+            });
         }
         combined.unwrap_or_else(|| {
-            // Empty cell: use a small placeholder centered at the placement point.
-            // 500 world units half-size → 10 nm → 20 nm × 20 nm placeholder.
+            // Malformed serialized repetitions can contain a zero dimension.
+            // Keep the instance selectable at its anchor instead of panicking.
             const HALF: f64 = 500.0;
-            let (tx, ty) = cell_ref.transform.translation();
+            let placed_origin = cell_ref.transform.apply(origin);
             BBox::new(
-                Point::new(tx - HALF, ty - HALF),
-                Point::new(tx + HALF, ty + HALF),
+                Point::new(placed_origin.x - HALF, placed_origin.y - HALF),
+                Point::new(placed_origin.x + HALF, placed_origin.y + HALF),
             )
         })
     }

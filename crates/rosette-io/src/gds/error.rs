@@ -8,11 +8,8 @@ pub enum GdsError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Invalid cell name: {0}")]
-    InvalidCellName(#[from] rosette_core::CellNameError),
-
-    #[error("Cell name too long: {0} (max 32 characters)")]
-    CellNameTooLong(String),
+    #[error("invalid GDS structure name: {0}")]
+    InvalidStructureName(#[from] super::naming::GdsNameError),
 
     #[error("Polygon has too many vertices: {0} (max 8191)")]
     TooManyVertices(usize),

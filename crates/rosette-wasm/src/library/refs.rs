@@ -330,8 +330,15 @@ impl WasmLibrary {
             return None;
         }
 
-        let cell_ref =
-            CellRef::with_transform(ref_cell_name.to_string(), Transform::translate(x, y));
+        let origin = self
+            .cell_origins
+            .get(ref_cell_name)
+            .copied()
+            .unwrap_or_else(rosette_core::Point::origin);
+        let cell_ref = CellRef::with_transform(
+            ref_cell_name.to_string(),
+            Transform::translate(x - origin.x, y - origin.y),
+        );
 
         let cell = self.library.cell_mut(parent_cell)?;
         cell.add_ref(cell_ref);
@@ -651,5 +658,74 @@ impl WasmLibrary {
         }
 
         roots.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn placement_coordinates_position_the_child_origin() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        assert!(library.set_cell_origin(10.0, 20.0));
+        library.add_cell("parent").unwrap();
+        assert!(library.set_active_cell("parent"));
+
+        library.add_cell_ref("child", 100.0, 200.0).unwrap();
+        let parent = library.library.cell("parent").unwrap();
+        let cell_ref = parent.cell_refs().next().unwrap();
+        assert_eq!(
+            (cell_ref.transform.tx, cell_ref.transform.ty),
+            (90.0, 180.0)
+        );
+        let placed_origin = cell_ref
+            .transform
+            .apply(rosette_core::Point::new(10.0, 20.0));
+        assert_eq!(placed_origin, rosette_core::Point::new(100.0, 200.0));
+    }
+
+    #[test]
+    fn empty_aref_bounds_cover_each_transformed_origin() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        assert!(library.set_cell_origin(10.0, 20.0));
+        library.add_cell("parent").unwrap();
+        assert!(library.set_active_cell("parent"));
+
+        let id = library.add_cell_ref("child", 100.0, 200.0).unwrap();
+        assert!(library.set_cell_ref_array_vectors(&id, 2, 1, 50.0, 0.0, 0.0, 0.0));
+        let cell_ref = library
+            .library
+            .cell("parent")
+            .unwrap()
+            .cell_refs()
+            .next()
+            .unwrap();
+        let bbox = library.compute_instance_bbox("parent", cell_ref);
+        assert_eq!((bbox.min().x, bbox.min().y), (-400.0, -300.0));
+        assert_eq!((bbox.max().x, bbox.max().y), (650.0, 700.0));
+    }
+
+    #[test]
+    fn malformed_zero_dimension_aref_bounds_do_not_panic() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        library.add_cell("parent").unwrap();
+        let cell_ref = CellRef {
+            cell_name: "child".to_string(),
+            transform: Transform::translate(100.0, 200.0),
+            repetition: Some(Repetition {
+                columns: 0,
+                rows: 2,
+                col_vector: Vector2::new(10.0, 0.0),
+                row_vector: Vector2::new(0.0, 10.0),
+            }),
+        };
+
+        let bbox = library.compute_instance_bbox("parent", &cell_ref);
+        assert_eq!((bbox.min().x, bbox.min().y), (-400.0, -300.0));
+        assert_eq!((bbox.max().x, bbox.max().y), (600.0, 700.0));
     }
 }

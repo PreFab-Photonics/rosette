@@ -9,8 +9,7 @@
 //! Use it to model keep-out zones: regions where a given layer is prohibited
 //! from appearing in full.
 
-use geo::{Area, BooleanOps, MultiPolygon};
-use rosette_core::{Layer, Polygon, polygon_to_geo};
+use rosette_core::{Layer, Polygon, Region};
 
 use crate::violation::{DrcViolation, RuleType, Severity};
 
@@ -49,21 +48,21 @@ pub fn check_not_inside(
 
     let mut violations = Vec::new();
     for (inner_poly, orig_idx) in inners {
-        let geo_inner = MultiPolygon::new(vec![polygon_to_geo(inner_poly)]);
+        let inner_region = Region::from_polygon(inner_poly);
 
         // Degenerate inner polygons (collinear vertices, sub-epsilon slivers)
         // have area below our tolerance. Any `difference` result against them
         // also falls below tolerance, which would otherwise flag them as
         // "fully inside" even when they're nowhere near an outer polygon.
         // Skip these — they're not meaningfully "inside" anything.
-        let inner_area = geo_inner.unsigned_area();
+        let inner_area = inner_region.area();
         if inner_area <= CONTAINMENT_AREA_EPS {
             continue;
         }
 
-        let diff = geo_inner.difference(&outer_union);
+        let diff = inner_region.subtract(&outer_union);
 
-        if diff.unsigned_area() <= CONTAINMENT_AREA_EPS {
+        if diff.area() <= CONTAINMENT_AREA_EPS {
             let mut violation = DrcViolation::new(
                 RuleType::NotInside,
                 inner_poly.bbox(),
@@ -91,19 +90,14 @@ pub fn check_not_inside(
     violations
 }
 
-/// Union a list of polygons into a `geo` `MultiPolygon`.
+/// Union a list of polygons into a hole-preserving region.
 ///
 /// Uses `BooleanOps::union` iteratively. For the typical DRC case (a handful
 /// of outer polygons per rule, maybe dozens), this is fast enough. If this
 /// becomes a bottleneck on designs with thousands of outer polygons, swap in
 /// a sweep-line union.
-fn union_polygons(polys: &[(Polygon, usize)]) -> MultiPolygon<f64> {
-    let mut acc = MultiPolygon::new(Vec::new());
-    for (poly, _) in polys {
-        let one = MultiPolygon::new(vec![polygon_to_geo(poly)]);
-        acc = acc.union(&one);
-    }
-    acc
+fn union_polygons(polys: &[(Polygon, usize)]) -> Region {
+    Region::from_polygons(polys.iter().map(|(polygon, _)| polygon))
 }
 
 #[cfg(test)]

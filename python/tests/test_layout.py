@@ -20,6 +20,7 @@ from rosette import (
     Point,
     Polygon,
     Port,
+    Route,
     Transform,
     Vector2,
     write_gds,
@@ -189,6 +190,12 @@ class TestLibrary:
         top = lib.top_cell()
         assert top is not None
         assert top.name == "parent"
+
+    def test_add_cell_validates_cells_created_outside_constructor(self):
+        """Library keeps GDS name validation for route-produced cells."""
+        invalid = Route(Layer(1)).to_cell("has space")
+        with pytest.raises(ValueError, match="invalid character"):
+            Library("test_lib").add_cell(invalid)
 
 
 class TestInstance:

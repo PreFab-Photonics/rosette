@@ -5,9 +5,7 @@
 //! Holes (inner contours) are boolean-subtracted from outer contours using the
 //! `geo` crate so that glyphs like 'd', 'o', 'A' render correctly.
 
-use geo::BooleanOps;
-use geo::{Coord, LineString, MultiPolygon, Polygon as GeoPolygon};
-use rosette_core::polygons_from_geo_multi;
+use rosette_core::{Point, Polygon, Region};
 use ttf_parser::{Face, OutlineBuilder};
 
 /// Embedded Source Code Pro Regular font (SIL Open Font License).
@@ -119,24 +117,20 @@ fn signed_area(pts: &[[f64; 2]]) -> f64 {
     area * 0.5
 }
 
-/// Convert a contour (list of [x,y] points) to a `geo::Polygon`.
-fn contour_to_geo(pts: &[[f64; 2]]) -> GeoPolygon<f64> {
-    let mut coords: Vec<Coord<f64>> = pts.iter().map(|p| Coord { x: p[0], y: p[1] }).collect();
-    // geo requires closed rings — ensure first == last.
-    if let (Some(first), Some(last)) = (coords.first(), coords.last())
-        && first != last
-    {
-        coords.push(*first);
-    }
-    GeoPolygon::new(LineString::new(coords), vec![])
+/// Convert a contour to a single-ring layout polygon.
+fn contour_to_polygon(points: &[[f64; 2]]) -> Polygon {
+    Polygon::new(
+        points
+            .iter()
+            .map(|point| Point::new(point[0], point[1]))
+            .collect(),
+    )
 }
 
-/// Convert a `geo::MultiPolygon` result into flat vertex lists for rosette.
-///
-/// Uses core's `polygons_from_geo_multi` which keyholes any interior rings,
-/// producing single-ring polygons.
-fn multi_poly_to_flat(mp: &MultiPolygon<f64>) -> Vec<Vec<f64>> {
-    polygons_from_geo_multi(mp)
+/// Explicitly lower a hole-preserving region into flat layout polygons.
+fn region_to_flat(region: &Region) -> Vec<Vec<f64>> {
+    region
+        .to_keyholed_polygons()
         .iter()
         .map(|poly| poly.vertices().iter().flat_map(|p| [p.x, p.y]).collect())
         .collect()
@@ -246,15 +240,18 @@ pub fn text_to_polygon_contours(text: &str, x: f64, y: f64, height: f64) -> Vec<
                     }
                 } else {
                     // Boolean subtract holes from the union of outers.
-                    let mut outer_multi =
-                        MultiPolygon::new(outers.iter().map(|o| contour_to_geo(o)).collect());
+                    let outer_polygons: Vec<_> = outers
+                        .iter()
+                        .map(|outer| contour_to_polygon(outer))
+                        .collect();
+                    let mut outer_region = Region::from_polygons(&outer_polygons);
 
                     for hole in &holes {
-                        let hole_poly = MultiPolygon::new(vec![contour_to_geo(hole)]);
-                        outer_multi = outer_multi.difference(&hole_poly);
+                        outer_region =
+                            outer_region.subtract(&Region::from_polygon(&contour_to_polygon(hole)));
                     }
 
-                    let polys = multi_poly_to_flat(&outer_multi);
+                    let polys = region_to_flat(&outer_region);
                     all_polys.extend(polys);
                 }
             }

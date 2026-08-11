@@ -48,10 +48,6 @@ interface InstanceData {
   x: number;
   /** Effective world-space Y: transform applied to child cell origin. */
   y: number;
-  /** Raw transform tx (needed for computing move deltas). */
-  tx: number;
-  /** Raw transform ty (needed for computing move deltas). */
-  ty: number;
   /** Rotation in degrees (extracted from the linear part of the transform). */
   rotation: number;
   /** Uniform scale factor (extracted from the linear part of the transform). */
@@ -162,8 +158,6 @@ function useSelectedElementData(): {
           cellName: refInfo.cell_name,
           x: a * ox + b * oy + tx,
           y: c * ox + d * oy + ty,
-          tx,
-          ty,
           rotation: rotationDeg,
           scale,
           transform: new Float64Array(refInfo.transform),
@@ -1169,10 +1163,9 @@ export function InspectorPanel() {
   if (data.instance) {
     const inst = data.instance;
 
-    // Instance position: transform tx/ty converted to display units.
-    // tx/ty are in world coordinates; convert world → nm → display, Y negated.
-    const instX = formatCoordinate(inst.tx / GRID_SIZE, unitInfo);
-    const instY = formatCoordinate(-inst.ty / GRID_SIZE, unitInfo);
+    // Display the effective anchor where the child cell's origin lands.
+    const instX = formatCoordinate(inst.x / GRID_SIZE, unitInfo);
+    const instY = formatCoordinate(-inst.y / GRID_SIZE, unitInfo);
 
     // Bounding-box size (read-only)
     const instW = bounds
@@ -1213,7 +1206,12 @@ export function InspectorPanel() {
 
     /** Build a new affine transform [a, b, c, d, tx, ty] from rotation (deg) and scale,
      *  preserving the mirror state of the original transform. */
-    const buildTransform = (rotDeg: number, s: number, tx: number, ty: number): Float64Array => {
+    const buildTransform = (
+      rotDeg: number,
+      s: number,
+      anchorX: number,
+      anchorY: number,
+    ): Float64Array => {
       const r = (rotDeg * Math.PI) / 180;
       const cosR = Math.cos(r);
       const sinR = Math.sin(r);
@@ -1223,6 +1221,8 @@ export function InspectorPanel() {
       const b = isMirrored ? s * sinR : -s * sinR;
       const c = s * sinR;
       const d = isMirrored ? -s * cosR : s * cosR;
+      const tx = anchorX - (a * inst.childOriginX + b * inst.childOriginY);
+      const ty = anchorY - (c * inst.childOriginX + d * inst.childOriginY);
       return new Float64Array([a, b, c, d, tx, ty]);
     };
 
@@ -1231,11 +1231,12 @@ export function InspectorPanel() {
       const valueInNm = displayValue * unitInfo.scale;
       const worldValue = axis === "y" ? -valueInNm * GRID_SIZE : valueInNm * GRID_SIZE;
       const newTransform = new Float64Array(inst.transform);
-      if (axis === "x") {
-        newTransform[4] = worldValue;
-      } else {
-        newTransform[5] = worldValue;
-      }
+      const anchorX = axis === "x" ? worldValue : inst.x;
+      const anchorY = axis === "y" ? worldValue : inst.y;
+      newTransform[4] =
+        anchorX - (newTransform[0] * inst.childOriginX + newTransform[1] * inst.childOriginY);
+      newTransform[5] =
+        anchorY - (newTransform[2] * inst.childOriginX + newTransform[3] * inst.childOriginY);
       const cmd = new SetInstanceTransformCommand(
         inst.refId,
         inst.transform,
@@ -1247,7 +1248,7 @@ export function InspectorPanel() {
 
     const handleInstanceRotationChange = (displayValue: number) => {
       if (!library || !renderer) return;
-      const newTransform = buildTransform(displayValue, inst.scale, inst.tx, inst.ty);
+      const newTransform = buildTransform(displayValue, inst.scale, inst.x, inst.y);
       const cmd = new SetInstanceTransformCommand(
         inst.refId,
         inst.transform,
@@ -1260,7 +1261,7 @@ export function InspectorPanel() {
     const handleInstanceScaleChange = (displayValue: number) => {
       if (!library || !renderer) return;
       if (displayValue <= 0) return;
-      const newTransform = buildTransform(inst.rotation, displayValue, inst.tx, inst.ty);
+      const newTransform = buildTransform(inst.rotation, displayValue, inst.x, inst.y);
       const cmd = new SetInstanceTransformCommand(
         inst.refId,
         inst.transform,

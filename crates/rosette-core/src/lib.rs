@@ -8,8 +8,7 @@
 //! - [`layer`]: Layer definitions for GDS
 //! - [`port`]: Connection ports for components
 //! - [`cell`]: Cell hierarchy and references
-//! - [`component`]: Core component infrastructure (Route, connect_transform)
-//! - [`flatten`]: Library flattening for rendering
+//! - [`component`]: Core component connection utilities
 //!
 //! ## Key types
 //!
@@ -30,7 +29,6 @@
 pub mod cell;
 pub mod component;
 pub mod error;
-pub mod flatten;
 pub mod geometry;
 pub mod hierarchy;
 pub mod layer;
@@ -39,13 +37,13 @@ pub mod port;
 
 // Re-export primary types at crate root for convenience
 pub use cell::{BendInfo, Cell, CellRef, Library, PathEndType, Repetition};
-pub use component::{BendProfile, Route};
-pub use error::{CellNameError, validate_cell_name};
-pub use flatten::{FlatPolygon, flatten_cell, flatten_library};
+pub use component::connect_transform;
+pub use error::LibraryError;
 pub use geometry::{
     BBox,
     Point,
     Polygon,
+    Region,
     Transform,
     Vector2,
     // Utility functions for component authoring
@@ -55,9 +53,6 @@ pub use geometry::{
     offset_polygon,
     offset_polygon_varying,
     path_length,
-    // Geo conversion helpers for boolean operations
-    polygon_to_geo,
-    polygons_from_geo_multi,
 };
 pub use layer::Layer;
 pub use port::Port;

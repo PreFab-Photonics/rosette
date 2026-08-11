@@ -63,7 +63,7 @@ impl WasmLibrary {
     /// # Errors
     /// Returns a JsValue error if serialization fails.
     pub fn to_json(&self) -> Result<String, JsValue> {
-        rosette_io::json::to_string(&self.library)
+        rosette_io::json::to_string(&self.library_with_origins())
             .map_err(|e| JsValue::from_str(&format!("JSON serialize error: {}", e)))
     }
 
@@ -122,10 +122,15 @@ impl WasmLibrary {
 
         // Transform all elements in every cell from um/Y-up to world/Y-down.
         // Iterate cells by index to avoid O(C^2) name lookups.
+        let mut cell_origins = HashMap::new();
         for cell in library.cells_mut() {
-            // Transform the cell origin
+            // Import the serialized compatibility field into editor state.
             let origin = cell.origin();
-            cell.set_origin(Point::new(origin.x * s, -origin.y * s));
+            cell_origins.insert(
+                cell.name().to_string(),
+                Point::new(origin.x * s, -origin.y * s),
+            );
+            cell.set_origin(Point::origin());
 
             // Transform all elements in-place
             for element in cell.elements_mut() {
@@ -199,6 +204,7 @@ impl WasmLibrary {
         WasmLibrary {
             library,
             active_cell,
+            cell_origins,
             element_refs,
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
@@ -225,7 +231,7 @@ impl WasmLibrary {
     /// Returns a JsValue error if serialization fails.
     pub fn to_gds(&self) -> Result<Vec<u8>, JsValue> {
         // Clone the library and apply inverse coordinate transform
-        let mut library = self.library.clone();
+        let mut library = self.library_with_origins();
 
         // Inverse scale: world -> um. s = UM_TO_NM * GRID_SIZE = 50000
         const UM_TO_NM: f64 = 1000.0;
@@ -296,7 +302,7 @@ impl WasmLibrary {
     /// Returns a JsValue error if serialization fails.
     pub fn to_library_json(&self) -> Result<String, JsValue> {
         // Clone the library and apply inverse coordinate transform
-        let mut library = self.library.clone();
+        let mut library = self.library_with_origins();
 
         const UM_TO_NM: f64 = 1000.0;
         const GRID_SIZE: f64 = 50.0;
@@ -355,6 +361,21 @@ impl WasmLibrary {
     }
 }
 
+impl WasmLibrary {
+    fn library_with_origins(&self) -> Library {
+        let mut library = self.library.clone();
+        for cell in library.cells_mut() {
+            cell.set_origin(
+                self.cell_origins
+                    .get(cell.name())
+                    .copied()
+                    .unwrap_or_else(Point::origin),
+            );
+        }
+        library
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,6 +400,24 @@ mod tests {
         assert!((repetition.row_vector.x - 2.0).abs() < 1e-12);
         assert!((repetition.row_vector.y - 6.0).abs() < 1e-12);
         assert_eq!(refs[2].cell_name, "missing");
+    }
+
+    #[test]
+    fn hierarchical_json_round_trip_preserves_editor_origin() {
+        let mut cell = Cell::new("origin");
+        cell.set_origin(Point::new(1.25, -2.5));
+        let mut library = Library::new("origin");
+        library.add_cell(cell).unwrap();
+        let json = rosette_io::json::to_string(&library).unwrap();
+
+        let wasm = WasmLibrary::from_library_json(&json).unwrap();
+        assert_eq!(wasm.get_cell_origin(), Some(vec![62500.0, 125000.0]));
+
+        let restored = rosette_io::json::from_string(&wasm.to_library_json().unwrap()).unwrap();
+        assert_eq!(
+            restored.cell("origin").unwrap().origin(),
+            Point::new(1.25, -2.5)
+        );
     }
 
     #[test]

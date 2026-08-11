@@ -4,9 +4,12 @@
 //! crate's boolean ops engine. Results are single-ring polygons where any
 //! holes are connected to the exterior via zero-width bridges (keyholing).
 
-use geo::{BooleanOps, Coord, LineString, MultiPolygon, Polygon as GeoPolygon};
+use geo::{
+    Area, BooleanOps, BoundingRect, Coord, Distance, Euclidean, Intersects, LineString,
+    MultiPolygon, Polygon as GeoPolygon,
+};
 
-use super::{Point, Polygon};
+use super::{BBox, Point, Polygon};
 
 // =============================================================================
 // Conversion: Polygon <-> geo::Polygon
@@ -15,7 +18,7 @@ use super::{Point, Polygon};
 /// Convert a rosette `Polygon` to a `geo::Polygon<f64>`.
 ///
 /// Closes the ring if needed (geo expects first == last).
-pub fn polygon_to_geo(poly: &Polygon) -> GeoPolygon<f64> {
+fn polygon_to_geo(poly: &Polygon) -> GeoPolygon<f64> {
     let coords: Vec<Coord<f64>> = poly
         .vertices()
         .iter()
@@ -74,8 +77,142 @@ fn polygon_from_geo(geo_poly: &GeoPolygon<f64>) -> Option<Polygon> {
 /// Each polygon in the multi-polygon is converted individually,
 /// with holes keyholed into the exterior ring. Degenerate fragments
 /// (fewer than 3 exterior vertices) are silently discarded.
-pub fn polygons_from_geo_multi(multi: &MultiPolygon<f64>) -> Vec<Polygon> {
+fn polygons_from_geo_multi(multi: &MultiPolygon<f64>) -> Vec<Polygon> {
     multi.iter().filter_map(polygon_from_geo).collect()
+}
+
+/// Hole-preserving polygonal geometry for boolean and spatial operations.
+#[derive(Debug, Clone)]
+pub struct Region {
+    geometry: MultiPolygon<f64>,
+}
+
+impl Default for Region {
+    fn default() -> Self {
+        Self {
+            geometry: MultiPolygon::new(Vec::new()),
+        }
+    }
+}
+
+impl Region {
+    /// Create an empty region.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a region from one single-ring polygon.
+    pub fn from_polygon(polygon: &Polygon) -> Self {
+        Self {
+            geometry: MultiPolygon::new(vec![polygon_to_geo(polygon)]),
+        }
+    }
+
+    /// Create a region containing all supplied polygons.
+    pub fn from_polygons<'a>(polygons: impl IntoIterator<Item = &'a Polygon>) -> Self {
+        polygons.into_iter().fold(Self::new(), |region, polygon| {
+            region.union(&Self::from_polygon(polygon))
+        })
+    }
+
+    /// Compute the union while preserving interior rings.
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        Self {
+            geometry: self.geometry.union(&other.geometry),
+        }
+    }
+
+    /// Subtract another region while preserving interior rings.
+    #[must_use]
+    pub fn subtract(&self, other: &Self) -> Self {
+        Self {
+            geometry: self.geometry.difference(&other.geometry),
+        }
+    }
+
+    /// Compute the intersection while preserving interior rings.
+    #[must_use]
+    pub fn intersect(&self, other: &Self) -> Self {
+        Self {
+            geometry: self.geometry.intersection(&other.geometry),
+        }
+    }
+
+    /// Compute the symmetric difference while preserving interior rings.
+    #[must_use]
+    pub fn xor(&self, other: &Self) -> Self {
+        Self {
+            geometry: self.geometry.xor(&other.geometry),
+        }
+    }
+
+    /// Whether the two regions touch or overlap.
+    pub fn intersects(&self, other: &Self) -> bool {
+        self.geometry.intersects(&other.geometry)
+    }
+
+    /// Unsigned filled area, excluding holes.
+    pub fn area(&self) -> f64 {
+        self.geometry.unsigned_area()
+    }
+
+    /// Axis-aligned bounds of the region.
+    pub fn bbox(&self) -> Option<BBox> {
+        self.geometry.bounding_rect().map(|rect| {
+            BBox::new(
+                Point::new(rect.min().x, rect.min().y),
+                Point::new(rect.max().x, rect.max().y),
+            )
+        })
+    }
+
+    /// Minimum Euclidean distance between filled polygons in two regions.
+    pub fn distance(&self, other: &Self) -> f64 {
+        self.geometry
+            .iter()
+            .flat_map(|left| {
+                other
+                    .geometry
+                    .iter()
+                    .map(move |right| Euclidean::distance(left, right))
+            })
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    /// Minimum Euclidean distance between exterior boundaries.
+    pub fn exterior_distance(&self, other: &Self) -> f64 {
+        self.geometry
+            .iter()
+            .flat_map(|left| {
+                other
+                    .geometry
+                    .iter()
+                    .map(move |right| Euclidean::distance(left.exterior(), right.exterior()))
+            })
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    /// Exterior rings without duplicated closing points.
+    pub fn exterior_rings(&self) -> Vec<Vec<Point>> {
+        self.geometry
+            .iter()
+            .map(|polygon| ring_to_points(polygon.exterior()))
+            .collect()
+    }
+
+    /// Interior rings without duplicated closing points.
+    pub fn interior_rings(&self) -> Vec<Vec<Point>> {
+        self.geometry
+            .iter()
+            .flat_map(|polygon| polygon.interiors().iter().map(ring_to_points))
+            .collect()
+    }
+
+    /// Lower the region to Rosette's single-ring polygon model by keyholing holes.
+    pub fn to_keyholed_polygons(&self) -> Vec<Polygon> {
+        polygons_from_geo_multi(&self.geometry)
+    }
 }
 
 /// Extract points from a geo `LineString`, stripping the closing point.
@@ -257,10 +394,9 @@ impl Polygon {
     /// polygons. Degenerate fragments (fewer than 3 vertices) are discarded.
     #[must_use]
     pub fn union(&self, other: &Polygon) -> Vec<Polygon> {
-        let a = polygon_to_geo(self);
-        let b = polygon_to_geo(other);
-        let result = a.union(&b);
-        polygons_from_geo_multi(&result)
+        Region::from_polygon(self)
+            .union(&Region::from_polygon(other))
+            .to_keyholed_polygons()
     }
 
     /// Subtract another polygon from this one.
@@ -271,10 +407,9 @@ impl Polygon {
     /// cutout. Degenerate fragments (fewer than 3 vertices) are discarded.
     #[must_use]
     pub fn subtract(&self, other: &Polygon) -> Vec<Polygon> {
-        let a = polygon_to_geo(self);
-        let b = polygon_to_geo(other);
-        let result = a.difference(&b);
-        polygons_from_geo_multi(&result)
+        Region::from_polygon(self)
+            .subtract(&Region::from_polygon(other))
+            .to_keyholed_polygons()
     }
 
     /// Compute the intersection of this polygon with another.
@@ -283,10 +418,9 @@ impl Polygon {
     /// (fewer than 3 vertices) are discarded.
     #[must_use]
     pub fn intersect(&self, other: &Polygon) -> Vec<Polygon> {
-        let a = polygon_to_geo(self);
-        let b = polygon_to_geo(other);
-        let result = a.intersection(&b);
-        polygons_from_geo_multi(&result)
+        Region::from_polygon(self)
+            .intersect(&Region::from_polygon(other))
+            .to_keyholed_polygons()
     }
 
     /// Compute the symmetric difference (XOR) of this polygon with another.
@@ -295,10 +429,9 @@ impl Polygon {
     /// fragments (fewer than 3 vertices) are discarded.
     #[must_use]
     pub fn xor(&self, other: &Polygon) -> Vec<Polygon> {
-        let a = polygon_to_geo(self);
-        let b = polygon_to_geo(other);
-        let result = a.xor(&b);
-        polygons_from_geo_multi(&result)
+        Region::from_polygon(self)
+            .xor(&Region::from_polygon(other))
+            .to_keyholed_polygons()
     }
 }
 
@@ -578,5 +711,32 @@ mod tests {
 
         let result = small.subtract(&big);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn region_preserves_multiple_holes_until_explicit_lowering() {
+        let outer = Region::from_polygon(&Polygon::rect(Point::origin(), 30.0, 20.0));
+        let hole_a = Region::from_polygon(&Polygon::rect(Point::new(3.0, 3.0), 5.0, 5.0));
+        let hole_b = Region::from_polygon(&Polygon::rect(Point::new(20.0, 10.0), 5.0, 5.0));
+        let region = outer.subtract(&hole_a).subtract(&hole_b);
+
+        assert_eq!(region.exterior_rings().len(), 1);
+        assert_eq!(region.interior_rings().len(), 2);
+        assert!(approx_eq(region.area(), 550.0));
+        let lowered = region.to_keyholed_polygons();
+        assert_eq!(lowered.len(), 1);
+        assert!(lowered[0].len() > 12);
+    }
+
+    #[test]
+    fn chained_region_booleans_keep_topology() {
+        let base = Region::from_polygon(&Polygon::rect(Point::origin(), 20.0, 20.0));
+        let hole = Region::from_polygon(&Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0));
+        let island = Region::from_polygon(&Polygon::rect(Point::new(30.0, 0.0), 5.0, 5.0));
+        let region = base.subtract(&hole).union(&island);
+
+        assert_eq!(region.exterior_rings().len(), 2);
+        assert_eq!(region.interior_rings().len(), 1);
+        assert!(approx_eq(region.area(), 325.0));
     }
 }

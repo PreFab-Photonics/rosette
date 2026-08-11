@@ -6,8 +6,8 @@
 //! # Example
 //!
 //! ```
-//! use rosette_core::component::Route;
 //! use rosette_core::{Layer, Point};
+//! use rosette_route::Route;
 //!
 //! let layer = Layer::new(1, 0);
 //! let mut route = Route::new(layer)
@@ -25,10 +25,7 @@
 
 use std::f64::consts::PI;
 
-use crate::cell::{BendInfo, Cell};
-use crate::geometry::{Point, Polygon, Vector2, fresnel_c, fresnel_s};
-use crate::layer::Layer;
-use crate::port::Port;
+use rosette_core::{BendInfo, Cell, Layer, Point, Polygon, Port, Vector2, fresnel_c, fresnel_s};
 
 /// Corner bend shape for [`Route`].
 ///
@@ -48,6 +45,14 @@ pub enum BendProfile {
     Circular,
     /// Euler (clothoid) fillet with linearly-varying curvature.
     Euler,
+}
+
+/// Errors that prevent route geometry from being built.
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+pub enum RouteBuildError {
+    /// A route needs at least a start and end point.
+    #[error("route requires at least 2 points, got {points}")]
+    InsufficientPoints { points: usize },
 }
 
 /// Internal waypoint along a route path.
@@ -72,9 +77,9 @@ impl Waypoint {
     }
 }
 
-/// Internal result of route geometry generation.
-#[derive(Debug)]
-struct RouteResult {
+/// Generated route geometry and diagnostics.
+#[derive(Debug, Clone)]
+pub struct RouteResult {
     /// Generated polygons.
     polygons: Vec<Polygon>,
     /// Total optical path length.
@@ -87,6 +92,8 @@ struct RouteResult {
     warnings: Vec<String>,
     /// Bend information for each non-trivial corner.
     bends: Vec<BendInfo>,
+    /// Layer assigned to generated polygons.
+    layer: Layer,
 }
 
 /// A path-based waveguide route.
@@ -325,6 +332,7 @@ impl Route {
                 port_out: Port::new("out", Point::origin(), Vector2::unit_x()),
                 warnings: vec!["Route requires at least 2 points".to_string()],
                 bends: Vec::new(),
+                layer: self.layer,
             };
         }
 
@@ -362,7 +370,17 @@ impl Route {
             port_out,
             warnings,
             bends,
+            layer: self.layer,
         }
+    }
+
+    /// Build the route geometry and diagnostics without creating a cell.
+    pub fn build(&self) -> Result<RouteResult, RouteBuildError> {
+        let points = self.build_path_points().len();
+        if points < 2 {
+            return Err(RouteBuildError::InsufficientPoints { points });
+        }
+        Ok(self.generate())
     }
 
     /// Analyze corners to determine turn angles and setbacks.
@@ -820,27 +838,7 @@ impl Route {
 
     /// Convert the route to a Cell.
     pub fn to_cell(&self, name: &str) -> Cell {
-        let result = self.generate();
-
-        let mut cell = Cell::new(name.to_string());
-
-        for polygon in result.polygons {
-            cell.add_polygon(polygon, self.layer);
-        }
-
-        cell.add_port(result.port_in);
-        cell.add_port(result.port_out);
-        cell.set_path_length(result.path_length);
-
-        // Persist bend info and warnings on the cell
-        for bend in result.bends {
-            cell.add_bend(bend);
-        }
-        for warning in result.warnings {
-            cell.add_warning(warning);
-        }
-
-        cell
+        self.generate().into_cell(name)
     }
 
     /// Get the calculated path length.
@@ -851,6 +849,64 @@ impl Route {
     /// Get warnings from the last generation.
     pub fn warnings(&self) -> Vec<String> {
         self.generate().warnings
+    }
+}
+
+impl RouteResult {
+    /// Generated polygons in route order.
+    pub fn polygons(&self) -> &[Polygon] {
+        &self.polygons
+    }
+
+    /// Total optical path length.
+    pub fn path_length(&self) -> f64 {
+        self.path_length
+    }
+
+    /// Input port generated for the route.
+    pub fn port_in(&self) -> &Port {
+        &self.port_in
+    }
+
+    /// Output port generated for the route.
+    pub fn port_out(&self) -> &Port {
+        &self.port_out
+    }
+
+    /// Routing warnings, including automatic bend-radius reductions.
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    /// Bend annotations generated for design checks.
+    pub fn bends(&self) -> &[BendInfo] {
+        &self.bends
+    }
+
+    /// Layer assigned to generated polygons.
+    pub fn layer(&self) -> Layer {
+        self.layer
+    }
+
+    /// Materialize this result as a layout cell.
+    pub fn into_cell(self, name: &str) -> Cell {
+        let mut cell = Cell::new(name.to_string());
+        for polygon in self.polygons {
+            cell.add_polygon(polygon, self.layer);
+        }
+        cell.add_port(self.port_in);
+        cell.add_port(self.port_out);
+        cell.set_path_length(self.path_length);
+
+        // These fields remain serialized compatibility annotations until the
+        // versioned persistence model can move them out of core cells.
+        for bend in self.bends {
+            cell.add_bend(bend);
+        }
+        for warning in self.warnings {
+            cell.add_warning(warning);
+        }
+        cell
     }
 }
 
@@ -1084,6 +1140,28 @@ mod tests {
         assert!(cell.polygon_count() > 0);
         assert!(cell.port("in").is_some());
         assert!(cell.port("out").is_some());
+    }
+
+    #[test]
+    fn test_build_returns_typed_error_for_incomplete_route() {
+        let route = Route::new(Layer::new(1, 0));
+        assert!(matches!(
+            route.build(),
+            Err(RouteBuildError::InsufficientPoints { points: 0 })
+        ));
+    }
+
+    #[test]
+    fn test_route_result_owns_layer_and_materialization() {
+        let layer = Layer::new(7, 2);
+        let mut route = Route::new(layer);
+        route.start_at(0.0, 0.0, 0.0);
+        route.end_at(10.0, 0.0, 0.0);
+
+        let result = route.build().unwrap();
+        assert_eq!(result.layer(), layer);
+        let cell = result.into_cell("result");
+        assert_eq!(cell.polygons().next().unwrap().1, &layer);
     }
 
     #[test]

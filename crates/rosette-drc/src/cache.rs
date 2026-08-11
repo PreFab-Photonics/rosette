@@ -17,11 +17,11 @@
 //!   content hash, and short-circuits the whole run when nothing changed.
 //!
 //! Phase-3 (inter-instance pairwise), transform-dependent rules (snap-to-grid,
-//! density), flattening, and the drc_skip / waiver post-filters are **not**
+//! density), flattening, and DRC policy post-filters are **not**
 //! cached — they depend on the full transform tree and are recomputed every
 //! run. See [`crate::runner::DrcRunner::check_cached`].
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use rosette_core::cell::Element;
@@ -34,8 +34,8 @@ use crate::violation::DrcViolation;
 /// Content hash of a cell, folding in its transitive sub-cell hashes.
 ///
 /// Excludes the cell name (so a rename is a cache hit). Hashes only the data
-/// DRC depends on: polygons, paths (and their layers/width/end-type),
-/// `drc_skip`, region waivers, and each `CellRef`'s transform/repetition plus
+/// DRC detection depends on: polygons, paths (and their layers/width/end-type),
+/// and each `CellRef`'s transform/repetition plus
 /// the content hash of the referenced cell. Ports, text, metadata, and origin
 /// don't affect DRC results and are excluded.
 pub type ContentHash = u64;
@@ -67,9 +67,8 @@ pub struct DrcCache {
     rules_fingerprint: Option<u64>,
     /// Per-cell detection results keyed on transitive content hash.
     per_cell: HashMap<ContentHash, CachedCell>,
-    /// `(content_hash, rules_fingerprint)` of the top cell on the last run,
-    /// plus the full result, for the whole-design short-circuit.
-    last_top: Option<(ContentHash, u64)>,
+    /// Geometry, hierarchy identity, rules, and policy fingerprints from the last run.
+    last_top: Option<(ContentHash, u64, u64, u64)>,
     /// The full result produced on the last run, returned verbatim when the
     /// top cell and rules are unchanged (whole-design short-circuit).
     last_result: Option<DrcResult>,
@@ -107,8 +106,14 @@ impl DrcCache {
     }
 
     /// Record the top-cell fingerprint for the whole-design short-circuit.
-    pub(crate) fn set_last_top(&mut self, top_hash: ContentHash, rules_fp: u64) {
-        self.last_top = Some((top_hash, rules_fp));
+    pub(crate) fn set_last_top(
+        &mut self,
+        top_hash: ContentHash,
+        hierarchy_fp: u64,
+        rules_fp: u64,
+        policy_fp: u64,
+    ) {
+        self.last_top = Some((top_hash, hierarchy_fp, rules_fp, policy_fp));
     }
 
     /// Store the full result for the whole-design short-circuit.
@@ -121,9 +126,11 @@ impl DrcCache {
     pub(crate) fn reusable_result(
         &self,
         top_hash: ContentHash,
+        hierarchy_fp: u64,
         rules_fp: u64,
+        policy_fp: u64,
     ) -> Option<&DrcResult> {
-        if self.top_unchanged(top_hash, rules_fp) {
+        if self.top_unchanged(top_hash, hierarchy_fp, rules_fp, policy_fp) {
             self.last_result.as_ref()
         } else {
             None
@@ -132,8 +139,14 @@ impl DrcCache {
 
     /// Whether the top-cell content hash and rules are unchanged since the
     /// last run (so the entire previous result can be reused).
-    pub(crate) fn top_unchanged(&self, top_hash: ContentHash, rules_fp: u64) -> bool {
-        self.last_top == Some((top_hash, rules_fp))
+    pub(crate) fn top_unchanged(
+        &self,
+        top_hash: ContentHash,
+        hierarchy_fp: u64,
+        rules_fp: u64,
+        policy_fp: u64,
+    ) -> bool {
+        self.last_top == Some((top_hash, hierarchy_fp, rules_fp, policy_fp))
     }
 
     /// Number of cached cell entries (for tests/diagnostics).
@@ -177,6 +190,40 @@ pub fn cell_content_hash(
     cell_content_hash_inner(cell, library, memo, &mut stack)
 }
 
+/// Fingerprint reachable cell and reference identities for whole-result reuse.
+///
+/// Detection hashes intentionally ignore names so per-cell work survives a
+/// rename. Full results cannot: violation provenance and name-keyed policies
+/// must be recomputed when any reachable identity changes.
+pub(crate) fn hierarchy_identity_fingerprint(cell: &Cell, library: Option<&Library>) -> u64 {
+    let mut records = Vec::<(String, Vec<String>)>::new();
+    let mut pending = vec![cell];
+    let mut visited = HashSet::new();
+
+    while let Some(cell) = pending.pop() {
+        if !visited.insert(cell.name().to_string()) {
+            continue;
+        }
+        let references: Vec<String> = cell
+            .cell_refs()
+            .map(|cell_ref| cell_ref.cell_name.clone())
+            .collect();
+        if let Some(library) = library {
+            for reference in &references {
+                if let Some(child) = library.cell(reference) {
+                    pending.push(child);
+                }
+            }
+        }
+        records.push((cell.name().to_string(), references));
+    }
+
+    records.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    records.hash(&mut hasher);
+    hasher.finish()
+}
+
 fn cell_content_hash_inner(
     cell: &Cell,
     library: Option<&Library>,
@@ -200,11 +247,8 @@ fn cell_content_hash_inner(
     // Hash only the data DRC actually depends on, walking elements directly to
     // avoid any serialisation/allocation in this per-reload pass. The cell
     // name is intentionally excluded (a rename is a cache hit). Ports, text,
-    // metadata, and origin do not affect DRC violations, so they are omitted.
-    cell.drc_skip().hash(&mut hasher);
-    for region in cell.drc_waive_regions() {
-        hash_bbox(&mut hasher, region);
-    }
+    // metadata, origin, and DRC filtering policy do not affect detection, so
+    // they are omitted.
 
     for element in cell.elements() {
         match element {
@@ -269,14 +313,6 @@ fn hash_points(hasher: &mut impl Hasher, points: &[rosette_core::Point]) {
         p.x.to_bits().hash(hasher);
         p.y.to_bits().hash(hasher);
     }
-}
-
-fn hash_bbox(hasher: &mut impl Hasher, bbox: &rosette_core::BBox) {
-    let (min, max) = (bbox.min(), bbox.max());
-    min.x.to_bits().hash(hasher);
-    min.y.to_bits().hash(hasher);
-    max.x.to_bits().hash(hasher);
-    max.y.to_bits().hash(hasher);
 }
 
 fn hash_transform(hasher: &mut impl Hasher, t: &rosette_core::Transform) {

@@ -14,18 +14,22 @@ use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform};
 
 use super::constants::*;
 use super::error::GdsError;
+use super::naming::validate_structure_name;
 
 /// Write a single cell to a GDS file.
 ///
 /// The cell becomes the only structure in the library.
 pub fn write(path: impl AsRef<Path>, cell: &Cell) -> Result<(), GdsError> {
+    validate_structure_name(cell.name())?;
     let mut lib = Library::new("library");
-    lib.add_cell(cell.clone())?;
+    lib.add_cell(cell.clone())
+        .expect("validated cell has a non-empty unique identity");
     write_library(path, &lib)
 }
 
 /// Write a library to a GDS file.
 pub fn write_library(path: impl AsRef<Path>, library: &Library) -> Result<(), GdsError> {
+    validate_library_names(library)?;
     let file = File::create(path)?;
     let mut writer = GdsWriter::new(BufWriter::new(file));
     writer.write_library(library)
@@ -36,6 +40,7 @@ pub fn write_library(path: impl AsRef<Path>, library: &Library) -> Result<(), Gd
 /// This is the symmetric counterpart to [`super::read_bytes`] and is useful
 /// when a file path is not available (e.g. WASM environments).
 pub fn write_bytes(library: &Library) -> Result<Vec<u8>, GdsError> {
+    validate_library_names(library)?;
     let mut output = Vec::new();
     let mut writer = GdsWriter::new(&mut output);
     writer.write_library(library)?;
@@ -59,6 +64,7 @@ impl<W: Write> GdsWriter<W> {
     }
 
     pub(crate) fn write_library(&mut self, library: &Library) -> Result<(), GdsError> {
+        validate_library_names(library)?;
         self.write_header()?;
         self.write_bgnlib()?;
         self.write_libname(library.name())?;
@@ -114,10 +120,6 @@ impl<W: Write> GdsWriter<W> {
     }
 
     fn write_cell(&mut self, cell: &Cell) -> Result<(), GdsError> {
-        if cell.name().len() > 32 {
-            return Err(GdsError::CellNameTooLong(cell.name().to_string()));
-        }
-
         self.write_bgnstr()?;
         self.write_strname(cell.name())?;
 
@@ -492,6 +494,16 @@ impl<W: Write> GdsWriter<W> {
     }
 }
 
+fn validate_library_names(library: &Library) -> Result<(), GdsError> {
+    for cell in library.cells() {
+        validate_structure_name(cell.name())?;
+        for cell_ref in cell.cell_refs() {
+            validate_structure_name(&cell_ref.cell_name)?;
+        }
+    }
+    Ok(())
+}
+
 /// Convert f64 to GDS REAL8 format.
 ///
 /// GDS uses an unusual 8-byte floating point format:
@@ -601,11 +613,28 @@ mod tests {
         let long_name = "a".repeat(33); // 33 chars, max is 32
         let cell = Cell::new(&long_name);
 
-        // The name is now validated at add_cell time, not at write time
         let mut lib = Library::new("test");
-        let result = lib.add_cell(cell);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("too long"));
+        lib.add_cell(cell).unwrap();
+        let result = write_bytes(&lib);
+        assert!(matches!(
+            result,
+            Err(GdsError::InvalidStructureName(
+                super::super::naming::GdsNameError::TooLong { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn invalid_reference_name_is_rejected_before_any_output() {
+        let mut top = Cell::new("TOP");
+        top.add_ref(CellRef::new("has space"));
+        let mut library = Library::new("test");
+        library.add_cell(top).unwrap();
+        let mut output = Vec::new();
+
+        let result = GdsWriter::new(&mut output).write_library(&library);
+        assert!(matches!(result, Err(GdsError::InvalidStructureName(_))));
+        assert!(output.is_empty());
     }
 
     #[test]

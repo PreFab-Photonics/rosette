@@ -8,7 +8,10 @@ use rosette_core::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
 use rosette_core::path::{stroke_path, stroke_path_transformed};
 use rosette_core::{BBox, Cell, Layer, Library, Polygon, Transform};
 
-use crate::cache::{CachedCell, ContentHash, DrcCache, cell_content_hash};
+use crate::DrcPolicy;
+use crate::cache::{
+    CachedCell, ContentHash, DrcCache, cell_content_hash, hierarchy_identity_fingerprint,
+};
 use crate::checks::{
     check_acute_angle, check_angles, check_area, check_density, check_edge_length,
     check_enclosure_bulk, check_forbid_overlap_bulk, check_max_width, check_not_inside,
@@ -170,12 +173,16 @@ struct InstancePolygons {
 /// diamond hierarchies — a shared cell reached first via an untrusted parent
 /// would be marked visited before a later visit via a trusted parent could
 /// add it to the closure.
-fn collect_skipped_closure(top: &Cell, library: Option<&Library>) -> HashSet<String> {
-    // Pass 1: find every cell with drc_skip = true that is reachable from
+fn collect_skipped_closure(
+    top: &Cell,
+    library: Option<&Library>,
+    policy: &DrcPolicy,
+) -> HashSet<String> {
+    // Pass 1: find every skipped policy root that is reachable from
     // the top cell.
     let mut roots: Vec<String> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
-    collect_skipped_roots(top, library, &mut roots, &mut visited);
+    collect_skipped_roots(top, library, policy, &mut roots, &mut visited);
 
     // Pass 2: expand each root into the full subtree of reachable cells.
     let mut closure: HashSet<String> = HashSet::new();
@@ -199,13 +206,14 @@ fn collect_skipped_closure(top: &Cell, library: Option<&Library>) -> HashSet<Str
 fn collect_skipped_roots(
     cell: &Cell,
     library: Option<&Library>,
+    policy: &DrcPolicy,
     roots: &mut Vec<String>,
     visited: &mut HashSet<String>,
 ) {
     if !visited.insert(cell.name().to_string()) {
         return;
     }
-    if cell.drc_skip() {
+    if policy.skips(cell.name()) {
         roots.push(cell.name().to_string());
     }
     for element in cell.elements() {
@@ -213,7 +221,7 @@ fn collect_skipped_roots(
             && let Some(lib) = library
             && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
         {
-            collect_skipped_roots(ref_cell, Some(lib), roots, visited);
+            collect_skipped_roots(ref_cell, Some(lib), policy, roots, visited);
         }
     }
 }
@@ -248,15 +256,14 @@ fn expand_subtree(cell: &Cell, library: &Library, closure: &mut HashSet<String>)
 /// box yields the AABB of the rotated rectangle (it inflates), consistent with
 /// [`BBox::transform`]. Waivers are therefore most precise for the common
 /// translate/reflect/90°-rotation placements.
-fn collect_waiver_regions(top: &Cell, library: Option<&Library>) -> Vec<BBox> {
+fn collect_waiver_regions(top: &Cell, library: Option<&Library>, policy: &DrcPolicy) -> Vec<BBox> {
     let mut regions = Vec::new();
     if let Some(library) = library {
         walk_hierarchy(library, top, Transform::identity(), |event| {
             if let HierarchyEvent::Enter(placement) = event {
                 regions.extend(
-                    placement
-                        .cell
-                        .drc_waive_regions()
+                    policy
+                        .waiver_regions(placement.cell.name())
                         .iter()
                         .map(|region| region.transform(&placement.transform)),
                 );
@@ -264,7 +271,7 @@ fn collect_waiver_regions(top: &Cell, library: Option<&Library>) -> Vec<BBox> {
             WalkControl::Continue
         });
     } else {
-        regions.extend(top.drc_waive_regions().iter().copied());
+        regions.extend(policy.waiver_regions(top.name()).iter().copied());
     }
     regions
 }
@@ -396,7 +403,18 @@ impl DrcRunner {
     /// * `cell` - The cell to check
     /// * `library` - Optional library containing referenced cells
     pub fn check(&self, cell: &Cell, library: Option<&Library>) -> DrcResult {
-        self.check_with_cache(cell, library, None)
+        let policy = DrcPolicy::from_cells(cell, library);
+        self.check_with_policy(cell, library, &policy)
+    }
+
+    /// Run DRC with an explicit DRC-owned suppression policy.
+    pub fn check_with_policy(
+        &self,
+        cell: &Cell,
+        library: Option<&Library>,
+        policy: &DrcPolicy,
+    ) -> DrcResult {
+        self.check_with_cache(cell, library, policy, None)
     }
 
     /// Run DRC reusing per-cell detection results cached across calls.
@@ -423,13 +441,26 @@ impl DrcRunner {
         library: Option<&Library>,
         cache: &mut DrcCache,
     ) -> DrcResult {
-        self.check_with_cache(cell, library, Some(cache))
+        let policy = DrcPolicy::from_cells(cell, library);
+        self.check_cached_with_policy(cell, library, &policy, cache)
+    }
+
+    /// Run cached DRC with an explicit DRC-owned suppression policy.
+    pub fn check_cached_with_policy(
+        &self,
+        cell: &Cell,
+        library: Option<&Library>,
+        policy: &DrcPolicy,
+        cache: &mut DrcCache,
+    ) -> DrcResult {
+        self.check_with_cache(cell, library, policy, Some(cache))
     }
 
     fn check_with_cache(
         &self,
         cell: &Cell,
         library: Option<&Library>,
+        policy: &DrcPolicy,
         mut cache: Option<&mut DrcCache>,
     ) -> DrcResult {
         let start = Instant::now();
@@ -439,7 +470,13 @@ impl DrcRunner {
         // whole cache when the rule set changed.
         let mut name_to_hash: HashMap<String, ContentHash> = HashMap::new();
         let mut rules_fp: u64 = 0;
+        let policy_fp = policy.fingerprint();
         let caching = cache.is_some();
+        let hierarchy_fp = if caching {
+            hierarchy_identity_fingerprint(cell, library)
+        } else {
+            0
+        };
         if caching {
             cell_content_hash(cell, library, &mut name_to_hash);
         }
@@ -492,7 +529,8 @@ impl DrcRunner {
             // previous result is reproducible — return it verbatim (with a
             // refreshed elapsed time) without re-running any phase.
             if let Some(top_hash) = name_to_hash.get(cell.name())
-                && let Some(prev) = cache.reusable_result(*top_hash, rules_fp)
+                && let Some(prev) =
+                    cache.reusable_result(*top_hash, hierarchy_fp, rules_fp, policy_fp)
             {
                 let mut result = prev.clone();
                 result.stats.elapsed = start.elapsed();
@@ -611,11 +649,11 @@ impl DrcRunner {
         // we just drop the violations afterwards. drc_skip is applied first so
         // a violation suppressible by both mechanisms counts as a drc_skip
         // suppression (not double-counted).
-        let skipped_closure = collect_skipped_closure(cell, library);
+        let skipped_closure = collect_skipped_closure(cell, library, policy);
         let (kept_violations, suppressed_count) =
             apply_drc_skip_filter(violations, &skipped_closure);
 
-        let waiver_regions = collect_waiver_regions(cell, library);
+        let waiver_regions = collect_waiver_regions(cell, library, policy);
         let (kept_violations, waived_count) = apply_waiver_filter(kept_violations, &waiver_regions);
 
         // Write the per-cell detection results back into the persistent cache
@@ -649,7 +687,7 @@ impl DrcRunner {
                 cache.insert(h, entry);
             }
             if let Some(top_hash) = name_to_hash.get(cell.name()) {
-                cache.set_last_top(*top_hash, rules_fp);
+                cache.set_last_top(*top_hash, hierarchy_fp, rules_fp, policy_fp);
             }
         }
 
@@ -1577,6 +1615,16 @@ fn placed_geometry_bbox(polygons_by_layer: &HashMap<Layer, Vec<(Polygon, usize)>
 /// Convenience function to run DRC.
 pub fn run_drc(cell: &Cell, rules: &DrcRules, library: Option<&Library>) -> DrcResult {
     DrcRunner::new(rules.clone()).check(cell, library)
+}
+
+/// Convenience function to run DRC with an explicit suppression policy.
+pub fn run_drc_with_policy(
+    cell: &Cell,
+    rules: &DrcRules,
+    library: Option<&Library>,
+    policy: &DrcPolicy,
+) -> DrcResult {
+    DrcRunner::new(rules.clone()).check_with_policy(cell, library, policy)
 }
 
 /// Return `true` if `rule_type` represents a numeric-threshold violation whose

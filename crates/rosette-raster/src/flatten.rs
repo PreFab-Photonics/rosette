@@ -11,38 +11,31 @@
 
 use std::collections::HashMap;
 
-use crate::cell::Element;
-use crate::geometry::{Polygon, Transform};
-use crate::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
-use crate::layer::Layer;
-use crate::path::stroke_path_transformed_with_scale;
-use crate::{Cell, Library};
+use rosette_core::cell::Element;
+use rosette_core::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
+use rosette_core::path::stroke_path_transformed_with_scale;
+use rosette_core::{Cell, Layer, Library, Polygon, Transform};
 
 /// A flattened polygon with layer information.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FlatPolygon {
     /// Vertices as flat array [x0, y0, x1, y1, ...]
-    #[cfg_attr(feature = "serde", serde(rename = "v"))]
+    #[serde(rename = "v")]
     pub vertices: Vec<f64>,
     /// Layer number
-    #[cfg_attr(feature = "serde", serde(rename = "l"))]
+    #[serde(rename = "l")]
     pub layer: u16,
     /// Datatype number
-    #[cfg_attr(feature = "serde", serde(rename = "d"))]
+    #[serde(rename = "d")]
     pub datatype: u16,
     /// Instance group ID — polygons from the same top-level CellRef share this ID.
     /// `None` for polygons that belong directly to the cell being flattened (not from a ref).
-    #[cfg_attr(
-        feature = "serde",
-        serde(rename = "g", default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(rename = "g", default, skip_serializing_if = "Option::is_none")]
     pub group: Option<u32>,
 }
 
 /// Result of flattening a library.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FlatGeometry {
     /// All polygons in the flattened design
     pub polygons: Vec<FlatPolygon>,
@@ -180,7 +173,7 @@ fn flatten_placed_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Cell, CellRef, Layer, Library, PathEndType, Point, Polygon};
+    use rosette_core::{Cell, CellRef, Layer, Library, PathEndType, Point, Polygon};
 
     fn flat_bbox(vertices: &[f64]) -> (f64, f64, f64, f64) {
         let mut min_x = f64::INFINITY;
@@ -261,7 +254,7 @@ mod tests {
         // `col_spacing = 10`, rotated 90° ccw, should place the second copy
         // at world (0, 10) — NOT at world (10, 0) (which would correspond
         // to applying the pitch in the parent frame, i.e. the old bug).
-        use crate::CellRef;
+        use rosette_core::CellRef;
 
         let mut child = Cell::new("dot");
         // A small rectangle centered on the origin so we can read back the

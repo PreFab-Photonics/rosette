@@ -277,30 +277,25 @@ impl WasmLibrary {
         let result_layer = polys[0].2;
         let result_datatype = polys[0].3;
 
-        // Perform the boolean operation by pairwise reduction.
-        //
-        // We work in geo types for the reduction so that multi-polygon
-        // results are treated as a single geometric entity at each step.
-        // This is important for xor and union where distributing over
-        // fragments would give wrong results.
-        use geo::BooleanOps;
-        use rosette_core::{polygon_to_geo, polygons_from_geo_multi};
+        // Reduce through Region so holes and multi-polygon topology survive
+        // until the result is explicitly lowered to layout polygons.
+        use rosette_core::Region;
 
-        let mut result = geo::MultiPolygon::new(vec![polygon_to_geo(&polys[0].1)]);
+        let mut result = Region::from_polygon(&polys[0].1);
 
         for (_id, poly, _layer, _dt) in polys.iter().skip(1) {
-            let next = geo::MultiPolygon::new(vec![polygon_to_geo(poly)]);
+            let next = Region::from_polygon(poly);
             result = match operation {
                 "union" => result.union(&next),
-                "subtract" => result.difference(&next),
-                "intersect" => result.intersection(&next),
+                "subtract" => result.subtract(&next),
+                "intersect" => result.intersect(&next),
                 "xor" => result.xor(&next),
                 _ => return Vec::new(),
             };
         }
 
         // Convert back to keyholed rosette polygons.
-        let accumulated = polygons_from_geo_multi(&result);
+        let accumulated = result.to_keyholed_polygons();
 
         // Remove input elements
         let input_ids: Vec<String> = polys.iter().map(|(id, _, _, _)| id.clone()).collect();

@@ -1,4 +1,4 @@
-use rosette_core::{PathEndType, flatten_library};
+use rosette_core::PathEndType;
 use rosette_io::json::{from_string, to_string};
 
 const CURRENT_LIBRARY: &str = include_str!("../../../fixtures/json/current-library.json");
@@ -58,8 +58,4 @@ fn multi_root_fixture_uses_last_cell_as_top() {
     assert_eq!(library.top_cell().unwrap().name(), "root_b");
     assert!(library.cell_bbox("root_a").is_some());
     assert!(library.cell_bbox("root_b").is_some());
-
-    let flat = flatten_library(&library, 1.0);
-    assert_eq!(flat.polygons.len(), 1);
-    assert_eq!(flat.polygons[0].layer, 2);
 }

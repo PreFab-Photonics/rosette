@@ -2,12 +2,13 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use rosette_core::{BBox, FlatPolygon, Library, Point, flatten_cell, flatten_library};
+use rosette_core::{BBox, Library, Point};
 use thiserror::Error;
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform as SkiaTransform};
 
 use crate::palette::Palette;
 use crate::transform::ViewTransform;
+use crate::{FlatPolygon, flatten_cell, flatten_library};
 
 /// Knobs for [`render_png`]. Build with `RenderOptions::default()` and
 /// override fields you care about.

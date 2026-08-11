@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   transforms, exact instance paths, and dependency ordering.
 - A canonical layout-path stroker with bounded miter joins and explicit flush,
   round, and half-width-extension caps.
+- A dedicated `rosette-route` crate with read-only `RouteResult` geometry and
+  diagnostics.
+- A hole-preserving core `Region` and DRC-owned `DrcPolicy` side table.
 
 ### Changed
 
@@ -31,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Layout paths are stroked before affine transformation, preserve absolute negative
   GDS widths, and use the same geometry for checks, rendering, selection, and app
   previews. Internal polygonization skips exact reversals and invalid numeric geometry.
+- Rendering flatten DTOs and entry points now belong to `rosette-raster`; routing
+  policy belongs to `rosette-route` while the public Python `Route` API is unchanged.
+- WASM editor origins are owned by editor state and bridged through the existing JSON
+  field. DRC suppression is owned by `DrcPolicy` and legacy cell annotations are
+  adapted at the runner boundary.
+- GDS structure-name constraints are enforced by `rosette-io` before writing any
+  bytes. Core libraries accept format-neutral names while Python and WASM retain
+  early GDS-compatible validation.
 
 ### Fixed
 
@@ -50,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Removed the duplicate public facade `CellRef`, `Instance.to_ref()`, and
   `Cell.place_at_port()` APIs. The native `_core.CellRef` remains the internal
   hierarchy and serialization representation.
+- Removed routing and render-flattening features from `rosette-core`, along with
+  public concrete `geo` conversion helpers. Rust callers now import these through
+  `rosette-route`, `rosette-raster`, and `Region` respectively.
+- Removed Rust `CellNameError`, `validate_cell_name`, and `MAX_CELL_NAME_LENGTH`;
+  `Library` mutation now returns format-neutral `LibraryError`, while GDS callers use
+  `GdsNameError` and `validate_structure_name`. The corresponding `GdsError` variants
+  were consolidated into `InvalidStructureName`.
 
 ## [0.4.2] - 2026-06-26
 

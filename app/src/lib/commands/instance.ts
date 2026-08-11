@@ -104,8 +104,8 @@ interface AreFlattenSnapshot {
  * cell with N single-instance CellRefs at pre-computed transforms. Undo
  * restores the original AREFs with their repetition intact.
  *
- * Transform composition matches the renderer/flattener in
- * `rosette-core::flatten` and `rosette-core::cell`: each copy's transform is
+ * Transform composition matches the canonical hierarchy expansion in
+ * `rosette-core::hierarchy`: each copy's transform is
  * `original.then(Transform::translate(col·col_vector + row·row_vector))`,
  * i.e. the lattice displacement is applied in the AREF's local coordinate
  * space BEFORE the CellRef transform. This preserves rotation, mirroring,

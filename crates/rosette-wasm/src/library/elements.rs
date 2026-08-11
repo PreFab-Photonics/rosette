@@ -225,16 +225,8 @@ impl WasmLibrary {
         let library_snapshot = self.library.clone();
         let cell_snapshot = library_snapshot.cell(&cell_name).unwrap().clone();
 
-        // Preserve the cell origin
-        let origin = cell.origin();
-
         // Clear the active cell (removes all elements and element_refs)
         self.clear_active_cell();
-
-        // Restore the origin on the now-empty cell
-        if let Some(cell) = self.library.cell_mut(&cell_name) {
-            cell.set_origin(origin);
-        }
 
         // Re-add elements: direct polygons/paths/text are copied as-is,
         // CellRef elements are recursively flattened into polygons.

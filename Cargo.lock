@@ -3845,6 +3845,7 @@ dependencies = [
  "rosette-drc",
  "rosette-io",
  "rosette-raster",
+ "rosette-route",
 ]
 
 [[package]]
@@ -3856,6 +3857,15 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tiny-skia",
+]
+
+[[package]]
+name = "rosette-route"
+version = "0.4.2"
+dependencies = [
+ "rosette-core",
+ "serde",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

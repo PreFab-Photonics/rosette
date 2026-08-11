@@ -3,7 +3,7 @@
 //! A [`Cell`] is a container for geometry that can reference other cells,
 //! enabling hierarchical layout design.
 
-use crate::error::{CellNameError, validate_cell_name};
+use crate::error::LibraryError;
 use crate::geometry::{BBox, Point, Polygon, Transform, Vector2};
 use crate::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
 use crate::layer::Layer;
@@ -702,12 +702,14 @@ impl Library {
     /// Add a cell to the library.
     ///
     /// # Errors
-    /// Returns [`CellNameError::AlreadyExists`] if a cell with the same name
-    /// already exists, or a validation error if the cell name is invalid.
-    pub fn add_cell(&mut self, cell: Cell) -> Result<(), CellNameError> {
-        validate_cell_name(cell.name())?;
+    /// Returns [`LibraryError::AlreadyExists`] if a cell with the same name
+    /// already exists, or [`LibraryError::EmptyCellName`] for an empty identity.
+    pub fn add_cell(&mut self, cell: Cell) -> Result<(), LibraryError> {
+        if cell.name().is_empty() {
+            return Err(LibraryError::EmptyCellName);
+        }
         if self.cells.iter().any(|c| c.name() == cell.name()) {
-            return Err(CellNameError::AlreadyExists {
+            return Err(LibraryError::AlreadyExists {
                 name: cell.name().to_string(),
             });
         }
@@ -722,9 +724,11 @@ impl Library {
     /// shared cells may be added multiple times.
     ///
     /// # Errors
-    /// Returns a validation error if the cell name is invalid.
-    pub fn add_cell_dedup(&mut self, cell: Cell) -> Result<(), CellNameError> {
-        validate_cell_name(cell.name())?;
+    /// Returns [`LibraryError::EmptyCellName`] for an empty identity.
+    pub fn add_cell_dedup(&mut self, cell: Cell) -> Result<(), LibraryError> {
+        if cell.name().is_empty() {
+            return Err(LibraryError::EmptyCellName);
+        }
         if !self.cells.iter().any(|c| c.name() == cell.name()) {
             self.cells.push(cell);
         }
@@ -806,14 +810,15 @@ impl Library {
     /// old name.
     ///
     /// # Errors
-    /// Returns [`CellNameError`] if the new name is invalid or already taken
-    /// by a different cell.
-    pub fn rename_cell(&mut self, old_name: &str, new_name: &str) -> Result<bool, CellNameError> {
-        validate_cell_name(new_name)?;
+    /// Returns [`LibraryError`] if the new identity is empty or already taken.
+    pub fn rename_cell(&mut self, old_name: &str, new_name: &str) -> Result<bool, LibraryError> {
+        if new_name.is_empty() {
+            return Err(LibraryError::EmptyCellName);
+        }
 
         // Prevent rename to an existing name (unless it's the same cell)
         if old_name != new_name && self.contains(new_name) {
-            return Err(CellNameError::AlreadyExists {
+            return Err(LibraryError::AlreadyExists {
                 name: new_name.to_string(),
             });
         }
@@ -852,9 +857,8 @@ impl Library {
     /// recursively resolving the entire hierarchy.
     ///
     /// Cells that already exist in the library (by name) are skipped.
-    /// Cells with invalid names (see [`validate_cell_name`]) are silently
-    /// dropped. Callers that need validation errors should validate cell
-    /// names before calling this method.
+    /// Empty cell identities are silently dropped. Format-specific naming
+    /// constraints belong to the corresponding IO boundary.
     ///
     /// # Arguments
     /// * `cell` - The cell to add (typically the top-level cell)
@@ -922,7 +926,7 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::CellNameError;
+    use crate::error::LibraryError;
     use crate::geometry::{Point, Vector2};
 
     #[test]
@@ -1390,33 +1394,28 @@ mod tests {
         let mut lib = Library::new("test_lib");
         lib.add_cell(Cell::new("cell1")).unwrap();
         let err = lib.add_cell(Cell::new("cell1")).unwrap_err();
-        assert!(matches!(err, CellNameError::AlreadyExists { .. }));
+        assert!(matches!(err, LibraryError::AlreadyExists { .. }));
     }
 
     #[test]
-    fn test_add_cell_invalid_name_rejected() {
+    fn test_add_cell_accepts_format_neutral_name() {
         let mut lib = Library::new("test_lib");
         let cell = Cell::new("has space");
-        let err = lib.add_cell(cell).unwrap_err();
-        assert!(matches!(err, CellNameError::InvalidCharacter { .. }));
+        lib.add_cell(cell).unwrap();
+        assert!(lib.contains("has space"));
     }
 
     #[test]
-    fn test_rename_cell_validates() {
+    fn test_rename_cell_enforces_nonempty_identity() {
         let mut lib = Library::new("test_lib");
         lib.add_cell(Cell::new("cell1")).unwrap();
 
         // Valid rename
         assert!(lib.rename_cell("cell1", "cell2").unwrap());
 
-        // Rename to invalid name
-        let err = lib.rename_cell("cell2", "has space").unwrap_err();
-        assert!(matches!(err, CellNameError::InvalidCharacter { .. }));
-
-        // Rename to too-long name
-        let long = "a".repeat(33);
-        let err = lib.rename_cell("cell2", &long).unwrap_err();
-        assert!(matches!(err, CellNameError::TooLong { .. }));
+        assert!(lib.rename_cell("cell2", "has space").unwrap());
+        let err = lib.rename_cell("has space", "").unwrap_err();
+        assert_eq!(err, LibraryError::EmptyCellName);
     }
 
     #[test]
@@ -1426,7 +1425,7 @@ mod tests {
         lib.add_cell(Cell::new("cell2")).unwrap();
 
         let err = lib.rename_cell("cell1", "cell2").unwrap_err();
-        assert!(matches!(err, CellNameError::AlreadyExists { .. }));
+        assert!(matches!(err, LibraryError::AlreadyExists { .. }));
     }
 
     #[test]

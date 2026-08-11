@@ -1,12 +1,10 @@
 //! Minimum spacing check with R-tree spatial indexing.
 
-use geo::{Distance, Euclidean};
-use rosette_core::{Layer, Polygon};
+use rosette_core::{Layer, Polygon, Region};
 use rstar::{AABB, RTree};
 
 use super::spatial::IndexedPolygon;
 use crate::violation::{DrcViolation, RuleType, Severity};
-use rosette_core::polygon_to_geo;
 
 /// Check minimum spacing between polygons on two layers.
 ///
@@ -49,7 +47,7 @@ pub fn check_spacing(
             [search_bbox.max().x, search_bbox.max().y],
         );
 
-        let geo_poly1 = polygon_to_geo(poly1);
+        let region1 = Region::from_polygon(poly1);
 
         // Use locate_in_envelope_intersecting for proper intersection query
         for candidate in tree.locate_in_envelope_intersecting(&search_envelope) {
@@ -61,10 +59,10 @@ pub fn check_spacing(
             }
 
             let (poly2, _) = &polygons2[candidate.index];
-            let geo_poly2 = polygon_to_geo(poly2);
+            let region2 = Region::from_polygon(poly2);
 
             // Compute exact distance
-            let distance = Euclidean::distance(&geo_poly1, &geo_poly2);
+            let distance = region1.distance(&region2);
 
             // Skip touching/overlapping polygons (distance ≈ 0). These are
             // intentionally connected (e.g., route abutting a component at a
