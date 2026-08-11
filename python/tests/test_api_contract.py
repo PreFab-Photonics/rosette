@@ -11,7 +11,8 @@ import rosette._core as core
 import rosette.components
 
 ROOT = Path(__file__).resolve().parents[2]
-STUB_PATH = ROOT / "python" / "rosette" / "_core.pyi"
+NATIVE_STUB_PATH = ROOT / "python" / "rosette" / "_core.pyi"
+FACADE_STUB_PATH = ROOT / "python" / "rosette" / "api.pyi"
 
 EXTENSION_EXPORTS = {
     "BBox",
@@ -56,40 +57,24 @@ EXTENSION_EXPORTS = {
     "write_gds",
 }
 
-STUB_ONLY_VS_EXTENSION = {
-    "ArrayCopy",
-    "DEFAULT_LAYERS",
-    "Instance",
-    "LayerInfo",
-    "LayerMap",
-    "add_dfm_predictions",
-    "load_checks_config",
-    "load_dfm_config",
-    "load_drc_rules",
-    "load_layer_map",
-}
-STUB_ONLY_VS_FACADE = {
-    "to_json",
-}
+
+def _stub_tree(path: Path) -> ast.Module:
+    return ast.parse(path.read_text())
 
 
-def _stub_tree() -> ast.Module:
-    return ast.parse(STUB_PATH.read_text())
-
-
-def _stub_symbols() -> dict[str, ast.ClassDef | ast.FunctionDef]:
+def _stub_symbols(path: Path) -> dict[str, ast.ClassDef | ast.FunctionDef]:
     return {
         node.name: node
-        for node in _stub_tree().body
+        for node in _stub_tree(path).body
         if isinstance(node, (ast.ClassDef, ast.FunctionDef))
     }
 
 
-def _stub_names() -> set[str]:
-    names = set(_stub_symbols())
+def _stub_names(path: Path) -> set[str]:
+    names = set(_stub_symbols(path))
     names.update(
         node.target.id
-        for node in _stub_tree().body
+        for node in _stub_tree(path).body
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
     )
     return names
@@ -138,15 +123,12 @@ def test_public_facade_exports_exist_and_are_unique():
     assert {name for name in rosette.__all__ if not hasattr(rosette, name)} == set()
 
 
-def test_known_top_level_contract_differences_are_explicit():
-    stub_names = _stub_names()
-    extension_names = _public_names(core)
-    facade_names = set(rosette.__all__)
+def test_native_stub_exactly_matches_extension_exports():
+    assert _stub_names(NATIVE_STUB_PATH) == _public_names(core)
 
-    assert extension_names - stub_names == set()
-    assert stub_names - extension_names == STUB_ONLY_VS_EXTENSION
-    assert facade_names - stub_names == set()
-    assert stub_names - facade_names == STUB_ONLY_VS_FACADE
+
+def test_facade_stub_exactly_matches_public_exports():
+    assert _stub_names(FACADE_STUB_PATH) == set(rosette.__all__)
 
 
 def test_extension_only_symbols_have_explicit_visibility():
@@ -156,50 +138,103 @@ def test_extension_only_symbols_have_explicit_visibility():
     assert not hasattr(core, "PolygonIterator")
 
 
-def test_every_advertised_method_exists_at_runtime():
-    missing: dict[str, set[str]] = {}
-    for name, node in _stub_symbols().items():
+def test_native_class_members_exactly_match_runtime():
+    mismatches: dict[str, tuple[set[str], set[str]]] = {}
+    for name, node in _stub_symbols(NATIVE_STUB_PATH).items():
         if not isinstance(node, ast.ClassDef):
             continue
-        runtime_class = getattr(rosette, name, getattr(core, name, None))
-        advertised = {
-            child.name
-            for child in node.body
-            if isinstance(child, ast.FunctionDef) and not child.name.startswith("_")
+        runtime_class = getattr(core, name)
+        stub_members = {
+            member for member in _stub_class_members(node) if not member.startswith("_")
         }
-        absent = advertised - _public_names(runtime_class)
-        if absent:
-            missing[name] = absent
+        runtime_members = _public_names(runtime_class)
+        if stub_members != runtime_members:
+            mismatches[name] = (
+                stub_members - runtime_members,
+                runtime_members - stub_members,
+            )
 
-    assert missing == {}
+    assert mismatches == {}
 
 
 def test_public_facade_methods_are_represented_in_agent_reference():
     stub_classes = {
-        name: node for name, node in _stub_symbols().items() if isinstance(node, ast.ClassDef)
+        name: node
+        for name, node in _stub_symbols(FACADE_STUB_PATH).items()
+        if isinstance(node, ast.ClassDef)
     }
-    missing: dict[str, set[str]] = {}
+    mismatches: dict[str, tuple[set[str], set[str]]] = {}
 
     for name in set(rosette.__all__) & set(stub_classes):
         runtime_class = getattr(rosette, name)
-        absent = _public_names(runtime_class) - _stub_class_members(stub_classes[name])
-        if absent:
-            missing[name] = absent
+        stub_members = {
+            member
+            for member in _stub_class_members(stub_classes[name])
+            if not member.startswith("_")
+        }
+        runtime_members = _public_names(runtime_class)
+        if stub_members != runtime_members:
+            mismatches[name] = (
+                stub_members - runtime_members,
+                runtime_members - stub_members,
+            )
 
-    assert missing == {}
+    assert mismatches == {}
 
 
-def test_shared_function_signature_shapes_are_characterized():
+def test_native_function_signature_shapes_match_runtime():
     stub_functions = {
-        name: node for name, node in _stub_symbols().items() if isinstance(node, ast.FunctionDef)
+        name: node
+        for name, node in _stub_symbols(NATIVE_STUB_PATH).items()
+        if isinstance(node, ast.FunctionDef)
     }
     mismatches: dict[str, tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]] = {}
 
-    for name in set(rosette.__all__) & set(stub_functions):
+    for name, node in stub_functions.items():
+        runtime = getattr(core, name)
+        stub_shape = _stub_parameter_shape(node)
+        runtime_shape = _runtime_parameter_shape(runtime)
+        if stub_shape != runtime_shape:
+            mismatches[name] = (stub_shape, runtime_shape)
+
+    assert mismatches == {}
+
+
+def test_native_stub_uses_precise_readonly_and_layer_contracts():
+    tree = _stub_tree(NATIVE_STUB_PATH)
+    assert not any(isinstance(node, ast.Name) and node.id == "Any" for node in ast.walk(tree))
+
+    point = _stub_symbols(NATIVE_STUB_PATH)["Point"]
+    assert isinstance(point, ast.ClassDef)
+    x = next(node for node in point.body if isinstance(node, ast.FunctionDef) and node.name == "x")
+    assert any(
+        isinstance(decorator, ast.Name) and decorator.id == "property"
+        for decorator in x.decorator_list
+    )
+
+    rules = _stub_symbols(NATIVE_STUB_PATH)["DrcRules"]
+    assert isinstance(rules, ast.ClassDef)
+    min_width = next(
+        node
+        for node in rules.body
+        if isinstance(node, ast.FunctionDef) and node.name == "min_width"
+    )
+    layer = next(
+        arg for arg in (*min_width.args.posonlyargs, *min_width.args.args) if arg.arg == "layer"
+    )
+    assert ast.unparse(layer.annotation) == "Layer | int | tuple[int, int]"
+
+
+def test_facade_function_signature_shapes_match_runtime():
+    stub_functions = {
+        name: node
+        for name, node in _stub_symbols(FACADE_STUB_PATH).items()
+        if isinstance(node, ast.FunctionDef)
+    }
+    mismatches = {}
+    for name, node in stub_functions.items():
         runtime = getattr(rosette, name)
-        if not callable(runtime):
-            continue
-        stub_shape = _stub_parameter_shape(stub_functions[name])
+        stub_shape = _stub_parameter_shape(node)
         runtime_shape = _runtime_parameter_shape(runtime)
         if stub_shape != runtime_shape:
             mismatches[name] = (stub_shape, runtime_shape)
@@ -208,20 +243,19 @@ def test_shared_function_signature_shapes_are_characterized():
 
 
 def test_route_constructor_signatures_match_agent_reference():
-    route = _stub_symbols()["Route"]
-    assert isinstance(route, ast.ClassDef)
-    init = next(
-        child
-        for child in route.body
-        if isinstance(child, ast.FunctionDef) and child.name == "__init__"
-    )
-    stub_shape = _stub_parameter_shape(init)[1:]
-    stub_defaults = tuple(ast.literal_eval(default) for default in init.args.defaults)
+    for path, runtime in ((FACADE_STUB_PATH, rosette.Route), (NATIVE_STUB_PATH, core.Route)):
+        route = _stub_symbols(path)["Route"]
+        assert isinstance(route, ast.ClassDef)
+        init = next(
+            child
+            for child in route.body
+            if isinstance(child, ast.FunctionDef) and child.name == "__init__"
+        )
+        stub_shape = _stub_parameter_shape(init)[1:]
+        stub_defaults = tuple(ast.literal_eval(default) for default in init.args.defaults)
 
-    assert _runtime_parameter_shape(rosette.Route) == stub_shape
-    assert _runtime_parameter_shape(core.Route) == stub_shape
-    assert stub_defaults == (0.5, 5.0, "circular")
-    for runtime in (rosette.Route, core.Route):
+        assert _runtime_parameter_shape(runtime) == stub_shape
+        assert stub_defaults == (0.5, 5.0, "circular")
         parameters = inspect.signature(runtime).parameters
         assert tuple(parameter.default for parameter in parameters.values()) == (
             inspect.Parameter.empty,
@@ -231,7 +265,9 @@ def test_route_constructor_signatures_match_agent_reference():
 
 def test_corrected_agent_reference_annotations_match_facade_contract():
     functions = {
-        name: node for name, node in _stub_symbols().items() if isinstance(node, ast.FunctionDef)
+        name: node
+        for name, node in _stub_symbols(FACADE_STUB_PATH).items()
+        if isinstance(node, ast.FunctionDef)
     }
 
     assert ast.unparse(functions["read_gds"].args.args[0].annotation) == "str | Path"
@@ -242,7 +278,10 @@ def test_corrected_agent_reference_annotations_match_facade_contract():
 
 
 def test_component_catalog_is_not_embedded_in_core_agent_reference():
-    assert _stub_names().isdisjoint(rosette.components.__all__)
+    assert _stub_names(FACADE_STUB_PATH).isdisjoint(rosette.components.__all__)
+    content = FACADE_STUB_PATH.read_text()
+    assert "from components" not in content
+    assert "rosette.components" not in content
 
 
 def test_cell_ref_names_is_delegated_by_public_cell_wrapper():

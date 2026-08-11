@@ -71,7 +71,7 @@ Generate a test layout with a few different geometries, using a few different la
 That's it. A single sentence. The agent reads `.rosette/api.pyi` and `rosette.toml`, sees the full geometry API, and produces a layout with multiple reusable child cells (waveguide sections, metal pads, hexagons, a ring, alignment crosses, triangles) placed across four layers with rotation, mirroring, routing, arc paths, and a custom star polygon. Here's a trimmed version of what it wrote:
 
 ```python
-from rosette import *
+from rosette import Cell, Layer, Point, Polygon, Route
 import math
 
 WAVEGUIDE = Layer(1, 0)

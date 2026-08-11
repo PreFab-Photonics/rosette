@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 DOCS_DIR = ROOT / "www" / "content" / "docs" / "api-reference"
 META_JSON = DOCS_DIR / "meta.json"
 ROSETTE_INIT = ROOT / "python" / "rosette" / "__init__.py"
-AGENT_REFERENCE = ROOT / "python" / "rosette" / "_core.pyi"
+AGENT_REFERENCE = ROOT / "python" / "rosette" / "api.pyi"
 
 
 def extract_all(filepath: Path) -> list[str]:

@@ -10,12 +10,13 @@ from pathlib import Path
 
 import pytest
 
+import rosette
 import rosette.components
 
 ROOT = Path(__file__).resolve().parents[2]
 API_DOCS = ROOT / "www" / "content" / "docs" / "api-reference"
 PYTHON_FENCE = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
-STUB = ROOT / "python" / "rosette" / "_core.pyi"
+STUB = ROOT / "python" / "rosette" / "api.pyi"
 
 RUNNABLE_API_EXAMPLES = {
     ("BBox.mdx", 11),
@@ -97,7 +98,7 @@ def test_self_contained_api_reference_examples_execute():
             key = (path.name, opening_line)
             if key not in RUNNABLE_API_EXAMPLES:
                 continue
-            exec(f"from rosette import *\n{match.group(1)}", {})
+            exec(match.group(1), vars(rosette).copy())
             executed.add(key)
 
     assert executed == RUNNABLE_API_EXAMPLES
@@ -113,4 +114,4 @@ def test_self_contained_agent_reference_examples_execute(source: str):
         if line.strip() == source.splitlines()[0]
     ]
     assert matches.count(source) == 1
-    exec(f"from rosette._core import *\n{source}", {})
+    exec(source, vars(rosette).copy())

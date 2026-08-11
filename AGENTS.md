@@ -54,7 +54,7 @@ Full surface: `uv run rosette --help` or `uv run rosette cli-manifest`.
 
 ## Key Conventions
 
-**PyO3 boundary:** Rust uses radians, Python uses degrees — convert at the binding layer. PyO3 wrappers use `Py` prefix (`PyPoint`, `PyCell`). When adding or changing a binding, update `python/rosette/_core.pyi`.
+**PyO3 boundary:** Rust uses radians, Python uses degrees — convert at the binding layer. PyO3 wrappers use `Py` prefix (`PyPoint`, `PyCell`). When adding or changing a binding, update the native `python/rosette/_core.pyi`; update the agent facade contract in `python/rosette/api.pyi` separately when the public facade changes.
 
 **Python wrappers:** `__slots__` on all classes. `_inner` holds the Rust object. `_from_inner` classmethod to wrap existing Rust objects.
 

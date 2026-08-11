@@ -11,11 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `connect_transform` is now an intentional public Python facade function for
   atomic port alignment.
+- Managed-reference provenance for `.rosette/` and template-specific component-copy
+  provenance stored beside the editable source in `components/`.
 
 ### Changed
 
 - Route width changes are documented as linear interpolation across the full
   segment ending at the width-changing waypoint.
+- Python contracts now separate the native `_core` extension stub from the
+  public facade/agent reference, and project guidance uses explicit imports.
 
 ### Removed
 

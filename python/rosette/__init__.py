@@ -1,7 +1,7 @@
 """rosette - Photonic layout library.
 
 Example usage:
-    from rosette import *
+    from rosette import Cell, Layer, Point, Polygon, Route, write_gds
 
     # Create a simple cell
     cell = Cell("my_design")

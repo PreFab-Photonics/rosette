@@ -164,8 +164,11 @@ class TestRosetteInit:
         stub_content = api_stub.read_text()
         assert "class Route" in stub_content
         assert "class Cell" in stub_content
-        packaged_stub = Path(__file__).parents[1] / "rosette" / "_core.pyi"
+        packaged_stub = Path(__file__).parents[1] / "rosette" / "api.pyi"
         assert api_stub.read_bytes() == packaged_stub.read_bytes()
+
+        assert (project_dir / ".rosette" / "manifest.json").exists()
+        assert not (project_dir / ".rosette" / "components").exists()
 
         # Rust source files are NOT bundled (agents work in Python only)
         src_dir = project_dir / ".rosette" / "src"
@@ -182,6 +185,7 @@ class TestRosetteInit:
         # No public component modules are pre-seeded.
         assert not (components_dir / "mmi.py").exists()
         assert not (components_dir / "ring.py").exists()
+        assert (components_dir / ".rosette-provenance.json").exists()
         # The minimal __init__.py has an empty __all__ and no re-exports.
         init_content = (components_dir / "__init__.py").read_text()
         assert "__all__" in init_content
@@ -514,8 +518,12 @@ class TestRosetteInit:
         assert components_dir.is_dir()
         assert (components_dir / "mmi.py").exists()
         assert (components_dir / "ring.py").exists()
+        assert (components_dir / ".rosette-provenance.json").exists()
         # __pycache__ must not leak into user projects.
         assert not (components_dir / "__pycache__").exists()
+
+        assert "def mmi(" in (components_dir / "mmi.py").read_text()
+        assert not (project_dir / ".rosette" / "components").exists()
 
     def test_init_generic_components_import_roundtrip(self, tmp_path: Path, monkeypatch):
         """`from components import mmi` resolves to the *local* copy.
@@ -1189,7 +1197,7 @@ class TestRosetteUpdate:
         assert "<!-- BEGIN:rosette-agent-rules -->" in restored
         assert "ALWAYS read the reference files" in restored
         assert api_stub.exists()
-        packaged_stub = Path(__file__).parents[1] / "rosette" / "_core.pyi"
+        packaged_stub = Path(__file__).parents[1] / "rosette" / "api.pyi"
         assert api_stub.read_bytes() == packaged_stub.read_bytes()
 
     @pytest.mark.parametrize("template", ["blank", "generic"])
@@ -1209,7 +1217,8 @@ class TestRosetteUpdate:
         agents_md.write_text(agents_md.read_text() + "\n## User rules\n\nKeep this.\n")
         components_before = {
             path.relative_to(project_dir): path.read_bytes()
-            for path in (project_dir / "components").rglob("*.py")
+            for path in (project_dir / "components").rglob("*")
+            if path.is_file()
         }
         config_before = (project_dir / "rosette.toml").read_bytes()
         shutil.rmtree(project_dir / ".rosette")
@@ -1217,17 +1226,101 @@ class TestRosetteUpdate:
         update_project()
 
         rosette_dir = project_dir / ".rosette"
-        packaged_stub = Path(__file__).parents[1] / "rosette" / "_core.pyi"
+        packaged_stub = Path(__file__).parents[1] / "rosette" / "api.pyi"
         assert (rosette_dir / "api.pyi").read_bytes() == packaged_stub.read_bytes()
         manifest = json.loads((rosette_dir / "cli.json").read_text())
         assert manifest["package_version"]
         assert manifest["commands"]
+        reference_manifest = json.loads((rosette_dir / "manifest.json").read_text())
+        assert reference_manifest["package_version"]
+        assert set(reference_manifest["references"]) == {"api.pyi", "cli.json"}
+        assert not (rosette_dir / "components").exists()
         assert "Keep this." in agents_md.read_text()
         assert (project_dir / "rosette.toml").read_bytes() == config_before
         assert {
             path.relative_to(project_dir): path.read_bytes()
-            for path in (project_dir / "components").rglob("*.py")
+            for path in (project_dir / "components").rglob("*")
+            if path.is_file()
         } == components_before
+
+    def test_update_warns_when_unmodified_component_is_stale(
+        self, tmp_path: Path, monkeypatch, capsys
+    ):
+        """Component provenance detects upstream drift without overwriting local source."""
+        import shutil
+
+        import rosette.cli as cli
+
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project("generic", tool="opencode")
+        local_mmi = project_dir / "components" / "mmi.py"
+        baseline = local_mmi.read_bytes()
+
+        upstream = tmp_path / "upstream-components"
+        shutil.copytree(cli.COMPONENTS_DIR, upstream)
+        (upstream / "mmi.py").write_text(
+            (upstream / "mmi.py").read_text() + "\n# upstream change\n"
+        )
+        monkeypatch.setattr(cli, "COMPONENTS_DIR", upstream)
+
+        update_project()
+
+        assert local_mmi.read_bytes() == baseline
+        err = capsys.readouterr().err
+        assert "components/mmi.py is stale" in err
+        assert "public contract changed" not in err
+
+        local_mmi.write_text(cli._rewrite_component_imports((upstream / "mmi.py").read_text()))
+        update_project()
+        assert "components/mmi.py" not in capsys.readouterr().err
+
+        (upstream / "mmi.py").unlink()
+        update_project()
+        assert "components/mmi.py no longer exists" in capsys.readouterr().err
+
+    def test_update_warns_when_component_provenance_is_missing(
+        self, tmp_path: Path, monkeypatch, capsys
+    ):
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project("blank", tool="opencode")
+        (project_dir / "components" / ".rosette-provenance.json").unlink()
+
+        update_project()
+
+        assert "component provenance is missing" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("content", ["null", "[]"])
+    def test_update_warns_when_component_provenance_has_non_object_root(
+        self, tmp_path: Path, monkeypatch, capsys, content: str
+    ):
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project("blank", tool="opencode")
+        provenance = project_dir / "components" / ".rosette-provenance.json"
+        provenance.write_text(content)
+
+        update_project()
+
+        assert "component provenance is malformed" in capsys.readouterr().err
+
+    def test_update_removes_legacy_component_references(self, tmp_path: Path, monkeypatch):
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project("blank", tool="opencode")
+        legacy = project_dir / ".rosette" / "components"
+        legacy.mkdir()
+        (legacy / "index.json").write_text("{}")
+        (legacy / "mmi.pyi").write_text("def mmi(): ...\n")
+
+        update_project()
+
+        assert not legacy.exists()
 
     def test_update_preserves_user_content(self, tmp_path: Path, monkeypatch):
         """rosette update preserves user content outside markers in AGENTS.md."""
@@ -1495,7 +1588,7 @@ class TestReferenceStaleness:
     """Tests for the .rosette/ staleness nudge (_check_reference_staleness)."""
 
     def _make_project_with_manifest(self, tmp_path: Path, stamped_version: str) -> Path:
-        """A minimal project whose .rosette/cli.json stamps ``stamped_version``."""
+        """A minimal project whose reference manifest stamps ``stamped_version``."""
         import json
 
         project_dir = tmp_path / "proj"
@@ -1503,9 +1596,7 @@ class TestReferenceStaleness:
         (project_dir / "rosette.toml").write_text('[project]\nname = "proj"\n')
         rosette_dir = project_dir / ".rosette"
         rosette_dir.mkdir()
-        (rosette_dir / "cli.json").write_text(
-            json.dumps({"package_version": stamped_version, "commands": {}})
-        )
+        (rosette_dir / "manifest.json").write_text(json.dumps({"package_version": stamped_version}))
         return project_dir
 
     def test_warns_on_version_drift(self, tmp_path: Path, monkeypatch, capsys):
@@ -1518,6 +1609,61 @@ class TestReferenceStaleness:
 
         err = capsys.readouterr().err
         assert "rosette update" in err
+        assert "0.0.1" in err
+        assert "9.9.9" in err
+
+    def test_warns_when_same_version_reference_is_modified(
+        self, tmp_path: Path, monkeypatch, capsys
+    ):
+        project_dir = tmp_path / "proj"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project("blank", tool="none")
+        (project_dir / ".rosette" / "api.pyi").write_text("corrupt")
+        capsys.readouterr()
+
+        _check_reference_staleness()
+
+        err = capsys.readouterr().err
+        assert "api.pyi" in err
+        assert "rosette update" in err
+
+    def test_component_edits_do_not_affect_core_reference_staleness(
+        self, tmp_path: Path, monkeypatch, capsys
+    ):
+        project_dir = tmp_path / "proj"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project("generic", tool="none")
+        component = project_dir / "components" / "mmi.py"
+        component.write_text(
+            component.read_text().replace("length: float = 10.0", "length: float = 12.0")
+        )
+        capsys.readouterr()
+
+        _check_reference_staleness()
+
+        assert capsys.readouterr().err == ""
+
+    @pytest.mark.parametrize("content", ["null", "[]"])
+    def test_non_object_manifest_falls_back_to_cli_metadata(
+        self, tmp_path: Path, monkeypatch, capsys, content: str
+    ):
+        import json
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        (project_dir / "rosette.toml").write_text('[project]\nname = "proj"\n')
+        rosette_dir = project_dir / ".rosette"
+        rosette_dir.mkdir()
+        (rosette_dir / "manifest.json").write_text(content)
+        (rosette_dir / "cli.json").write_text(json.dumps({"package_version": "0.0.1"}))
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setattr("rosette.__version__", "9.9.9")
+
+        _check_reference_staleness()
+
+        err = capsys.readouterr().err
         assert "0.0.1" in err
         assert "9.9.9" in err
 
@@ -1541,7 +1687,7 @@ class TestReferenceStaleness:
         assert capsys.readouterr().err == ""
 
     def test_silent_on_missing_manifest(self, tmp_path: Path, monkeypatch, capsys):
-        """A project without .rosette/cli.json is treated as can't-tell."""
+        """A project without reference metadata is treated as can't-tell."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         (project_dir / "rosette.toml").write_text('[project]\nname = "proj"\n')

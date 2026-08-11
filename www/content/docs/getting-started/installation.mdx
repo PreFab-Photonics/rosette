@@ -190,14 +190,16 @@ my-chip/
 ├── rosette.toml          # Project config: layers, DRC rules, and checks
 ├── designs/              # Your design scripts go here
 ├── output/               # GDS build output
-├── components/           # Editable photonic components (yours to modify)
+├── components/           # Template-specific component source and documentation
 │   ├── mmi.py
 │   ├── ring.py
 │   ├── grating_coupler.py
+│   ├── .rosette-provenance.json # Copy baselines for upgrade checks
 │   └── ...
 ├── .rosette/
-│   ├── api.pyi           # Agent-readable core API reference
-│   └── cli.json          # Machine-readable CLI contract
+│   ├── api.pyi           # Public Python facade reference
+│   ├── cli.json          # Machine-readable CLI contract
+│   └── manifest.json     # Managed-reference provenance
 └── AGENTS.md             # AI agent instructions (if selected)
 ```
 
@@ -209,16 +211,21 @@ my-chip/
 - **`output/`**: build artifacts. Running `rosette build` writes GDS files here
   (and recreates the directory if you delete it). GDS files are gitignored by
   default since they're regenerated from your design scripts.
-- **`components/`**: a library of photonic building blocks (S-bends, MMIs, rings,
-  couplers, and more). These are copied into your project so you can read and modify them
-  freely.
-- **`.rosette/api.pyi`**: the core Rosette API reference for agents. It uses
-  stub syntax for compactness, but is not intended as an editor type stub.
+- **`components/`**: the project-local component API, including its catalog in
+  `__init__.py`, implementation source, signatures, and docstrings. Components are
+  template-specific: the generic template copies the standard photonic building
+  blocks, while the blank template starts with only an empty scaffold and shared
+  authoring utilities. Everything here is yours to read and modify.
+- **`.rosette/api.pyi`**: the public `rosette` facade reference for agents.
 - **`.rosette/cli.json`**: the complete machine-readable CLI contract, including
   commands, flags, exit codes, and JSON output schemas.
+- **`.rosette/manifest.json`**: package and contract provenance for the managed core
+  references. Component provenance remains separate in
+  `components/.rosette-provenance.json`, beside the component source, so upgrade
+  checks survive fresh clones.
 
 The `.rosette/` directory is gitignored because these references are tied to the
-installed Rosette version. After a fresh clone, restore both files with
+installed Rosette version. After a fresh clone, restore the managed references with
 `uv run rosette update`. Do not rerun `rosette init` in an existing project.
 
 ## Run the dev server

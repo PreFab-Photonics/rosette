@@ -11,6 +11,8 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import ast
+import hashlib
 import json
 import logging
 import os
@@ -43,9 +45,10 @@ OUTPUT_DIR = "output"  # default location for built GDS (created on first build)
 #
 #   Managed reference (regenerated wholesale by `rosette init`/`update`, pinned
 #   to the installed librosette build):
-#     .rosette/api.pyi   -- agent API reference (copied from the package's _core.pyi)
+#     .rosette/api.pyi   -- public facade API reference
 #     .rosette/cli.json  -- CLI manifest (regenerated from the argparse parser;
 #                           stamps `package_version` for staleness detection)
+#     .rosette/manifest.json -- provenance for all managed references
 #
 #   Runtime output (created on demand, never touched by init/update, pruned by
 #   retention policy -- ephemeral, safe to delete):
@@ -354,6 +357,217 @@ def _append_gitignore(src_path: Path, dest_path: Path):
 # asserting this invariant -- if you add a new primitive, add it here too.
 _MINIMAL_COMPONENT_FILES = ("__init__.py", "_utils.py", "_curves.py", "_tapers.py")
 _COMPONENT_COPY_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
+_COMPONENT_PROVENANCE = ".rosette-provenance.json"
+_PROVENANCE_SCHEMA = 1
+_REFERENCE_SCHEMA = 1
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _sha256_path(path: Path) -> str:
+    return _sha256_bytes(path.read_bytes())
+
+
+def _contract_digest(path: Path) -> str:
+    """Hash a Python contract structurally, excluding prose docstrings."""
+    tree = ast.parse(path.read_text())
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if (
+            isinstance(body, list)
+            and body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            del body[0]
+    return _sha256_bytes(ast.dump(tree, include_attributes=False).encode())
+
+
+def _extract_all(path: Path) -> list[str]:
+    """Read a literal module ``__all__`` without importing user code."""
+    value: ast.expr | None = None
+    for node in ast.parse(path.read_text()).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets
+        ):
+            value = node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "__all__"
+            and node.value is not None
+        ):
+            value = node.value
+        elif (
+            isinstance(node, ast.AugAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "__all__"
+        ):
+            value = None
+    if value is not None:
+        exports = ast.literal_eval(value)
+        if isinstance(exports, list) and all(isinstance(name, str) for name in exports):
+            return exports
+    raise RuntimeError(f"{path} must define __all__ as a literal list of strings")
+
+
+def _component_contract(source: Path, name: str) -> str:
+    """Render a structural component contract for provenance comparison."""
+    tree = ast.parse(source.read_text())
+    module_exports = _extract_all(source)
+    if module_exports != [name]:
+        raise RuntimeError(f"{source} must define __all__ = [{name!r}]")
+    function = next(
+        (node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name),
+        None,
+    )
+    if function is None:
+        raise RuntimeError(f"{source} exports {name!r} but does not define that function")
+
+    declarations: list[ast.stmt] = []
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+            continue
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            declarations.append(node)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if not any(
+                isinstance(target, ast.Name) and target.id == "__all__" for target in targets
+            ):
+                declarations.append(node)
+        elif isinstance(node, ast.ClassDef):
+            node.decorator_list = []
+            node.body = [
+                child for child in node.body if isinstance(child, (ast.Assign, ast.AnnAssign))
+            ] or [ast.Expr(value=ast.Constant(value=Ellipsis))]
+            declarations.append(node)
+
+    docstring = ast.get_docstring(function, clean=False)
+    function.decorator_list = []
+    function.body = []
+    if docstring is not None:
+        function.body.append(ast.Expr(value=ast.Constant(value=docstring)))
+    function.body.append(ast.Expr(value=ast.Constant(value=Ellipsis)))
+    ast.fix_missing_locations(function)
+    reference = ast.Module(body=[*declarations, function], type_ignores=[])
+    ast.fix_missing_locations(reference)
+    return (
+        f'"""Local component contract for ``components.{name}``."""\n\n'
+        "from __future__ import annotations\n\n"
+        f"{ast.unparse(reference)}\n"
+    )
+
+
+def _write_component_provenance(target_dir: Path, *, minimal: bool) -> None:
+    """Persist copy baselines beside editable components so they survive clones."""
+    from rosette import __version__
+
+    files: dict[str, object] = {}
+    for local in sorted(target_dir.glob("*.py")):
+        source = COMPONENTS_DIR / local.name
+        entry: dict[str, object] = {"rendered_sha256": _sha256_path(local)}
+        if source.exists() and not (minimal and local.name == "__init__.py"):
+            entry["source_sha256"] = _sha256_path(source)
+        files[local.name] = entry
+
+    package_dir = Path(__file__).parent
+    component_exports = _extract_all(target_dir / "__init__.py")
+    payload = {
+        "schema": _PROVENANCE_SCHEMA,
+        "package_version": __version__,
+        "template": "blank" if minimal else "generic",
+        "api_contract_sha256": _contract_digest(package_dir / "api.pyi"),
+        "component_exports": component_exports,
+        "component_contracts": {
+            name: _sha256_bytes(_component_contract(target_dir / f"{name}.py", name).encode())
+            for name in component_exports
+        },
+        "files": files,
+    }
+    (target_dir / _COMPONENT_PROVENANCE).write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def _check_component_provenance(project_dir: Path) -> list[str]:
+    """Report stale/divergent copied files without modifying user components."""
+    provenance_path = project_dir / "components" / _COMPONENT_PROVENANCE
+    try:
+        provenance = json.loads(provenance_path.read_text())
+    except OSError:
+        return ["component provenance is missing; compatibility cannot be checked"]
+    except json.JSONDecodeError:
+        return ["component provenance is unreadable; compatibility cannot be checked"]
+    if not isinstance(provenance, dict):
+        return ["component provenance is malformed"]
+
+    warnings: list[str] = []
+    package_dir = Path(__file__).parent
+    files = provenance.get("files")
+    if not isinstance(files, dict):
+        return ["component provenance is malformed"]
+    contracts = provenance.get("component_contracts", {})
+    if not isinstance(contracts, dict):
+        contracts = {}
+    changed_contracts = {
+        name
+        for name, digest in contracts.items()
+        if isinstance(name, str)
+        and isinstance(digest, str)
+        and (COMPONENTS_DIR / f"{name}.py").exists()
+        and _sha256_bytes(
+            _rewrite_component_imports(
+                _component_contract(COMPONENTS_DIR / f"{name}.py", name)
+            ).encode()
+        )
+        != digest
+    }
+    minimal = provenance.get("template") == "blank"
+    try:
+        current_exports = _extract_all(project_dir / "components" / "__init__.py")
+    except (OSError, RuntimeError, SyntaxError, ValueError):
+        current_exports = None
+    all_upstream = current_exports == provenance.get("component_exports")
+    for filename, raw_entry in files.items():
+        if not isinstance(filename, str) or not isinstance(raw_entry, dict):
+            continue
+        local = project_dir / "components" / filename
+        baseline = raw_entry.get("rendered_sha256")
+        if not isinstance(baseline, str):
+            continue
+        if not local.exists():
+            warnings.append(f"components/{filename} was deleted locally")
+            all_upstream = False
+            continue
+
+        source = COMPONENTS_DIR / filename
+        if minimal and filename == "__init__.py":
+            continue
+        if not source.exists():
+            warnings.append(f"components/{filename} no longer exists in the installed package")
+            all_upstream = False
+            continue
+        upstream = _sha256_bytes(_rewrite_component_imports(source.read_text()).encode())
+        local_hash = _sha256_path(local)
+        if local_hash == upstream:
+            continue
+        all_upstream = False
+        contract_note = (
+            " and its public contract changed" if source.stem in changed_contracts else ""
+        )
+        if upstream != baseline and local_hash == baseline:
+            warnings.append(f"components/{filename} is stale and unmodified locally{contract_note}")
+        elif upstream != baseline and local_hash != baseline:
+            warnings.append(
+                f"components/{filename} diverged from its updated upstream source{contract_note}"
+            )
+    if not all_upstream and provenance.get("api_contract_sha256") != _contract_digest(
+        package_dir / "api.pyi"
+    ):
+        warnings.insert(0, "local components target an older public Rosette API contract")
+    return warnings
 
 
 def _rewrite_component_imports(src: str) -> str:
@@ -518,6 +732,8 @@ def _copy_components(project_dir: Path, *, minimal: bool = False) -> None:
 
         # Move from temp to final location
         shutil.move(str(tmp_target), str(target_dir))
+
+    _write_component_provenance(target_dir, minimal=minimal)
 
     # Count files copied
     py_files = list(target_dir.glob("*.py"))
@@ -1436,11 +1652,7 @@ def init_project(
     # all other templates get the full stdlib catalog.
     _copy_components(project_dir, minimal=(template == "blank"))
 
-    # Copy API stub for agent reference
-    _copy_api_stub(project_dir / ROSETTE_DIR)
-
-    # Write the CLI manifest (discoverable command contract, parallel to api.pyi)
-    _write_cli_manifest(project_dir / ROSETTE_DIR)
+    _write_managed_references(project_dir)
 
     tool_label = ", ".join(harness_keys) if harness_keys else "none"
     print(f"Initialized rosette project '{name}' (template: {template}, tool: {tool_label})")
@@ -1459,13 +1671,41 @@ def init_project(
 
 
 def _copy_api_stub(rosette_dir: Path):
-    """Copy the API reference to .rosette/ for agents to read."""
+    """Copy the public facade contract to .rosette/ for agents to read."""
     package_dir = Path(__file__).parent
 
-    pyi_file = package_dir / "_core.pyi"
+    pyi_file = package_dir / "api.pyi"
     if pyi_file.exists():
         rosette_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(pyi_file, rosette_dir / "api.pyi")
+
+
+def _write_reference_manifest(project_dir: Path) -> None:
+    """Stamp managed references with package and contract provenance."""
+    from rosette import __version__
+
+    rosette_dir = project_dir / ROSETTE_DIR
+    references = {
+        "api.pyi": _sha256_path(rosette_dir / "api.pyi"),
+        "cli.json": _sha256_path(rosette_dir / "cli.json"),
+    }
+    manifest = {
+        "schema": _REFERENCE_SCHEMA,
+        "package_version": __version__,
+        "api_contract_sha256": _contract_digest(Path(__file__).parent / "api.pyi"),
+        "references": references,
+    }
+    (rosette_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+def _write_managed_references(project_dir: Path) -> None:
+    """Regenerate core agent references and prune legacy component topics."""
+    legacy_components = project_dir / ROSETTE_DIR / "components"
+    if legacy_components.exists():
+        shutil.rmtree(legacy_components)
+    _copy_api_stub(project_dir / ROSETTE_DIR)
+    _write_cli_manifest(project_dir / ROSETTE_DIR)
+    _write_reference_manifest(project_dir)
 
 
 def _update_agent_file(dest: Path, new_content: str):
@@ -1524,6 +1764,7 @@ def update_project():
       - .rosette/api.pyi: fully replaced with latest agent API reference
       - .rosette/cli.json: regenerated CLI manifest (command contract; stamps
         the installed version for staleness detection)
+      - .rosette/manifest.json: reference hashes and package provenance
     - Only updates files for tools that are already configured
     - User-owned files and runtime output are never touched:
       - designs/ - your design files
@@ -1532,15 +1773,15 @@ def update_project():
       - .rosette/snapshots/ - ephemeral `rosette shot` output (runtime, not
         managed reference; pruned by retention policy, not by update)
 
-    Components are intentionally NOT refreshed here. The shadcn-style copy
+    Component source is intentionally NOT refreshed here. The shadcn-style copy
     in ``components/`` is yours to edit, and ``rosette update`` must not
     clobber local changes. To pull a newer version of a specific stdlib
     component into an existing project, diff your local copy against
     ``rosette/components/<name>.py`` in the installed rosette package and
     merge the changes manually (or delete your copy and re-run the
     relevant parts of ``rosette init`` in a scratch dir to see what's new).
-    A future release may add ``rosette update --components=check`` and
-    ``--components=<name>`` to automate this; see ROS-530.
+    Provenance is checked during update so stale or divergent copies are
+    reported, but replacement remains an explicit manual merge; see ROS-530.
     """
     project_dir = Path.cwd()
 
@@ -1593,11 +1834,10 @@ def update_project():
             _update_agent_file(project_dir / harness.instructions, rules)
         _install_skills(template_dir, project_dir / harness.skills_dir)
 
-    # Update API stub for agent reference
-    _copy_api_stub(project_dir / ROSETTE_DIR)
+    _write_managed_references(project_dir)
 
-    # Refresh the CLI manifest (discoverable command contract, parallel to api.pyi)
-    _write_cli_manifest(project_dir / ROSETTE_DIR)
+    for warning in _check_component_provenance(project_dir):
+        print(f"Warning: {warning}; review local copies before relying on them.", file=sys.stderr)
 
     tool_names = ", ".join(sorted(tools))
     print(f"Updated project to latest templates (tools: {tool_names})")
@@ -1798,27 +2038,58 @@ def _write_cli_manifest(rosette_dir: Path) -> None:
 def _check_reference_staleness() -> None:
     """Nudge when the project's ``.rosette/`` reference is stale.
 
-    ``.rosette/api.pyi`` and ``.rosette/cli.json`` are version-pinned to the
-    ``librosette`` build that last ran ``rosette init``/``update``. Upgrading
-    the package without re-running ``update`` leaves them describing the old
-    API, which silently misleads an agent reading them.
+    Managed files under ``.rosette/`` are version-pinned to the ``librosette``
+    build that last ran ``rosette init``/``update``. Upgrading the package
+    without re-running ``update`` leaves them describing the old API.
 
-    ``cli.json`` stamps ``package_version`` (see ``_cli_manifest``); compare it
-    to the installed version and print a one-line hint to stderr on drift. This
-    is best-effort and never fatal: any missing/unreadable manifest, missing
-    stamp, or unknown installed version is treated as "can't tell" and stays
-    silent so normal use is never blocked.
+    ``manifest.json`` is authoritative. Older projects stamped the version only
+    in ``cli.json``, which remains a fallback until ``rosette update`` creates
+    the reference manifest. Missing or malformed metadata is never fatal.
     """
     from rosette import __version__, _find_rosette_toml
 
     toml = _find_rosette_toml()
     if toml is None:
         return  # not inside a project
-    manifest_path = toml.parent / ROSETTE_DIR / "cli.json"
-    try:
-        manifest = json.loads(manifest_path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return  # no/unreadable manifest -- nothing to compare against
+    rosette_dir = toml.parent / ROSETTE_DIR
+    manifest = None
+    for manifest_path in (rosette_dir / "manifest.json", rosette_dir / "cli.json"):
+        try:
+            candidate = json.loads(manifest_path.read_text())
+            if not isinstance(candidate, dict):
+                continue
+            manifest = candidate
+            break
+        except (OSError, json.JSONDecodeError):
+            continue
+    if manifest is None:
+        return
+    references = manifest.get("references")
+    if isinstance(references, dict):
+        changed = []
+        for relative, digest in references.items():
+            if not isinstance(relative, str) or not isinstance(digest, str):
+                continue
+            relative_path = Path(relative)
+            if relative_path.is_absolute() or ".." in relative_path.parts:
+                changed.append(relative)
+                continue
+            path = rosette_dir / relative_path
+            try:
+                matches = path.is_file() and _sha256_path(path) == digest
+            except OSError:
+                matches = False
+            if not matches:
+                changed.append(relative)
+        if changed:
+            print(
+                _yellow(
+                    "Warning: .rosette/ managed references are missing or modified "
+                    f"({', '.join(sorted(changed))}). Run `rosette update` to refresh them."
+                ),
+                file=sys.stderr,
+            )
+            return
     stamped = manifest.get("package_version")
     if not isinstance(stamped, str):
         return  # pre-stamp manifest -- can't tell
@@ -1831,7 +2102,7 @@ def _check_reference_staleness() -> None:
             _yellow(
                 f"Warning: .rosette/ reference is for librosette {stamped} but "
                 f"{__version__} is installed. Run `rosette update` to refresh "
-                "api.pyi and cli.json."
+                "the managed references."
             ),
             file=sys.stderr,
         )
