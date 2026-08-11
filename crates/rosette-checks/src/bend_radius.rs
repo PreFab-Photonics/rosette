@@ -3,6 +3,7 @@
 //! Walks the cell hierarchy and checks that all bends meet the configured
 //! minimum bend radius. Also surfaces auto-reduced bend warnings.
 
+use rosette_core::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
 use rosette_core::{BBox, Cell, Library, Point, Transform};
 
 use crate::config::ChecksConfig;
@@ -37,24 +38,37 @@ pub fn check_bend_radius(
     let mut violations = Vec::new();
     let mut stats = BendRadiusStats::default();
 
-    walk_bends(
-        cell,
-        library,
-        &Transform::identity(),
-        "",
-        config,
-        &mut violations,
-        &mut stats,
-    );
+    if let Some(library) = library {
+        walk_hierarchy(library, cell, Transform::identity(), |event| {
+            if let HierarchyEvent::Enter(placement) = event {
+                check_cell_bends(
+                    placement.cell,
+                    placement.transform,
+                    &placement.relative_path_string(),
+                    config,
+                    &mut violations,
+                    &mut stats,
+                );
+            }
+            WalkControl::Continue
+        });
+    } else {
+        check_cell_bends(
+            cell,
+            Transform::identity(),
+            "",
+            config,
+            &mut violations,
+            &mut stats,
+        );
+    }
 
     (violations, stats)
 }
 
-/// Recursively walk cells, checking bends at each level.
-fn walk_bends(
+fn check_cell_bends(
     cell: &Cell,
-    library: Option<&Library>,
-    transform: &Transform,
+    transform: Transform,
     path: &str,
     config: &ChecksConfig,
     violations: &mut Vec<CheckViolation>,
@@ -103,29 +117,6 @@ fn walk_bends(
                 ),
                 config.severity,
             ));
-        }
-    }
-
-    // Recurse into cell references
-    if let Some(lib) = library {
-        for cell_ref in cell.cell_refs() {
-            if let Some(ref_cell) = lib.cell(&cell_ref.cell_name) {
-                let combined = transform.then(&cell_ref.transform);
-                let child_path = if path.is_empty() {
-                    cell_ref.cell_name.clone()
-                } else {
-                    format!("{}/{}", path, cell_ref.cell_name)
-                };
-                walk_bends(
-                    ref_cell,
-                    Some(lib),
-                    &combined,
-                    &child_path,
-                    config,
-                    violations,
-                    stats,
-                );
-            }
         }
     }
 }
@@ -246,6 +237,24 @@ mod tests {
 
         assert_eq!(stats.bends_checked, 2); // One bend per instance
         assert_eq!(violations.len(), 2); // Both below minimum
+    }
+
+    #[test]
+    fn test_aref_bends_are_checked_per_copy() {
+        let bend_cell = make_bend_cell("inner_bend", 2.0);
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("inner_bend").array(3, 2, 20.0, 10.0));
+        let mut library = Library::new("test");
+        library.add_cell(bend_cell);
+        library.add_cell(top);
+
+        let config = ChecksConfig::default().with_min_bend_radius(5.0);
+        let (violations, stats) =
+            check_bend_radius(library.cell("top").unwrap(), &config, Some(&library));
+
+        assert_eq!(stats.bends_checked, 6);
+        assert_eq!(violations.len(), 6);
+        assert_eq!(violations[5].cell_path, "inner_bend[ref=0,col=2,row=1]");
     }
 
     #[test]

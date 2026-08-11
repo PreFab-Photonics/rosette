@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   atomic port alignment.
 - Managed-reference provenance for `.rosette/` and template-specific component-copy
   provenance stored beside the editable source in `components/`.
+- Shared cycle-safe hierarchy traversal with lazy SREF/AREF expansion, accumulated
+  transforms, exact instance paths, and dependency ordering.
+- A canonical layout-path stroker with bounded miter joins and explicit flush,
+  round, and half-width-extension caps.
 
 ### Changed
 
@@ -22,11 +26,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   public facade/agent reference, and project guidance uses explicit imports.
 - `Instance` is now the single public cell-placement abstraction. `ArrayCopy`
   remains a read-only view for inspecting individual copies of a compact AREF.
+- Bbox, DRC, checks, DFM, raster, GDS dependency ordering, WASM, and build summaries
+  now use shared hierarchy and repetition mechanisms.
+- Layout paths are stroked before affine transformation, preserve absolute negative
+  GDS widths, and use the same geometry for checks, rendering, selection, and app
+  previews. Internal polygonization skips exact reversals and invalid numeric geometry.
 
 ### Fixed
 
 - Uniform scaling on `Instance` is now preserved when lowering placements to
   native hierarchy records and GDS.
+- Repeated ports, bend checks, and DFM geometry now include every AREF copy;
+  imported hierarchy cycles terminate safely across flattening and consumers.
 
 ### Removed
 

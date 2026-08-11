@@ -12,6 +12,7 @@
 //! partner search is O(log P + k) on the number of nearby ports rather
 //! than O(P). Drops the previous O(P²) matching to O(P log P) in practice.
 
+use rosette_core::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
 use rosette_core::{BBox, Cell, Library, Point, Port, Transform};
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 
@@ -29,40 +30,28 @@ struct FlatPort {
     is_top_level: bool,
 }
 
-/// Recursively collect all ports from a cell hierarchy, applying transforms.
-fn flatten_ports(
-    cell: &Cell,
-    library: Option<&Library>,
-    transform: &Transform,
-    path: &str,
-    is_top: bool,
-) -> Vec<FlatPort> {
+/// Collect all ports from a cell hierarchy, applying placement transforms.
+fn flatten_ports(cell: &Cell, library: Option<&Library>) -> Vec<FlatPort> {
     let mut result = Vec::new();
 
-    // Collect this cell's own ports (transformed to absolute coordinates)
-    for port in cell.ports() {
-        let transformed = port.transform(transform);
-        result.push(FlatPort {
-            port: transformed,
-            cell_path: path.to_string(),
-            is_top_level: is_top,
-        });
-    }
-
-    // Recurse into cell references
-    if let Some(lib) = library {
-        for cell_ref in cell.cell_refs() {
-            if let Some(ref_cell) = lib.cell(&cell_ref.cell_name) {
-                let combined = transform.then(&cell_ref.transform);
-                let child_path = if path.is_empty() {
-                    cell_ref.cell_name.clone()
-                } else {
-                    format!("{}/{}", path, cell_ref.cell_name)
-                };
-                let child_ports = flatten_ports(ref_cell, Some(lib), &combined, &child_path, false);
-                result.extend(child_ports);
+    if let Some(library) = library {
+        walk_hierarchy(library, cell, Transform::identity(), |event| {
+            if let HierarchyEvent::Enter(placement) = event {
+                let path = placement.relative_path_string();
+                result.extend(placement.cell.ports().iter().map(|port| FlatPort {
+                    port: port.transform(&placement.transform),
+                    cell_path: path.clone(),
+                    is_top_level: placement.depth == 0,
+                }));
             }
-        }
+            WalkControl::Continue
+        });
+    } else {
+        result.extend(cell.ports().iter().cloned().map(|port| FlatPort {
+            port,
+            cell_path: String::new(),
+            is_top_level: true,
+        }));
     }
 
     result
@@ -128,7 +117,7 @@ pub fn check_connectivity(
     config: &ChecksConfig,
     library: Option<&Library>,
 ) -> (Vec<CheckViolation>, ConnectivityStats) {
-    let flat_ports = flatten_ports(cell, library, &Transform::identity(), "", true);
+    let flat_ports = flatten_ports(cell, library);
     let n = flat_ports.len();
 
     // Track which ports have been matched to a partner
@@ -562,6 +551,42 @@ mod tests {
             violations
         );
         assert!(stats.connections_found >= 1);
+    }
+
+    #[test]
+    fn test_aref_copies_have_distinct_ports_and_paths() {
+        let mut child = Cell::new("child");
+        child.add_port(Port::with_width(
+            "port",
+            Point::origin(),
+            Vector2::unit_x(),
+            0.5,
+        ));
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("child").array(3, 1, 10.0, 0.0));
+        let mut library = Library::new("test");
+        library.add_cell(child);
+        library.add_cell(top);
+
+        let (violations, stats) = check_connectivity(
+            library.cell("top").unwrap(),
+            &default_config(),
+            Some(&library),
+        );
+
+        assert_eq!(stats.ports_checked, 3);
+        assert_eq!(violations.len(), 3);
+        assert_eq!(
+            violations
+                .iter()
+                .map(|violation| violation.cell_path.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "child[ref=0,col=0,row=0]",
+                "child[ref=0,col=1,row=0]",
+                "child[ref=0,col=2,row=0]",
+            ]
+        );
     }
 
     #[test]

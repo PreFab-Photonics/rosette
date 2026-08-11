@@ -5,6 +5,9 @@
 
 use std::collections::HashMap;
 
+use rosette_core::cell::Element;
+use rosette_core::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
+use rosette_core::path::stroke_path_transformed;
 use rosette_core::{BBox, Cell, Layer, Library, Point, Polygon, Transform};
 
 /// Configuration for rasterization.
@@ -127,32 +130,36 @@ pub fn flatten_cell(
 ) -> HashMap<Layer, Vec<Polygon>> {
     let mut result: HashMap<Layer, Vec<Polygon>> = HashMap::new();
 
-    // Add direct polygons
-    for (polygon, layer) in cell.polygons() {
-        let transformed = polygon.transform(transform);
-        result.entry(*layer).or_default().push(transformed);
-    }
-
-    // Convert paths to polygons and add them
-    for (points, width, layer, _end_type) in cell.paths() {
-        let transformed_points: Vec<Point> = points.iter().map(|p| transform.apply(*p)).collect();
-        // Use offset_polygon to convert path centerline + width to polygon
-        if let Some(poly) = rosette_core::offset_polygon(&transformed_points, width) {
-            result.entry(*layer).or_default().push(poly);
+    let mut add_element = |element: &Element, placement: Transform| match element {
+        Element::Polygon { polygon, layer } => {
+            result
+                .entry(*layer)
+                .or_default()
+                .push(polygon.transform(&placement));
         }
-    }
-
-    // Recursively flatten cell references
-    if let Some(lib) = library {
-        for cell_ref in cell.cell_refs() {
-            if let Some(ref_cell) = lib.cell(&cell_ref.cell_name) {
-                let combined = transform.then(&cell_ref.transform);
-                let child_polygons = flatten_cell(ref_cell, Some(lib), &combined);
-
-                for (layer, polys) in child_polygons {
-                    result.entry(layer).or_default().extend(polys);
-                }
+        Element::Path {
+            points,
+            width,
+            layer,
+            end_type,
+        } => {
+            if let Some(polygon) = stroke_path_transformed(points, *width, *end_type, &placement) {
+                result.entry(*layer).or_default().push(polygon);
             }
+        }
+        Element::Text { .. } | Element::CellRef(_) => {}
+    };
+
+    if let Some(library) = library {
+        walk_hierarchy(library, cell, *transform, |event| {
+            if let HierarchyEvent::Element(placed) = event {
+                add_element(placed.element, placed.placement.transform);
+            }
+            WalkControl::Continue
+        });
+    } else {
+        for element in cell.elements() {
+            add_element(element, *transform);
         }
     }
 
@@ -257,6 +264,7 @@ pub fn rasterize_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rosette_core::{CellRef, PathEndType};
 
     #[test]
     fn test_rasterize_simple_rect() {
@@ -316,5 +324,60 @@ mod tests {
         let center = raster.pixel_center(0, 0);
         assert!((center.x - 0.05).abs() < 1e-10);
         assert!((center.y - 0.05).abs() < 1e-10);
+    }
+
+    #[test]
+    fn flatten_expands_arefs_and_strokes_before_transforming() {
+        let layer = Layer::new(1, 0);
+        let mut child = Cell::new("child");
+        child.add_path(
+            vec![Point::origin(), Point::new(10.0, 0.0)],
+            2.0,
+            layer,
+            PathEndType::HalfWidthExtension,
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(
+            CellRef::with_transform("child", Transform::scale(2.0, 3.0)).array(2, 1, 20.0, 0.0),
+        );
+        let mut library = Library::new("test");
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
+
+        let flattened = flatten_cell(
+            library.cell("top").unwrap(),
+            Some(&library),
+            &Transform::identity(),
+        );
+        let polygons = &flattened[&layer];
+        assert_eq!(polygons.len(), 2);
+        let bounds: Vec<_> = polygons
+            .iter()
+            .map(|polygon| {
+                let bbox = polygon.bbox();
+                (bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y)
+            })
+            .collect();
+        assert_eq!(
+            bounds,
+            vec![(-2.0, -3.0, 22.0, 3.0), (38.0, -3.0, 62.0, 3.0)]
+        );
+    }
+
+    #[test]
+    fn flatten_stops_at_cycles() {
+        let layer = Layer::new(1, 0);
+        let mut cell = Cell::new("cycle");
+        cell.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), layer);
+        cell.add_ref(CellRef::new("cycle"));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+
+        let flattened = flatten_cell(
+            library.cell("cycle").unwrap(),
+            Some(&library),
+            &Transform::identity(),
+        );
+        assert_eq!(flattened[&layer].len(), 1);
     }
 }

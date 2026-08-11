@@ -14,7 +14,8 @@
 
 use super::{WasmLibrary, text_bbox};
 use rosette_core::cell::Element;
-use rosette_core::geometry::{BBox, offset_polygon};
+use rosette_core::geometry::BBox;
+use rosette_core::path::stroke_path;
 use rstar::{AABB, RTree, RTreeObject};
 
 /// What an indexed entry points at within the active cell.
@@ -30,7 +31,7 @@ pub(super) enum IndexedKind {
 /// An element keyed into the spatial index by its (precomputed) bounding box.
 ///
 /// For `Path` elements the stored `bbox` is the ribbon bbox, so the expensive
-/// `offset_polygon` call is done once at build time rather than on every
+/// path-stroking call is done once at build time rather than on every
 /// mouse move (the previous hot-path behaviour).
 #[derive(Clone, Debug)]
 pub(super) struct IndexedElement {
@@ -121,11 +122,16 @@ impl WasmLibrary {
                         },
                     )
                 }
-                Element::Path { points, width, .. } => {
+                Element::Path {
+                    points,
+                    width,
+                    end_type,
+                    ..
+                } => {
                     let Some(uuid) = index_to_uuid.get(&elem_idx) else {
                         continue;
                     };
-                    match offset_polygon(points, *width) {
+                    match stroke_path(points, *width, *end_type) {
                         Some(ribbon) => (
                             ribbon.bbox(),
                             IndexedKind::Direct {

@@ -6,8 +6,8 @@
 //! - Flat-grid / paired-layer builders stress the R-tree pairwise checks.
 //! - High-vertex builders stress the per-polygon checks (width, edge length,
 //!   self-intersection).
-//! - AREF builders stress `flatten_into_groups` and
-//!   `expand_cellref_transforms` — the code paths ROS-511 targets.
+//! - AREF builders stress `flatten_into_groups` and the shared lazy hierarchy
+//!   expansion path targeted by ROS-511.
 //!
 //! Where possible each builder returns a single `Cell` (so `run_drc(&cell, ...,
 //! None)` works). Hierarchical fixtures return `(Library, top_cell_name)` so

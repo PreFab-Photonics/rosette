@@ -438,7 +438,7 @@ impl WasmLibrary {
         self.library.cell(cell_name)?;
 
         let mut combined_bbox: Option<BBox> = None;
-        self.collect_bounds_recursive(cell_name, &Transform::identity(), &mut combined_bbox);
+        self.collect_bounds_recursive(cell_name, &Transform::identity(), &[], &mut combined_bbox);
         combined_bbox.map(|bbox| vec![bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y])
     }
 
@@ -550,7 +550,9 @@ impl WasmLibrary {
         // Walk top-level CellRefs
         for element in cell.elements() {
             if let Element::CellRef(cell_ref) = element {
-                if self.hidden_cells.contains(&cell_ref.cell_name) {
+                if cell_ref.cell_name == cell.name()
+                    || self.hidden_cells.contains(&cell_ref.cell_name)
+                {
                     continue;
                 }
                 if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
@@ -567,6 +569,7 @@ impl WasmLibrary {
                         self.collect_cell_contexts_recursive(
                             ref_cell,
                             &copy_transform,
+                            cell.name(),
                             0,
                             max_depth,
                             &mut contexts,

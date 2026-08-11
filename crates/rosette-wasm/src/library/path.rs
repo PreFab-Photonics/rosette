@@ -2,108 +2,13 @@
 //!
 //! These are pure geometry helpers that generate ribbon polygons from centerlines.
 
-use rosette_core::{Point, Polygon};
+use rosette_core::path::stroke_path;
+use rosette_core::{PathEndType, Point, Polygon};
 
 /// Generate a constant-width ribbon polygon from a centerline.
 ///
-/// At each interior vertex the average of the two adjacent segment normals is
-/// computed and scaled by `1 / cos(half_angle)` to maintain constant width
-/// through bends.
 pub(super) fn constant_width_path(centerline: &[Point], width: f64) -> Option<Polygon> {
-    if centerline.len() < 2 {
-        return None;
-    }
-
-    let hw = width / 2.0;
-    let n = centerline.len();
-    let mut left = Vec::with_capacity(n);
-    let mut right = Vec::with_capacity(n);
-
-    for i in 0..n {
-        let (nx, ny) = if i == 0 {
-            // First point: perpendicular to first segment
-            let dx = centerline[1].x - centerline[0].x;
-            let dy = centerline[1].y - centerline[0].y;
-            let len = (dx * dx + dy * dy).sqrt();
-            if len < 1e-12 {
-                continue;
-            }
-            (-dy / len, dx / len)
-        } else if i == n - 1 {
-            // Last point: perpendicular to last segment
-            let dx = centerline[n - 1].x - centerline[n - 2].x;
-            let dy = centerline[n - 1].y - centerline[n - 2].y;
-            let len = (dx * dx + dy * dy).sqrt();
-            if len < 1e-12 {
-                continue;
-            }
-            (-dy / len, dx / len)
-        } else {
-            // Interior: compute miter from incoming and outgoing segment normals
-            let dx1 = centerline[i].x - centerline[i - 1].x;
-            let dy1 = centerline[i].y - centerline[i - 1].y;
-            let len1 = (dx1 * dx1 + dy1 * dy1).sqrt();
-            let dx2 = centerline[i + 1].x - centerline[i].x;
-            let dy2 = centerline[i + 1].y - centerline[i].y;
-            let len2 = (dx2 * dx2 + dy2 * dy2).sqrt();
-
-            if len1 < 1e-12 || len2 < 1e-12 {
-                continue;
-            }
-
-            // Per-segment unit normals (pointing left of travel direction)
-            let perp_x1 = -dy1 / len1;
-            let perp_y1 = dx1 / len1;
-            let perp_x2 = -dy2 / len2;
-            let perp_y2 = dx2 / len2;
-
-            // Angle between the two perpendicular directions
-            let dot = (perp_x1 * perp_x2 + perp_y1 * perp_y2).clamp(-1.0, 1.0);
-            let angle = dot.acos();
-            let cos_half = (angle / 2.0).cos();
-            let width_factor = if cos_half > 1e-6 { 1.0 / cos_half } else { 1.0 };
-
-            // Average perpendicular direction, re-normalized and scaled
-            let avg_px = (perp_x1 + perp_x2) / 2.0;
-            let avg_py = (perp_y1 + perp_y2) / 2.0;
-            let avg_len = (avg_px * avg_px + avg_py * avg_py).sqrt();
-
-            if avg_len < 1e-12 {
-                // 180° turn — use first normal
-                (perp_x1, perp_y1)
-            } else {
-                let px = (avg_px / avg_len) * width_factor;
-                let py = (avg_py / avg_len) * width_factor;
-                left.push(Point::new(
-                    centerline[i].x + px * hw,
-                    centerline[i].y + py * hw,
-                ));
-                right.push(Point::new(
-                    centerline[i].x - px * hw,
-                    centerline[i].y - py * hw,
-                ));
-                continue;
-            }
-        };
-
-        left.push(Point::new(
-            centerline[i].x + nx * hw,
-            centerline[i].y + ny * hw,
-        ));
-        right.push(Point::new(
-            centerline[i].x - nx * hw,
-            centerline[i].y - ny * hw,
-        ));
-    }
-
-    if left.len() < 2 {
-        return None;
-    }
-
-    // Build closed polygon: left side forward, right side reversed
-    right.reverse();
-    left.append(&mut right);
-    Some(Polygon::new(left))
+    stroke_path(centerline, width, PathEndType::Flush)
 }
 
 /// Densify a centerline by replacing sharp interior corners with circular arc points.
@@ -277,10 +182,16 @@ pub(super) fn constant_width_path_rounded(
     corner_radius: f64,
     num_arc_points: u32,
 ) -> Option<Polygon> {
-    if corner_radius <= 0.0 {
-        return constant_width_path(centerline, width);
+    let mut normalized = Vec::with_capacity(centerline.len());
+    for &point in centerline {
+        if normalized.last() != Some(&point) {
+            normalized.push(point);
+        }
     }
-    let smooth = densify_centerline_with_arcs(centerline, corner_radius, num_arc_points);
+    if corner_radius <= 0.0 {
+        return constant_width_path(&normalized, width);
+    }
+    let smooth = densify_centerline_with_arcs(&normalized, corner_radius, num_arc_points);
     constant_width_path(&smooth, width)
 }
 
@@ -330,13 +241,13 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_start_currently_produces_no_polygon() {
-        assert!(
+    fn duplicate_start_is_normalized() {
+        assert_eq!(
             constant_width_path(
                 &[Point::origin(), Point::origin(), Point::new(10.0, 0.0)],
                 2.0,
-            )
-            .is_none()
+            ),
+            constant_width_path(&[Point::origin(), Point::new(10.0, 0.0)], 2.0)
         );
     }
 
@@ -351,6 +262,25 @@ mod tests {
         assert_eq!(
             constant_width_path_rounded(&points, 2.0, 0.0, 16),
             constant_width_path(&points, 2.0)
+        );
+    }
+
+    #[test]
+    fn rounded_path_normalizes_duplicate_corner_points() {
+        let clean = [
+            Point::origin(),
+            Point::new(10.0, 0.0),
+            Point::new(10.0, 10.0),
+        ];
+        let duplicated = [
+            Point::origin(),
+            Point::new(10.0, 0.0),
+            Point::new(10.0, 0.0),
+            Point::new(10.0, 10.0),
+        ];
+        assert_eq!(
+            constant_width_path_rounded(&duplicated, 2.0, 3.0, 64),
+            constant_width_path_rounded(&clean, 2.0, 3.0, 64)
         );
     }
 }

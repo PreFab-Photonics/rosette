@@ -82,26 +82,28 @@ impl BuildSummary {
             let mut groups = Vec::new();
             for cell_ref in cell.cell_refs() {
                 if let Some(ref_cell) = lib.cell(&cell_ref.cell_name) {
-                    let origin = cell_ref.transform.apply(rosette_core::Point::new(0.0, 0.0));
-                    let mut port_infos = Vec::new();
-                    let mut angles = Vec::new();
-                    for port in ref_cell.ports() {
-                        let transformed = port.transform(&cell_ref.transform);
-                        port_infos.push(PortInfo {
-                            name: transformed.name.clone(),
-                            x: transformed.position.x,
-                            y: transformed.position.y,
-                            width: transformed.width,
+                    for copy in cell_ref.copies() {
+                        let origin = copy.transform.apply(rosette_core::Point::new(0.0, 0.0));
+                        let mut port_infos = Vec::new();
+                        let mut angles = Vec::new();
+                        for port in ref_cell.ports() {
+                            let transformed = port.transform(&copy.transform);
+                            port_infos.push(PortInfo {
+                                name: transformed.name.clone(),
+                                x: transformed.position.x,
+                                y: transformed.position.y,
+                                width: transformed.width,
+                            });
+                            angles.push(transformed.direction.angle().to_degrees());
+                        }
+                        groups.push(InstancePortGroup {
+                            cell_name: cell_ref.cell_name.clone(),
+                            origin_x: origin.x,
+                            origin_y: origin.y,
+                            ports: port_infos,
+                            angles,
                         });
-                        angles.push(transformed.direction.angle().to_degrees());
                     }
-                    groups.push(InstancePortGroup {
-                        cell_name: cell_ref.cell_name.clone(),
-                        origin_x: origin.x,
-                        origin_y: origin.y,
-                        ports: port_infos,
-                        angles,
-                    });
                 }
             }
             groups
@@ -341,6 +343,31 @@ pub fn write_gds(
     Err(pyo3::exceptions::PyTypeError::new_err(
         "design must be a Cell or Library",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rosette_core::{CellRef, Point, Port, Vector2};
+
+    #[test]
+    fn build_summary_expands_aref_port_groups() {
+        let mut child = Cell::new("child");
+        child.add_port(Port::new("port", Point::new(1.0, 0.0), Vector2::unit_x()));
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("child").array(2, 1, 10.0, 0.0));
+        let mut library = Library::new("test");
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
+
+        let summary =
+            BuildSummary::from_cell_with_library(library.cell("top").unwrap(), Some(&library));
+
+        assert_eq!(summary.instance_ports.len(), 2);
+        assert_eq!(summary.instance_ports[0].origin_x, 0.0);
+        assert_eq!(summary.instance_ports[1].origin_x, 10.0);
+        assert_eq!(summary.instance_ports[1].ports[0].x, 11.0);
+    }
 }
 
 /// Serialize a Cell or Library to a JSON string.

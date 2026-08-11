@@ -4,7 +4,9 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use rosette_core::cell::Element;
-use rosette_core::{BBox, Cell, Layer, Library, Point, Polygon, Transform, offset_polygon};
+use rosette_core::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
+use rosette_core::path::{stroke_path, stroke_path_transformed};
+use rosette_core::{BBox, Cell, Layer, Library, Polygon, Transform};
 
 use crate::cache::{CachedCell, ContentHash, DrcCache, cell_content_hash};
 use crate::checks::{
@@ -248,32 +250,24 @@ fn expand_subtree(cell: &Cell, library: &Library, closure: &mut HashSet<String>)
 /// translate/reflect/90°-rotation placements.
 fn collect_waiver_regions(top: &Cell, library: Option<&Library>) -> Vec<BBox> {
     let mut regions = Vec::new();
-    collect_waiver_regions_inner(top, library, &Transform::identity(), &mut regions);
+    if let Some(library) = library {
+        walk_hierarchy(library, top, Transform::identity(), |event| {
+            if let HierarchyEvent::Enter(placement) = event {
+                regions.extend(
+                    placement
+                        .cell
+                        .drc_waive_regions()
+                        .iter()
+                        .map(|region| region.transform(&placement.transform)),
+                );
+            }
+            WalkControl::Continue
+        });
+    } else {
+        regions.extend(top.drc_waive_regions().iter().copied());
+    }
     regions
 }
-
-fn collect_waiver_regions_inner(
-    cell: &Cell,
-    library: Option<&Library>,
-    transform: &Transform,
-    regions: &mut Vec<BBox>,
-) {
-    for region in cell.drc_waive_regions() {
-        regions.push(region.transform(transform));
-    }
-    for element in cell.elements() {
-        if let Element::CellRef(cell_ref) = element
-            && let Some(lib) = library
-            && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
-        {
-            for copy_transform in DrcRunner::expand_cellref_transforms(cell_ref) {
-                let combined = transform.then(&copy_transform);
-                collect_waiver_regions_inner(ref_cell, Some(lib), &combined, regions);
-            }
-        }
-    }
-}
-
 /// Apply the `drc_skip` suppression predicate to a list of violations.
 ///
 /// A violation is suppressed iff `cell_name` and `cell_name2` are both
@@ -700,6 +694,32 @@ impl DrcRunner {
         ctx: &mut DetectionCtx<'_>,
         violations: &mut Vec<DrcViolation>,
     ) {
+        if let Some(library) = library {
+            walk_hierarchy(library, cell, *transform, |event| {
+                if let HierarchyEvent::Enter(placement) = event {
+                    self.check_per_polygon_placement(
+                        placement.cell,
+                        rules,
+                        &placement.transform,
+                        ctx,
+                        violations,
+                    );
+                }
+                WalkControl::Continue
+            });
+        } else {
+            self.check_per_polygon_placement(cell, rules, transform, ctx, violations);
+        }
+    }
+
+    fn check_per_polygon_placement(
+        &self,
+        cell: &Cell,
+        rules: &[&Rule],
+        transform: &Transform,
+        ctx: &mut DetectionCtx<'_>,
+        violations: &mut Vec<DrcViolation>,
+    ) {
         if transform.is_rigid() {
             // Rigid transform: per-polygon properties are invariant. Detect
             // once per unique cell, cache the local-frame violations.
@@ -740,26 +760,6 @@ impl DrcRunner {
                 }
             }
         }
-
-        for element in cell.elements() {
-            if let Element::CellRef(cell_ref) = element
-                && let Some(lib) = library
-                && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
-            {
-                let transforms = Self::expand_cellref_transforms(cell_ref);
-                for copy_transform in transforms {
-                    let combined = transform.then(&copy_transform);
-                    self.check_per_polygon_hierarchical(
-                        ref_cell,
-                        Some(lib),
-                        rules,
-                        &combined,
-                        ctx,
-                        violations,
-                    );
-                }
-            }
-        }
     }
 
     /// Check intra-cell pairwise rules (same-layer spacing and overlap only).
@@ -782,6 +782,32 @@ impl DrcRunner {
         &self,
         cell: &Cell,
         library: Option<&Library>,
+        rules: &[&Rule],
+        transform: &Transform,
+        ctx: &mut DetectionCtx<'_>,
+        violations: &mut Vec<DrcViolation>,
+    ) {
+        if let Some(library) = library {
+            walk_hierarchy(library, cell, *transform, |event| {
+                if let HierarchyEvent::Enter(placement) = event {
+                    self.check_intra_cell_placement(
+                        placement.cell,
+                        rules,
+                        &placement.transform,
+                        ctx,
+                        violations,
+                    );
+                }
+                WalkControl::Continue
+            });
+        } else {
+            self.check_intra_cell_placement(cell, rules, transform, ctx, violations);
+        }
+    }
+
+    fn check_intra_cell_placement(
+        &self,
+        cell: &Cell,
         rules: &[&Rule],
         transform: &Transform,
         ctx: &mut DetectionCtx<'_>,
@@ -827,26 +853,6 @@ impl DrcRunner {
                 }
             }
         }
-
-        for element in cell.elements() {
-            if let Element::CellRef(cell_ref) = element
-                && let Some(lib) = library
-                && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
-            {
-                let transforms = Self::expand_cellref_transforms(cell_ref);
-                for copy_transform in transforms {
-                    let combined = transform.then(&copy_transform);
-                    self.check_intra_cell_pairwise(
-                        ref_cell,
-                        Some(lib),
-                        rules,
-                        &combined,
-                        ctx,
-                        violations,
-                    );
-                }
-            }
-        }
     }
 
     /// Returns true iff `rule` is a same-layer pairwise rule (same-layer
@@ -873,78 +879,102 @@ impl DrcRunner {
         groups: &mut Vec<InstancePolygons>,
         global_index: &mut usize,
     ) {
-        // Collect this cell's own polygons as one instance group
-        let mut local_polys: HashMap<Layer, Vec<(Polygon, usize)>> = HashMap::new();
-        let mut local_bbox: Option<BBox> = None;
+        type GroupBuilder = (HashMap<Layer, Vec<(Polygon, usize)>>, Option<BBox>, String);
 
-        for element in cell.elements() {
-            match element {
-                Element::Polygon { polygon, layer } => {
-                    let transformed = polygon.transform(transform);
-                    let poly_bbox = transformed.bbox();
-                    local_bbox = Some(match local_bbox {
-                        Some(b) => b.merge(&poly_bbox),
-                        None => poly_bbox,
-                    });
-                    local_polys
-                        .entry(*layer)
-                        .or_default()
-                        .push((transformed, *global_index));
-                    *global_index += 1;
-                }
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    ..
-                } => {
-                    let transformed_points: Vec<Point> =
-                        points.iter().map(|p| transform.apply(*p)).collect();
-                    let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                    let scaled_width = *width * scale;
-
-                    if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
-                        let poly_bbox = ribbon.bbox();
-                        local_bbox = Some(match local_bbox {
-                            Some(b) => b.merge(&poly_bbox),
-                            None => poly_bbox,
-                        });
-                        local_polys
-                            .entry(*layer)
-                            .or_default()
-                            .push((ribbon, *global_index));
-                        *global_index += 1;
+        if let Some(library) = library {
+            let mut stack = Vec::<GroupBuilder>::new();
+            walk_hierarchy(library, cell, *transform, |event| {
+                match event {
+                    HierarchyEvent::Enter(placement) => {
+                        stack.push((HashMap::new(), None, placement.cell.name().to_string()));
                     }
-                }
-                Element::CellRef(cell_ref) => {
-                    if let Some(lib) = library
-                        && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
-                    {
-                        for copy_transform in Self::expand_cellref_transforms(cell_ref) {
-                            let combined = transform.then(&copy_transform);
-                            self.flatten_into_groups(
-                                ref_cell,
-                                Some(lib),
-                                &combined,
-                                groups,
-                                global_index,
-                            );
+                    HierarchyEvent::Element(placed) => {
+                        let (polygons, bbox, _) = stack.last_mut().unwrap();
+                        Self::add_group_element(
+                            placed.element,
+                            &placed.placement.transform,
+                            polygons,
+                            bbox,
+                            global_index,
+                        );
+                    }
+                    HierarchyEvent::Exit(_) => {
+                        let (polygons_by_layer, bbox, cell_name) = stack.pop().unwrap();
+                        if !polygons_by_layer.is_empty()
+                            && let Some(bbox) = bbox
+                        {
+                            groups.push(InstancePolygons {
+                                polygons_by_layer,
+                                bbox,
+                                cell_name,
+                            });
                         }
                     }
                 }
-                Element::Text { .. } => {}
+                WalkControl::Continue
+            });
+        } else {
+            let mut polygons_by_layer = HashMap::new();
+            let mut bbox = None;
+            for element in cell.elements() {
+                Self::add_group_element(
+                    element,
+                    transform,
+                    &mut polygons_by_layer,
+                    &mut bbox,
+                    global_index,
+                );
+            }
+            if !polygons_by_layer.is_empty()
+                && let Some(bbox) = bbox
+            {
+                groups.push(InstancePolygons {
+                    polygons_by_layer,
+                    bbox,
+                    cell_name: cell.name().to_string(),
+                });
             }
         }
+    }
 
-        if !local_polys.is_empty()
-            && let Some(bbox) = local_bbox
-        {
-            groups.push(InstancePolygons {
-                polygons_by_layer: local_polys,
-                bbox,
-                cell_name: cell.name().to_string(),
-            });
-        }
+    fn add_group_element(
+        element: &Element,
+        transform: &Transform,
+        polygons: &mut HashMap<Layer, Vec<(Polygon, usize)>>,
+        bbox: &mut Option<BBox>,
+        global_index: &mut usize,
+    ) {
+        let (polygon, layer) = match element {
+            Element::Polygon { polygon, layer } => (polygon.clone(), *layer),
+            Element::Path {
+                points,
+                width,
+                layer,
+                end_type,
+            } => {
+                let Some(polygon) = stroke_path_transformed(points, *width, *end_type, transform)
+                else {
+                    return;
+                };
+                (polygon, *layer)
+            }
+            Element::CellRef(_) | Element::Text { .. } => return,
+        };
+        let polygon = if matches!(element, Element::Path { .. }) {
+            polygon
+        } else {
+            polygon.transform(transform)
+        };
+        let polygon_bbox = polygon.bbox();
+        *bbox = Some(match bbox.take() {
+            Some(existing) => existing.merge(&polygon_bbox),
+            None => polygon_bbox,
+        });
+        polygons
+            .entry(layer)
+            .or_default()
+            .push((polygon, *global_index));
+        *global_index += 1;
     }
 
     /// Merge all instance groups into one flat polygon map (for rules that need it).
@@ -1133,34 +1163,6 @@ impl DrcRunner {
         violations
     }
 
-    /// Expand a CellRef's repetition into individual transforms.
-    ///
-    /// AREF pitch vectors (`col_vector`, `row_vector`) are defined in the
-    /// CellRef's local (pre-transform) space, matching GDS writer semantics.
-    /// We apply the per-copy translation BEFORE `cell_ref.transform` so
-    /// copies lie along the transformed lattice vectors for
-    /// rotated/mirrored/scaled refs.
-    fn expand_cellref_transforms(cell_ref: &rosette_core::CellRef) -> Vec<Transform> {
-        match &cell_ref.repetition {
-            None => vec![cell_ref.transform],
-            Some(rep) if rep.is_single() => vec![cell_ref.transform],
-            Some(rep) => {
-                let mut ts = Vec::with_capacity(rep.count());
-                for row in 0..rep.rows {
-                    for col in 0..rep.columns {
-                        let offset = rep.copy_offset(col, row);
-                        ts.push(
-                            cell_ref
-                                .transform
-                                .then(&Transform::translate(offset.x, offset.y)),
-                        );
-                    }
-                }
-                ts
-            }
-        }
-    }
-
     /// Collect polygons from a cell's own elements with transform applied.
     ///
     /// Used for non-rigid transforms where local geometry is not representative.
@@ -1183,13 +1185,11 @@ impl DrcRunner {
                     points,
                     width,
                     layer,
-                    ..
+                    end_type,
                 } => {
-                    let transformed_points: Vec<Point> =
-                        points.iter().map(|p| transform.apply(*p)).collect();
-                    let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                    let scaled_width = *width * scale;
-                    if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
+                    if let Some(ribbon) =
+                        stroke_path_transformed(points, *width, *end_type, transform)
+                    {
                         result.entry(*layer).or_default().push((ribbon, index));
                         index += 1;
                     }
@@ -1219,9 +1219,9 @@ impl DrcRunner {
                     points,
                     width,
                     layer,
-                    ..
+                    end_type,
                 } => {
-                    if let Some(ribbon) = offset_polygon(points, *width) {
+                    if let Some(ribbon) = stroke_path(points, *width, *end_type) {
                         result.entry(*layer).or_default().push((ribbon, index));
                         index += 1;
                     }
@@ -1235,28 +1235,47 @@ impl DrcRunner {
 
     /// Count total flattened polygons without materializing them (for stats).
     fn count_polygons(&self, cell: &Cell, library: Option<&Library>) -> usize {
-        let mut count = 0usize;
-        for element in cell.elements() {
-            match element {
-                Element::Polygon { .. } => count += 1,
-                Element::Path { points, width, .. } => {
-                    // Match collect_local_polygons: count only if offset_polygon would succeed
-                    if offset_polygon(points, *width).is_some() {
-                        count += 1;
+        fn count_cell(
+            cell: &Cell,
+            library: Option<&Library>,
+            ancestors: &mut HashSet<String>,
+        ) -> usize {
+            let mut count = 0_usize;
+            for element in cell.elements() {
+                match element {
+                    Element::Polygon { .. } => count = count.saturating_add(1),
+                    Element::Path {
+                        points,
+                        width,
+                        end_type,
+                        ..
+                    } => {
+                        count = count.saturating_add(usize::from(
+                            stroke_path(points, *width, *end_type).is_some(),
+                        ));
                     }
-                }
-                Element::CellRef(cell_ref) => {
-                    if let Some(lib) = library
-                        && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
-                    {
-                        let copies = cell_ref.repetition.as_ref().map_or(1, |rep| rep.count());
-                        count += copies * self.count_polygons(ref_cell, Some(lib));
+                    Element::CellRef(cell_ref) => {
+                        let Some(child) =
+                            library.and_then(|library| library.cell(&cell_ref.cell_name))
+                        else {
+                            continue;
+                        };
+                        if !ancestors.insert(child.name().to_string()) {
+                            continue;
+                        }
+                        let child_count = count_cell(child, library, ancestors);
+                        ancestors.remove(child.name());
+                        count = count
+                            .saturating_add(cell_ref.copies().len().saturating_mul(child_count));
                     }
+                    Element::Text { .. } => {}
                 }
-                Element::Text { .. } => {}
             }
+            count
         }
-        count
+
+        let mut ancestors = HashSet::from([cell.name().to_string()]);
+        count_cell(cell, library, &mut ancestors)
     }
 
     /// Check a single rule against the flattened polygons.

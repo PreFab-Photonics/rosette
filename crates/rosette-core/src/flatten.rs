@@ -9,9 +9,13 @@
 //! - Applies a uniform scale factor (e.g., μm → nm conversion)
 //! - Skips text elements (not rendered in viewer)
 
+use std::collections::HashMap;
+
 use crate::cell::Element;
-use crate::geometry::{Point, Polygon, Transform, offset_polygon};
+use crate::geometry::{Polygon, Transform};
+use crate::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
 use crate::layer::Layer;
+use crate::path::stroke_path_transformed_with_scale;
 use crate::{Cell, Library};
 
 /// A flattened polygon with layer information.
@@ -90,19 +94,10 @@ impl Default for FlatGeometry {
 /// A [`FlatGeometry`] containing all polygons ready for rendering.
 pub fn flatten_library(library: &Library, scale: f64) -> FlatGeometry {
     let mut result = FlatGeometry::new();
-    let mut next_group: u32 = 0;
-
     let scale_transform = Transform::scale(scale, scale);
 
     if let Some(top_cell) = library.top_cell() {
-        flatten_cell_recursive(
-            &mut result,
-            top_cell,
-            library,
-            &scale_transform,
-            None,
-            &mut next_group,
-        );
+        flatten_placed_cell(&mut result, top_cell, library, scale_transform, scale.abs());
     }
 
     result
@@ -123,105 +118,63 @@ pub fn flatten_library(library: &Library, scale: f64) -> FlatGeometry {
 pub fn flatten_cell(library: &Library, cell_name: &str, scale: f64) -> Option<FlatGeometry> {
     let cell = library.cell(cell_name)?;
     let mut result = FlatGeometry::new();
-    let mut next_group: u32 = 0;
     let scale_transform = Transform::scale(scale, scale);
-    flatten_cell_recursive(
-        &mut result,
-        cell,
-        library,
-        &scale_transform,
-        None,
-        &mut next_group,
-    );
+    flatten_placed_cell(&mut result, cell, library, scale_transform, scale.abs());
     Some(result)
 }
 
-/// Recursively flatten a cell and all its references into polygons.
-///
-/// `current_group` is the instance group ID for all polygons in this subtree.
-/// `None` means we're at the top level (direct elements of the cell being flattened).
-/// When we hit a CellRef at the top level, we allocate a new group ID so all
-/// polygons from that instance share the same group.
-fn flatten_cell_recursive(
+fn flatten_placed_cell(
     result: &mut FlatGeometry,
-    cell: &Cell,
+    root: &Cell,
     library: &Library,
-    transform: &Transform,
-    current_group: Option<u32>,
-    next_group: &mut u32,
+    root_transform: Transform,
+    absolute_width_scale: f64,
 ) {
-    for element in cell.elements() {
-        match element {
+    let mut groups = HashMap::<usize, u32>::new();
+    let mut next_group = 0_u32;
+    walk_hierarchy(library, root, root_transform, |event| {
+        if let HierarchyEvent::Enter(placement) = event
+            && let Some(step) = placement.path.first()
+        {
+            groups.entry(step.element_index).or_insert_with(|| {
+                let group = next_group;
+                next_group += 1;
+                group
+            });
+        }
+        let HierarchyEvent::Element(placed) = event else {
+            return WalkControl::Continue;
+        };
+        let group = placed
+            .placement
+            .path
+            .first()
+            .and_then(|step| groups.get(&step.element_index).copied());
+        match placed.element {
             Element::Polygon { polygon, layer } => {
-                let transformed = polygon.transform(transform);
-                result.add_polygon(&transformed, layer, current_group);
+                let transformed = polygon.transform(&placed.placement.transform);
+                result.add_polygon(&transformed, layer, group);
             }
             Element::Path {
                 points,
                 width,
                 layer,
-                ..
+                end_type,
             } => {
-                // Transform path points
-                let transformed_points: Vec<Point> =
-                    points.iter().map(|p| transform.apply(*p)).collect();
-
-                // Scale width by the transform's scale factor
-                let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                let scaled_width = *width * scale;
-
-                // Convert to polygon ribbon
-                if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
-                    result.add_polygon(&ribbon, layer, current_group);
+                if let Some(ribbon) = stroke_path_transformed_with_scale(
+                    points,
+                    *width,
+                    *end_type,
+                    &placed.placement.transform,
+                    absolute_width_scale,
+                ) {
+                    result.add_polygon(&ribbon, layer, group);
                 }
             }
-            Element::CellRef(cell_ref) => {
-                // Find the referenced cell and recurse with combined transform.
-                // If we're at the top level (no group yet), assign a new group ID
-                // for this cell reference instance so all its polygons can be
-                // selected together.
-                if let Some(ref_cell) = library.cell(&cell_ref.cell_name) {
-                    let transforms = match &cell_ref.repetition {
-                        None => vec![cell_ref.transform],
-                        Some(rep) if rep.is_single() => vec![cell_ref.transform],
-                        Some(rep) => {
-                            // AREF pitch vectors are defined in the CellRef's local
-                            // space (pre-transform), matching GDS writer semantics.
-                            // Apply the translation BEFORE the CellRef transform so
-                            // that a rotated/mirrored/scaled AREF's copies are
-                            // placed along the transformed lattice vectors.
-                            let mut ts = Vec::with_capacity(rep.count());
-                            for row in 0..rep.rows {
-                                for col in 0..rep.columns {
-                                    let offset = rep.copy_offset(col, row);
-                                    ts.push(
-                                        cell_ref
-                                            .transform
-                                            .then(&Transform::translate(offset.x, offset.y)),
-                                    );
-                                }
-                            }
-                            ts
-                        }
-                    };
-                    let group = current_group.or_else(|| {
-                        let id = *next_group;
-                        *next_group += 1;
-                        Some(id)
-                    });
-                    for copy_transform in transforms {
-                        let combined = transform.then(&copy_transform);
-                        flatten_cell_recursive(
-                            result, ref_cell, library, &combined, group, next_group,
-                        );
-                    }
-                }
-            }
-            Element::Text { .. } => {
-                // Skip text elements for rendering
-            }
+            Element::Text { .. } | Element::CellRef(_) => {}
         }
-    }
+        WalkControl::Continue
+    });
 }
 
 #[cfg(test)]
@@ -374,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn test_flatten_path_end_types_currently_share_geometry() {
+    fn test_flatten_path_end_types_have_distinct_geometry() {
         let points = vec![Point::origin(), Point::new(10.0, 0.0)];
         let mut cell = Cell::new("paths");
         cell.add_path(points.clone(), 2.0, Layer::new(1, 0), PathEndType::Flush);
@@ -390,11 +343,17 @@ mod tests {
 
         let flat = flatten_library(&library, 1.0);
         assert_eq!(flat.polygons.len(), 3);
-        assert_eq!(flat.polygons[0].vertices, flat.polygons[1].vertices);
-        assert_eq!(flat.polygons[0].vertices, flat.polygons[2].vertices);
         assert_eq!(
             flat_bbox(&flat.polygons[0].vertices),
             (0.0, -1.0, 10.0, 1.0)
+        );
+        assert_eq!(
+            flat_bbox(&flat.polygons[1].vertices),
+            (-1.0, -1.0, 11.0, 1.0)
+        );
+        assert_eq!(
+            flat_bbox(&flat.polygons[2].vertices),
+            (-1.0, -1.0, 11.0, 1.0)
         );
     }
 
@@ -444,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nonuniform_path_scale_currently_differs_from_bbox() {
+    fn test_nonuniform_path_scale_matches_bbox() {
         let mut child = Cell::new("path");
         child.add_path_simple(
             vec![Point::origin(), Point::new(10.0, 0.0)],
@@ -460,7 +419,7 @@ mod tests {
         let flat = flatten_library(&library, 1.0);
         assert_eq!(
             flat_bbox(&flat.polygons[0].vertices),
-            (0.0, -2.0, 20.0, 2.0)
+            (0.0, -3.0, 20.0, 3.0)
         );
 
         let bbox = library.cell_bbox("top").unwrap();
@@ -468,5 +427,45 @@ mod tests {
             (bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y),
             (0.0, -3.0, 20.0, 3.0)
         );
+    }
+
+    #[test]
+    fn test_negative_gds_path_width_is_absolute() {
+        let mut child = Cell::new("path");
+        child.add_path_simple(
+            vec![Point::origin(), Point::new(10.0, 0.0)],
+            -2.0,
+            Layer::new(1, 0),
+        );
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("path").scale(3.0));
+        let mut library = Library::new("scaled");
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
+
+        let flat = flatten_library(&library, 1.0);
+        assert_eq!(
+            flat_bbox(&flat.polygons[0].vertices),
+            (0.0, -1.0, 30.0, 1.0)
+        );
+
+        let scaled_units = flatten_library(&library, 1000.0);
+        assert_eq!(
+            flat_bbox(&scaled_units.polygons[0].vertices),
+            (0.0, -1000.0, 30000.0, 1000.0)
+        );
+    }
+
+    #[test]
+    fn test_flatten_cycle_stops_at_back_edge() {
+        let mut cell = Cell::new("cycle");
+        cell.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
+        cell.add_ref(CellRef::new("cycle").at(10.0, 0.0));
+        let mut library = Library::new("cycle");
+        library.add_cell(cell).unwrap();
+
+        let flat = flatten_library(&library, 1.0);
+        assert_eq!(flat.polygons.len(), 1);
+        assert_eq!(flat_bbox(&flat.polygons[0].vertices), (0.0, 0.0, 1.0, 1.0));
     }
 }

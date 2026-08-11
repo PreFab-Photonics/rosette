@@ -64,8 +64,7 @@ impl<W: Write> GdsWriter<W> {
         self.write_libname(library.name())?;
         self.write_units()?;
 
-        // Collect all cells including dependencies
-        let cells = self.collect_cells(library);
+        let cells = library.dependency_order();
 
         for cell in &cells {
             self.write_cell(cell)?;
@@ -73,53 +72,6 @@ impl<W: Write> GdsWriter<W> {
 
         self.write_endlib()?;
         Ok(())
-    }
-
-    /// Collect cells in dependency order (topological sort).
-    ///
-    /// GDS requires that cells be defined before they are referenced.
-    /// This performs a topological sort so dependencies come first.
-    fn collect_cells<'a>(&self, library: &'a Library) -> Vec<&'a Cell> {
-        use std::collections::{HashMap, HashSet};
-
-        let cells = library.cells();
-        let cell_map: HashMap<&str, &'a Cell> = cells.iter().map(|c| (c.name(), c)).collect();
-
-        let mut visited: HashSet<&str> = HashSet::new();
-        let mut result: Vec<&'a Cell> = Vec::new();
-
-        // Helper function to visit a cell and its dependencies (depth-first)
-        fn visit<'a>(
-            cell_name: &str,
-            cell_map: &HashMap<&str, &'a Cell>,
-            visited: &mut HashSet<&'a str>,
-            result: &mut Vec<&'a Cell>,
-        ) {
-            // Skip if already visited or not in library
-            let Some(&cell) = cell_map.get(cell_name) else {
-                return;
-            };
-            let name = cell.name();
-            if visited.contains(name) {
-                return;
-            }
-
-            // Visit all dependencies first
-            for cell_ref in cell.cell_refs() {
-                visit(&cell_ref.cell_name, cell_map, visited, result);
-            }
-
-            // Mark as visited and add to result
-            visited.insert(name);
-            result.push(cell);
-        }
-
-        // Visit all cells in the library
-        for cell in cells {
-            visit(cell.name(), &cell_map, &mut visited, &mut result);
-        }
-
-        result
     }
 
     fn write_header(&mut self) -> Result<(), GdsError> {
@@ -785,6 +737,21 @@ mod tests {
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
         assert!(!output.is_empty());
+    }
+
+    #[test]
+    fn test_dependency_ordering_terminates_on_cycle() {
+        let mut cell_a = Cell::new("A");
+        cell_a.add_ref(CellRef::new("B"));
+        let mut cell_b = Cell::new("B");
+        cell_b.add_ref(CellRef::new("A"));
+        let mut library = Library::new("cycle");
+        library.add_cell(cell_a).unwrap();
+        library.add_cell(cell_b).unwrap();
+
+        let bytes = write_bytes(&library).unwrap();
+        assert!(bytes.windows(1).any(|window| window == b"A"));
+        assert!(bytes.windows(1).any(|window| window == b"B"));
     }
 
     #[test]

@@ -8,7 +8,8 @@ use super::{
 };
 use rosette_core::Point;
 use rosette_core::cell::Element;
-use rosette_core::geometry::{BBox, offset_polygon};
+use rosette_core::geometry::BBox;
+use rosette_core::path::stroke_path;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -55,7 +56,7 @@ impl WasmLibrary {
                                 points,
                                 width,
                                 layer,
-                                ..
+                                end_type,
                             }) => {
                                 let key = layer_key(layer.number, layer.datatype);
                                 if let Some(color) = self.layer_colors.get(&key)
@@ -64,7 +65,7 @@ impl WasmLibrary {
                                     continue;
                                 }
 
-                                if let Some(ribbon) = offset_polygon(points, *width) {
+                                if let Some(ribbon) = stroke_path(points, *width, *end_type) {
                                     let bbox = ribbon.bbox();
                                     if bbox.contains(point) && ribbon.contains(point) {
                                         hits.push((uuid.clone(), ribbon.area()));
@@ -302,9 +303,12 @@ impl WasmLibrary {
                     height,
                     ..
                 }) => Some(text_bbox(text, position, *height)),
-                Some(Element::Path { points, width, .. }) => {
-                    offset_polygon(points, *width).map(|ribbon| ribbon.bbox())
-                }
+                Some(Element::Path {
+                    points,
+                    width,
+                    end_type,
+                    ..
+                }) => stroke_path(points, *width, *end_type).map(|ribbon| ribbon.bbox()),
                 _ => None,
             };
 
@@ -323,6 +327,7 @@ impl WasmLibrary {
                     self.collect_bounds_recursive(
                         &cell_ref.cell_name,
                         &copy_transform,
+                        &[cell.name()],
                         &mut combined_bbox,
                     );
                 }
@@ -392,9 +397,12 @@ impl WasmLibrary {
                     height,
                     ..
                 }) => Some(text_bbox(text, position, *height)),
-                Some(Element::Path { points, width, .. }) => {
-                    offset_polygon(points, *width).map(|ribbon| ribbon.bbox())
-                }
+                Some(Element::Path {
+                    points,
+                    width,
+                    end_type,
+                    ..
+                }) => stroke_path(points, *width, *end_type).map(|ribbon| ribbon.bbox()),
                 _ => None,
             };
 
@@ -436,9 +444,14 @@ impl WasmLibrary {
                     .collect();
                 Some(vertices)
             }
-            Some(Element::Path { points, width, .. }) => {
+            Some(Element::Path {
+                points,
+                width,
+                end_type,
+                ..
+            }) => {
                 // Convert path to ribbon polygon for outline rendering
-                if let Some(ribbon) = offset_polygon(points, *width) {
+                if let Some(ribbon) = stroke_path(points, *width, *end_type) {
                     let vertices: Vec<f64> = ribbon
                         .vertices()
                         .iter()
@@ -512,10 +525,10 @@ impl WasmLibrary {
                 points,
                 width,
                 layer,
-                ..
+                end_type,
             }) => {
                 // Convert path centerline to ribbon polygon for selection outlines
-                if let Some(ribbon) = offset_polygon(points, *width) {
+                if let Some(ribbon) = stroke_path(points, *width, *end_type) {
                     let vertices: Vec<f64> = ribbon
                         .vertices()
                         .iter()
@@ -584,9 +597,17 @@ impl WasmLibrary {
                 continue;
             }
 
-            if let Some(Element::Polygon { polygon, .. }) =
-                cell.elements().get(elem_ref.element_index)
-            {
+            let polygon = match cell.elements().get(elem_ref.element_index) {
+                Some(Element::Polygon { polygon, .. }) => Some(polygon.clone()),
+                Some(Element::Path {
+                    points,
+                    width,
+                    end_type,
+                    ..
+                }) => stroke_path(points, *width, *end_type),
+                _ => None,
+            };
+            if let Some(polygon) = polygon {
                 let verts = polygon.vertices();
                 result.push(verts.len() as f64);
                 for point in verts {
@@ -599,11 +620,14 @@ impl WasmLibrary {
         // Include CellRef-resolved vertices
         for element in cell.elements() {
             if let Element::CellRef(cell_ref) = element {
-                self.collect_vertices_recursive(
-                    &cell_ref.cell_name,
-                    &cell_ref.transform,
-                    &mut result,
-                );
+                for copy_transform in array_transforms(cell_ref) {
+                    self.collect_vertices_recursive(
+                        &cell_ref.cell_name,
+                        &copy_transform,
+                        cell.name(),
+                        &mut result,
+                    );
+                }
             }
         }
 

@@ -3,7 +3,8 @@
 
 use super::{WasmLibrary, array_transforms, parse_ref_uuid_element_index};
 use rosette_core::cell::Element;
-use rosette_core::geometry::{Vector2, offset_polygon};
+use rosette_core::geometry::Vector2;
+use rosette_core::path::stroke_path;
 use rosette_core::{Point, Transform};
 use wasm_bindgen::prelude::*;
 
@@ -251,10 +252,10 @@ impl WasmLibrary {
                     points,
                     width,
                     layer,
-                    ..
+                    end_type,
                 } => {
                     // Preserve paths as polygons (ribbon conversion)
-                    if let Some(ribbon) = offset_polygon(points, *width) {
+                    if let Some(ribbon) = stroke_path(points, *width, *end_type) {
                         let vertices: Vec<f64> =
                             ribbon.vertices().iter().flat_map(|p| [p.x, p.y]).collect();
                         if vertices.len() >= 6 {
@@ -267,7 +268,13 @@ impl WasmLibrary {
                     if let Some(ref_cell) = library_snapshot.cell(&cell_ref.cell_name) {
                         for copy_transform in array_transforms(cell_ref) {
                             let combined = identity.then(&copy_transform);
-                            self.flatten_cell_recursive(ref_cell, &library_snapshot, &combined);
+                            self.flatten_cell_recursive(
+                                ref_cell,
+                                &library_snapshot,
+                                &combined,
+                                &[cell_snapshot.name()],
+                                1.0,
+                            );
                         }
                     }
                 }

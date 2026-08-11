@@ -110,7 +110,7 @@ impl WasmLibrary {
         layer: u16,
         datatype: u16,
     ) -> Option<String> {
-        if points.len() < 4 {
+        if points.len() < 4 || !points.len().is_multiple_of(2) {
             return None; // Need at least 2 points
         }
 
@@ -159,7 +159,7 @@ impl WasmLibrary {
         layer: u16,
         datatype: u16,
     ) -> Option<String> {
-        if points.len() < 4 {
+        if points.len() < 4 || !points.len().is_multiple_of(2) {
             return None; // Need at least 2 points
         }
 
@@ -191,6 +191,32 @@ impl WasmLibrary {
 
         self.mark_dirty();
         Some(uuid)
+    }
+
+    /// Generate canonical rounded-path preview vertices without mutating the library.
+    pub fn path_preview(
+        &self,
+        points: &[f64],
+        width: f64,
+        corner_radius: f64,
+        num_arc_points: u32,
+    ) -> Vec<f64> {
+        if points.len() < 4 || !points.len().is_multiple_of(2) {
+            return Vec::new();
+        }
+        let centerline: Vec<Point> = points
+            .chunks_exact(2)
+            .map(|chunk| Point::new(chunk[0], chunk[1]))
+            .collect();
+        path::constant_width_path_rounded(&centerline, width, corner_radius, num_arc_points)
+            .map(|polygon| {
+                polygon
+                    .vertices()
+                    .iter()
+                    .flat_map(|point| [point.x, point.y])
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Perform a boolean operation on polygon elements.
@@ -294,5 +320,50 @@ impl WasmLibrary {
         }
 
         new_ids
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_preview_matches_created_geometry_and_rejects_odd_coordinates() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("top").unwrap();
+        let points = [0.0, 0.0, 10.0, 0.0, 10.0, 10.0];
+
+        let preview = library.path_preview(&points, 2.0, 0.0, 64);
+        let id = library
+            .create_path_rounded(&points, 2.0, 0.0, 64, 1, 0)
+            .unwrap();
+        assert_eq!(library.get_element_vertices(&id).unwrap(), preview);
+
+        assert!(
+            library
+                .path_preview(&[0.0, 0.0, 1.0], 2.0, 0.0, 64)
+                .is_empty()
+        );
+        assert!(library.create_path(&[0.0, 0.0, 1.0], 2.0, 1, 0).is_none());
+    }
+
+    #[test]
+    fn synthetic_polygon_ids_ignore_text_elements() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        library.add_text("label", 0.0, 0.0, 1.0, 10, 0).unwrap();
+        library
+            .add_polygon(&[0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0], 1, 0)
+            .unwrap();
+        library.add_cell("top").unwrap();
+        assert!(library.set_active_cell("top"));
+        library
+            .add_cell_ref_with_transform("child", vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+            .unwrap();
+
+        let rendered = library.get_render_polygons_internal();
+        assert_eq!(rendered.len(), 1);
+        assert_eq!(rendered[0].0, "ref:0:0");
+        assert!(library.get_element_vertices("ref:0:0").is_some());
     }
 }

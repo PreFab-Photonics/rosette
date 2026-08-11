@@ -49,7 +49,7 @@ impl WasmLibrary {
 
         // Flatten all cells into the single "flattened" cell
         if let Some(top_cell) = library.top_cell() {
-            wasm_lib.flatten_cell_recursive(top_cell, &library, &scale_transform);
+            wasm_lib.flatten_cell_recursive(top_cell, &library, &scale_transform, &[], s);
         }
 
         Ok(wasm_lib)
@@ -358,6 +358,7 @@ impl WasmLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rosette_core::{Cell, CellRef, Layer, PathEndType, Polygon};
 
     const CURRENT_LIBRARY: &str = include_str!("../../../../fixtures/json/current-library.json");
     const CYCLE: &str = include_str!("../../../../fixtures/json/cycle.json");
@@ -384,9 +385,54 @@ mod tests {
     fn hierarchy_edge_case_fixtures_are_accepted() {
         let cycle = WasmLibrary::from_library_json(CYCLE).unwrap();
         assert_eq!(cycle.library.cells().len(), 2);
+        assert!(cycle.get_all_bounds().is_none());
+        assert!(cycle.get_render_polygons_internal().is_empty());
+        assert!(cycle.get_all_vertices().is_empty());
 
         let multi_root = WasmLibrary::from_library_json(MULTI_ROOT).unwrap();
         assert_eq!(multi_root.library.cells().len(), 2);
         assert_eq!(multi_root.active_cell.as_deref(), Some("root_b"));
+    }
+
+    #[test]
+    fn geometry_cycle_does_not_reenter_the_active_cell() {
+        let mut cell_a = Cell::new("A");
+        cell_a.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
+        cell_a.add_ref(CellRef::new("B"));
+        let mut cell_b = Cell::new("B");
+        cell_b.add_polygon(
+            Polygon::rect(Point::new(10.0, 0.0), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        cell_b.add_ref(CellRef::new("A"));
+        let mut library = Library::new("cycle");
+        library.add_cell(cell_a).unwrap();
+        library.add_cell(cell_b).unwrap();
+        let json = rosette_io::json::to_string(&library).unwrap();
+
+        let wasm = WasmLibrary::from_library_json(&json).unwrap();
+        assert_eq!(wasm.active_cell.as_deref(), Some("B"));
+        assert_eq!(wasm.get_render_polygons_internal().len(), 2);
+        assert!(wasm.get_all_bounds().is_some());
+    }
+
+    #[test]
+    fn flattened_import_scales_absolute_gds_path_width_to_world_units() {
+        let mut cell = Cell::new("path");
+        cell.add_path(
+            vec![Point::origin(), Point::new(10.0, 0.0)],
+            -2.0,
+            Layer::new(1, 0),
+            PathEndType::Flush,
+        );
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let json = rosette_io::json::to_string(&library).unwrap();
+
+        let wasm = WasmLibrary::from_json(&json).unwrap();
+        assert_eq!(
+            wasm.get_all_bounds().unwrap(),
+            vec![0.0, -50000.0, 500000.0, 50000.0]
+        );
     }
 }

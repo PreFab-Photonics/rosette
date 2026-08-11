@@ -15,7 +15,11 @@ mod spatial;
 mod text;
 
 use rosette_core::cell::Element;
-use rosette_core::geometry::{BBox, offset_polygon};
+use rosette_core::geometry::BBox;
+use rosette_core::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy, walk_hierarchy_from};
+use rosette_core::path::{
+    stroke_path, stroke_path_transformed, stroke_path_transformed_with_scale,
+};
 use rosette_core::{Cell, CellRef, Layer, Library, Point, Polygon, Transform};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -25,33 +29,9 @@ use wasm_bindgen::prelude::*;
 /// fill_pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
 type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4], u32);
 
-/// Iterate over all array copy transforms for a CellRef.
-///
-/// For a non-arrayed CellRef, yields a single transform (the base).
-/// For an arrayed CellRef, yields `rows * cols` transforms with offsets
-/// applied in the CellRef's local (pre-transform) space, matching GDS
-/// writer semantics. The per-copy translation is applied BEFORE the
-/// CellRef transform, so rotated/mirrored/scaled AREFs place copies along
-/// the transformed lattice vectors.
-///
-/// The offset for copy (col, row) is:
-///   `let v = rep.copy_offset(col, row); base.then(&Transform::translate(v.x, v.y))`
-fn array_transforms(cell_ref: &CellRef) -> Vec<Transform> {
-    match &cell_ref.repetition {
-        None => vec![cell_ref.transform],
-        Some(rep) if rep.is_single() => vec![cell_ref.transform],
-        Some(rep) => {
-            let mut transforms = Vec::with_capacity(rep.count());
-            for row in 0..rep.rows {
-                for col in 0..rep.columns {
-                    let v = rep.copy_offset(col, row);
-                    let offset = cell_ref.transform.then(&Transform::translate(v.x, v.y));
-                    transforms.push(offset);
-                }
-            }
-            transforms
-        }
-    }
+/// Iterate over canonical SREF/AREF copy transforms.
+fn array_transforms(cell_ref: &CellRef) -> impl ExactSizeIterator<Item = Transform> + '_ {
+    cell_ref.copies().map(|copy| copy.transform)
 }
 
 /// Element identifier mapping UUID to cell name and element index.
@@ -267,6 +247,7 @@ impl WasmLibrary {
         &self,
         cell: &Cell,
         transform: &Transform,
+        initial_ancestor: &str,
         cellref_elem_idx: usize,
         poly_counter: &mut usize,
         default_color: &[f32; 4],
@@ -274,41 +255,25 @@ impl WasmLibrary {
         max_depth: u32,
         result: &mut Vec<RenderPolygon>,
     ) {
-        for element in cell.elements() {
-            match element {
-                Element::Polygon { polygon, layer } => {
-                    let transformed = polygon.transform(transform);
-                    let key = layer_key(layer.number, layer.datatype);
-                    let color = self
-                        .layer_colors
-                        .get(&key)
-                        .copied()
-                        .unwrap_or(*default_color);
-
-                    if color[3] <= 0.0 {
-                        *poly_counter += 1;
-                        continue;
-                    }
-
-                    let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
-                    let vertices: Vec<[f64; 2]> =
-                        transformed.vertices().iter().map(|p| [p.x, p.y]).collect();
-
-                    let uuid = format!("{REF_UUID_PREFIX}{cellref_elem_idx}:{poly_counter}");
-                    *poly_counter += 1;
-                    result.push((uuid, vertices, color, fill_pattern));
+        walk_hierarchy_from(
+            &self.library,
+            cell,
+            *transform,
+            &[initial_ancestor],
+            |event| {
+                if let HierarchyEvent::Enter(placement) = event
+                    && placement.depth > 0
+                    && ((max_depth > 0 && current_depth + placement.depth as u32 >= max_depth)
+                        || self.hidden_cells.contains(placement.cell.name()))
+                {
+                    return WalkControl::SkipSubtree;
                 }
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    ..
-                } => {
-                    let transformed_points: Vec<Point> =
-                        points.iter().map(|p| transform.apply(*p)).collect();
-                    let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                    let scaled_width = *width * scale;
-                    if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
+                let HierarchyEvent::Element(placed) = event else {
+                    return WalkControl::Continue;
+                };
+                match placed.element {
+                    Element::Polygon { polygon, layer } => {
+                        let transformed = polygon.transform(&placed.placement.transform);
                         let key = layer_key(layer.number, layer.datatype);
                         let color = self
                             .layer_colors
@@ -316,46 +281,55 @@ impl WasmLibrary {
                             .copied()
                             .unwrap_or(*default_color);
 
-                        if color[3] > 0.0 {
-                            let fill_pattern =
-                                self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
-                            let vertices: Vec<[f64; 2]> =
-                                ribbon.vertices().iter().map(|p| [p.x, p.y]).collect();
-                            let uuid =
-                                format!("{REF_UUID_PREFIX}{cellref_elem_idx}:{poly_counter}");
-                            result.push((uuid, vertices, color, fill_pattern));
+                        if color[3] <= 0.0 {
+                            *poly_counter += 1;
+                            return WalkControl::Continue;
                         }
+
+                        let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
+                        let vertices: Vec<[f64; 2]> =
+                            transformed.vertices().iter().map(|p| [p.x, p.y]).collect();
+
+                        let uuid = format!("{REF_UUID_PREFIX}{cellref_elem_idx}:{poly_counter}");
+                        *poly_counter += 1;
+                        result.push((uuid, vertices, color, fill_pattern));
                     }
-                    *poly_counter += 1;
-                }
-                Element::CellRef(nested_ref) => {
-                    // Skip recursion if the next level would exceed the depth limit
-                    if max_depth > 0 && current_depth + 1 >= max_depth {
-                        continue;
-                    }
-                    // Skip internal geometry for hidden cells
-                    if self.hidden_cells.contains(&nested_ref.cell_name) {
-                        continue;
-                    }
-                    if let Some(ref_cell) = self.library.cell(&nested_ref.cell_name) {
-                        for copy_transform in array_transforms(nested_ref) {
-                            let combined = transform.then(&copy_transform);
-                            self.collect_render_polygons_recursive(
-                                ref_cell,
-                                &combined,
-                                cellref_elem_idx,
-                                poly_counter,
-                                default_color,
-                                current_depth + 1,
-                                max_depth,
-                                result,
-                            );
+                    Element::Path {
+                        points,
+                        width,
+                        layer,
+                        end_type,
+                    } => {
+                        if let Some(ribbon) = stroke_path_transformed(
+                            points,
+                            *width,
+                            *end_type,
+                            &placed.placement.transform,
+                        ) {
+                            let key = layer_key(layer.number, layer.datatype);
+                            let color = self
+                                .layer_colors
+                                .get(&key)
+                                .copied()
+                                .unwrap_or(*default_color);
+
+                            if color[3] > 0.0 {
+                                let fill_pattern =
+                                    self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
+                                let vertices: Vec<[f64; 2]> =
+                                    ribbon.vertices().iter().map(|p| [p.x, p.y]).collect();
+                                let uuid =
+                                    format!("{REF_UUID_PREFIX}{cellref_elem_idx}:{poly_counter}");
+                                result.push((uuid, vertices, color, fill_pattern));
+                            }
                         }
+                        *poly_counter += 1;
                     }
+                    Element::CellRef(_) | Element::Text { .. } => {}
                 }
-                Element::Text { .. } => {}
-            }
-        }
+                WalkControl::Continue
+            },
+        );
     }
 
     /// Recursively accumulate polygon area per layer for a cell.
@@ -372,15 +346,19 @@ impl WasmLibrary {
         max_depth: u32,
         area_map: &mut HashMap<(u16, u16), f64>,
     ) {
-        let is_rigid = transform.is_rigid();
-        let det_abs = if is_rigid {
-            1.0
-        } else {
-            transform.determinant().abs()
-        };
-
-        for element in cell.elements() {
-            match element {
+        walk_hierarchy(&self.library, cell, *transform, |event| {
+            if let HierarchyEvent::Enter(placement) = event
+                && placement.depth > 0
+                && ((max_depth > 0 && current_depth + placement.depth as u32 >= max_depth)
+                    || self.hidden_cells.contains(placement.cell.name()))
+            {
+                return WalkControl::SkipSubtree;
+            }
+            let HierarchyEvent::Element(placed) = event else {
+                return WalkControl::Continue;
+            };
+            let det_abs = placed.placement.transform.determinant().abs();
+            match placed.element {
                 Element::Polygon { polygon, layer } => {
                     let area = polygon.area() * det_abs;
                     *area_map
@@ -391,43 +369,24 @@ impl WasmLibrary {
                     points,
                     width,
                     layer,
-                    ..
+                    end_type,
                 } => {
-                    // Convert path to polygon ribbon, applying transform for width scaling.
-                    let transformed_points: Vec<Point> =
-                        points.iter().map(|p| transform.apply(*p)).collect();
-                    let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                    let scaled_width = *width * scale;
-                    if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
+                    if let Some(ribbon) = stroke_path_transformed(
+                        points,
+                        *width,
+                        *end_type,
+                        &placed.placement.transform,
+                    ) {
                         let area = ribbon.area();
                         *area_map
                             .entry((layer.number, layer.datatype))
                             .or_insert(0.0) += area;
                     }
                 }
-                Element::CellRef(cell_ref) => {
-                    if max_depth > 0 && current_depth + 1 >= max_depth {
-                        continue;
-                    }
-                    if self.hidden_cells.contains(&cell_ref.cell_name) {
-                        continue;
-                    }
-                    if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
-                        for copy_transform in array_transforms(cell_ref) {
-                            let combined = transform.then(&copy_transform);
-                            self.collect_area_recursive(
-                                ref_cell,
-                                &combined,
-                                current_depth + 1,
-                                max_depth,
-                                area_map,
-                            );
-                        }
-                    }
-                }
-                Element::Text { .. } => {}
+                Element::CellRef(_) | Element::Text { .. } => {}
             }
-        }
+            WalkControl::Continue
+        });
     }
 
     /// Recursively collect `(cell_name, transform)` pairs for all cells
@@ -439,41 +398,42 @@ impl WasmLibrary {
         &self,
         cell: &Cell,
         transform: &Transform,
+        initial_ancestor: &str,
         current_depth: u32,
         max_depth: u32,
         result: &mut Vec<(String, [f64; 6])>,
     ) {
-        for element in cell.elements() {
-            if let Element::CellRef(nested_ref) = element {
-                if max_depth > 0 && current_depth + 1 >= max_depth {
-                    continue;
-                }
-                if self.hidden_cells.contains(&nested_ref.cell_name) {
-                    continue;
-                }
-                if let Some(ref_cell) = self.library.cell(&nested_ref.cell_name) {
-                    for copy_transform in array_transforms(nested_ref) {
-                        let combined = transform.then(&copy_transform);
-                        let t = [
-                            combined.a,
-                            combined.b,
-                            combined.c,
-                            combined.d,
-                            combined.tx,
-                            combined.ty,
-                        ];
-                        result.push((nested_ref.cell_name.clone(), t));
-                        self.collect_cell_contexts_recursive(
-                            ref_cell,
-                            &combined,
-                            current_depth + 1,
-                            max_depth,
-                            result,
-                        );
+        walk_hierarchy_from(
+            &self.library,
+            cell,
+            *transform,
+            &[initial_ancestor],
+            |event| {
+                if let HierarchyEvent::Enter(placement) = event {
+                    if placement.depth == 0 {
+                        return WalkControl::Continue;
                     }
+                    if (max_depth > 0 && current_depth + placement.depth as u32 >= max_depth)
+                        || self.hidden_cells.contains(placement.cell.name())
+                    {
+                        return WalkControl::SkipSubtree;
+                    }
+                    let transform = placement.transform;
+                    result.push((
+                        placement.cell.name().to_string(),
+                        [
+                            transform.a,
+                            transform.b,
+                            transform.c,
+                            transform.d,
+                            transform.tx,
+                            transform.ty,
+                        ],
+                    ));
                 }
-            }
-        }
+                WalkControl::Continue
+            },
+        );
     }
 
     /// Recursively collect bounding boxes from a referenced cell.
@@ -481,79 +441,72 @@ impl WasmLibrary {
         &self,
         cell_name: &str,
         transform: &Transform,
+        initial_ancestors: &[&str],
         combined: &mut Option<BBox>,
     ) {
-        // Include image overlay bounds (set from JS) for this cell
-        if let Some(img_bounds) = self.cell_image_bounds.get(cell_name) {
-            // Transform the four corners of the image bounds rectangle
-            let corners = [
-                Point::new(img_bounds[0], img_bounds[1]),
-                Point::new(img_bounds[2], img_bounds[1]),
-                Point::new(img_bounds[2], img_bounds[3]),
-                Point::new(img_bounds[0], img_bounds[3]),
-            ];
-            for corner in &corners {
-                let tp = transform.apply(*corner);
-                let point_bbox = BBox::new(tp, tp);
-                *combined = Some(match combined {
-                    Some(existing) => existing.merge(&point_bbox),
-                    None => point_bbox,
-                });
-            }
-        }
-
-        if let Some(cell) = self.library.cell(cell_name) {
-            for element in cell.elements() {
-                match element {
+        let Some(root) = self.library.cell(cell_name) else {
+            return;
+        };
+        let merge = |combined: &mut Option<BBox>, bbox: BBox| {
+            *combined = Some(match combined.take() {
+                Some(existing) => existing.merge(&bbox),
+                None => bbox,
+            });
+        };
+        walk_hierarchy_from(
+            &self.library,
+            root,
+            *transform,
+            initial_ancestors,
+            |event| {
+                if let HierarchyEvent::Enter(placement) = event
+                    && let Some(image_bounds) = self.cell_image_bounds.get(placement.cell.name())
+                {
+                    let image = BBox::new(
+                        Point::new(image_bounds[0], image_bounds[1]),
+                        Point::new(image_bounds[2], image_bounds[3]),
+                    )
+                    .transform(&placement.transform);
+                    merge(combined, image);
+                }
+                let HierarchyEvent::Element(placed) = event else {
+                    return WalkControl::Continue;
+                };
+                let bbox = match placed.element {
                     Element::Polygon { polygon, .. } => {
-                        let transformed = polygon.transform(transform);
-                        let bbox = transformed.bbox();
-                        *combined = Some(match combined {
-                            Some(existing) => existing.merge(&bbox),
-                            None => bbox,
-                        });
+                        Some(polygon.transform(&placed.placement.transform).bbox())
                     }
-                    Element::Path { points, width, .. } => {
-                        let transformed_points: Vec<Point> =
-                            points.iter().map(|p| transform.apply(*p)).collect();
-                        let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                        let scaled_width = *width * scale;
-                        if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
-                            let bbox = ribbon.bbox();
-                            *combined = Some(match combined {
-                                Some(existing) => existing.merge(&bbox),
-                                None => bbox,
-                            });
-                        }
-                    }
+                    Element::Path {
+                        points,
+                        width,
+                        end_type,
+                        ..
+                    } => stroke_path_transformed(
+                        points,
+                        *width,
+                        *end_type,
+                        &placed.placement.transform,
+                    )
+                    .map(|path| path.bbox()),
                     Element::Text {
                         text,
                         position,
                         height,
                         ..
                     } => {
-                        let transformed_pos = transform.apply(*position);
-                        let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                        let scaled_height = *height * scale;
-                        let bbox = text_bbox(text, &transformed_pos, scaled_height);
-                        *combined = Some(match combined {
-                            Some(existing) => existing.merge(&bbox),
-                            None => bbox,
-                        });
+                        let transform = placed.placement.transform;
+                        let transformed_position = transform.apply(*position);
+                        let scale = transform.a.hypot(transform.c);
+                        Some(text_bbox(text, &transformed_position, *height * scale))
                     }
-                    Element::CellRef(nested_ref) => {
-                        for copy_transform in array_transforms(nested_ref) {
-                            let nested_transform = transform.then(&copy_transform);
-                            self.collect_bounds_recursive(
-                                &nested_ref.cell_name,
-                                &nested_transform,
-                                combined,
-                            );
-                        }
-                    }
+                    Element::CellRef(_) => None,
+                };
+                if let Some(bbox) = bbox {
+                    merge(combined, bbox);
                 }
-            }
-        }
+                WalkControl::Continue
+            },
+        );
     }
 
     /// Compute the bounding box for a CellRef instance without caching.
@@ -566,10 +519,15 @@ impl WasmLibrary {
     ///
     /// Prefer `instance_bbox_cached` at call sites that know the element index —
     /// it memoises the result.
-    fn compute_instance_bbox(&self, cell_ref: &CellRef) -> BBox {
+    fn compute_instance_bbox(&self, parent_cell: &str, cell_ref: &CellRef) -> BBox {
         let mut combined: Option<BBox> = None;
         for copy_transform in array_transforms(cell_ref) {
-            self.collect_bounds_recursive(&cell_ref.cell_name, &copy_transform, &mut combined);
+            self.collect_bounds_recursive(
+                &cell_ref.cell_name,
+                &copy_transform,
+                &[parent_cell],
+                &mut combined,
+            );
         }
         combined.unwrap_or_else(|| {
             // Empty cell: use a small placeholder centered at the placement point.
@@ -602,7 +560,7 @@ impl WasmLibrary {
         if let Some(bbox) = self.instance_bbox_cache.borrow().get(&elem_idx).copied() {
             return bbox;
         }
-        let bbox = self.compute_instance_bbox(cell_ref);
+        let bbox = self.compute_instance_bbox(cell_name, cell_ref);
         self.instance_bbox_cache.borrow_mut().insert(elem_idx, bbox);
         bbox
     }
@@ -632,30 +590,51 @@ impl WasmLibrary {
         &self,
         cell_name: &str,
         transform: &Transform,
+        initial_ancestor: &str,
         result: &mut Vec<f64>,
     ) {
-        if let Some(cell) = self.library.cell(cell_name) {
-            for element in cell.elements() {
-                match element {
-                    Element::Polygon { polygon, .. } => {
-                        let transformed = polygon.transform(transform);
-                        let verts = transformed.vertices();
-                        result.push(verts.len() as f64);
-                        for point in verts {
-                            result.push(point.x);
-                            result.push(point.y);
-                        }
+        let Some(root) = self.library.cell(cell_name) else {
+            return;
+        };
+        walk_hierarchy_from(
+            &self.library,
+            root,
+            *transform,
+            &[initial_ancestor],
+            |event| {
+                let HierarchyEvent::Element(placed) = event else {
+                    return WalkControl::Continue;
+                };
+                let polygon = match placed.element {
+                    Element::Polygon { polygon, .. } => Some(polygon.clone()),
+                    Element::Path {
+                        points,
+                        width,
+                        end_type,
+                        ..
+                    } => stroke_path_transformed(
+                        points,
+                        *width,
+                        *end_type,
+                        &placed.placement.transform,
+                    ),
+                    Element::CellRef(_) | Element::Text { .. } => None,
+                };
+                if let Some(polygon) = polygon {
+                    let polygon = if matches!(placed.element, Element::Path { .. }) {
+                        polygon
+                    } else {
+                        polygon.transform(&placed.placement.transform)
+                    };
+                    result.push(polygon.len() as f64);
+                    for point in polygon.vertices() {
+                        result.push(point.x);
+                        result.push(point.y);
                     }
-                    Element::CellRef(cell_ref) => {
-                        for copy_transform in array_transforms(cell_ref) {
-                            let nested = transform.then(&copy_transform);
-                            self.collect_vertices_recursive(&cell_ref.cell_name, &nested, result);
-                        }
-                    }
-                    _ => {}
                 }
-            }
-        }
+                WalkControl::Continue
+            },
+        );
     }
 
     /// Resolve a synthetic ref UUID to its transformed polygon and layer.
@@ -671,11 +650,16 @@ impl WasmLibrary {
         if let Element::CellRef(cell_ref) = element
             && let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
         {
+            if self.hidden_cells.contains(&cell_ref.cell_name) {
+                return None;
+            }
             let mut counter: usize = 0;
             for copy_transform in array_transforms(cell_ref) {
                 if let Some(result) = self.find_polygon_recursive(
                     ref_cell,
                     &copy_transform,
+                    cell.name(),
+                    self.hierarchy_depth_limit,
                     target_poly_idx,
                     &mut counter,
                 ) {
@@ -691,50 +675,62 @@ impl WasmLibrary {
         &self,
         cell: &Cell,
         transform: &Transform,
+        initial_ancestor: &str,
+        max_depth: u32,
         target_idx: usize,
         counter: &mut usize,
     ) -> Option<(Polygon, Layer)> {
-        for element in cell.elements() {
-            match element {
-                Element::Polygon { polygon, layer } => {
-                    if *counter == target_idx {
-                        return Some((polygon.transform(transform), *layer));
-                    }
-                    *counter += 1;
+        let mut found = None;
+        walk_hierarchy_from(
+            &self.library,
+            cell,
+            *transform,
+            &[initial_ancestor],
+            |event| {
+                if let HierarchyEvent::Enter(placement) = event
+                    && placement.depth > 0
+                    && ((max_depth > 0 && placement.depth as u32 >= max_depth)
+                        || self.hidden_cells.contains(placement.cell.name()))
+                {
+                    return WalkControl::SkipSubtree;
                 }
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    ..
-                } => {
-                    if *counter == target_idx {
-                        let transformed_points: Vec<Point> =
-                            points.iter().map(|p| transform.apply(*p)).collect();
-                        let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                        let scaled_width = *width * scale;
-                        if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
-                            return Some((ribbon, *layer));
-                        }
-                    }
-                    *counter += 1;
+                let HierarchyEvent::Element(placed) = event else {
+                    return WalkControl::Continue;
+                };
+                let polygon = match placed.element {
+                    Element::Polygon { polygon, layer } => Some((polygon.clone(), *layer)),
+                    Element::Path {
+                        points,
+                        width,
+                        layer,
+                        end_type,
+                    } => stroke_path_transformed(
+                        points,
+                        *width,
+                        *end_type,
+                        &placed.placement.transform,
+                    )
+                    .map(|polygon| (polygon, *layer)),
+                    Element::CellRef(_) | Element::Text { .. } => return WalkControl::Continue,
+                };
+                if *counter == target_idx
+                    && let Some((polygon, layer)) = polygon
+                {
+                    found = Some((
+                        if matches!(placed.element, Element::Path { .. }) {
+                            polygon
+                        } else {
+                            polygon.transform(&placed.placement.transform)
+                        },
+                        layer,
+                    ));
+                    return WalkControl::Break;
                 }
-                Element::CellRef(nested_ref) => {
-                    if let Some(ref_cell) = self.library.cell(&nested_ref.cell_name) {
-                        for copy_transform in array_transforms(nested_ref) {
-                            let combined = transform.then(&copy_transform);
-                            if let Some(result) = self
-                                .find_polygon_recursive(ref_cell, &combined, target_idx, counter)
-                            {
-                                return Some(result);
-                            }
-                        }
-                    }
-                }
-                Element::Text { .. } => {}
-            }
-        }
-        None
+                *counter += 1;
+                WalkControl::Continue
+            },
+        );
+        found
     }
 
     /// Recursively collect preview polygon data for drag-and-drop visualization.
@@ -745,102 +741,60 @@ impl WasmLibrary {
         default_color: &[f32; 4],
         result: &js_sys::Array,
     ) {
-        for element in cell.elements() {
-            match element {
-                Element::Polygon { polygon, layer } => {
-                    let transformed = polygon.transform(transform);
-                    let vertices: Vec<f64> = transformed
-                        .vertices()
-                        .iter()
-                        .flat_map(|p| vec![p.x, p.y])
-                        .collect();
-
-                    if vertices.len() >= 6 {
-                        let key = layer_key(layer.number, layer.datatype);
-                        let color = self
-                            .layer_colors
-                            .get(&key)
-                            .copied()
-                            .unwrap_or(*default_color);
-                        // Use 40% opacity for preview
-                        let preview_color = [color[0], color[1], color[2], 0.4];
-
-                        let obj = js_sys::Object::new();
-                        let verts_array = js_sys::Float64Array::from(&vertices[..]);
-                        js_sys::Reflect::set(&obj, &JsValue::from_str("vertices"), &verts_array)
-                            .ok();
-
-                        let color_array = js_sys::Array::new();
-                        for &c in &preview_color {
-                            color_array.push(&JsValue::from_f64(c as f64));
-                        }
-                        js_sys::Reflect::set(&obj, &JsValue::from_str("color"), &color_array).ok();
-
-                        result.push(&obj);
-                    }
-                }
+        walk_hierarchy(&self.library, cell, *transform, |event| {
+            let HierarchyEvent::Element(placed) = event else {
+                return WalkControl::Continue;
+            };
+            let (polygon, layer) = match placed.element {
+                Element::Polygon { polygon, layer } => (polygon.clone(), *layer),
                 Element::Path {
                     points,
                     width,
                     layer,
-                    ..
+                    end_type,
                 } => {
-                    let transformed_points: Vec<Point> =
-                        points.iter().map(|p| transform.apply(*p)).collect();
-                    let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                    let scaled_width = *width * scale;
-                    if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
-                        let vertices: Vec<f64> = ribbon
-                            .vertices()
-                            .iter()
-                            .flat_map(|p| vec![p.x, p.y])
-                            .collect();
-
-                        if vertices.len() >= 6 {
-                            let key = layer_key(layer.number, layer.datatype);
-                            let color = self
-                                .layer_colors
-                                .get(&key)
-                                .copied()
-                                .unwrap_or(*default_color);
-                            let preview_color = [color[0], color[1], color[2], 0.4];
-
-                            let obj = js_sys::Object::new();
-                            let verts_array = js_sys::Float64Array::from(&vertices[..]);
-                            js_sys::Reflect::set(
-                                &obj,
-                                &JsValue::from_str("vertices"),
-                                &verts_array,
-                            )
-                            .ok();
-
-                            let color_array = js_sys::Array::new();
-                            for &c in &preview_color {
-                                color_array.push(&JsValue::from_f64(c as f64));
-                            }
-                            js_sys::Reflect::set(&obj, &JsValue::from_str("color"), &color_array)
-                                .ok();
-
-                            result.push(&obj);
-                        }
-                    }
+                    let Some(polygon) = stroke_path_transformed(
+                        points,
+                        *width,
+                        *end_type,
+                        &placed.placement.transform,
+                    ) else {
+                        return WalkControl::Continue;
+                    };
+                    (polygon, *layer)
                 }
-                Element::CellRef(cell_ref) => {
-                    if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
-                        for copy_transform in array_transforms(cell_ref) {
-                            let combined = transform.then(&copy_transform);
-                            self.collect_preview_polygons(
-                                ref_cell,
-                                &combined,
-                                default_color,
-                                result,
-                            );
-                        }
-                    }
+                Element::CellRef(_) | Element::Text { .. } => return WalkControl::Continue,
+            };
+            let transformed = if matches!(placed.element, Element::Path { .. }) {
+                polygon
+            } else {
+                polygon.transform(&placed.placement.transform)
+            };
+            let vertices: Vec<f64> = transformed
+                .vertices()
+                .iter()
+                .flat_map(|point| [point.x, point.y])
+                .collect();
+            if vertices.len() >= 6 {
+                let key = layer_key(layer.number, layer.datatype);
+                let color = self
+                    .layer_colors
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(*default_color);
+                let preview_color = [color[0], color[1], color[2], 0.4];
+                let object = js_sys::Object::new();
+                let vertices_array = js_sys::Float64Array::from(&vertices[..]);
+                js_sys::Reflect::set(&object, &JsValue::from_str("vertices"), &vertices_array).ok();
+                let color_array = js_sys::Array::new();
+                for &component in &preview_color {
+                    color_array.push(&JsValue::from_f64(component as f64));
                 }
-                Element::Text { .. } => {}
+                js_sys::Reflect::set(&object, &JsValue::from_str("color"), &color_array).ok();
+                result.push(&object);
             }
-        }
+            WalkControl::Continue
+        });
     }
 
     /// Check if a cell transitively references another cell.
@@ -907,62 +861,54 @@ impl WasmLibrary {
     }
 
     /// Recursively flatten a cell and all its references into polygons.
-    fn flatten_cell_recursive(&mut self, cell: &Cell, library: &Library, transform: &Transform) {
-        for element in cell.elements() {
-            match element {
-                Element::Polygon { polygon, layer } => {
-                    // Transform the polygon and add it
-                    let transformed = polygon.transform(transform);
-                    let vertices: Vec<f64> = transformed
-                        .vertices()
-                        .iter()
-                        .flat_map(|p| vec![p.x, p.y])
-                        .collect();
-
-                    if vertices.len() >= 6 {
-                        self.add_polygon(&vertices, layer.number, layer.datatype);
-                    }
-                }
+    fn flatten_cell_recursive(
+        &mut self,
+        cell: &Cell,
+        library: &Library,
+        transform: &Transform,
+        initial_ancestors: &[&str],
+        absolute_width_scale: f64,
+    ) {
+        walk_hierarchy_from(library, cell, *transform, initial_ancestors, |event| {
+            let HierarchyEvent::Element(placed) = event else {
+                return WalkControl::Continue;
+            };
+            let (polygon, layer) = match placed.element {
+                Element::Polygon { polygon, layer } => (polygon.clone(), *layer),
                 Element::Path {
                     points,
                     width,
                     layer,
-                    ..
+                    end_type,
                 } => {
-                    // Convert path to polygon using offset_polygon
-                    let transformed_points: Vec<Point> =
-                        points.iter().map(|p| transform.apply(*p)).collect();
-
-                    // Scale width by the transform's scale factor
-                    let scale = (transform.a.powi(2) + transform.c.powi(2)).sqrt();
-                    let scaled_width = *width * scale;
-
-                    if let Some(ribbon) = offset_polygon(&transformed_points, scaled_width) {
-                        let vertices: Vec<f64> = ribbon
-                            .vertices()
-                            .iter()
-                            .flat_map(|p| vec![p.x, p.y])
-                            .collect();
-
-                        if vertices.len() >= 6 {
-                            self.add_polygon(&vertices, layer.number, layer.datatype);
-                        }
-                    }
+                    let Some(polygon) = stroke_path_transformed_with_scale(
+                        points,
+                        *width,
+                        *end_type,
+                        &placed.placement.transform,
+                        absolute_width_scale,
+                    ) else {
+                        return WalkControl::Continue;
+                    };
+                    (polygon, *layer)
                 }
-                Element::CellRef(cell_ref) => {
-                    // Find the referenced cell and recurse with combined transform
-                    if let Some(ref_cell) = library.cell(&cell_ref.cell_name) {
-                        for copy_transform in array_transforms(cell_ref) {
-                            let combined = transform.then(&copy_transform);
-                            self.flatten_cell_recursive(ref_cell, library, &combined);
-                        }
-                    }
-                }
-                Element::Text { .. } => {
-                    // Skip text elements for now
-                }
+                Element::CellRef(_) | Element::Text { .. } => return WalkControl::Continue,
+            };
+            let transformed = if matches!(placed.element, Element::Path { .. }) {
+                polygon
+            } else {
+                polygon.transform(&placed.placement.transform)
+            };
+            let vertices: Vec<f64> = transformed
+                .vertices()
+                .iter()
+                .flat_map(|point| [point.x, point.y])
+                .collect();
+            if vertices.len() >= 6 {
+                self.add_polygon(&vertices, layer.number, layer.datatype);
             }
-        }
+            WalkControl::Continue
+        });
     }
 
     /// Get all polygons for rendering (internal).
@@ -1031,6 +977,7 @@ impl WasmLibrary {
                             self.collect_render_polygons_recursive(
                                 ref_cell,
                                 &copy_transform,
+                                cell.name(),
                                 elem_idx,
                                 &mut poly_counter,
                                 &default_color,
@@ -1045,12 +992,12 @@ impl WasmLibrary {
                     points,
                     width,
                     layer,
-                    ..
+                    end_type,
                 } => {
                     // Render path as polygon ribbon.
                     // In init_from_library mode paths remain as Element::Path.
                     if let Some(uuid) = index_to_uuid.get(&elem_idx)
-                        && let Some(ribbon) = offset_polygon(points, *width)
+                        && let Some(ribbon) = stroke_path(points, *width, *end_type)
                     {
                         let key = layer_key(layer.number, layer.datatype);
                         let color = self

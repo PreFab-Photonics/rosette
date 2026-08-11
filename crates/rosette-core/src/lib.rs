@@ -32,7 +32,9 @@ pub mod component;
 pub mod error;
 pub mod flatten;
 pub mod geometry;
+pub mod hierarchy;
 pub mod layer;
+pub mod path;
 pub mod port;
 
 // Re-export primary types at crate root for convenience

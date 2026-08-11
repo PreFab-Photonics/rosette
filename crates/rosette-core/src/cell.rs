@@ -4,8 +4,10 @@
 //! enabling hierarchical layout design.
 
 use crate::error::{CellNameError, validate_cell_name};
-use crate::geometry::{BBox, Point, Polygon, Transform, Vector2, offset_polygon};
+use crate::geometry::{BBox, Point, Polygon, Transform, Vector2};
+use crate::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
 use crate::layer::Layer;
+use crate::path::{stroke_path, stroke_path_transformed};
 use crate::port::Port;
 
 /// GDS path end type.
@@ -590,8 +592,8 @@ impl Cell {
                 None => poly_bbox,
             });
         }
-        for (points, width, _, _) in self.paths() {
-            if let Some(ribbon) = offset_polygon(points, width) {
+        for (points, width, _, end_type) in self.paths() {
+            if let Some(ribbon) = stroke_path(points, width, end_type) {
                 let path_bbox = ribbon.bbox();
                 result = Some(match result {
                     Some(existing) => existing.merge(&path_bbox),
@@ -765,8 +767,35 @@ impl Library {
     /// answer instead of recursing forever.
     pub fn cell_bbox(&self, name: &str) -> Option<BBox> {
         let cell = self.cell(name)?;
-        let mut visited = Vec::new();
-        cell_bbox_recursive(self, cell, &Transform::identity(), &mut visited)
+        let mut result: Option<BBox> = None;
+        walk_hierarchy(self, cell, Transform::identity(), |event| {
+            let HierarchyEvent::Element(placed) = event else {
+                return WalkControl::Continue;
+            };
+            let polygon = match placed.element {
+                Element::Polygon { polygon, .. } => {
+                    Some(polygon.transform(&placed.placement.transform))
+                }
+                Element::Path {
+                    points,
+                    width,
+                    end_type,
+                    ..
+                } => {
+                    stroke_path_transformed(points, *width, *end_type, &placed.placement.transform)
+                }
+                Element::Text { .. } | Element::CellRef(_) => None,
+            };
+            if let Some(polygon) = polygon {
+                let bbox = polygon.bbox();
+                result = Some(match result.take() {
+                    Some(existing) => existing.merge(&bbox),
+                    None => bbox,
+                });
+            }
+            WalkControl::Continue
+        });
+        result
     }
 
     /// Rename a cell in the library.
@@ -844,7 +873,8 @@ impl Library {
 
         // Recursively collect all referenced cells
         let mut to_add: Vec<Cell> = Vec::new();
-        self.collect_referenced_cells(&cell, &cell_map, &mut to_add);
+        let mut visiting = std::collections::HashSet::from([cell.name().to_string()]);
+        self.collect_referenced_cells(&cell, &cell_map, &mut visiting, &mut to_add);
 
         // Add all collected cells (dependencies first), skipping duplicates
         for c in to_add {
@@ -861,6 +891,7 @@ impl Library {
         &self,
         cell: &Cell,
         cell_map: &std::collections::HashMap<&str, &Cell>,
+        visiting: &mut std::collections::HashSet<String>,
         collected: &mut Vec<Cell>,
     ) {
         for cell_ref in cell.cell_refs() {
@@ -873,95 +904,19 @@ impl Library {
 
             // Find the referenced cell
             if let Some(&referenced_cell) = cell_map.get(ref_name.as_str()) {
-                // Recursively collect its dependencies first
-                self.collect_referenced_cells(referenced_cell, cell_map, collected);
-                // Then add this cell
-                collected.push(referenced_cell.clone());
-            }
-        }
-    }
-}
-
-/// Recursively compute the bbox of `cell` with `transform` applied, resolving
-/// every nested CellRef (including AREF repetitions).
-///
-/// `visited` is a stack of cell names currently being resolved; it short-
-/// circuits reference cycles so we return a well-defined `None` instead of
-/// recursing forever on malformed libraries.
-fn cell_bbox_recursive(
-    library: &Library,
-    cell: &Cell,
-    transform: &Transform,
-    visited: &mut Vec<String>,
-) -> Option<BBox> {
-    let name = cell.name().to_string();
-    if visited.iter().any(|n| n == &name) {
-        return None;
-    }
-    visited.push(name);
-
-    let mut result: Option<BBox> = None;
-    let merge = |acc: &mut Option<BBox>, bb: BBox| {
-        *acc = Some(match acc.take() {
-            Some(existing) => existing.merge(&bb),
-            None => bb,
-        });
-    };
-
-    // Local polygons
-    for (polygon, _) in cell.polygons() {
-        let transformed = polygon.transform(transform);
-        merge(&mut result, transformed.bbox());
-    }
-
-    // Local paths (offset to a ribbon polygon, then transform)
-    for (points, width, _, _) in cell.paths() {
-        if let Some(ribbon) = offset_polygon(points, width) {
-            let transformed = ribbon.transform(transform);
-            merge(&mut result, transformed.bbox());
-        }
-    }
-
-    // Resolve cell refs, expanding AREF repetitions
-    for cell_ref in cell.cell_refs() {
-        let Some(child) = library.cell(&cell_ref.cell_name) else {
-            continue;
-        };
-
-        // Collect all per-copy transforms in the cell_ref's local space.
-        // For a non-arrayed ref this is just `cell_ref.transform`; for an
-        // AREF the pitch vector is defined in the CellRef's local
-        // (pre-transform) space, matching GDS writer semantics, so we apply
-        // the per-copy translation BEFORE `cell_ref.transform`.
-        let copy_transforms: Vec<Transform> = match &cell_ref.repetition {
-            None => vec![cell_ref.transform],
-            Some(rep) if rep.is_single() => vec![cell_ref.transform],
-            Some(rep) => {
-                let mut ts = Vec::with_capacity(rep.count());
-                for row in 0..rep.rows {
-                    for col in 0..rep.columns {
-                        let offset = rep.copy_offset(col, row);
-                        ts.push(
-                            cell_ref
-                                .transform
-                                .then(&Transform::translate(offset.x, offset.y)),
-                        );
-                    }
+                if !visiting.insert(referenced_cell.name().to_string()) {
+                    continue;
                 }
-                ts
-            }
-        };
-
-        for copy_transform in copy_transforms {
-            let combined = transform.then(&copy_transform);
-            if let Some(bb) = cell_bbox_recursive(library, child, &combined, visited) {
-                merge(&mut result, bb);
+                // Recursively collect its dependencies first
+                self.collect_referenced_cells(referenced_cell, cell_map, visiting, collected);
+                visiting.remove(referenced_cell.name());
+                // Then add this cell
+                if !collected.iter().any(|c| c.name() == ref_name) {
+                    collected.push(referenced_cell.clone());
+                }
             }
         }
     }
-
-    visited.pop();
-    result
 }
 
 #[cfg(test)]
@@ -1394,6 +1349,21 @@ mod tests {
         // polygon of the top level — no infinite recursion.
         assert!((bbox.min().x - 0.0).abs() < 1e-10);
         assert!((bbox.max().x - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_add_cell_recursive_stops_at_cycles() {
+        let mut cell_a = Cell::new("A");
+        cell_a.add_ref(CellRef::new("B"));
+        let mut cell_b = Cell::new("B");
+        cell_b.add_ref(CellRef::new("A"));
+        let available = [cell_a.clone(), cell_b];
+        let mut library = Library::new("cycle");
+
+        library.add_cell_recursive(cell_a, &available);
+
+        assert_eq!(library.cells().len(), 2);
+        assert_eq!(library.top_cell().unwrap().name(), "A");
     }
 
     #[test]

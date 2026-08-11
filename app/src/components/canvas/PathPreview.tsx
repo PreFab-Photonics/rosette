@@ -1,8 +1,8 @@
 import { useViewportStore } from "@/stores/viewport";
 import { useLayerStore } from "@/stores/layer";
 import { usePathStore } from "@/stores/path";
+import { useWasmContextStore } from "@/stores/wasm-context";
 import { SELECTION_COLORS } from "@/stores/ui";
-import { createRibbonPreview } from "@/lib/path";
 import type { PathAlignmentGuides } from "@/hooks/use-path";
 
 /**
@@ -38,6 +38,7 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
   const width = usePathStore((s) => s.width);
   const cornerRadius = usePathStore((s) => s.cornerRadius);
   const numArcPoints = usePathStore((s) => s.numArcPoints);
+  const library = useWasmContextStore((s) => s.library);
 
   // Get layer color
   const layer = layers.get(activeLayerId);
@@ -68,7 +69,17 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
   const centerlineD = screenPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
 
   // Generate ribbon preview polygon (with rounded corners if cornerRadius > 0)
-  const ribbonPoints = createRibbonPreview(allPoints, width, cornerRadius, numArcPoints);
+  const ribbonVertices =
+    library?.path_preview(
+      new Float64Array(allPoints.flatMap((point) => [point.x, point.y])),
+      width,
+      cornerRadius,
+      numArcPoints,
+    ) ?? [];
+  const ribbonPoints: Point[] = [];
+  for (let index = 0; index < ribbonVertices.length; index += 2) {
+    ribbonPoints.push({ x: ribbonVertices[index], y: ribbonVertices[index + 1] });
+  }
   const ribbonScreen = ribbonPoints.map(worldToScreen);
   const ribbonD =
     ribbonScreen.length > 0

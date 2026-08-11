@@ -1,5 +1,5 @@
 use super::*;
-use rosette_core::{CellRef, Point};
+use rosette_core::{CellRef, PathEndType, Point};
 
 #[test]
 fn test_empty_cell() {
@@ -9,6 +9,20 @@ fn test_empty_cell() {
     let result = run_drc(&cell, &rules, None);
     assert!(result.passed());
     assert_eq!(result.stats.polygons_checked, 0);
+}
+
+#[test]
+fn test_cycle_is_bounded_and_valid_geometry_is_checked_once() {
+    let mut cell = Cell::new("cycle");
+    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
+    cell.add_ref(CellRef::new("cycle"));
+    let mut library = Library::new("cycle");
+    library.add_cell(cell).unwrap();
+    let rules = DrcRules::new().min_area(Layer::new(1, 0), 5.0, None);
+
+    let result = run_drc(library.cell("cycle").unwrap(), &rules, Some(&library));
+    assert_eq!(result.stats.polygons_checked, 1);
+    assert_eq!(result.violations.len(), 1);
 }
 
 #[test]
@@ -414,6 +428,20 @@ fn test_flatten_handles_paths() {
         result.passed(),
         "Path-derived polygon should pass min_area=30"
     );
+}
+
+#[test]
+fn test_path_end_type_changes_checked_geometry() {
+    let points = vec![Point::origin(), Point::new(10.0, 0.0)];
+    let layer = Layer::new(1, 0);
+    let mut flush = Cell::new("flush");
+    flush.add_path(points.clone(), 2.0, layer, PathEndType::Flush);
+    let mut round = Cell::new("round");
+    round.add_path(points, 2.0, layer, PathEndType::Round);
+    let rules = DrcRules::new().min_area(layer, 22.0, None);
+
+    assert!(!run_drc(&flush, &rules, None).passed());
+    assert!(run_drc(&round, &rules, None).passed());
 }
 
 #[test]

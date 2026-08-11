@@ -6,6 +6,8 @@ GDS path end type.
 
 PathEndType controls how the start and end of a path are rendered. It is
 used with `Cell.add_path()` to select the cap style.
+Path corners use miter joins with a four-half-width limit and bevel fallback;
+round caps are approximated with 16 segments per semicircle.
 
 ```python
 cell.add_path(
