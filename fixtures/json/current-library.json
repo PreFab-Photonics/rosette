@@ -1,39 +1,48 @@
 {
-  "name": "phase0_contract",
-  "cells": [
-    {
-      "name": "leaf",
-      "elements": [
-        {
-          "Polygon": {
-            "polygon": {
-              "vertices": [
-                {
-                  "x": -1.0,
-                  "y": -0.5
-                },
-                {
-                  "x": 1.0,
-                  "y": -0.5
-                },
-                {
-                  "x": 1.0,
-                  "y": 0.5
-                },
-                {
-                  "x": -1.0,
-                  "y": 0.5
-                }
-              ]
-            },
+  "format": "rosette-layout",
+  "schema": 1,
+  "coordinate_system": {
+    "unit": "um",
+    "y_axis": "up"
+  },
+  "library": {
+    "name": "phase0_contract",
+    "top_cell": null,
+    "cells": [
+      {
+        "name": "leaf",
+        "elements": [
+          {
+            "type": "polygon",
             "layer": {
               "number": 1,
               "datatype": 2
-            }
-          }
-        },
-        {
-          "Path": {
+            },
+            "vertices": [
+              {
+                "x": -1.0,
+                "y": -0.5
+              },
+              {
+                "x": 1.0,
+                "y": -0.5
+              },
+              {
+                "x": 1.0,
+                "y": 0.5
+              },
+              {
+                "x": -1.0,
+                "y": 0.5
+              }
+            ]
+          },
+          {
+            "type": "path",
+            "layer": {
+              "number": 3,
+              "datatype": 0
+            },
             "points": [
               {
                 "x": 0.0,
@@ -49,82 +58,80 @@
               }
             ],
             "width": 0.4,
+            "end_type": "round"
+          },
+          {
+            "type": "text",
             "layer": {
-              "number": 3,
+              "number": 10,
               "datatype": 0
             },
-            "end_type": "Round"
-          }
-        },
-        {
-          "Text": {
             "text": "leaf-label",
             "position": {
               "x": 1.0,
               "y": 2.0
             },
-            "layer": {
-              "number": 10,
-              "datatype": 0
-            },
             "height": 1.5
           }
-        }
-      ],
-      "ports": [
-        {
-          "name": "opt",
-          "position": {
-            "x": 0.0,
-            "y": 0.0
-          },
-          "direction": {
-            "x": -1.0,
-            "y": 0.0
-          },
-          "width": 0.4
-        }
-      ],
-      "metadata": {
-        "path_length": 7.25,
-        "bends": [
+        ],
+        "ports": [
           {
-            "radius": 3.0,
+            "name": "opt",
             "position": {
-              "x": 5.0,
+              "x": 0.0,
               "y": 0.0
             },
-            "requested_radius": 4.0
+            "direction": {
+              "x": -1.0,
+              "y": 0.0
+            },
+            "width": 0.4
           }
         ],
-        "warnings": [
-          "radius reduced"
-        ]
-      },
-      "origin": {
-        "x": 0.0,
-        "y": 0.0
-      },
-      "drc_skip": true,
-      "drc_waive_regions": [
-        {
-          "min": {
-            "x": -0.5,
-            "y": -0.5
-          },
-          "max": {
-            "x": 0.5,
-            "y": 0.5
+        "route": {
+          "path_length": 7.25,
+          "bends": [
+            {
+              "radius": 3.0,
+              "position": {
+                "x": 5.0,
+                "y": 0.0
+              },
+              "requested_radius": 4.0
+            }
+          ],
+          "warnings": [
+            "radius reduced"
+          ]
+        },
+        "drc": {
+          "skip": true,
+          "waive_regions": [
+            {
+              "min": {
+                "x": -0.5,
+                "y": -0.5
+              },
+              "max": {
+                "x": 0.5,
+                "y": 0.5
+              }
+            }
+          ]
+        },
+        "editor": {
+          "origin": {
+            "x": 0.0,
+            "y": 0.0
           }
         }
-      ]
-    },
-    {
-      "name": "middle",
-      "elements": [
-        {
-          "CellRef": {
-            "cell_name": "leaf",
+      },
+      {
+        "name": "middle",
+        "elements": [
+          {
+            "type": "cell_ref",
+            "cell": "leaf",
             "transform": {
               "a": 1.0,
               "b": 0.0,
@@ -135,27 +142,30 @@
             },
             "repetition": null
           }
+        ],
+        "ports": [],
+        "route": {
+          "path_length": null,
+          "bends": [],
+          "warnings": []
+        },
+        "drc": {
+          "skip": false,
+          "waive_regions": []
+        },
+        "editor": {
+          "origin": {
+            "x": 0.0,
+            "y": 0.0
+          }
         }
-      ],
-      "ports": [],
-      "metadata": {
-        "path_length": null,
-        "bends": [],
-        "warnings": []
       },
-      "origin": {
-        "x": 0.0,
-        "y": 0.0
-      },
-      "drc_skip": false,
-      "drc_waive_regions": []
-    },
-    {
-      "name": "top",
-      "elements": [
-        {
-          "CellRef": {
-            "cell_name": "middle",
+      {
+        "name": "top",
+        "elements": [
+          {
+            "type": "cell_ref",
+            "cell": "middle",
             "transform": {
               "a": 0.8660254037844387,
               "b": -0.49999999999999994,
@@ -165,11 +175,10 @@
               "ty": 22.320508075688775
             },
             "repetition": null
-          }
-        },
-        {
-          "CellRef": {
-            "cell_name": "leaf",
+          },
+          {
+            "type": "cell_ref",
+            "cell": "leaf",
             "transform": {
               "a": 1.0,
               "b": 0.0,
@@ -181,7 +190,7 @@
             "repetition": {
               "columns": 3,
               "rows": 2,
-              "col_vector": {
+              "column_vector": {
                 "x": 8.0,
                 "y": 1.0
               },
@@ -190,11 +199,10 @@
                 "y": 6.0
               }
             }
-          }
-        },
-        {
-          "CellRef": {
-            "cell_name": "missing",
+          },
+          {
+            "type": "cell_ref",
+            "cell": "missing",
             "transform": {
               "a": 1.0,
               "b": 0.0,
@@ -205,20 +213,24 @@
             },
             "repetition": null
           }
+        ],
+        "ports": [],
+        "route": {
+          "path_length": null,
+          "bends": [],
+          "warnings": []
+        },
+        "drc": {
+          "skip": false,
+          "waive_regions": []
+        },
+        "editor": {
+          "origin": {
+            "x": 0.0,
+            "y": 0.0
+          }
         }
-      ],
-      "ports": [],
-      "metadata": {
-        "path_length": null,
-        "bends": [],
-        "warnings": []
-      },
-      "origin": {
-        "x": 0.0,
-        "y": 0.0
-      },
-      "drc_skip": false,
-      "drc_waive_regions": []
-    }
-  ]
+      }
+    ]
+  }
 }

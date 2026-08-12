@@ -1,12 +1,20 @@
 {
-  "name": "cycle",
-  "cells": [
-    {
-      "name": "cycle_a",
-      "elements": [
-        {
-          "CellRef": {
-            "cell_name": "cycle_b",
+  "format": "rosette-layout",
+  "schema": 1,
+  "coordinate_system": {
+    "unit": "um",
+    "y_axis": "up"
+  },
+  "library": {
+    "name": "cycle",
+    "top_cell": null,
+    "cells": [
+      {
+        "name": "cycle_a",
+        "elements": [
+          {
+            "type": "cell_ref",
+            "cell": "cycle_b",
             "transform": {
               "a": 1.0,
               "b": 0.0,
@@ -17,27 +25,30 @@
             },
             "repetition": null
           }
+        ],
+        "ports": [],
+        "route": {
+          "path_length": null,
+          "bends": [],
+          "warnings": []
+        },
+        "drc": {
+          "skip": false,
+          "waive_regions": []
+        },
+        "editor": {
+          "origin": {
+            "x": 0.0,
+            "y": 0.0
+          }
         }
-      ],
-      "ports": [],
-      "metadata": {
-        "path_length": null,
-        "bends": [],
-        "warnings": []
       },
-      "origin": {
-        "x": 0.0,
-        "y": 0.0
-      },
-      "drc_skip": false,
-      "drc_waive_regions": []
-    },
-    {
-      "name": "cycle_b",
-      "elements": [
-        {
-          "CellRef": {
-            "cell_name": "cycle_a",
+      {
+        "name": "cycle_b",
+        "elements": [
+          {
+            "type": "cell_ref",
+            "cell": "cycle_a",
             "transform": {
               "a": 1.0,
               "b": 0.0,
@@ -48,20 +59,24 @@
             },
             "repetition": null
           }
+        ],
+        "ports": [],
+        "route": {
+          "path_length": null,
+          "bends": [],
+          "warnings": []
+        },
+        "drc": {
+          "skip": false,
+          "waive_regions": []
+        },
+        "editor": {
+          "origin": {
+            "x": 0.0,
+            "y": 0.0
+          }
         }
-      ],
-      "ports": [],
-      "metadata": {
-        "path_length": null,
-        "bends": [],
-        "warnings": []
-      },
-      "origin": {
-        "x": 0.0,
-        "y": 0.0
-      },
-      "drc_skip": false,
-      "drc_waive_regions": []
-    }
-  ]
+      }
+    ]
+  }
 }

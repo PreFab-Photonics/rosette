@@ -7,7 +7,6 @@ use super::{Point, Transform};
 
 /// An axis-aligned bounding box.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BBox {
     min: Point,
     max: Point,

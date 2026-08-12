@@ -1,9 +1,7 @@
 //! JSON reader for rosette libraries.
 
-use super::JsonError;
+use super::{JsonError, dto::DocumentDto};
 use rosette_core::Library;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 
 /// Read a library from a JSON file.
@@ -17,11 +15,7 @@ use std::path::Path;
 /// # Errors
 /// Returns an error if the file cannot be read or parsed.
 pub fn read(path: impl AsRef<Path>) -> Result<Library, JsonError> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    let library: Library = serde_json::from_reader(reader)?;
-    library.validate()?;
-    Ok(library)
+    from_string(&std::fs::read_to_string(path)?)
 }
 
 /// Deserialize a library from a JSON string.
@@ -35,9 +29,7 @@ pub fn read(path: impl AsRef<Path>) -> Result<Library, JsonError> {
 /// # Errors
 /// Returns an error if the JSON is invalid or doesn't match the expected structure.
 pub fn from_string(json: &str) -> Result<Library, JsonError> {
-    let library: Library = serde_json::from_str(json)?;
-    library.validate()?;
-    Ok(library)
+    DocumentDto::decode(json)
 }
 
 #[cfg(test)]
@@ -141,20 +133,15 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&to_string(&library).unwrap()).unwrap();
 
         let mut empty = value.clone();
-        empty["cells"][0]["name"] = serde_json::Value::String(String::new());
+        empty["library"]["cells"][0]["name"] = serde_json::Value::String(String::new());
         assert!(matches!(
             from_string(&serde_json::to_string(&empty).unwrap()),
-            Err(JsonError::InvalidLibrary(
-                rosette_core::LibraryError::InvalidCell {
-                    source: rosette_core::CellValidationError::EmptyCellName,
-                    ..
-                }
-            ))
+            Err(JsonError::InvalidDocument { .. })
         ));
 
         let mut duplicate = value;
-        let duplicate_cell = duplicate["cells"][0].clone();
-        duplicate["cells"]
+        let duplicate_cell = duplicate["library"]["cells"][0].clone();
+        duplicate["library"]["cells"]
             .as_array_mut()
             .unwrap()
             .push(duplicate_cell);
@@ -176,17 +163,68 @@ mod tests {
         );
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
-        let mut value = serde_json::to_value(library).unwrap();
-        value["cells"][0]["elements"][0]["Path"]["points"] = serde_json::json!([]);
+        let mut value: serde_json::Value =
+            serde_json::from_str(&to_string(&library).unwrap()).unwrap();
+        value["library"]["cells"][0]["elements"][0]["points"] = serde_json::json!([]);
 
         assert!(matches!(
             from_string(&serde_json::to_string(&value).unwrap()),
+            Err(JsonError::InvalidDocument { .. })
+        ));
+    }
+
+    #[test]
+    fn dispatches_format_and_schema_before_decoding_the_payload() {
+        let value: serde_json::Value =
+            serde_json::from_str(&to_string(&Library::new("test")).unwrap()).unwrap();
+
+        let mut wrong_format = value.clone();
+        wrong_format["format"] = serde_json::json!("other-layout");
+        assert!(matches!(
+            from_string(&serde_json::to_string(&wrong_format).unwrap()),
+            Err(JsonError::UnsupportedFormat(format)) if format == "other-layout"
+        ));
+
+        let mut wrong_coordinates = value.clone();
+        wrong_coordinates["coordinate_system"]["unit"] = serde_json::json!("nm");
+        assert!(matches!(
+            from_string(&serde_json::to_string(&wrong_coordinates).unwrap()),
+            Err(JsonError::UnsupportedCoordinateSystem { unit, y_axis })
+                if unit == "nm" && y_axis == "up"
+        ));
+
+        let mut future = value;
+        future["schema"] = serde_json::json!(2);
+        future["future_field"] = serde_json::json!({ "shape": "unknown" });
+        assert!(matches!(
+            from_string(&serde_json::to_string(&future).unwrap()),
+            Err(JsonError::UnsupportedSchema(2))
+        ));
+    }
+
+    #[test]
+    fn rejects_unversioned_json_and_missing_top_cells() {
+        assert!(matches!(
+            from_string(r#"{"name":"legacy","cells":[]}"#),
+            Err(JsonError::Json(_))
+        ));
+
+        let mut value: serde_json::Value =
+            serde_json::from_str(&to_string(&Library::new("test")).unwrap()).unwrap();
+        value["library"]["top_cell"] = serde_json::json!("missing");
+        assert!(matches!(
+            from_string(&serde_json::to_string(&value).unwrap()),
             Err(JsonError::InvalidLibrary(
-                rosette_core::LibraryError::InvalidCell {
-                    source: rosette_core::CellValidationError::InvalidPath { .. },
-                    ..
-                }
+                rosette_core::LibraryError::CellNotFound { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn rejects_duplicate_fields_without_collapsing_the_document() {
+        let json = to_string(&Library::new("test")).unwrap();
+        let duplicate = json.replacen(r#""name": "test""#, r#""name": "first", "name": "test""#, 1);
+
+        assert!(matches!(from_string(&duplicate), Err(JsonError::Json(_))));
     }
 }

@@ -52,7 +52,7 @@ fn cycle_fixture_is_accepted_and_bbox_guarded() {
 }
 
 #[test]
-fn multi_root_fixture_exposes_roots_without_an_arbitrary_top() {
+fn multi_root_fixture_preserves_explicit_top_selection() {
     let mut library = from_string(MULTI_ROOT).unwrap();
 
     assert_eq!(to_string(&library).unwrap(), MULTI_ROOT.trim_end());
@@ -65,14 +65,18 @@ fn multi_root_fixture_exposes_roots_without_an_arbitrary_top() {
             .collect::<Vec<_>>(),
         vec!["root_a", "root_b"]
     );
-    assert!(library.top_cell().is_none());
+    assert_eq!(library.top_cell().unwrap().name(), "root_b");
+    assert_eq!(library.explicit_top_cell().unwrap().name(), "root_b");
     assert!(library.cell_bbox("root_a").is_some());
     assert!(library.cell_bbox("root_b").is_some());
 
-    library.set_top_cell("root_b").unwrap();
-    assert_eq!(library.top_cell().unwrap().name(), "root_b");
     assert_eq!(to_string(&library).unwrap(), MULTI_ROOT.trim_end());
 
+    let restored = from_string(&to_string(&library).unwrap()).unwrap();
+    assert_eq!(restored.top_cell().unwrap().name(), "root_b");
+
+    library.clear_top_cell();
+    assert!(library.top_cell().is_none());
     let restored = from_string(&to_string(&library).unwrap()).unwrap();
     assert!(restored.top_cell().is_none());
 }

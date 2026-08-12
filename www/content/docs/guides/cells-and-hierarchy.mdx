@@ -186,12 +186,14 @@ instance, reference list, or tracked child set:
   scale factors must be nonzero. Array counts are `[1, 32767]`, and lattice
   spacings/vectors must be finite. Negative and zero finite spacings are valid.
 
-JSON and GDS keep their existing serialized shapes. Import rejects malformed
-local model state, while export validates before writing. GDS export also
-checks format-specific limits such as coordinate ranges and representable
-reference transforms. Local validation does not require every reference target
-to exist and does not reject hierarchy cycles; hierarchy operations report
-those graph-level issues separately.
+Rosette JSON uses the versioned `rosette-layout` schema owned by `rosette-io`.
+Schema V1 declares micrometer, Y-up coordinates and preserves explicit top-cell
+selection. Unversioned core-struct JSON is not accepted. JSON and GDS import
+reject malformed local model state, while export validates before writing. GDS
+export also checks format-specific limits such as coordinate ranges and
+representable reference transforms. Local validation does not require every
+reference target to exist and does not reject hierarchy cycles; hierarchy
+operations report those graph-level issues separately.
 
 ## Putting it together
 

@@ -412,7 +412,7 @@ mod tests {
 /// Serialize a Cell or Library to a JSON string.
 ///
 /// This is used internally by `rosette serve` to send designs to the web viewer.
-/// The JSON format preserves the full structure including cells, elements, and ports.
+/// Schema V1 preserves the full structure including cells, elements, and ports.
 ///
 /// Args:
 ///     design: A Cell or Library to serialize

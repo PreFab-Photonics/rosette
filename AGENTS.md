@@ -9,7 +9,7 @@ crates/rosette-core     Geometry, atomic layout types, cell hierarchy
 crates/rosette-checks   Check framework (orchestrates DRC, ...)
 crates/rosette-drc      Design rule checking
 crates/rosette-dfm      Design-for-manufacturing models
-crates/rosette-io       GDS-II reader/writer
+crates/rosette-io       GDS-II and versioned layout JSON reader/writer
 crates/rosette-raster   Rasterization
 crates/rosette-route    Photonic routing algorithms and diagnostics
 crates/rosette-python   PyO3 bindings -> rosette._core
@@ -42,6 +42,7 @@ bun run tsc --noEmit                               # App type check (from app/)
 
 bun dev                                            # App dev server (from app/)
 bun run build:wasm                                 # Rebuild WASM (from app/)
+uv run python scripts/bundle_webapp.py             # Rebuild local serve/run viewer bundle
 ```
 
 CI gates on the non-mutating forms: `ruff format --check python/` and `bun fmt:check`.
@@ -64,6 +65,8 @@ Full surface: `uv run rosette --help` or `uv run rosette cli-manifest`.
 **API docs:** Every `__all__` symbol (in `python/rosette/__init__.py`) needs a docs page in `www/content/docs/api-reference/` — classes get their own `.mdx`, functions/constants go on `index.mdx`. New class pages must also be listed in `api-reference/meta.json` or the sidebar check fails. Verify with `uv run --no-project python www/scripts/check-api-docs.py`; update docs when changing public API.
 
 **WASM bindings:** The app type-checks against `app/src/wasm/rosette_wasm.d.ts`, a checked-in cache of `wasm-pack` output (the rest of `app/src/wasm/` is gitignored). CI rebuilds wasm and fails if the committed stub's public API drifted. See Boundaries for how to regenerate it.
+
+**JSON persistence:** `rosette-io` owns the versioned `rosette-layout` DTO and validated core conversions. Core model types must remain format-neutral and must not derive Serde for persistence.
 
 ## Boundaries
 

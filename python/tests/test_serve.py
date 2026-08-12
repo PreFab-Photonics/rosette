@@ -3,8 +3,15 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from rosette import Cell, DrcCache, DrcRules, Layer, Point, Polygon
-from rosette._serve import _load_layer_map_safe, _prepare_design, _run_drc_safe
+from rosette._serve import (
+    _load_layer_map_safe,
+    _prepare_design,
+    _run_drc_safe,
+    _validate_webapp_bundle,
+)
 
 
 def test_prepare_design_collects_descendants_added_after_parent_placement():
@@ -16,11 +23,36 @@ def test_prepare_design_collects_descendants_added_after_parent_placement():
 
     design_json, _ = _prepare_design(top)
 
-    assert {cell["name"] for cell in json.loads(design_json)["cells"]} == {
+    assert {cell["name"] for cell in json.loads(design_json)["library"]["cells"]} == {
         "leaf",
         "child",
         "top",
     }
+
+
+def test_viewer_manifest_matches_native_layout_contract():
+    design_json, _ = _prepare_design(Cell("top"))
+    payload = json.loads(design_json)
+    manifest_path = Path(__file__).resolve().parents[2] / "app" / "public" / "viewer-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+
+    assert manifest == {
+        "layoutFormat": payload["format"],
+        "layoutSchema": payload["schema"],
+    }
+
+
+def test_webapp_bundle_validation_rejects_stale_and_accepts_current(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="stale or incomplete"):
+        _validate_webapp_bundle(tmp_path)
+
+    manifest = tmp_path / "viewer-manifest.json"
+    manifest.write_text('{"layoutFormat":"rosette-layout","layoutSchema":0}')
+    with pytest.raises(RuntimeError, match="does not support"):
+        _validate_webapp_bundle(tmp_path)
+
+    manifest.write_text('{"layoutFormat":"rosette-layout","layoutSchema":1}')
+    _validate_webapp_bundle(tmp_path)
 
 
 class TestRunDrcSafe:

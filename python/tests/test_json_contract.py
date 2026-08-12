@@ -1,4 +1,4 @@
-"""Cross-language characterization for the current JSON wire format."""
+"""Cross-language characterization for the versioned layout format."""
 
 from __future__ import annotations
 
@@ -40,4 +40,19 @@ def test_python_binding_matches_current_json_fixture():
     for cell in (leaf, middle, top):
         library.add_cell(cell)
 
-    assert json.loads(core.to_json(library)) == json.loads(FIXTURE.read_text())
+    payload = json.loads(core.to_json(library))
+    assert payload["format"] == "rosette-layout"
+    assert payload["schema"] == 1
+    assert payload["coordinate_system"] == {"unit": "um", "y_axis": "up"}
+    assert payload == json.loads(FIXTURE.read_text())
+
+
+def test_python_binding_persists_explicit_top_selection():
+    library = core.Library("multi-root")
+    library.add_cell(core.Cell("a"))
+    library.add_cell(core.Cell("b"))
+    library.set_top_cell("b")
+
+    payload = json.loads(core.to_json(library))
+
+    assert payload["library"]["top_cell"] == "b"

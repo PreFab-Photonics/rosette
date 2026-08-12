@@ -7,7 +7,6 @@ use std::ops::{Add, Mul, Neg, Sub};
 
 /// A 2D point representing a position in space.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -115,7 +114,6 @@ impl Sub<Point> for Point {
 
 /// A 2D vector representing displacement or direction.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Vector2 {
     pub x: f64,
     pub y: f64,

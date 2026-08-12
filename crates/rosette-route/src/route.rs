@@ -898,8 +898,8 @@ impl RouteResult {
         cell.add_port(self.port_out);
         cell.set_path_length(self.path_length);
 
-        // These fields remain serialized compatibility annotations until the
-        // versioned persistence model can move them out of core cells.
+        // Cells retain these annotations for Python and check consumers; the
+        // persistence layer serializes them through its explicit route section.
         for bend in self.bends {
             cell.add_bend(bend);
         }

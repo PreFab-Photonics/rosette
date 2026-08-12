@@ -819,8 +819,8 @@ class Library:
     def set_top_cell(self, name: str) -> None:
         """Select an existing cell as the explicit top entry cell.
 
-        The selection is runtime state and is not persisted by the legacy
-        JSON or GDS formats.
+        Versioned Rosette JSON preserves the selection. GDS has no top-cell
+        record and therefore does not preserve it.
 
         Raises:
             ValueError: If ``name`` does not identify a library cell.

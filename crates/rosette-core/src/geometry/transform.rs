@@ -20,7 +20,6 @@ use super::Point;
 /// y' = c*x + d*y + ty
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Transform {
     /// Matrix element \[0,0\]
     pub a: f64,

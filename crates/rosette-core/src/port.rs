@@ -16,7 +16,6 @@ const DIRECTION_UNIT_TOLERANCE: f64 = 1e-9;
 /// - A direction (unit vector pointing outward from the component)
 /// - An optional width
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Port {
     /// Name of the port (e.g., "in", "out", "opt1").
     pub name: String,

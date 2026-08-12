@@ -6,7 +6,7 @@ license.workspace = true
 description = "File I/O for photonic layout (GDS, etc.)"
 
 [dependencies]
-rosette-core = { workspace = true, features = ["serde"] }
+rosette-core.workspace = true
 thiserror.workspace = true
 byteorder.workspace = true
 serde = { workspace = true, features = ["derive"] }

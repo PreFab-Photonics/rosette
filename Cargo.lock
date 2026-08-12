@@ -3847,7 +3847,6 @@ version = "0.4.2"
 dependencies = [
  "geo",
  "proptest",
- "serde",
  "thiserror 1.0.69",
 ]
 

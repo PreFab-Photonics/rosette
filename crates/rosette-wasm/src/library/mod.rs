@@ -158,8 +158,8 @@ impl CellRefInfo {
 pub struct WasmLibrary {
     library: Library,
     active_cell: Option<String>,
-    /// Editor origins keyed by cell name. Core cells retain origin only as a
-    /// serialized compatibility bridge at import/export boundaries.
+    /// Editor origins keyed by cell name. The V1 persistence adapter transfers
+    /// them through explicit editor annotations at import/export boundaries.
     cell_origins: HashMap<String, Point>,
     /// Maps element UUIDs to their location in the library.
     element_refs: HashMap<String, ElementRef>,

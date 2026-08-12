@@ -24,7 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   insertion policies.
 - Rust local-model validation with structured cell, element, port, repetition,
   and library errors, plus transactional `Cell::edit_element` and
-  `Cell::edit_elements` APIs.
+  `Cell::edit_elements`, `Cell::edit_ports`, and `Cell::edit_bends` APIs.
+- A versioned `rosette-layout` JSON document owned by `rosette-io`, with explicit
+  coordinate conventions, typed element records, annotations, and top-cell selection.
 
 ### Changed
 
@@ -41,8 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   previews. Internal polygonization skips exact reversals and invalid numeric geometry.
 - Rendering flatten DTOs and entry points now belong to `rosette-raster`; routing
   policy belongs to `rosette-route` while the public Python `Route` API is unchanged.
-- WASM editor origins are owned by editor state and bridged through the existing JSON
-  field. DRC suppression is owned by `DrcPolicy` and legacy cell annotations are
+- WASM editor origins are owned by editor state and persisted through explicit V1
+  editor annotations. DRC suppression is owned by `DrcPolicy`, with cell annotations
   adapted at the runner boundary.
 - GDS structure-name constraints are enforced by `rosette-io` before writing any
   bytes. Core libraries accept format-neutral names while Python and WASM retain
@@ -64,10 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   non-positive values as appropriate with `ValueError` before mutating model state.
   Port directions are normalized, port names are unique per cell, and array counts
   are limited to the GDS range of 1 through 32767.
-- **Wire-neutral validation:** JSON and GDS import/export now validate local model
-  invariants and preflight writes before touching output files. Their serialized
-  shapes are unchanged; finite repeated, zero-area, and self-intersecting polygons
-  remain representable, as do negative absolute GDS path widths.
+- **JSON breaking:** unversioned core-struct JSON is replaced by schema V1. Readers
+  require `format: "rosette-layout"`, `schema: 1`, micrometer units, and Y-up
+  coordinates. Explicit top-cell selection now survives JSON round trips.
+- JSON and GDS import/export validate local model invariants and preflight writes
+  before touching output files. Finite repeated, zero-area, and self-intersecting
+  polygons remain representable, as do negative absolute GDS path widths.
 - GDS reads now enforce record structure, physical database units, representable
   transform semantics, array limits, and required element fields. Text datatypes
   round-trip instead of being reset to zero.
@@ -81,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - WASM instance IDs are stable-token validated so stale selections cannot retarget
   another reference. Cell and element delete/undo preserve element order, native
   path records, transforms, arrays, and surviving editor UUIDs.
+- WASM JSON import/export now converts ports, path lengths, bend annotations, and
+  DRC waiver regions with geometry; path lengths display in the correct units.
+- `rosette serve` and `rosette run` now reject stale bundled viewers with an
+  actionable rebuild command instead of silently showing an empty design.
 
 ### Removed
 
@@ -107,6 +115,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Rust breaking:** removed raw `Polygon::vertices_mut` and `Cell::elements_mut`
   access. Rebuild polygons through validated constructors and use transactional
   `Cell::edit_element` or `Cell::edit_elements` for element updates.
+- **Rust breaking:** removed `rosette-core`'s optional Serde feature and direct
+  `Serialize`/`Deserialize` implementations. Use `rosette-io::json` for the
+  versioned persistence contract.
+- **WASM breaking:** removed the unused flattening `WasmLibrary.from_json()` and
+  coordinate-ambiguous `WasmLibrary.to_json()` methods. Use the symmetric
+  `from_library_json()` and `to_library_json()` persistence pair.
 
 ## [0.4.2] - 2026-06-26
 

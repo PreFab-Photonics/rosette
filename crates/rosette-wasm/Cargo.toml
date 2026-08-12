@@ -9,7 +9,7 @@ description = "WebAssembly bindings for rosette with GPU rendering"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rosette-core = { workspace = true, features = ["serde"] }
+rosette-core.workspace = true
 rosette-io.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true

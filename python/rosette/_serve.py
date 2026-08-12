@@ -6,6 +6,7 @@ Tauri/browser viewer management.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -18,6 +19,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from rosette import Cell, DrcCache, DrcRules, Library
     from rosette._core import Library as _CoreLibrary
+
+_LAYOUT_FORMAT = "rosette-layout"
+_LAYOUT_SCHEMA = 1
 
 # =============================================================================
 # Design serialization helpers
@@ -141,6 +145,27 @@ def _prepare_design_from_library(library: Library | _CoreLibrary):
 # =============================================================================
 
 
+def _validate_webapp_bundle(webapp_dir: Path) -> None:
+    """Reject a bundled viewer that cannot read the current layout JSON."""
+    manifest_path = webapp_dir / "viewer-manifest.json"
+    rebuild = "Run 'uv run python scripts/bundle_webapp.py' to rebuild it."
+    if not manifest_path.is_file():
+        raise RuntimeError(f"Web app bundle is stale or incomplete. {rebuild}")
+
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Web app bundle manifest is unreadable. {rebuild}") from error
+
+    if not isinstance(manifest, dict):
+        raise RuntimeError(f"Web app bundle manifest is invalid. {rebuild}")
+    if (
+        manifest.get("layoutFormat") != _LAYOUT_FORMAT
+        or manifest.get("layoutSchema") != _LAYOUT_SCHEMA
+    ):
+        raise RuntimeError(f"Web app bundle does not support the current layout format. {rebuild}")
+
+
 def _start_server(port: int):
     """Start the web viewer server. Returns (server, url)."""
     from rosette._server import RosetteServer
@@ -149,6 +174,11 @@ def _start_server(port: int):
     if not webapp_dir.exists():
         print("Error: Web app not bundled. Run 'scripts/bundle_webapp.py' first.")
         print(f"Expected at: {webapp_dir}")
+        sys.exit(1)
+    try:
+        _validate_webapp_bundle(webapp_dir)
+    except RuntimeError as error:
+        print(f"Error: {error}")
         sys.exit(1)
 
     server = RosetteServer(webapp_dir, port)

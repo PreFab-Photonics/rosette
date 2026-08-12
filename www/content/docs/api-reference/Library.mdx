@@ -191,9 +191,8 @@ Get the explicitly selected top cell, or the sole graph-derived root when the
 library is unambiguous. Returns `None` for empty, multi-root, and rootless
 cyclic libraries without an explicit selection.
 
-Explicit top selection is runtime state. The legacy JSON shape remains
-unchanged, and GDS has no top-cell record, so the selection is not preserved
-across JSON or GDS round trips.
+The versioned Rosette JSON format preserves explicit top selection. GDS has no
+top-cell record, so selection is not preserved across GDS round trips.
 
 <PyFunctionReturn type={"Cell | None"} />
 

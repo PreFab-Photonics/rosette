@@ -756,21 +756,6 @@ mod tests {
         }
     }
 
-    fn malformed_path_library(points: serde_json::Value) -> Library {
-        let mut cell = Cell::new("TEST");
-        cell.add_path(
-            vec![Point::origin(), Point::new(1.0, 0.0)],
-            0.5,
-            Layer::new(1, 0),
-            PathEndType::Flush,
-        );
-        let mut library = Library::new("test");
-        library.add_cell(cell).unwrap();
-        let mut value = serde_json::to_value(library).unwrap();
-        value["cells"][0]["elements"][0]["Path"]["points"] = points;
-        serde_json::from_value(value).unwrap()
-    }
-
     #[test]
     fn test_to_db_units() {
         assert_eq!(GdsWriter::<Vec<u8>>::to_db_units(1.0), 1000);
@@ -1438,23 +1423,22 @@ mod tests {
     }
 
     #[test]
-    fn test_path_too_few_points_empty() {
-        let lib = malformed_path_library(serde_json::json!([]));
-        let mut output = Vec::new();
-        let mut writer = GdsWriter::new(&mut output);
-        let result = writer.write_library(&lib);
-        assert!(matches!(result, Err(GdsError::InvalidLibrary(_))));
-        assert!(output.is_empty());
-    }
-
-    #[test]
-    fn test_path_too_few_points_single() {
-        let lib = malformed_path_library(serde_json::json!([{ "x": 0.0, "y": 0.0 }]));
-        let mut output = Vec::new();
-        let mut writer = GdsWriter::new(&mut output);
-        let result = writer.write_library(&lib);
-        assert!(matches!(result, Err(GdsError::InvalidLibrary(_))));
-        assert!(output.is_empty());
+    fn rejects_short_paths_during_element_preflight() {
+        for points in [vec![], vec![Point::origin()]] {
+            let element = Element::Path {
+                points,
+                width: 0.5,
+                layer: Layer::new(1, 0),
+                end_type: PathEndType::Flush,
+            };
+            assert!(matches!(
+                preflight_element("TEST", 0, &element),
+                Err(GdsError::InvalidElement {
+                    reason: GdsElementError::PathPointCount { .. },
+                    ..
+                })
+            ));
+        }
     }
 
     #[test]
@@ -1646,19 +1630,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zero_and_oversized_repetitions() {
-        let mut cell = Cell::new("TOP");
-        cell.add_ref(CellRef::new("UNIT").array(2, 2, 1.0, 1.0));
-        let mut valid = Library::new("test");
-        valid.add_cell(cell).unwrap();
-        let mut value = serde_json::to_value(&valid).unwrap();
-        value["cells"][0]["elements"][0]["CellRef"]["repetition"]["columns"] = serde_json::json!(0);
-        let zero: Library = serde_json::from_value(value).unwrap();
-        assert!(matches!(
-            write_bytes(&zero),
-            Err(GdsError::InvalidLibrary(_))
-        ));
-
+    fn rejects_oversized_repetitions() {
         let mut cell = Cell::new("TOP");
         cell.add_ref(CellRef::new("UNIT").array(32768, 1, 1.0, 1.0));
         let mut oversized = Library::new("test");
@@ -1730,20 +1702,17 @@ mod tests {
             ));
         }
 
-        let mut cell = Cell::new("TOP");
-        cell.add_ref(CellRef::new("UNIT"));
-        let mut valid = Library::new("test");
-        valid.add_cell(cell).unwrap();
-        let mut value = serde_json::to_value(valid).unwrap();
-        let transform = &mut value["cells"][0]["elements"][0]["CellRef"]["transform"];
-        transform["a"] = serde_json::json!(0.0);
-        transform["b"] = serde_json::json!(0.0);
-        transform["c"] = serde_json::json!(0.0);
-        transform["d"] = serde_json::json!(0.0);
-        let singular: Library = serde_json::from_value(value).unwrap();
+        let singular = Element::CellRef(CellRef {
+            cell_name: "UNIT".to_string(),
+            transform: Transform::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            repetition: None,
+        });
         assert!(matches!(
-            write_bytes(&singular),
-            Err(GdsError::InvalidLibrary(_))
+            preflight_element("TOP", 0, &singular),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::UnsupportedTransform(GdsTransformError::Singular),
+                ..
+            })
         ));
     }
 

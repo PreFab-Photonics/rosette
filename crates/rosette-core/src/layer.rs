@@ -12,7 +12,6 @@
 /// - Different materials (silicon, oxide, cladding) have different layer numbers
 /// - Datatypes distinguish purposes (drawing, pin, label) on the same layer
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Layer {
     /// Layer number (0-65535).
     pub number: u16,

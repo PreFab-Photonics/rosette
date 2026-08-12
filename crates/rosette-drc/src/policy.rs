@@ -18,7 +18,7 @@ impl DrcPolicy {
         Self::default()
     }
 
-    /// Extract the legacy policy annotations from the reachable cell hierarchy.
+    /// Extract cell policy annotations from the reachable hierarchy.
     pub fn from_cells(top: &Cell, library: Option<&Library>) -> Self {
         let mut policy = Self::new();
         let mut visited = HashSet::new();
@@ -105,7 +105,7 @@ mod tests {
     use rosette_core::{CellRef, Point};
 
     #[test]
-    fn extracts_reachable_legacy_annotations() {
+    fn extracts_reachable_cell_annotations() {
         let mut child = Cell::new("child");
         child.set_drc_skip(true);
         child.add_drc_waive_region(BBox::new(Point::origin(), Point::new(1.0, 2.0)));

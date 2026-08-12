@@ -19,7 +19,6 @@ use std::collections::{HashMap, HashSet};
 
 /// GDS path end type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PathEndType {
     /// Flush (square) ends at path endpoints.
     #[default]
@@ -32,7 +31,6 @@ pub enum PathEndType {
 
 /// An element within a cell.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Element {
     /// A polygon on a specific layer.
     Polygon { polygon: Polygon, layer: Layer },
@@ -102,7 +100,6 @@ impl Element {
 /// is well-defined in GDS AREFs. For example, `col_spacing = -10.0`
 /// lays copies out along local −X rather than local +X.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Repetition {
     /// Number of columns (copies along `col_vector`). Must be >= 1.
     pub columns: u16,
@@ -184,7 +181,6 @@ impl Repetition {
 
 /// A reference to another cell with transformation.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CellRef {
     /// Name of the referenced cell.
     pub cell_name: String,
@@ -350,7 +346,6 @@ impl CellRef {
 
 /// Information about a single bend in a cell.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BendInfo {
     /// Effective bend radius (after any auto-reduction).
     pub radius: f64,
@@ -406,7 +401,6 @@ impl BendInfo {
 
 /// Metadata associated with a cell.
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct CellMetadata {
     /// Total optical path length (if built from a Route).
     path_length: Option<f64>,
@@ -418,7 +412,6 @@ struct CellMetadata {
 
 /// A cell containing geometry and references to other cells.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Cell {
     /// Name of the cell.
     name: String,
@@ -989,6 +982,49 @@ impl Cell {
         Ok(result)
     }
 
+    /// Transactionally edit every port without changing port cardinality.
+    ///
+    /// The originals are left untouched if any candidate is invalid or if
+    /// the edit creates duplicate names.
+    pub fn edit_ports<R>(
+        &mut self,
+        edit: impl FnOnce(&mut [Port]) -> R,
+    ) -> Result<R, CellValidationError> {
+        let mut candidates = self.ports.clone();
+        let result = edit(&mut candidates);
+        let mut names = HashMap::with_capacity(candidates.len());
+        for (port_index, port) in candidates.iter().enumerate() {
+            validate_port(port_index, port)?;
+            if let Some(first_index) = names.insert(port.name.as_str(), port_index) {
+                return Err(CellValidationError::DuplicatePortName {
+                    name: port.name.clone(),
+                    first_index,
+                    duplicate_index: port_index,
+                });
+            }
+        }
+        self.ports = candidates;
+        Ok(result)
+    }
+
+    /// Transactionally edit every bend annotation without changing cardinality.
+    ///
+    /// The originals are left untouched if any candidate is invalid.
+    pub fn edit_bends<R>(
+        &mut self,
+        edit: impl FnOnce(&mut [BendInfo]) -> R,
+    ) -> Result<R, CellValidationError> {
+        let mut candidates = self.metadata.bends.clone();
+        let result = edit(&mut candidates);
+        for (bend_index, bend) in candidates.iter().enumerate() {
+            if let Some(reason) = bend.validation_error() {
+                return Err(CellValidationError::InvalidBend { bend_index, reason });
+            }
+        }
+        self.metadata.bends = candidates;
+        Ok(result)
+    }
+
     /// Remove every element from this cell.
     pub fn clear_elements(&mut self) {
         self.elements.clear();
@@ -1003,7 +1039,6 @@ impl Cell {
 
 /// A library containing multiple cells.
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Library {
     /// Name of the library.
     name: String,
@@ -1011,9 +1046,7 @@ pub struct Library {
     cells: Vec<Cell>,
     /// Explicit entry cell selected by the caller.
     ///
-    /// This is intentionally excluded from the legacy JSON representation.
     /// Versioned persistence belongs to `rosette-io`.
-    #[cfg_attr(feature = "serde", serde(skip))]
     explicit_top: Option<String>,
 }
 
@@ -2800,6 +2833,35 @@ mod tests {
         );
         cell.clear_elements();
         assert!(cell.elements().is_empty());
+    }
+
+    #[test]
+    fn port_and_bend_edits_are_transactional() {
+        let mut cell = Cell::new("test");
+        cell.add_port(Port::new("in", Point::origin(), Vector2::unit_x()));
+        cell.add_port(Port::new("out", Point::new(1.0, 0.0), Vector2::unit_x()));
+        cell.add_bend(BendInfo::new(5.0, Point::new(0.5, 0.0)));
+
+        let error = cell
+            .edit_ports(|ports| ports[0].direction = Vector2::zero())
+            .unwrap_err();
+        assert!(matches!(error, CellValidationError::InvalidPort { .. }));
+        assert_eq!(cell.ports()[0].direction, Vector2::unit_x());
+
+        let error = cell
+            .edit_ports(|ports| ports[1].name = "in".to_string())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            CellValidationError::DuplicatePortName { .. }
+        ));
+        assert_eq!(cell.ports()[1].name, "out");
+
+        let error = cell
+            .edit_bends(|bends| bends[0].radius = f64::INFINITY)
+            .unwrap_err();
+        assert!(matches!(error, CellValidationError::InvalidBend { .. }));
+        assert_eq!(cell.bends()[0].radius, 5.0);
     }
 
     #[test]

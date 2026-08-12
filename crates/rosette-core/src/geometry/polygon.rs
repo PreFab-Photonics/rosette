@@ -9,7 +9,6 @@ use super::{BBox, Point, Transform, Vector2};
 /// Vertices are stored in order (typically counter-clockwise for positive area).
 /// The polygon is implicitly closed (last vertex connects to first).
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Polygon {
     vertices: Vec<Point>,
 }
