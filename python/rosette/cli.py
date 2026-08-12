@@ -1571,6 +1571,15 @@ def _bootstrap_uv_project(
     return True
 
 
+def _print_beta_notice() -> None:
+    """Warn init users that Rosette is not production-ready yet."""
+    from rosette import __version__
+
+    print(_yellow(f"Rosette v{__version__} Beta"))
+    print("Features may be unstable or incomplete. Not suitable for production use.")
+    print()
+
+
 def init_project(
     template: str | None = None,
     tool: str | None = None,
@@ -1603,6 +1612,8 @@ def init_project(
     if (project_dir / "rosette.toml").exists():
         print("Error: rosette.toml already exists (project already initialized)")
         sys.exit(1)
+
+    _print_beta_notice()
 
     # Pre-flight: ensure we're inside a uv/Python project, offering to set one
     # up with uv when it's missing.

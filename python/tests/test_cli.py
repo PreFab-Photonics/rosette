@@ -103,6 +103,18 @@ class TestParseToolSpec:
 class TestRosetteInit:
     """Tests for 'rosette init' command."""
 
+    def test_init_prints_beta_notice(self, tmp_path: Path, monkeypatch, capsys):
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+
+        init_project("blank", tool="opencode")
+
+        out = capsys.readouterr().out
+        assert "Rosette v" in out
+        assert " Beta" in out
+        assert "Features may be unstable or incomplete. Not suitable for production use." in out
+
     def test_init_creates_complete_structure(self, tmp_path: Path, monkeypatch):
         """rosette init creates all expected files in current directory."""
         project_dir = tmp_path / "my_project"
