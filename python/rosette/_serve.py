@@ -79,10 +79,12 @@ def _prepare_design(cell: Cell):
         - json_str: Hierarchical library JSON (micrometers, full structure)
         - cell_tree: Hierarchy tree dict for the explorer panel
     """
+    from rosette import _collect_all_cells
     from rosette._core import to_json
 
-    # Collect child cells
-    child_cells_list = list(cell.get_child_cells()) if hasattr(cell, "get_child_cells") else None
+    child_cells: set[Cell] = set()
+    _collect_all_cells(cell, child_cells)
+    child_cells_list = list(child_cells)
 
     # Serialize to hierarchical JSON (preserves cells, refs, paths, text)
     if child_cells_list:
@@ -113,11 +115,16 @@ def _prepare_design_from_library(library: Library | _CoreLibrary):
     if not isinstance(library, LibWrapper):
         library = LibWrapper._from_inner(library)
 
-    top = library.top_cell()
-    if top is None:
+    all_cells = library.cells()
+    if not all_cells:
         raise ValueError("GDS file contains no cells")
 
-    all_cells = library.cells()
+    # The browser derives the complete hierarchy forest from the serialized
+    # library. This single tree is retained only as a fallback for old clients.
+    top = library.top_cell()
+    if top is None:
+        roots = library.roots()
+        top = roots[0] if roots else all_cells[0]
     child_cells_list = [c for c in all_cells if c.name != top.name]
 
     # Serialize the full hierarchical library

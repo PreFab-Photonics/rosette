@@ -167,7 +167,7 @@ impl<'a> GdsReader<'a> {
                     // third-party names are retained even when Rosette would
                     // not emit them as GDS.
                     library
-                        .add_cell_dedup(cell)
+                        .add_cell(cell)
                         .map_err(|error| GdsError::InvalidRecord {
                             offset: self.offset(),
                             message: error.to_string(),

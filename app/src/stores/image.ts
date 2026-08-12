@@ -137,6 +137,8 @@ interface ImageState {
   removeImage: (id: string) => void;
   /** Update an existing image's properties. */
   updateImage: (id: string, updates: Partial<ImageEntry>) => void;
+  /** Move every image owned by a renamed cell. */
+  renameCell: (oldName: string, newName: string) => void;
   /** Remove all images. */
   clearImages: () => void;
 }
@@ -163,6 +165,18 @@ export const useImageStore = create<ImageState>((set, get) => ({
       next.set(id, { ...existing, ...updates });
       set({ images: next });
     }
+  },
+
+  renameCell: (oldName, newName) => {
+    const next = new Map(get().images);
+    let changed = false;
+    for (const [id, entry] of next) {
+      if (entry.cellName === oldName) {
+        next.set(id, { ...entry, cellName: newName });
+        changed = true;
+      }
+    }
+    if (changed) set({ images: next });
   },
 
   clearImages: () => {

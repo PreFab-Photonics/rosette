@@ -5,10 +5,13 @@
 
 use crate::error::LibraryError;
 use crate::geometry::{BBox, Point, Polygon, Transform, Vector2};
-use crate::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
+use crate::hierarchy::{
+    HierarchyEvent, HierarchyIssue, HierarchyIssueKind, WalkControl, walk_hierarchy,
+};
 use crate::layer::Layer;
 use crate::path::{stroke_path, stroke_path_transformed};
 use crate::port::Port;
+use std::collections::{HashMap, HashSet};
 
 /// GDS path end type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -673,6 +676,40 @@ pub struct Library {
     name: String,
     /// Cells in the library.
     cells: Vec<Cell>,
+    /// Explicit entry cell selected by the caller.
+    ///
+    /// This is intentionally excluded from the legacy JSON representation.
+    /// Versioned persistence belongs to `rosette-io`.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    explicit_top: Option<String>,
+}
+
+/// How insertion handles a cell whose identity already exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DuplicatePolicy {
+    /// Reject the insertion.
+    Error,
+    /// Keep the existing definition and ignore the incoming definition.
+    KeepExisting,
+}
+
+#[derive(Default)]
+struct RecursiveInsertState {
+    visits: HashMap<String, u8>,
+    path: Vec<String>,
+    ordered: Vec<Cell>,
+    issues: Vec<HierarchyIssue>,
+}
+
+struct CellIdentityGuard<'a> {
+    cell: &'a mut Cell,
+    identity: String,
+}
+
+impl Drop for CellIdentityGuard<'_> {
+    fn drop(&mut self) {
+        self.cell.name.clone_from(&self.identity);
+    }
 }
 
 impl Library {
@@ -681,6 +718,7 @@ impl Library {
         Self {
             name: name.into(),
             cells: Vec::new(),
+            explicit_top: None,
         }
     }
 
@@ -694,45 +732,46 @@ impl Library {
         &self.cells
     }
 
-    /// Get all cells mutably.
-    pub fn cells_mut(&mut self) -> &mut [Cell] {
-        &mut self.cells
+    /// Apply an update to every cell without exposing mutable identities.
+    pub fn edit_cells(&mut self, mut edit: impl FnMut(&mut Cell)) {
+        for cell in &mut self.cells {
+            let identity = cell.name.clone();
+            let guard = CellIdentityGuard { cell, identity };
+            edit(&mut *guard.cell);
+        }
     }
 
-    /// Add a cell to the library.
+    /// Insert a cell using an explicit duplicate policy.
     ///
     /// # Errors
     /// Returns [`LibraryError::AlreadyExists`] if a cell with the same name
     /// already exists, or [`LibraryError::EmptyCellName`] for an empty identity.
-    pub fn add_cell(&mut self, cell: Cell) -> Result<(), LibraryError> {
+    pub fn insert_cell(
+        &mut self,
+        cell: Cell,
+        duplicates: DuplicatePolicy,
+    ) -> Result<bool, LibraryError> {
         if cell.name().is_empty() {
             return Err(LibraryError::EmptyCellName);
         }
         if self.cells.iter().any(|c| c.name() == cell.name()) {
-            return Err(LibraryError::AlreadyExists {
-                name: cell.name().to_string(),
-            });
+            return match duplicates {
+                DuplicatePolicy::Error => Err(LibraryError::AlreadyExists {
+                    name: cell.name().to_string(),
+                }),
+                DuplicatePolicy::KeepExisting => Ok(false),
+            };
         }
         self.cells.push(cell);
-        Ok(())
+        Ok(true)
     }
 
-    /// Add a cell to the library, skipping duplicates silently.
+    /// Add a cell to the library, rejecting duplicate identities.
     ///
-    /// Unlike [`add_cell`], this does not return an error for duplicate names;
-    /// it silently skips them. This is useful when building hierarchies where
-    /// shared cells may be added multiple times.
-    ///
-    /// # Errors
-    /// Returns [`LibraryError::EmptyCellName`] for an empty identity.
-    pub fn add_cell_dedup(&mut self, cell: Cell) -> Result<(), LibraryError> {
-        if cell.name().is_empty() {
-            return Err(LibraryError::EmptyCellName);
-        }
-        if !self.cells.iter().any(|c| c.name() == cell.name()) {
-            self.cells.push(cell);
-        }
-        Ok(())
+    /// This convenience method is equivalent to
+    /// `insert_cell(cell, DuplicatePolicy::Error)`.
+    pub fn add_cell(&mut self, cell: Cell) -> Result<(), LibraryError> {
+        self.insert_cell(cell, DuplicatePolicy::Error).map(|_| ())
     }
 
     /// Check if the library contains a cell with the given name.
@@ -745,14 +784,86 @@ impl Library {
         self.cells.iter().find(|c| c.name() == name)
     }
 
-    /// Get a mutable cell by name.
-    pub fn cell_mut(&mut self, name: &str) -> Option<&mut Cell> {
-        self.cells.iter_mut().find(|c| c.name() == name)
+    /// Apply an update to one cell without exposing its mutable identity.
+    pub fn edit_cell<R>(&mut self, name: &str, edit: impl FnOnce(&mut Cell) -> R) -> Option<R> {
+        let cell = self.cells.iter_mut().find(|cell| cell.name() == name)?;
+        let identity = cell.name.clone();
+        let guard = CellIdentityGuard { cell, identity };
+        Some(edit(&mut *guard.cell))
     }
 
-    /// Get the top cell (last added, typically the main design).
+    /// Validate the nonempty, unique identities required by the core model.
+    pub fn validate_identities(&self) -> Result<(), LibraryError> {
+        let mut names = HashSet::with_capacity(self.cells.len());
+        for cell in &self.cells {
+            if cell.name().is_empty() {
+                return Err(LibraryError::EmptyCellName);
+            }
+            if !names.insert(cell.name()) {
+                return Err(LibraryError::AlreadyExists {
+                    name: cell.name().to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Return graph-derived root cells in deterministic library order.
+    ///
+    /// A root is a cell that is not referenced by any other cell in the
+    /// library. Missing reference targets do not affect the result. A closed
+    /// reference cycle may therefore have no roots.
+    pub fn roots(&self) -> Vec<&Cell> {
+        let referenced: HashSet<&str> = self
+            .cells
+            .iter()
+            .flat_map(Cell::cell_refs)
+            .map(|cell_ref| cell_ref.cell_name.as_str())
+            .collect();
+        self.cells
+            .iter()
+            .filter(|cell| !referenced.contains(cell.name()))
+            .collect()
+    }
+
+    /// Get the selected top cell.
+    ///
+    /// An explicit selection takes precedence. Without one, the sole
+    /// graph-derived root is returned; empty, multi-root, and rootless cyclic
+    /// libraries return `None`.
     pub fn top_cell(&self) -> Option<&Cell> {
-        self.cells.last()
+        if let Some(name) = &self.explicit_top {
+            return self.cell(name);
+        }
+        let mut roots = self.roots().into_iter();
+        let root = roots.next()?;
+        roots.next().is_none().then_some(root)
+    }
+
+    /// Get the explicitly selected top cell, if any.
+    pub fn explicit_top_cell(&self) -> Option<&Cell> {
+        self.explicit_top
+            .as_deref()
+            .and_then(|name| self.cell(name))
+    }
+
+    /// Select an existing cell as the library's top entry cell.
+    ///
+    /// The selected cell may be a non-root when callers intentionally want to
+    /// operate on a hierarchy subtree.
+    pub fn set_top_cell(&mut self, name: &str) -> Result<(), LibraryError> {
+        if !self.contains(name) {
+            return Err(LibraryError::CellNotFound {
+                name: name.to_string(),
+            });
+        }
+        self.explicit_top = Some(name.to_string());
+        Ok(())
+    }
+
+    /// Clear the explicit top selection and restore unique-root inference.
+    pub fn clear_top_cell(&mut self) {
+        self.explicit_top = None;
     }
 
     /// Calculate the fully-resolved bounding box of a cell in this library.
@@ -815,6 +926,9 @@ impl Library {
         if new_name.is_empty() {
             return Err(LibraryError::EmptyCellName);
         }
+        if !self.contains(old_name) {
+            return Ok(false);
+        }
 
         // Prevent rename to an existing name (unless it's the same cell)
         if old_name != new_name && self.contains(new_name) {
@@ -822,12 +936,10 @@ impl Library {
                 name: new_name.to_string(),
             });
         }
-        let mut found = false;
         for cell in &mut self.cells {
             if cell.name() == old_name {
                 // Name already validated above, skip re-validation
                 cell.set_name_unchecked(new_name);
-                found = true;
             }
             // Update CellRef elements that reference the old name
             for element in &mut cell.elements {
@@ -838,27 +950,75 @@ impl Library {
                 }
             }
         }
-        Ok(found)
+        if self.explicit_top.as_deref() == Some(old_name) {
+            self.explicit_top = Some(new_name.to_string());
+        }
+        Ok(true)
     }
 
-    /// Remove a cell from the library by name.
+    /// Remove an unreferenced cell from the library by name.
     ///
-    /// Returns `true` if the cell was found and removed, `false` otherwise.
-    pub fn remove_cell(&mut self, name: &str) -> bool {
+    /// References owned by the removed cell itself do not prevent removal.
+    ///
+    /// # Errors
+    /// Returns [`LibraryError::CellReferenced`] when another cell references
+    /// the requested cell.
+    pub fn remove_cell(&mut self, name: &str) -> Result<bool, LibraryError> {
+        if !self.contains(name) {
+            return Ok(false);
+        }
+        let referenced_by: Vec<String> = self
+            .cells
+            .iter()
+            .filter(|cell| cell.name() != name)
+            .filter(|cell| cell.cell_refs().any(|cell_ref| cell_ref.cell_name == name))
+            .map(|cell| cell.name().to_string())
+            .collect();
+        if !referenced_by.is_empty() {
+            return Err(LibraryError::CellReferenced {
+                name: name.to_string(),
+                referenced_by,
+            });
+        }
+
         let len = self.cells.len();
         self.cells.retain(|c| c.name() != name);
-        self.cells.len() < len
+        let removed = self.cells.len() < len;
+        if removed && self.explicit_top.as_deref() == Some(name) {
+            self.explicit_top = None;
+        }
+        Ok(removed)
     }
 
-    /// Add a cell and all its referenced cells recursively.
+    /// Remove a cell and all references to it.
+    ///
+    /// Returns the number of removed references. A missing cell is a no-op.
+    pub fn remove_cell_cascade(&mut self, name: &str) -> usize {
+        if !self.contains(name) {
+            return 0;
+        }
+        let mut removed_refs = 0;
+        for cell in &mut self.cells {
+            let before = cell.elements.len();
+            cell.remove_refs_by_name(name);
+            removed_refs += before - cell.elements.len();
+        }
+        self.cells.retain(|cell| cell.name() != name);
+        if self.explicit_top.as_deref() == Some(name) {
+            self.explicit_top = None;
+        }
+        removed_refs
+    }
+
+    /// Add a cell and its reachable definitions recursively and atomically.
     ///
     /// This method takes a cell registry (a slice of available cells) and
     /// automatically adds all cells that are referenced by the given cell,
     /// recursively resolving the entire hierarchy.
     ///
-    /// Cells that already exist in the library (by name) are skipped.
-    /// Empty cell identities are silently dropped. Format-specific naming
-    /// constraints belong to the corresponding IO boundary.
+    /// Candidate definitions are validated before the library is changed.
+    /// Missing references, cycles, duplicate candidate identities, and policy
+    /// conflicts return an error without partially inserting the hierarchy.
     ///
     /// # Arguments
     /// * `cell` - The cell to add (typically the top-level cell)
@@ -868,58 +1028,129 @@ impl Library {
     /// ```ignore
     /// let mut lib = Library::new("my_lib");
     /// let all_cells = vec![mmi_cell, sbend_cell, waveguide_cell, top_cell];
-    /// lib.add_cell_recursive(top_cell, &all_cells);
+    /// lib.add_cell_recursive(top_cell, &all_cells, DuplicatePolicy::KeepExisting)?;
+    /// # Ok::<(), LibraryError>(())
     /// ```
-    pub fn add_cell_recursive(&mut self, cell: Cell, available_cells: &[Cell]) {
-        // Build a name -> cell map for lookups
-        let cell_map: std::collections::HashMap<&str, &Cell> =
-            available_cells.iter().map(|c| (c.name(), c)).collect();
-
-        // Recursively collect all referenced cells
-        let mut to_add: Vec<Cell> = Vec::new();
-        let mut visiting = std::collections::HashSet::from([cell.name().to_string()]);
-        self.collect_referenced_cells(&cell, &cell_map, &mut visiting, &mut to_add);
-
-        // Add all collected cells (dependencies first), skipping duplicates
-        for c in to_add {
-            // Ignore errors from duplicates (expected in hierarchical designs)
-            let _ = self.add_cell_dedup(c);
+    pub fn add_cell_recursive(
+        &mut self,
+        cell: Cell,
+        available_cells: &[Cell],
+        duplicates: DuplicatePolicy,
+    ) -> Result<(), LibraryError> {
+        if cell.name().is_empty() {
+            return Err(LibraryError::EmptyCellName);
         }
 
-        // Add the top cell last
-        let _ = self.add_cell_dedup(cell);
-    }
-
-    /// Helper to recursively collect referenced cells.
-    fn collect_referenced_cells(
-        &self,
-        cell: &Cell,
-        cell_map: &std::collections::HashMap<&str, &Cell>,
-        visiting: &mut std::collections::HashSet<String>,
-        collected: &mut Vec<Cell>,
-    ) {
-        for cell_ref in cell.cell_refs() {
-            let ref_name = &cell_ref.cell_name;
-
-            // Skip if already in library or already collected
-            if self.contains(ref_name) || collected.iter().any(|c| c.name() == ref_name) {
+        let mut candidates = HashMap::<&str, &Cell>::new();
+        candidates.insert(cell.name(), &cell);
+        for candidate in available_cells {
+            if candidate.name().is_empty() {
+                return Err(LibraryError::EmptyCellName);
+            }
+            // The root is commonly included in the registry; the explicit root
+            // argument is authoritative for that identity.
+            if candidate.name() == cell.name() {
                 continue;
             }
-
-            // Find the referenced cell
-            if let Some(&referenced_cell) = cell_map.get(ref_name.as_str()) {
-                if !visiting.insert(referenced_cell.name().to_string()) {
-                    continue;
-                }
-                // Recursively collect its dependencies first
-                self.collect_referenced_cells(referenced_cell, cell_map, visiting, collected);
-                visiting.remove(referenced_cell.name());
-                // Then add this cell
-                if !collected.iter().any(|c| c.name() == ref_name) {
-                    collected.push(referenced_cell.clone());
-                }
+            if candidates.insert(candidate.name(), candidate).is_some() {
+                return Err(LibraryError::DuplicateCandidate {
+                    name: candidate.name().to_string(),
+                });
             }
         }
+
+        fn resolve<'a>(
+            library: &'a Library,
+            candidates: &'a HashMap<&str, &'a Cell>,
+            name: &str,
+            duplicates: DuplicatePolicy,
+        ) -> Result<Option<(&'a Cell, bool)>, LibraryError> {
+            if let Some(existing) = library.cell(name) {
+                if candidates.contains_key(name) && duplicates == DuplicatePolicy::Error {
+                    return Err(LibraryError::AlreadyExists {
+                        name: name.to_string(),
+                    });
+                }
+                return Ok(Some((existing, false)));
+            }
+            Ok(candidates.get(name).map(|cell| (*cell, true)))
+        }
+
+        fn visit<'a>(
+            library: &'a Library,
+            candidates: &'a HashMap<&str, &'a Cell>,
+            name: &str,
+            duplicates: DuplicatePolicy,
+            state: &mut RecursiveInsertState,
+        ) -> Result<(), LibraryError> {
+            let Some((definition, should_insert)) = resolve(library, candidates, name, duplicates)?
+            else {
+                return Err(LibraryError::CellNotFound {
+                    name: name.to_string(),
+                });
+            };
+
+            state.visits.insert(name.to_string(), 1);
+            state.path.push(name.to_string());
+            for (element_index, element) in definition.elements().iter().enumerate() {
+                let Element::CellRef(cell_ref) = element else {
+                    continue;
+                };
+                let target = cell_ref.cell_name.as_str();
+                if resolve(library, candidates, target, duplicates)?.is_none() {
+                    state.issues.push(HierarchyIssue {
+                        kind: HierarchyIssueKind::MissingReference,
+                        parent_cell: definition.name().to_string(),
+                        cell_name: target.to_string(),
+                        element_index,
+                        column: 0,
+                        row: 0,
+                        path: format!("{}/{}", state.path.join("/"), target),
+                    });
+                    continue;
+                }
+
+                match state.visits.get(target).copied().unwrap_or(0) {
+                    1 => state.issues.push(HierarchyIssue {
+                        kind: HierarchyIssueKind::Cycle,
+                        parent_cell: definition.name().to_string(),
+                        cell_name: target.to_string(),
+                        element_index,
+                        column: 0,
+                        row: 0,
+                        path: format!("{}/{}", state.path.join("/"), target),
+                    }),
+                    2 => {}
+                    _ => visit(library, candidates, target, duplicates, state)?,
+                }
+            }
+            state.path.pop();
+            state.visits.insert(name.to_string(), 2);
+            if should_insert {
+                state.ordered.push(definition.clone());
+            }
+            Ok(())
+        }
+
+        let root_name = cell.name().to_string();
+        let mut state = RecursiveInsertState::default();
+        visit(self, &candidates, &root_name, duplicates, &mut state)?;
+
+        if !state.issues.is_empty() {
+            let missing = state
+                .issues
+                .iter()
+                .filter(|issue| issue.kind == HierarchyIssueKind::MissingReference)
+                .count();
+            let cycles = state.issues.len() - missing;
+            return Err(LibraryError::InvalidHierarchy {
+                summary: format!("{missing} missing reference(s), {cycles} cycle(s)"),
+                issues: state.issues,
+            });
+        }
+
+        self.cells.extend(state.ordered);
+        Ok(())
     }
 }
 
@@ -1356,7 +1587,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_cell_recursive_stops_at_cycles() {
+    fn add_cell_recursive_rejects_cycles_atomically() {
         let mut cell_a = Cell::new("A");
         cell_a.add_ref(CellRef::new("B"));
         let mut cell_b = Cell::new("B");
@@ -1364,10 +1595,213 @@ mod tests {
         let available = [cell_a.clone(), cell_b];
         let mut library = Library::new("cycle");
 
-        library.add_cell_recursive(cell_a, &available);
+        let error = library
+            .add_cell_recursive(cell_a, &available, DuplicatePolicy::KeepExisting)
+            .unwrap_err();
 
-        assert_eq!(library.cells().len(), 2);
+        assert!(matches!(error, LibraryError::InvalidHierarchy { .. }));
+        assert!(library.cells().is_empty());
+    }
+
+    #[test]
+    fn roots_and_top_are_independent_of_insertion_order() {
+        let mut child = Cell::new("child");
+        child.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), 1);
+        let mut parent = Cell::new("parent");
+        parent.add_ref(CellRef::new("child"));
+        let independent = Cell::new("independent");
+
+        let mut library = Library::new("test");
+        library.add_cell(parent).unwrap();
+        library.add_cell(independent).unwrap();
+        library.add_cell(child).unwrap();
+
+        assert_eq!(
+            library
+                .roots()
+                .iter()
+                .map(|cell| cell.name())
+                .collect::<Vec<_>>(),
+            vec!["parent", "independent"]
+        );
+        assert!(library.top_cell().is_none());
+
+        library.set_top_cell("parent").unwrap();
+        assert_eq!(library.top_cell().unwrap().name(), "parent");
+        assert_eq!(library.explicit_top_cell().unwrap().name(), "parent");
+        library.clear_top_cell();
+        assert!(library.top_cell().is_none());
+    }
+
+    #[test]
+    fn unique_root_is_inferred_and_explicit_top_tracks_rename() {
+        let mut child = Cell::new("child");
+        child.add_ref(CellRef::new("leaf"));
+        let mut library = Library::new("test");
+        library.add_cell(child).unwrap();
+        library.add_cell(Cell::new("leaf")).unwrap();
+
+        assert_eq!(library.top_cell().unwrap().name(), "child");
+        library.set_top_cell("leaf").unwrap();
+        library.rename_cell("leaf", "renamed").unwrap();
+        assert_eq!(library.top_cell().unwrap().name(), "renamed");
+
+        let error = library.set_top_cell("missing").unwrap_err();
+        assert!(matches!(error, LibraryError::CellNotFound { .. }));
+        assert_eq!(library.top_cell().unwrap().name(), "renamed");
+    }
+
+    #[test]
+    fn controlled_edits_preserve_library_identities() {
+        let mut library = Library::new("test");
+        library.add_cell(Cell::new("A")).unwrap();
+        library.add_cell(Cell::new("B")).unwrap();
+        library.set_top_cell("A").unwrap();
+
+        library.edit_cell("A", |cell| *cell = Cell::new("B"));
+        library.edit_cells(|cell| *cell = Cell::new("replacement"));
+
+        assert_eq!(
+            library
+                .cells()
+                .iter()
+                .map(|cell| cell.name())
+                .collect::<Vec<_>>(),
+            vec!["A", "B"]
+        );
         assert_eq!(library.top_cell().unwrap().name(), "A");
+        library.validate_identities().unwrap();
+    }
+
+    #[test]
+    fn controlled_edits_restore_identity_during_unwind() {
+        let mut library = Library::new("test");
+        library.add_cell(Cell::new("original")).unwrap();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            library.edit_cell("original", |cell| {
+                *cell = Cell::new("replacement");
+                panic!("stop edit");
+            });
+        }));
+
+        assert!(result.is_err());
+        assert!(library.contains("original"));
+        library.validate_identities().unwrap();
+    }
+
+    #[test]
+    fn renaming_a_missing_identity_does_not_rewrite_dangling_refs() {
+        let mut cell = Cell::new("parent");
+        cell.add_ref(CellRef::new("missing"));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+
+        assert!(!library.rename_cell("missing", "renamed").unwrap());
+        assert_eq!(
+            library
+                .cell("parent")
+                .unwrap()
+                .cell_refs()
+                .next()
+                .unwrap()
+                .cell_name,
+            "missing"
+        );
+    }
+
+    #[test]
+    fn insert_cell_applies_duplicate_policy() {
+        let mut library = Library::new("test");
+        assert!(
+            library
+                .insert_cell(Cell::new("cell"), DuplicatePolicy::Error)
+                .unwrap()
+        );
+        assert!(
+            !library
+                .insert_cell(Cell::new("cell"), DuplicatePolicy::KeepExisting)
+                .unwrap()
+        );
+        assert!(matches!(
+            library
+                .insert_cell(Cell::new("cell"), DuplicatePolicy::Error)
+                .unwrap_err(),
+            LibraryError::AlreadyExists { .. }
+        ));
+        assert_eq!(library.cells().len(), 1);
+    }
+
+    #[test]
+    fn recursive_insertion_is_dependency_first_and_reports_missing_refs() {
+        let leaf = Cell::new("leaf");
+        let mut child = Cell::new("child");
+        child.add_ref(CellRef::new("leaf"));
+        let mut root = Cell::new("root");
+        root.add_ref(CellRef::new("child"));
+
+        let mut library = Library::new("test");
+        library
+            .add_cell_recursive(root.clone(), &[leaf, child], DuplicatePolicy::KeepExisting)
+            .unwrap();
+        assert_eq!(
+            library
+                .cells()
+                .iter()
+                .map(|cell| cell.name())
+                .collect::<Vec<_>>(),
+            vec!["leaf", "child", "root"]
+        );
+        assert_eq!(library.top_cell().unwrap().name(), "root");
+
+        let mut missing_root = Cell::new("missing_root");
+        missing_root.add_ref(CellRef::new("absent"));
+        let error = library
+            .add_cell_recursive(missing_root, &[], DuplicatePolicy::KeepExisting)
+            .unwrap_err();
+        let LibraryError::InvalidHierarchy { issues, .. } = error else {
+            panic!("expected hierarchy error");
+        };
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].kind, HierarchyIssueKind::MissingReference);
+        assert_eq!(issues[0].path, "missing_root/absent");
+        assert_eq!(library.cells().len(), 3);
+    }
+
+    #[test]
+    fn recursive_insertion_rejects_ambiguous_candidates_atomically() {
+        let mut root = Cell::new("root");
+        root.add_ref(CellRef::new("child"));
+        let candidates = [Cell::new("child"), Cell::new("child")];
+        let mut library = Library::new("test");
+
+        let error = library
+            .add_cell_recursive(root, &candidates, DuplicatePolicy::KeepExisting)
+            .unwrap_err();
+
+        assert!(matches!(error, LibraryError::DuplicateCandidate { .. }));
+        assert!(library.cells().is_empty());
+    }
+
+    #[test]
+    fn removal_rejects_dangling_references_and_cascade_preserves_integrity() {
+        let child = Cell::new("child");
+        let mut parent = Cell::new("parent");
+        parent.add_ref(CellRef::new("child"));
+        let mut library = Library::new("test");
+        library.add_cell(child).unwrap();
+        library.add_cell(parent).unwrap();
+        library.set_top_cell("parent").unwrap();
+
+        let error = library.remove_cell("child").unwrap_err();
+        assert!(matches!(error, LibraryError::CellReferenced { .. }));
+        assert!(library.contains("child"));
+
+        assert_eq!(library.remove_cell_cascade("child"), 1);
+        assert!(!library.contains("child"));
+        assert_eq!(library.cell("parent").unwrap().ref_count(), 0);
+        assert!(library.remove_cell("parent").unwrap());
+        assert!(library.top_cell().is_none());
     }
 
     #[test]

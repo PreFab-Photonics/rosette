@@ -80,9 +80,10 @@ impl WasmLibrary {
         );
         let cell_ref = CellRef::with_transform(ref_cell_name.to_string(), t);
 
-        let cell = self.library.cell_mut(&active_name)?;
-        cell.add_ref(cell_ref);
-        let element_index = cell.elements().len() - 1;
+        let element_index = self.library.edit_cell(&active_name, |cell| {
+            cell.add_ref(cell_ref);
+            cell.elements().len() - 1
+        })?;
 
         let uuid = Uuid::new_v4().to_string();
         self.element_refs.insert(
@@ -115,21 +116,27 @@ impl WasmLibrary {
             Some(name) => name.clone(),
             None => return false,
         };
-        if let Some(cell) = self.library.cell_mut(&active_cell_name)
-            && let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx)
-        {
-            cell_ref.transform = Transform::new(
-                transform[0],
-                transform[1],
-                transform[2],
-                transform[3],
-                transform[4],
-                transform[5],
-            );
+        let updated = self
+            .library
+            .edit_cell(&active_cell_name, |cell| {
+                let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx) else {
+                    return false;
+                };
+                cell_ref.transform = Transform::new(
+                    transform[0],
+                    transform[1],
+                    transform[2],
+                    transform[3],
+                    transform[4],
+                    transform[5],
+                );
+                true
+            })
+            .unwrap_or(false);
+        if updated {
             self.mark_dirty();
-            return true;
         }
-        false
+        updated
     }
 
     /// Get the array repetition parameters for a CellRef instance
@@ -219,30 +226,34 @@ impl WasmLibrary {
             return false;
         };
 
-        if let Some(cell) = self.library.cell_mut(&cell_name)
-            && let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx)
-        {
-            if columns <= 1 && rows <= 1 {
-                cell_ref.repetition = None;
-            } else if let Some(existing) = cell_ref.repetition
-                && (existing.col_vector.y != 0.0 || existing.row_vector.x != 0.0)
-            {
-                // Existing AREF is skewed: preserve the lattice vectors
-                // and only update the counts.
-                cell_ref.repetition = Some(Repetition::new_vectors(
-                    columns,
-                    rows,
-                    existing.col_vector,
-                    existing.row_vector,
-                ));
-            } else {
-                cell_ref.repetition =
-                    Some(Repetition::new(columns, rows, col_spacing, row_spacing));
-            }
+        let updated = self
+            .library
+            .edit_cell(&cell_name, |cell| {
+                let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx) else {
+                    return false;
+                };
+                if columns <= 1 && rows <= 1 {
+                    cell_ref.repetition = None;
+                } else if let Some(existing) = cell_ref.repetition
+                    && (existing.col_vector.y != 0.0 || existing.row_vector.x != 0.0)
+                {
+                    cell_ref.repetition = Some(Repetition::new_vectors(
+                        columns,
+                        rows,
+                        existing.col_vector,
+                        existing.row_vector,
+                    ));
+                } else {
+                    cell_ref.repetition =
+                        Some(Repetition::new(columns, rows, col_spacing, row_spacing));
+                }
+                true
+            })
+            .unwrap_or(false);
+        if updated {
             self.mark_dirty();
-            return true;
         }
-        false
+        updated
     }
 
     /// Set the array repetition parameters on a CellRef instance from full
@@ -278,23 +289,29 @@ impl WasmLibrary {
             return false;
         };
 
-        if let Some(cell) = self.library.cell_mut(&cell_name)
-            && let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx)
-        {
-            if columns <= 1 && rows <= 1 {
-                cell_ref.repetition = None;
-            } else {
-                cell_ref.repetition = Some(Repetition::new_vectors(
-                    columns,
-                    rows,
-                    Vector2::new(col_x, col_y),
-                    Vector2::new(row_x, row_y),
-                ));
-            }
+        let updated = self
+            .library
+            .edit_cell(&cell_name, |cell| {
+                let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx) else {
+                    return false;
+                };
+                if columns <= 1 && rows <= 1 {
+                    cell_ref.repetition = None;
+                } else {
+                    cell_ref.repetition = Some(Repetition::new_vectors(
+                        columns,
+                        rows,
+                        Vector2::new(col_x, col_y),
+                        Vector2::new(row_x, row_y),
+                    ));
+                }
+                true
+            })
+            .unwrap_or(false);
+        if updated {
             self.mark_dirty();
-            return true;
         }
-        false
+        updated
     }
 
     /// Add a cell reference (instance) to the active cell.
@@ -340,9 +357,10 @@ impl WasmLibrary {
             Transform::translate(x - origin.x, y - origin.y),
         );
 
-        let cell = self.library.cell_mut(parent_cell)?;
-        cell.add_ref(cell_ref);
-        let element_index = cell.elements().len() - 1;
+        let element_index = self.library.edit_cell(parent_cell, |cell| {
+            cell.add_ref(cell_ref);
+            cell.elements().len() - 1
+        })?;
 
         let uuid = Uuid::new_v4().to_string();
         self.element_refs.insert(
@@ -359,12 +377,14 @@ impl WasmLibrary {
 
     /// Get all parent cells that reference a given cell, with their transforms.
     ///
-    /// Returns a JS array of `{parent: string, transform: [a, b, c, d, tx, ty]}`.
+    /// Returns a JS array of `{parent, transform, repetition}` records.
+    /// `repetition` is `[columns, rows, col_x, col_y, row_x, row_y]` or null.
     pub fn get_cell_ref_parents(&self, name: &str) -> JsValue {
         #[derive(serde::Serialize)]
         struct ParentRef {
             parent: String,
             transform: Vec<f64>,
+            repetition: Option<Vec<f64>>,
         }
 
         let mut entries: Vec<ParentRef> = Vec::new();
@@ -378,6 +398,16 @@ impl WasmLibrary {
                     entries.push(ParentRef {
                         parent: cell.name().to_string(),
                         transform: vec![t.a, t.b, t.c, t.d, t.tx, t.ty],
+                        repetition: cell_ref.repetition.map(|repetition| {
+                            vec![
+                                repetition.columns as f64,
+                                repetition.rows as f64,
+                                repetition.col_vector.x,
+                                repetition.col_vector.y,
+                                repetition.row_vector.x,
+                                repetition.row_vector.y,
+                            ]
+                        }),
                     });
                 }
             }
@@ -389,16 +419,14 @@ impl WasmLibrary {
     /// Add a CellRef to a specific parent cell with a full affine transform.
     ///
     /// Like `add_cell_ref_to` but accepts a full [a, b, c, d, tx, ty] transform
-    /// instead of just (x, y). Used by DeleteCellCommand undo to restore parent refs.
+    /// and optional repetition vectors.
     pub fn add_cell_ref_to_with_transform(
         &mut self,
         parent_cell: &str,
         ref_cell_name: &str,
         transform: Vec<f64>,
+        repetition: Option<Vec<f64>>,
     ) -> Option<String> {
-        if transform.len() != 6 {
-            return None;
-        }
         if parent_cell == ref_cell_name {
             return None;
         }
@@ -406,6 +434,39 @@ impl WasmLibrary {
             return None;
         }
         if !self.can_instance_cell(parent_cell, ref_cell_name) {
+            return None;
+        }
+
+        self.restore_cell_ref_to_with_transform(parent_cell, ref_cell_name, transform, repetition)
+    }
+
+    /// Restore a CellRef in the active cell without rejecting imported cycles.
+    ///
+    /// This is reserved for undo of previously accepted hierarchy data.
+    pub fn restore_cell_ref_with_transform(
+        &mut self,
+        ref_cell_name: &str,
+        transform: Vec<f64>,
+        repetition: Option<Vec<f64>>,
+    ) -> Option<String> {
+        let parent_cell = self.active_cell.clone()?;
+        self.restore_cell_ref_to_with_transform(&parent_cell, ref_cell_name, transform, repetition)
+    }
+
+    /// Restore a CellRef in a named parent without rejecting imported cycles.
+    ///
+    /// This is reserved for undo of previously accepted hierarchy data.
+    pub fn restore_cell_ref_to_with_transform(
+        &mut self,
+        parent_cell: &str,
+        ref_cell_name: &str,
+        transform: Vec<f64>,
+        repetition: Option<Vec<f64>>,
+    ) -> Option<String> {
+        if transform.len() != 6
+            || !self.library.contains(parent_cell)
+            || !self.library.contains(ref_cell_name)
+        {
             return None;
         }
 
@@ -417,11 +478,23 @@ impl WasmLibrary {
             transform[4],
             transform[5],
         );
-        let cell_ref = CellRef::with_transform(ref_cell_name.to_string(), t);
+        let mut cell_ref = CellRef::with_transform(ref_cell_name.to_string(), t);
+        if let Some(repetition) = repetition {
+            if repetition.len() != 6 {
+                return None;
+            }
+            cell_ref.repetition = Some(Repetition::new_vectors(
+                repetition[0] as u16,
+                repetition[1] as u16,
+                Vector2::new(repetition[2], repetition[3]),
+                Vector2::new(repetition[4], repetition[5]),
+            ));
+        }
 
-        let cell = self.library.cell_mut(parent_cell)?;
-        cell.add_ref(cell_ref);
-        let element_index = cell.elements().len() - 1;
+        let element_index = self.library.edit_cell(parent_cell, |cell| {
+            cell.add_ref(cell_ref);
+            cell.elements().len() - 1
+        })?;
 
         let uuid = Uuid::new_v4().to_string();
         self.element_refs.insert(
@@ -634,27 +707,13 @@ impl WasmLibrary {
             return JsValue::NULL;
         }
 
-        // Collect all cell names that are referenced by some other cell.
-        let mut referenced: Vec<String> = Vec::new();
-        for cell in cells {
-            for cell_ref in cell.cell_refs() {
-                if !referenced.contains(&cell_ref.cell_name) {
-                    referenced.push(cell_ref.cell_name.clone());
-                }
-            }
-        }
-
-        // Top-level roots: cells not referenced by any other cell.
         // Each root gets its own visited set so shared sub-cells appear
         // correctly under every root that references them.
         let roots = js_sys::Array::new();
-        for cell in cells {
-            let name = cell.name();
-            if !referenced.contains(&name.to_string()) {
-                let mut visited = Vec::new();
-                let node = self.build_cell_tree_node(name, &mut visited);
-                roots.push(&node);
-            }
+        for cell in self.library.roots() {
+            let mut visited = Vec::new();
+            let node = self.build_cell_tree_node(cell.name(), &mut visited);
+            roots.push(&node);
         }
 
         roots.into()
@@ -727,5 +786,51 @@ mod tests {
         let bbox = library.compute_instance_bbox("parent", &cell_ref);
         assert_eq!((bbox.min().x, bbox.min().y), (-400.0, -300.0));
         assert_eq!((bbox.max().x, bbox.max().y), (600.0, 700.0));
+    }
+
+    #[test]
+    fn transformed_ref_restoration_preserves_repetition() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        library.add_cell("parent").unwrap();
+
+        library
+            .add_cell_ref_to_with_transform(
+                "parent",
+                "child",
+                vec![1.0, 0.0, 0.0, 1.0, 10.0, 20.0],
+                Some(vec![3.0, 2.0, 8.0, 1.0, 2.0, 6.0]),
+            )
+            .unwrap();
+
+        let cell_ref = library
+            .library
+            .cell("parent")
+            .unwrap()
+            .cell_refs()
+            .next()
+            .unwrap();
+        let repetition = cell_ref.repetition.unwrap();
+        assert_eq!((repetition.columns, repetition.rows), (3, 2));
+        assert_eq!(repetition.col_vector, Vector2::new(8.0, 1.0));
+        assert_eq!(repetition.row_vector, Vector2::new(2.0, 6.0));
+    }
+
+    #[test]
+    fn restore_api_preserves_preexisting_self_references() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("self_ref").unwrap();
+        assert!(library.set_active_cell("self_ref"));
+
+        assert!(
+            library
+                .restore_cell_ref_with_transform(
+                    "self_ref",
+                    vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                    None,
+                )
+                .is_some()
+        );
+        assert_eq!(library.library.cell("self_ref").unwrap().ref_count(), 1);
     }
 }

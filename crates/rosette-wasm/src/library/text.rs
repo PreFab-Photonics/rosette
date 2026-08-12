@@ -20,21 +20,21 @@ impl WasmLibrary {
         layer: u16,
         datatype: u16,
     ) -> Option<String> {
-        let cell_name = self.active_cell.as_ref()?;
-        let cell = self.library.cell_mut(cell_name)?;
+        let cell_name = self.active_cell.clone()?;
 
         let position = Point::new(x, y);
         let layer_spec = Layer::new(layer, datatype);
 
-        cell.add_text_with_height(text, position, layer_spec, height);
-
-        let element_index = cell.elements().len() - 1;
+        let element_index = self.library.edit_cell(&cell_name, |cell| {
+            cell.add_text_with_height(text, position, layer_spec, height);
+            cell.elements().len() - 1
+        })?;
         let uuid = Uuid::new_v4().to_string();
 
         self.element_refs.insert(
             uuid.clone(),
             ElementRef {
-                cell_name: cell_name.clone(),
+                cell_name,
                 element_index,
             },
         );
@@ -112,23 +112,22 @@ impl WasmLibrary {
             None => return false,
         };
 
-        let cell = match self.library.cell_mut(&elem_ref.cell_name) {
-            Some(c) => c,
-            None => return false,
-        };
-
-        let elements = cell.elements_mut();
-        if elem_ref.element_index >= elements.len() {
-            return false;
-        }
-
-        if let Element::Text { text, .. } = &mut elements[elem_ref.element_index] {
-            *text = new_text.to_string();
+        let updated = self
+            .library
+            .edit_cell(&elem_ref.cell_name, |cell| {
+                let Some(Element::Text { text, .. }) =
+                    cell.elements_mut().get_mut(elem_ref.element_index)
+                else {
+                    return false;
+                };
+                *text = new_text.to_string();
+                true
+            })
+            .unwrap_or(false);
+        if updated {
             self.mark_dirty();
-            true
-        } else {
-            false
         }
+        updated
     }
 
     /// Get text-specific information for a given element UUID.
@@ -185,23 +184,22 @@ impl WasmLibrary {
             None => return false,
         };
 
-        let cell = match self.library.cell_mut(&elem_ref.cell_name) {
-            Some(c) => c,
-            None => return false,
-        };
-
-        let elements = cell.elements_mut();
-        if elem_ref.element_index >= elements.len() {
-            return false;
-        }
-
-        if let Element::Text { position, .. } = &mut elements[elem_ref.element_index] {
-            *position = Point::new(x, y);
+        let updated = self
+            .library
+            .edit_cell(&elem_ref.cell_name, |cell| {
+                let Some(Element::Text { position, .. }) =
+                    cell.elements_mut().get_mut(elem_ref.element_index)
+                else {
+                    return false;
+                };
+                *position = Point::new(x, y);
+                true
+            })
+            .unwrap_or(false);
+        if updated {
             self.mark_dirty();
-            true
-        } else {
-            false
         }
+        updated
     }
 
     /// Update the height of a text element.
@@ -213,23 +211,22 @@ impl WasmLibrary {
             None => return false,
         };
 
-        let cell = match self.library.cell_mut(&elem_ref.cell_name) {
-            Some(c) => c,
-            None => return false,
-        };
-
-        let elements = cell.elements_mut();
-        if elem_ref.element_index >= elements.len() {
-            return false;
-        }
-
-        if let Element::Text { height, .. } = &mut elements[elem_ref.element_index] {
-            *height = new_height;
+        let updated = self
+            .library
+            .edit_cell(&elem_ref.cell_name, |cell| {
+                let Some(Element::Text { height, .. }) =
+                    cell.elements_mut().get_mut(elem_ref.element_index)
+                else {
+                    return false;
+                };
+                *height = new_height;
+                true
+            })
+            .unwrap_or(false);
+        if updated {
             self.mark_dirty();
-            true
-        } else {
-            false
         }
+        updated
     }
 
     /// Check if an element is a text element.

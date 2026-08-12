@@ -5,7 +5,7 @@ use crate::geometry::{PyBBox, PyPoint, PyPolygon, PyTransform, PyVector2};
 use pyo3::prelude::*;
 use rosette_core::cell::PathEndType;
 use rosette_core::component::connect_transform;
-use rosette_core::{BendInfo, Cell, CellRef, Layer, Library, Point, Port};
+use rosette_core::{BendInfo, Cell, CellRef, DuplicatePolicy, Layer, Library, Point, Port};
 use std::f64::consts::PI;
 
 /// GDS path end type.
@@ -738,6 +738,16 @@ impl PyCell {
 #[derive(Clone)]
 pub struct PyLibrary(pub Library);
 
+fn parse_duplicate_policy(value: &str) -> PyResult<DuplicatePolicy> {
+    match value {
+        "error" => Ok(DuplicatePolicy::Error),
+        "keep" => Ok(DuplicatePolicy::KeepExisting),
+        _ => Err(pyo3::exceptions::PyValueError::new_err(
+            "on_duplicate must be 'error' or 'keep'",
+        )),
+    }
+}
+
 #[pymethods]
 impl PyLibrary {
     /// Create a new library.
@@ -754,14 +764,20 @@ impl PyLibrary {
 
     /// Add a cell to the library.
     ///
+    /// `on_duplicate="error"` rejects an existing identity, while
+    /// `on_duplicate="keep"` retains the installed definition.
+    ///
     /// Raises:
     ///     ValueError: If the cell name is invalid or a cell with the
-    ///         same name already exists.
-    fn add_cell(&mut self, cell: &PyCell) -> PyResult<()> {
+    ///         same name already exists under the error policy.
+    #[pyo3(signature = (cell, *, on_duplicate="error"))]
+    fn add_cell(&mut self, cell: &PyCell, on_duplicate: &str) -> PyResult<()> {
         rosette_io::gds::validate_structure_name(cell.0.name())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let duplicates = parse_duplicate_policy(on_duplicate)?;
         self.0
-            .add_cell(cell.0.clone())
+            .insert_cell(cell.0.clone(), duplicates)
+            .map(|_| ())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 
@@ -771,7 +787,9 @@ impl PyLibrary {
     /// given cell, resolving the entire hierarchy. You must provide a list
     /// of all available cells that may be referenced.
     ///
-    /// Cells that already exist in the library (by name) are skipped.
+    /// Validation is atomic. Missing references, cycles, ambiguous candidate
+    /// definitions, and rejected duplicates raise `ValueError` without
+    /// partially changing the library.
     ///
     /// Args:
     ///     cell: The cell to add (typically the top-level cell)
@@ -783,7 +801,13 @@ impl PyLibrary {
     ///     all_cells = [mmi_cell, sbend_cell, waveguide_cell, top_cell]
     ///     lib.add_cell_recursive(top_cell, all_cells)
     ///     ```
-    fn add_cell_recursive(&mut self, cell: &PyCell, available_cells: Vec<PyCell>) -> PyResult<()> {
+    #[pyo3(signature = (cell, available_cells, *, on_duplicate="keep"))]
+    fn add_cell_recursive(
+        &mut self,
+        cell: &PyCell,
+        available_cells: Vec<PyCell>,
+        on_duplicate: &str,
+    ) -> PyResult<()> {
         let cells: Vec<Cell> = available_cells.into_iter().map(|c| c.0).collect();
         // Validate all cell names before adding
         for c in &cells {
@@ -792,8 +816,10 @@ impl PyLibrary {
         }
         rosette_io::gds::validate_structure_name(cell.0.name())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        self.0.add_cell_recursive(cell.0.clone(), &cells);
-        Ok(())
+        let duplicates = parse_duplicate_policy(on_duplicate)?;
+        self.0
+            .add_cell_recursive(cell.0.clone(), &cells, duplicates)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 
     /// Get a cell by name.
@@ -806,7 +832,28 @@ impl PyLibrary {
         self.0.cells().iter().map(|c| PyCell(c.clone())).collect()
     }
 
-    /// Get the top cell (last added).
+    /// Get graph-derived root cells in deterministic library order.
+    fn roots(&self) -> Vec<PyCell> {
+        self.0
+            .roots()
+            .into_iter()
+            .map(|cell| PyCell(cell.clone()))
+            .collect()
+    }
+
+    /// Select an existing cell as the explicit top entry cell.
+    fn set_top_cell(&mut self, name: &str) -> PyResult<()> {
+        self.0
+            .set_top_cell(name)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Clear the explicit top selection and restore unique-root inference.
+    fn clear_top_cell(&mut self) {
+        self.0.clear_top_cell();
+    }
+
+    /// Get the explicit top cell or the sole graph-derived root.
     fn top_cell(&self) -> Option<PyCell> {
         self.0.top_cell().map(|c| PyCell(c.clone()))
     }

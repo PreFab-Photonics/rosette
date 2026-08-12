@@ -25,23 +25,23 @@ impl WasmLibrary {
         layer: u16,
         datatype: u16,
     ) -> Option<String> {
-        let cell_name = self.active_cell.as_ref()?;
-        let cell = self.library.cell_mut(cell_name)?;
+        let cell_name = self.active_cell.clone()?;
 
         let polygon = Polygon::rect(Point::new(x, y), width, height);
         let layer_spec = Layer::new(layer, datatype);
 
-        cell.add_polygon(polygon, layer_spec);
-
-        // Use actual element index (elements.len() - 1), not polygon_count(),
-        // because the cell may contain mixed element types (CellRef, Path, etc.)
-        let element_index = cell.elements().len() - 1;
+        let element_index = self.library.edit_cell(&cell_name, |cell| {
+            cell.add_polygon(polygon, layer_spec);
+            // Use actual element index, not polygon_count(), because the cell
+            // may contain mixed element types (CellRef, Path, etc.).
+            cell.elements().len() - 1
+        })?;
         let uuid = Uuid::new_v4().to_string();
 
         self.element_refs.insert(
             uuid.clone(),
             ElementRef {
-                cell_name: cell_name.clone(),
+                cell_name,
                 element_index,
             },
         );
@@ -59,8 +59,7 @@ impl WasmLibrary {
             return None; // Need at least 3 points
         }
 
-        let cell_name = self.active_cell.as_ref()?;
-        let cell = self.library.cell_mut(cell_name)?;
+        let cell_name = self.active_cell.clone()?;
 
         let vertices: Vec<Point> = points
             .chunks(2)
@@ -70,17 +69,18 @@ impl WasmLibrary {
         let polygon = Polygon::new(vertices);
         let layer_spec = Layer::new(layer, datatype);
 
-        cell.add_polygon(polygon, layer_spec);
-
-        // Use actual element index (elements.len() - 1), not polygon_count(),
-        // because the cell may contain mixed element types (CellRef, Path, etc.)
-        let element_index = cell.elements().len() - 1;
+        let element_index = self.library.edit_cell(&cell_name, |cell| {
+            cell.add_polygon(polygon, layer_spec);
+            // Use actual element index, not polygon_count(), because the cell
+            // may contain mixed element types (CellRef, Path, etc.).
+            cell.elements().len() - 1
+        })?;
         let uuid = Uuid::new_v4().to_string();
 
         self.element_refs.insert(
             uuid.clone(),
             ElementRef {
-                cell_name: cell_name.clone(),
+                cell_name,
                 element_index,
             },
         );
@@ -125,10 +125,10 @@ impl WasmLibrary {
 
         let layer_spec = Layer::new(layer, datatype);
         let cell_name = cell_name.clone();
-        let cell = self.library.cell_mut(&cell_name)?;
-        cell.add_polygon(polygon, layer_spec);
-
-        let element_index = cell.elements().len() - 1;
+        let element_index = self.library.edit_cell(&cell_name, |cell| {
+            cell.add_polygon(polygon, layer_spec);
+            cell.elements().len() - 1
+        })?;
         let uuid = Uuid::new_v4().to_string();
 
         self.element_refs.insert(
@@ -175,10 +175,10 @@ impl WasmLibrary {
 
         let layer_spec = Layer::new(layer, datatype);
         let cell_name = cell_name.clone();
-        let cell = self.library.cell_mut(&cell_name)?;
-        cell.add_polygon(polygon, layer_spec);
-
-        let element_index = cell.elements().len() - 1;
+        let element_index = self.library.edit_cell(&cell_name, |cell| {
+            cell.add_polygon(polygon, layer_spec);
+            cell.elements().len() - 1
+        })?;
         let uuid = Uuid::new_v4().to_string();
 
         self.element_refs.insert(

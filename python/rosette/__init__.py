@@ -1278,23 +1278,42 @@ class Library:
         """Library name."""
         return self._inner.name
 
-    def add_cell(self, cell: Cell | _Cell) -> None:
+    def add_cell(
+        self,
+        cell: Cell | _Cell,
+        *,
+        on_duplicate: Literal["error", "keep"] = "error",
+    ) -> None:
         """Add a cell to the library.
 
-        If a cell with the same name already exists, this is a no-op.
+        Args:
+            cell: Cell definition to insert.
+            on_duplicate: ``"error"`` rejects an existing identity;
+                ``"keep"`` retains the existing definition.
         """
         inner_cell = cell._inner if isinstance(cell, Cell) else cell
-        self._inner.add_cell(inner_cell)
+        self._inner.add_cell(inner_cell, on_duplicate=on_duplicate)
 
-    def add_cell_recursive(self, cell: Cell | _Cell, available_cells: list[Cell | _Cell]) -> None:
+    def add_cell_recursive(
+        self,
+        cell: Cell | _Cell,
+        available_cells: list[Cell | _Cell],
+        *,
+        on_duplicate: Literal["error", "keep"] = "keep",
+    ) -> None:
         """Add a cell and all its referenced cells recursively.
 
         This method automatically adds all cells that are referenced by the
-        given cell, resolving the entire hierarchy.
+        given cell, resolving the entire hierarchy atomically. Missing
+        references, cycles, and ambiguous definitions raise ``ValueError``.
         """
         inner_cell = cell._inner if isinstance(cell, Cell) else cell
         inner_available = [c._inner if isinstance(c, Cell) else c for c in available_cells]
-        self._inner.add_cell_recursive(inner_cell, inner_available)
+        self._inner.add_cell_recursive(
+            inner_cell,
+            inner_available,
+            on_duplicate=on_duplicate,
+        )
 
     def cell(self, name: str) -> Cell | None:
         """Get a cell by name."""
@@ -1305,8 +1324,20 @@ class Library:
         """Get all cells."""
         return [Cell._from_inner(c) for c in self._inner.cells()]
 
+    def roots(self) -> list[Cell]:
+        """Get graph-derived root cells in deterministic library order."""
+        return [Cell._from_inner(c) for c in self._inner.roots()]
+
+    def set_top_cell(self, name: str) -> None:
+        """Select an existing cell as the explicit top entry cell."""
+        self._inner.set_top_cell(name)
+
+    def clear_top_cell(self) -> None:
+        """Clear explicit selection and restore unique-root inference."""
+        self._inner.clear_top_cell()
+
     def top_cell(self) -> Cell | None:
-        """Get the top cell (last added)."""
+        """Get the explicit top cell or sole graph-derived root."""
         inner = self._inner.top_cell()
         return Cell._from_inner(inner) if inner is not None else None
 
@@ -2235,7 +2266,8 @@ def render_png(
             the full hierarchy is rendered.
         bbox: Explicit world-space region (microns). If omitted, derived
             from `cell` or the design's full extent.
-        cell: Name of a cell to focus on instead of the top cell.
+        cell: Name of a cell to focus on instead of the selected/unique top
+            or the full multi-root library.
         layers: Restrict to specific `(layer, datatype)` pairs.
         width: Output width in pixels (default 1024).
         height: Output height in pixels. If None, derived from aspect ratio.

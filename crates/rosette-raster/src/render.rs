@@ -17,7 +17,7 @@ pub struct RenderOptions {
     /// Explicit world-space region to render. If `None`, the region is
     /// derived from `cell` (if set) or the full library extent.
     pub bbox: Option<BBox>,
-    /// Render only this cell (and its descendants) instead of the top cell.
+    /// Render only this cell instead of the selected/unique top or all roots.
     pub cell: Option<String>,
     /// Restrict to specific `(layer, datatype)` pairs. `None` = all layers.
     pub layers: Option<Vec<(u16, u16)>>,

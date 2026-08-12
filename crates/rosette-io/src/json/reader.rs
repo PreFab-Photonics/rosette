@@ -19,7 +19,8 @@ use std::path::Path;
 pub fn read(path: impl AsRef<Path>) -> Result<Library, JsonError> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let library = serde_json::from_reader(reader)?;
+    let library: Library = serde_json::from_reader(reader)?;
+    library.validate_identities()?;
     Ok(library)
 }
 
@@ -34,7 +35,9 @@ pub fn read(path: impl AsRef<Path>) -> Result<Library, JsonError> {
 /// # Errors
 /// Returns an error if the JSON is invalid or doesn't match the expected structure.
 pub fn from_string(json: &str) -> Result<Library, JsonError> {
-    Ok(serde_json::from_str(json)?)
+    let library: Library = serde_json::from_str(json)?;
+    library.validate_identities()?;
+    Ok(library)
 }
 
 #[cfg(test)]
@@ -129,5 +132,34 @@ mod tests {
 
         let parent = restored.cell("parent").unwrap();
         assert_eq!(parent.ref_count(), 1);
+    }
+
+    #[test]
+    fn rejects_empty_and_duplicate_cell_identities() {
+        let mut library = Library::new("test");
+        library.add_cell(Cell::new("cell")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&to_string(&library).unwrap()).unwrap();
+
+        let mut empty = value.clone();
+        empty["cells"][0]["name"] = serde_json::Value::String(String::new());
+        assert!(matches!(
+            from_string(&serde_json::to_string(&empty).unwrap()),
+            Err(JsonError::InvalidLibrary(
+                rosette_core::LibraryError::EmptyCellName
+            ))
+        ));
+
+        let mut duplicate = value;
+        let duplicate_cell = duplicate["cells"][0].clone();
+        duplicate["cells"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate_cell);
+        assert!(matches!(
+            from_string(&serde_json::to_string(&duplicate).unwrap()),
+            Err(JsonError::InvalidLibrary(
+                rosette_core::LibraryError::AlreadyExists { .. }
+            ))
+        ));
     }
 }

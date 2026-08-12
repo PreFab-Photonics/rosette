@@ -139,16 +139,26 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
  *
  * Returns the IDs of the newly created elements.
  */
-export function restoreSnapshots(library: WasmLibrary, snapshots: ClipboardSnapshot[]): string[] {
+export function restoreSnapshots(
+  library: WasmLibrary,
+  snapshots: ClipboardSnapshot[],
+  allowImportedCycles = false,
+): string[] {
   const newIds: string[] = [];
 
   for (const snapshot of snapshots) {
     if (snapshot.type === "cell-ref") {
-      const id = library.add_cell_ref_with_transform(snapshot.cellName, snapshot.transform);
+      const id = allowImportedCycles
+        ? library.restore_cell_ref_with_transform(
+            snapshot.cellName,
+            snapshot.transform,
+            snapshot.repetition,
+          )
+        : library.add_cell_ref_with_transform(snapshot.cellName, snapshot.transform);
       if (id) {
         // Restore AREF repetition if the original was an array reference.
         // The 6-element vector payload covers rectangular and skewed lattices.
-        if (snapshot.repetition && snapshot.repetition.length === 6) {
+        if (!allowImportedCycles && snapshot.repetition && snapshot.repetition.length === 6) {
           library.set_cell_ref_array_vectors(
             id,
             snapshot.repetition[0], // columns

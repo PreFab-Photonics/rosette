@@ -47,9 +47,21 @@ impl WasmLibrary {
         let s = UM_TO_NM * GRID_SIZE;
         let scale_transform = Transform::scale(s, -s);
 
-        // Flatten all cells into the single "flattened" cell
+        // Flatten the selected/unique top, or every root for a multi-root
+        // library. Rootless cycles fall back to one guarded traversal.
         if let Some(top_cell) = library.top_cell() {
             wasm_lib.flatten_cell_recursive(top_cell, &library, &scale_transform, &[], s);
+        } else {
+            let roots = library.roots();
+            if roots.is_empty() {
+                if let Some(cell) = library.cells().first() {
+                    wasm_lib.flatten_cell_recursive(cell, &library, &scale_transform, &[], s);
+                }
+            } else {
+                for root in roots {
+                    wasm_lib.flatten_cell_recursive(root, &library, &scale_transform, &[], s);
+                }
+            }
         }
 
         Ok(wasm_lib)
@@ -123,7 +135,7 @@ impl WasmLibrary {
         // Transform all elements in every cell from um/Y-up to world/Y-down.
         // Iterate cells by index to avoid O(C^2) name lookups.
         let mut cell_origins = HashMap::new();
-        for cell in library.cells_mut() {
+        library.edit_cells(|cell| {
             // Import the serialized compatibility field into editor state.
             let origin = cell.origin();
             cell_origins.insert(
@@ -175,7 +187,7 @@ impl WasmLibrary {
                     }
                 }
             }
-        }
+        });
 
         // Count total elements across all cells for pre-allocation (Opt 2)
         let total_elements: usize = library.cells().iter().map(|c| c.elements().len()).sum();
@@ -198,8 +210,13 @@ impl WasmLibrary {
             }
         }
 
-        // Set active cell to top cell (last cell in the list)
-        let active_cell = library.top_cell().map(|c| c.name().to_string());
+        // Imported GDS has no explicit top marker. Prefer an unambiguous top,
+        // then the first graph root, with a final fallback for rootless cycles.
+        let active_cell = library
+            .top_cell()
+            .or_else(|| library.roots().into_iter().next())
+            .or_else(|| library.cells().first())
+            .map(|cell| cell.name().to_string());
 
         WasmLibrary {
             library,
@@ -241,7 +258,7 @@ impl WasmLibrary {
         let inv_flip = Transform::scale(inv, -inv);
         let flip = Transform::scale(s, -s);
 
-        for cell in library.cells_mut() {
+        library.edit_cells(|cell| {
             let origin = cell.origin();
             cell.set_origin(Point::new(origin.x * inv, -origin.y * inv));
 
@@ -284,7 +301,7 @@ impl WasmLibrary {
                     }
                 }
             }
-        }
+        });
 
         rosette_io::gds::write_bytes(&library)
             .map_err(|e| JsValue::from_str(&format!("GDS write error: {}", e)))
@@ -311,7 +328,7 @@ impl WasmLibrary {
         let inv_flip = Transform::scale(inv, -inv);
         let flip = Transform::scale(s, -s);
 
-        for cell in library.cells_mut() {
+        library.edit_cells(|cell| {
             let origin = cell.origin();
             cell.set_origin(Point::new(origin.x * inv, -origin.y * inv));
 
@@ -354,7 +371,7 @@ impl WasmLibrary {
                     }
                 }
             }
-        }
+        });
 
         rosette_io::json::to_string(&library)
             .map_err(|e| JsValue::from_str(&format!("JSON serialize error: {}", e)))
@@ -364,14 +381,14 @@ impl WasmLibrary {
 impl WasmLibrary {
     fn library_with_origins(&self) -> Library {
         let mut library = self.library.clone();
-        for cell in library.cells_mut() {
+        library.edit_cells(|cell| {
             cell.set_origin(
                 self.cell_origins
                     .get(cell.name())
                     .copied()
                     .unwrap_or_else(Point::origin),
             );
-        }
+        });
         library
     }
 }
@@ -430,7 +447,36 @@ mod tests {
 
         let multi_root = WasmLibrary::from_library_json(MULTI_ROOT).unwrap();
         assert_eq!(multi_root.library.cells().len(), 2);
-        assert_eq!(multi_root.active_cell.as_deref(), Some("root_b"));
+        assert_eq!(multi_root.active_cell.as_deref(), Some("root_a"));
+    }
+
+    #[test]
+    fn removing_a_missing_cell_does_not_strip_dangling_references() {
+        let mut library = WasmLibrary::from_library_json(CURRENT_LIBRARY).unwrap();
+
+        assert_eq!(library.remove_cell_cascade("missing"), 0);
+        assert!(
+            library
+                .library
+                .cell("top")
+                .unwrap()
+                .cell_refs()
+                .any(|cell_ref| cell_ref.cell_name == "missing")
+        );
+    }
+
+    #[test]
+    fn removing_a_self_referencing_cell_leaves_no_stale_element_ids() {
+        let mut cell = Cell::new("self_ref");
+        cell.add_ref(CellRef::new("self_ref"));
+        let mut core = Library::new("test");
+        core.add_cell(cell).unwrap();
+        let json = rosette_io::json::to_string(&core).unwrap();
+        let mut library = WasmLibrary::from_library_json(&json).unwrap();
+
+        assert!(!library.element_refs.is_empty());
+        assert_eq!(library.remove_cell_cascade("self_ref"), 1);
+        assert!(library.element_refs.is_empty());
     }
 
     #[test]
@@ -450,7 +496,7 @@ mod tests {
         let json = rosette_io::json::to_string(&library).unwrap();
 
         let wasm = WasmLibrary::from_library_json(&json).unwrap();
-        assert_eq!(wasm.active_cell.as_deref(), Some("B"));
+        assert_eq!(wasm.active_cell.as_deref(), Some("A"));
         assert_eq!(wasm.get_render_polygons_internal().len(), 2);
         assert!(wasm.get_all_bounds().is_some());
     }

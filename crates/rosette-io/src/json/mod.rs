@@ -41,4 +41,8 @@ pub enum JsonError {
     /// JSON serialization error.
     #[error("JSON serialization error: {0}")]
     Serialize(#[from] serde_json::Error),
+
+    /// Deserialized data violates core library identity invariants.
+    #[error("invalid library: {0}")]
+    InvalidLibrary(#[from] rosette_core::LibraryError),
 }

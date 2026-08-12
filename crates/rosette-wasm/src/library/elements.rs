@@ -40,13 +40,14 @@ impl WasmLibrary {
             None => return false,
         };
 
-        let cell = match self.library.cell_mut(&elem_ref.cell_name) {
-            Some(c) => c,
-            None => return false,
-        };
-
-        // Remove the element
-        if cell.remove_element(elem_ref.element_index).is_none() {
+        let removed = self
+            .library
+            .edit_cell(&elem_ref.cell_name, |cell| {
+                cell.remove_element(elem_ref.element_index).is_some()
+            })
+            .unwrap_or(false);
+        if !removed {
+            self.element_refs.insert(resolved_id, elem_ref);
             return false;
         }
 
@@ -145,13 +146,15 @@ impl WasmLibrary {
                 indices_removed_in_cell.clear();
             }
 
-            // Remove from refs map
-            self.element_refs.remove(&id);
-
             // Remove from cell
-            if let Some(cell) = self.library.cell_mut(&cell_name)
-                && cell.remove_element(element_index).is_some()
-            {
+            let removed = self
+                .library
+                .edit_cell(&cell_name, |cell| {
+                    cell.remove_element(element_index).is_some()
+                })
+                .unwrap_or(false);
+            if removed {
+                self.element_refs.remove(&id);
                 indices_removed_in_cell.push(element_index);
                 removed_count += 1;
             }
@@ -325,33 +328,32 @@ impl WasmLibrary {
             None => return false,
         };
 
-        let cell = match self.library.cell_mut(&elem_ref.cell_name) {
-            Some(c) => c,
-            None => return false,
-        };
-
-        let elements = cell.elements_mut();
-        match elements.get_mut(elem_ref.element_index) {
-            Some(Element::Polygon { polygon, .. }) => {
-                let translation = Vector2::new(dx, dy);
-                *polygon = polygon.translate(translation);
-                self.mark_dirty();
-                true
-            }
-            Some(Element::Path { points, .. }) => {
-                for point in points.iter_mut() {
-                    *point = Point::new(point.x + dx, point.y + dy);
+        let translated = self
+            .library
+            .edit_cell(&elem_ref.cell_name, |cell| {
+                match cell.elements_mut().get_mut(elem_ref.element_index) {
+                    Some(Element::Polygon { polygon, .. }) => {
+                        *polygon = polygon.translate(Vector2::new(dx, dy));
+                        true
+                    }
+                    Some(Element::Path { points, .. }) => {
+                        for point in points.iter_mut() {
+                            *point = Point::new(point.x + dx, point.y + dy);
+                        }
+                        true
+                    }
+                    Some(Element::Text { position, .. }) => {
+                        *position = Point::new(position.x + dx, position.y + dy);
+                        true
+                    }
+                    _ => false,
                 }
-                self.mark_dirty();
-                true
-            }
-            Some(Element::Text { position, .. }) => {
-                *position = Point::new(position.x + dx, position.y + dy);
-                self.mark_dirty();
-                true
-            }
-            _ => false,
+            })
+            .unwrap_or(false);
+        if translated {
+            self.mark_dirty();
         }
+        translated
     }
 
     /// Translate multiple elements by the given delta.
@@ -378,12 +380,20 @@ impl WasmLibrary {
             if let Some(elem_idx) = parse_ref_uuid_element_index(id) {
                 if translated_ref_elements.insert(elem_idx) {
                     // Translate the CellRef element's transform
-                    if let Some(cell) = self.library.cell_mut(&active_cell_name)
-                        && let Some(Element::CellRef(cell_ref)) =
-                            cell.elements_mut().get_mut(elem_idx)
-                    {
-                        // Compose: new_transform = translate(dx,dy) * old_transform
-                        cell_ref.transform = Transform::translate(dx, dy).then(&cell_ref.transform);
+                    let translated = self
+                        .library
+                        .edit_cell(&active_cell_name, |cell| {
+                            let Some(Element::CellRef(cell_ref)) =
+                                cell.elements_mut().get_mut(elem_idx)
+                            else {
+                                return false;
+                            };
+                            cell_ref.transform =
+                                Transform::translate(dx, dy).then(&cell_ref.transform);
+                            true
+                        })
+                        .unwrap_or(false);
+                    if translated {
                         count += 1;
                         self.mark_dirty();
                     }

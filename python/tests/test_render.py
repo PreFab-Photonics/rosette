@@ -88,6 +88,20 @@ class TestRenderPng:
         with pytest.raises(ValueError, match="no geometry"):
             render_png(Library("empty"), width=128)
 
+    def test_multi_root_library_renders_all_roots_or_explicit_top(self):
+        root_a = Cell("root_a")
+        root_a.add_polygon(Polygon.rect(Point.origin(), 10.0, 10.0), Layer(1, 0))
+        root_b = Cell("root_b")
+        root_b.add_polygon(Polygon.rect(Point(20.0, 0.0), 10.0, 10.0), Layer(2, 0))
+        library = Library("multi")
+        library.add_cell(root_a)
+        library.add_cell(root_b)
+
+        assert render_png(library, width=128).layers_rendered == [(1, 0), (2, 0)]
+
+        library.set_top_cell("root_b")
+        assert render_png(library, width=128).layers_rendered == [(2, 0)]
+
     def test_writes_valid_png_to_disk(self, two_layer_library: Library, tmp_path):
         result = render_png(two_layer_library, width=200, height=100)
         out = tmp_path / "shot.png"

@@ -95,7 +95,8 @@ impl PyRenderResult {
 ///     library: The Library to render.
 ///     bbox: Optional explicit world-space region (microns). If omitted,
 ///         derived from `cell` or the full library extent.
-///     cell: Render only the named cell instead of the top cell.
+///     cell: Render only the named cell instead of the selected/unique top
+///         or the full multi-root library.
 ///     layers: Restrict rendering to these `(layer, datatype)` pairs.
 ///     width: Output width in pixels. Default 1024.
 ///     height: Output height in pixels. If None, derived from aspect ratio.

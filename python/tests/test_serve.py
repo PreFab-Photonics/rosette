@@ -1,9 +1,26 @@
 """Tests for DRC integration in the rosette._serve live-preview helpers."""
 
+import json
 from pathlib import Path
 
 from rosette import Cell, DrcCache, DrcRules, Layer, Point, Polygon
-from rosette._serve import _load_layer_map_safe, _run_drc_safe
+from rosette._serve import _load_layer_map_safe, _prepare_design, _run_drc_safe
+
+
+def test_prepare_design_collects_descendants_added_after_parent_placement():
+    leaf = Cell("leaf")
+    child = Cell("child")
+    top = Cell("top")
+    top.add_ref(child)
+    child.add_ref(leaf)
+
+    design_json, _ = _prepare_design(top)
+
+    assert {cell["name"] for cell in json.loads(design_json)["cells"]} == {
+        "leaf",
+        "child",
+        "top",
+    }
 
 
 class TestRunDrcSafe:

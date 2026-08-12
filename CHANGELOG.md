@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A dedicated `rosette-route` crate with read-only `RouteResult` geometry and
   diagnostics.
 - A hole-preserving core `Region` and DRC-owned `DrcPolicy` side table.
+- Graph-derived library roots, explicit runtime top-cell selection, and duplicate
+  insertion policies.
 
 ### Changed
 
@@ -42,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - GDS structure-name constraints are enforced by `rosette-io` before writing any
   bytes. Core libraries accept format-neutral names while Python and WASM retain
   early GDS-compatible validation.
+- `Library.top_cell()` now uses explicit selection or unique-root inference instead
+  of insertion order. Raster snapshots include every root unless one is selected.
+- Recursive library insertion validates the complete reachable hierarchy and reports
+  missing references, cycles, ambiguous candidates, and duplicate-policy conflicts
+  atomically instead of silently dropping them.
 
 ### Fixed
 
@@ -68,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `Library` mutation now returns format-neutral `LibraryError`, while GDS callers use
   `GdsNameError` and `validate_structure_name`. The corresponding `GdsError` variants
   were consolidated into `InvalidStructureName`.
+- Removed Rust `Library::add_cell_dedup`; callers now use `insert_cell` with an explicit
+  `DuplicatePolicy`.
+- Removed raw Rust `Library::cell_mut` and `cells_mut` access. Controlled `edit_cell`
+  and `edit_cells` updates preserve cell identities.
 
 ## [0.4.2] - 2026-06-26
 

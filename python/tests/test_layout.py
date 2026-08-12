@@ -156,6 +156,8 @@ class TestLibrary:
         lib = Library("test_lib")
         assert lib.name == "test_lib"
         assert len(lib.cells()) == 0
+        assert lib.roots() == []
+        assert lib.top_cell() is None
 
     def test_add_and_get_cell(self):
         """Add and retrieve cell by name."""
@@ -190,6 +192,99 @@ class TestLibrary:
         top = lib.top_cell()
         assert top is not None
         assert top.name == "parent"
+
+    def test_roots_do_not_depend_on_insertion_order(self):
+        """Structural roots are derived from references, not append order."""
+        child = Cell("child")
+        parent = Cell("parent")
+        parent.add_ref(child)
+        independent = Cell("independent")
+        lib = Library("test_lib")
+
+        lib.add_cell(parent)
+        lib.add_cell(independent)
+        lib.add_cell(child)
+
+        assert [cell.name for cell in lib.roots()] == ["parent", "independent"]
+        assert lib.top_cell() is None
+
+    def test_explicit_top_selects_multi_root_entry(self):
+        """Explicit top resolves ambiguity without changing structural roots."""
+        lib = Library("test_lib")
+        lib.add_cell(Cell("root_a"))
+        lib.add_cell(Cell("root_b"))
+
+        lib.set_top_cell("root_b")
+        assert lib.top_cell() is not None
+        assert lib.top_cell().name == "root_b"
+        assert [cell.name for cell in lib.roots()] == ["root_a", "root_b"]
+
+        with pytest.raises(ValueError, match="does not exist"):
+            lib.set_top_cell("missing")
+        assert lib.top_cell().name == "root_b"
+
+        lib.clear_top_cell()
+        assert lib.top_cell() is None
+
+    def test_add_cell_duplicate_policy(self):
+        """Duplicate behavior is explicit and leaves the original installed."""
+        lib = Library("test_lib")
+        original = Cell("cell")
+        lib.add_cell(original)
+
+        with pytest.raises(ValueError, match="already exists"):
+            lib.add_cell(Cell("cell"))
+        lib.add_cell(Cell("cell"), on_duplicate="keep")
+        assert len(lib.cells()) == 1
+
+        with pytest.raises(ValueError, match="on_duplicate"):
+            lib.add_cell(Cell("other"), on_duplicate="replace")  # type: ignore[arg-type]
+        assert lib.cell("other") is None
+
+    def test_recursive_add_is_atomic_on_missing_reference(self):
+        """Malformed native hierarchies fail without partial insertion."""
+        from rosette._core import Cell as CoreCell
+        from rosette._core import CellRef as CoreCellRef
+
+        root = CoreCell("root")
+        root.add_ref(CoreCellRef("missing"))
+        lib = Library("test_lib")
+
+        with pytest.raises(ValueError, match="missing reference"):
+            lib.add_cell_recursive(root, [])
+        assert lib.cells() == []
+
+    def test_recursive_add_rejects_cycles(self):
+        """Cycles are reported instead of silently truncated."""
+        from rosette._core import Cell as CoreCell
+        from rosette._core import CellRef as CoreCellRef
+
+        cell_a = CoreCell("A")
+        cell_a.add_ref(CoreCellRef("B"))
+        cell_b = CoreCell("B")
+        cell_b.add_ref(CoreCellRef("A"))
+        lib = Library("test_lib")
+
+        with pytest.raises(ValueError, match="cycle"):
+            lib.add_cell_recursive(cell_a, [cell_a, cell_b])
+        assert lib.cells() == []
+
+    def test_recursive_add_uses_explicit_duplicate_policy(self):
+        """Existing dependencies can be retained or rejected atomically."""
+        child = Cell("child")
+        parent = Cell("parent")
+        parent.add_ref(child)
+        lib = Library("test_lib")
+        lib.add_cell(child)
+
+        with pytest.raises(ValueError, match="already exists"):
+            lib.add_cell_recursive(parent, [child], on_duplicate="error")
+        assert lib.cell("parent") is None
+
+        lib.add_cell_recursive(parent, [child])
+        assert [cell.name for cell in lib.cells()] == ["child", "parent"]
+        assert lib.top_cell() is not None
+        assert lib.top_cell().name == "parent"
 
     def test_add_cell_validates_cells_created_outside_constructor(self):
         """Library keeps GDS name validation for route-produced cells."""

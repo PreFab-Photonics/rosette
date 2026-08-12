@@ -73,7 +73,8 @@ impl Default for FlatGeometry {
 /// Flatten a library into a simple polygon list.
 ///
 /// This function:
-/// - Starts from the top cell (last added cell)
+/// - Starts from the explicit or unique top cell when available
+/// - Otherwise includes every graph-derived root in a multi-root library
 /// - Recursively expands all cell references with their transforms
 /// - Converts path elements to polygon ribbons
 /// - Applies the given scale factor to all coordinates
@@ -88,9 +89,42 @@ impl Default for FlatGeometry {
 pub fn flatten_library(library: &Library, scale: f64) -> FlatGeometry {
     let mut result = FlatGeometry::new();
     let scale_transform = Transform::scale(scale, scale);
+    let mut next_group = 0;
 
     if let Some(top_cell) = library.top_cell() {
-        flatten_placed_cell(&mut result, top_cell, library, scale_transform, scale.abs());
+        flatten_placed_cell(
+            &mut result,
+            top_cell,
+            library,
+            scale_transform,
+            scale.abs(),
+            &mut next_group,
+        );
+    } else {
+        let roots = library.roots();
+        if roots.is_empty() {
+            if let Some(cell) = library.cells().first() {
+                flatten_placed_cell(
+                    &mut result,
+                    cell,
+                    library,
+                    scale_transform,
+                    scale.abs(),
+                    &mut next_group,
+                );
+            }
+        } else {
+            for root in roots {
+                flatten_placed_cell(
+                    &mut result,
+                    root,
+                    library,
+                    scale_transform,
+                    scale.abs(),
+                    &mut next_group,
+                );
+            }
+        }
     }
 
     result
@@ -98,8 +132,8 @@ pub fn flatten_library(library: &Library, scale: f64) -> FlatGeometry {
 
 /// Flatten a specific cell (by name) into a polygon list.
 ///
-/// Like [`flatten_library`], but starts from a named cell instead of the
-/// top cell. Returns `None` if the cell is not found in the library.
+/// Like [`flatten_library`], but starts from one named cell instead of the
+/// library's default root selection. Returns `None` if the cell is not found.
 ///
 /// The named cell is fully resolved: all `CellRef` elements are recursively
 /// expanded with their transforms applied.
@@ -112,7 +146,15 @@ pub fn flatten_cell(library: &Library, cell_name: &str, scale: f64) -> Option<Fl
     let cell = library.cell(cell_name)?;
     let mut result = FlatGeometry::new();
     let scale_transform = Transform::scale(scale, scale);
-    flatten_placed_cell(&mut result, cell, library, scale_transform, scale.abs());
+    let mut next_group = 0;
+    flatten_placed_cell(
+        &mut result,
+        cell,
+        library,
+        scale_transform,
+        scale.abs(),
+        &mut next_group,
+    );
     Some(result)
 }
 
@@ -122,16 +164,16 @@ fn flatten_placed_cell(
     library: &Library,
     root_transform: Transform,
     absolute_width_scale: f64,
+    next_group: &mut u32,
 ) {
     let mut groups = HashMap::<usize, u32>::new();
-    let mut next_group = 0_u32;
     walk_hierarchy(library, root, root_transform, |event| {
         if let HierarchyEvent::Enter(placement) = event
             && let Some(step) = placement.path.first()
         {
             groups.entry(step.element_index).or_insert_with(|| {
-                let group = next_group;
-                next_group += 1;
+                let group = *next_group;
+                *next_group += 1;
                 group
             });
         }
@@ -220,6 +262,41 @@ mod tests {
         // Vertices should include 10000 and 5000
         assert!(flat.polygons[0].vertices.contains(&10000.0));
         assert!(flat.polygons[0].vertices.contains(&5000.0));
+    }
+
+    #[test]
+    fn multi_root_flattening_includes_all_roots_unless_top_is_selected() {
+        let mut child_a = Cell::new("child_a");
+        child_a.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
+        let mut child_b = Cell::new("child_b");
+        child_b.add_polygon(
+            Polygon::rect(Point::new(10.0, 0.0), 1.0, 1.0),
+            Layer::new(2, 0),
+        );
+        let mut root_a = Cell::new("root_a");
+        root_a.add_ref(CellRef::new("child_a"));
+        let mut root_b = Cell::new("root_b");
+        root_b.add_ref(CellRef::new("child_b"));
+        let mut library = Library::new("multi");
+        library.add_cell(child_a).unwrap();
+        library.add_cell(child_b).unwrap();
+        library.add_cell(root_a).unwrap();
+        library.add_cell(root_b).unwrap();
+
+        let all = flatten_library(&library, 1.0);
+        assert_eq!(all.polygons.len(), 2);
+        assert_eq!(
+            all.polygons
+                .iter()
+                .map(|polygon| polygon.group)
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1)]
+        );
+
+        library.set_top_cell("root_b").unwrap();
+        let selected = flatten_library(&library, 1.0);
+        assert_eq!(selected.polygons.len(), 1);
+        assert_eq!(selected.polygons[0].layer, 2);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use crate::layout::{PyCell, PyLibrary};
 use pyo3::prelude::*;
-use rosette_core::{Cell, Library};
+use rosette_core::{Cell, DuplicatePolicy, Library};
 use rosette_io::{gds, json};
 
 /// Build summary information for a cell.
@@ -293,12 +293,25 @@ pub fn write_gds(
             pyo3::exceptions::PyIOError::new_err(format!("Failed to write GDS: {}", e))
         })?;
 
-        if print_summary && let Some(top) = lib.0.top_cell() {
-            let summary = BuildSummary::from_cell_with_library(top, Some(&lib.0));
-            if verbose {
-                eprintln!("{}", summary.format_verbose());
-            } else {
-                eprintln!("  {}", summary.format_terse());
+        if print_summary {
+            let entries = lib.0.top_cell().map_or_else(
+                || {
+                    let roots = lib.0.roots();
+                    if roots.is_empty() {
+                        lib.0.cells().first().into_iter().collect()
+                    } else {
+                        roots
+                    }
+                },
+                |top| vec![top],
+            );
+            for entry in entries {
+                let summary = BuildSummary::from_cell_with_library(entry, Some(&lib.0));
+                if verbose {
+                    eprintln!("{}", summary.format_verbose());
+                } else {
+                    eprintln!("  {}", summary.format_terse());
+                }
             }
         }
         return Ok(());
@@ -310,7 +323,8 @@ pub fn write_gds(
         if let Some(child_cells) = cells {
             let mut lib = rosette_core::Library::new(cell.0.name().to_string());
             let cells_vec: Vec<_> = child_cells.iter().map(|c| c.0.clone()).collect();
-            lib.add_cell_recursive(cell.0.clone(), &cells_vec);
+            lib.add_cell_recursive(cell.0.clone(), &cells_vec, DuplicatePolicy::KeepExisting)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
             gds::write_library(path, &lib).map_err(|e| {
                 pyo3::exceptions::PyIOError::new_err(format!("Failed to write GDS: {}", e))
             })?;
@@ -408,7 +422,8 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
 
         if let Some(child_cells) = cells {
             let cells_vec: Vec<_> = child_cells.iter().map(|c| c.0.clone()).collect();
-            lib.add_cell_recursive(cell.0.clone(), &cells_vec);
+            lib.add_cell_recursive(cell.0.clone(), &cells_vec, DuplicatePolicy::KeepExisting)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         } else {
             lib.add_cell(cell.0.clone())
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;

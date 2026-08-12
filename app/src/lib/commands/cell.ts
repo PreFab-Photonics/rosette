@@ -2,6 +2,7 @@ import { useSelectionStore } from "@/stores/selection";
 import { useExplorerStore } from "@/stores/explorer";
 import { type ClipboardSnapshot } from "@/stores/clipboard";
 import { usePathStore } from "@/stores/path";
+import { type ImageEntry, useImageStore } from "@/stores/image";
 import type { Command, CommandContext } from "./types";
 import { snapshotElements, restoreSnapshots, syncCellTree } from "./helpers";
 
@@ -86,7 +87,14 @@ export class DeleteCellCommand implements Command {
   private cellName: string;
   private elementSnapshots: ClipboardSnapshot[] = [];
   private cellOrigin: [number, number] = [0, 0];
-  private parentRefs: Array<{ parent: string; transform: Float64Array }> = [];
+  private parentRefs: Array<{
+    parent: string;
+    transform: Float64Array;
+    repetition?: Float64Array;
+  }> = [];
+  private imageSnapshots: ImageEntry[] = [];
+  private wasHidden = false;
+  private didSnapshot = false;
 
   constructor(name: string) {
     this.cellName = name;
@@ -95,7 +103,9 @@ export class DeleteCellCommand implements Command {
 
   execute(ctx: CommandContext): void {
     // Snapshot on first execute only (same pattern as DeleteElementsCommand)
-    if (this.elementSnapshots.length === 0 && this.parentRefs.length === 0) {
+    if (!this.didSnapshot) {
+      this.didSnapshot = true;
+      this.wasHidden = useExplorerStore.getState().hiddenCells.has(this.cellName);
       // Save origin
       const origin = ctx.library.get_cell_origin_by_name(this.cellName);
       if (origin) {
@@ -105,11 +115,18 @@ export class DeleteCellCommand implements Command {
       // Save parent CellRefs that point to this cell
       const parents = ctx.library.get_cell_ref_parents(this.cellName);
       if (Array.isArray(parents)) {
-        this.parentRefs = parents.map((p: { parent: string; transform: number[] }) => ({
-          parent: p.parent,
-          transform: new Float64Array(p.transform),
-        }));
+        this.parentRefs = parents
+          .filter((p: { parent: string }) => p.parent !== this.cellName)
+          .map((p: { parent: string; transform: number[]; repetition?: number[] | null }) => ({
+            parent: p.parent,
+            transform: new Float64Array(p.transform),
+            repetition: p.repetition ? new Float64Array(p.repetition) : undefined,
+          }));
       }
+
+      this.imageSnapshots = [...useImageStore.getState().images.values()].filter(
+        (image) => image.cellName === this.cellName,
+      );
 
       // Snapshot elements: temporarily switch active cell to target,
       // grab all IDs, snapshot them, then switch back
@@ -125,6 +142,10 @@ export class DeleteCellCommand implements Command {
     }
 
     ctx.library.remove_cell_cascade(this.cellName);
+    for (const image of this.imageSnapshots) {
+      useImageStore.getState().removeImage(image.id);
+    }
+    useExplorerStore.getState().removeCell(this.cellName);
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
@@ -141,7 +162,7 @@ export class DeleteCellCommand implements Command {
 
     // Restore elements
     if (this.elementSnapshots.length > 0) {
-      restoreSnapshots(ctx.library, this.elementSnapshots);
+      restoreSnapshots(ctx.library, this.elementSnapshots, true);
     }
 
     // Switch back before restoring parent refs
@@ -151,7 +172,33 @@ export class DeleteCellCommand implements Command {
 
     // Restore parent CellRefs
     for (const ref of this.parentRefs) {
-      ctx.library.add_cell_ref_to_with_transform(ref.parent, this.cellName, ref.transform);
+      ctx.library.restore_cell_ref_to_with_transform(
+        ref.parent,
+        this.cellName,
+        ref.transform,
+        ref.repetition,
+      );
+    }
+
+    if (this.wasHidden) {
+      ctx.library.set_cell_visibility(this.cellName, false);
+      useExplorerStore.getState().toggleCellVisibility(this.cellName);
+    }
+
+    for (const image of this.imageSnapshots) {
+      useImageStore.getState().addImage(image);
+    }
+    if (this.imageSnapshots.length > 0) {
+      const bounds = this.imageSnapshots.reduce<[number, number, number, number]>(
+        (result, image) => [
+          Math.min(result[0], image.x),
+          Math.min(result[1], image.y),
+          Math.max(result[2], image.x + image.width),
+          Math.max(result[3], image.y + image.height),
+        ],
+        [Infinity, Infinity, -Infinity, -Infinity],
+      );
+      ctx.library.set_cell_image_bounds(this.cellName, new Float64Array(bounds));
     }
 
     syncCellTree(ctx.library);
@@ -306,23 +353,22 @@ export class RenameCellCommand implements Command {
   }
 
   execute(ctx: CommandContext): void {
-    // Update explorer active cell before tree sync so setCellTree finds it
-    const explorer = useExplorerStore.getState();
-    if (explorer.activeCell === this.oldName) {
-      explorer.setActiveCell(this.newName);
+    if (!ctx.library.rename_cell(this.oldName, this.newName)) {
+      throw new Error(`Cell "${this.oldName}" does not exist`);
     }
-    ctx.library.rename_cell(this.oldName, this.newName);
+    useExplorerStore.getState().renameCell(this.oldName, this.newName);
+    useImageStore.getState().renameCell(this.oldName, this.newName);
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
 
   undo(ctx: CommandContext): void {
-    const explorer = useExplorerStore.getState();
-    if (explorer.activeCell === this.newName) {
-      explorer.setActiveCell(this.oldName);
+    if (!ctx.library.rename_cell(this.newName, this.oldName)) {
+      throw new Error(`Cell "${this.newName}" does not exist`);
     }
-    ctx.library.rename_cell(this.newName, this.oldName);
+    useExplorerStore.getState().renameCell(this.newName, this.oldName);
+    useImageStore.getState().renameCell(this.newName, this.oldName);
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();

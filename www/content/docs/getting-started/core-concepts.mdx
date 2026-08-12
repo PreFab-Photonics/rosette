@@ -51,7 +51,9 @@ A [**Library**](/docs/api-reference/Library) is a collection of cells that
 travel together when reading or writing GDS. In most designs you never
 construct a Library directly: [`write_gds`](/docs/api-reference#write_gds)
 auto-collects child cells from a top-level `Cell` built with Instance
-references.
+references. Imported libraries may have several graph-derived roots;
+`Library.roots()` exposes all of them, while an explicit top selection chooses
+the default entry cell for rendering.
 
 <Callout title={"When to make a sub-cell"} type={"info"}>
 If you are going to place the same shape more than once, make it a cell.

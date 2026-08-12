@@ -1069,7 +1069,7 @@ def _build_parser() -> argparse.ArgumentParser:
     shot_parser.add_argument(
         "--cell",
         default=None,
-        help="Render only this cell (and its descendants) instead of the top cell",
+        help="Render only this cell instead of the selected/unique top or all roots",
     )
     shot_parser.add_argument(
         "--bbox",

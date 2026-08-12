@@ -153,6 +153,12 @@ When do you need an explicit `Library`?
   explicitly managed hierarchy. Pass its `Library` via the `library=`
   parameter so the checks can resolve referenced cells.
 
+A GDS file can contain multiple independent designs. `lib.roots()` returns
+every cell that is not referenced by another cell. `lib.top_cell()` returns a
+unique root automatically, but returns `None` when several roots are possible.
+Use `lib.set_top_cell(name)` to choose the entry cell for rendering or other
+default operations.
+
 <Callout title={"One placement model"} type={"info"}>
 `Instance`, returned by `cell.at(...)`, is the public placement abstraction.
 It tracks the underlying `Cell`, supports `inst.port(name)`, arrays, and

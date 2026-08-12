@@ -68,6 +68,12 @@ impl WasmLibrary {
             if let Some(origin) = self.cell_origins.remove(old_name) {
                 self.cell_origins.insert(new_name.to_string(), origin);
             }
+            if self.hidden_cells.remove(old_name) {
+                self.hidden_cells.insert(new_name.to_string());
+            }
+            if let Some(bounds) = self.cell_image_bounds.remove(old_name) {
+                self.cell_image_bounds.insert(new_name.to_string(), bounds);
+            }
             // Update element refs that point to the old cell name
             for elem_ref in self.element_refs.values_mut() {
                 if elem_ref.cell_name == old_name {
@@ -82,13 +88,19 @@ impl WasmLibrary {
     /// Remove a cell from the library.
     ///
     /// Returns false if the cell doesn't exist.
-    /// If the removed cell is the active cell, the active cell is cleared.
+    /// Also returns false when another cell still references it.
     pub fn remove_cell(&mut self, name: &str) -> bool {
-        if self.library.remove_cell(name) {
+        if self.library.remove_cell(name).unwrap_or(false) {
             self.cell_origins.remove(name);
-            // Clear active cell if it was removed
+            self.hidden_cells.remove(name);
+            self.cell_image_bounds.remove(name);
             if self.active_cell.as_deref() == Some(name) {
-                self.active_cell = self.library.cells().first().map(|c| c.name().to_string());
+                self.active_cell = self
+                    .library
+                    .top_cell()
+                    .or_else(|| self.library.roots().into_iter().next())
+                    .or_else(|| self.library.cells().first())
+                    .map(|cell| cell.name().to_string());
             }
             // Remove element refs that point to the removed cell
             self.element_refs.retain(|_, r| r.cell_name != name);
@@ -103,12 +115,15 @@ impl WasmLibrary {
     ///
     /// Returns the number of removed references (0 if cell didn't exist).
     pub fn remove_cell_cascade(&mut self, name: &str) -> u32 {
+        if !self.library.contains(name) {
+            return 0;
+        }
         let mut removed_count = 0u32;
 
         // Collect which cells had CellRefs removed (need index rebuild)
         let mut affected_cells: Vec<String> = Vec::new();
 
-        for cell in self.library.cells_mut() {
+        self.library.edit_cells(|cell| {
             let before = cell.elements().len();
             cell.remove_refs_by_name(name);
             let after = cell.elements().len();
@@ -116,13 +131,16 @@ impl WasmLibrary {
                 removed_count += (before - after) as u32;
                 affected_cells.push(cell.name().to_string());
             }
-        }
+        });
 
         // Remove element_refs that belong to the deleted cell
         self.element_refs.retain(|_, r| r.cell_name != name);
 
         // Rebuild element_refs for affected cells (indices shifted)
         for cell_name in &affected_cells {
+            if cell_name == name {
+                continue;
+            }
             // Remove old refs for this cell
             self.element_refs.retain(|_, r| r.cell_name != *cell_name);
             // Rebuild with correct indices
@@ -141,12 +159,20 @@ impl WasmLibrary {
         }
 
         // Now remove the cell itself
-        self.library.remove_cell(name);
+        self.library
+            .remove_cell(name)
+            .expect("all incoming references were removed before the cell");
         self.cell_origins.remove(name);
+        self.hidden_cells.remove(name);
+        self.cell_image_bounds.remove(name);
 
-        // Clear active cell if it was removed
         if self.active_cell.as_deref() == Some(name) {
-            self.active_cell = self.library.cells().first().map(|c| c.name().to_string());
+            self.active_cell = self
+                .library
+                .top_cell()
+                .or_else(|| self.library.roots().into_iter().next())
+                .or_else(|| self.library.cells().first())
+                .map(|cell| cell.name().to_string());
         }
 
         self.mark_dirty();
@@ -292,9 +318,9 @@ impl WasmLibrary {
             self.element_refs.retain(|_, r| r.cell_name != *cell_name);
 
             // Replace cell with empty one
-            if let Some(cell) = self.library.cell_mut(cell_name) {
+            self.library.edit_cell(cell_name, |cell| {
                 *cell = Cell::new(cell_name.clone());
-            }
+            });
 
             self.mark_dirty();
         }

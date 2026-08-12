@@ -717,34 +717,79 @@ class Cell:
 class Library:
     name: str
     def __init__(self, name: str) -> None: ...
-    def add_cell(self, cell: Cell) -> None:
+    def add_cell(
+        self,
+        cell: Cell,
+        *,
+        on_duplicate: Literal["error", "keep"] = "error",
+    ) -> None:
         """Add a cell to the library.
+
+        Args:
+            cell: Cell definition to insert.
+            on_duplicate: ``"error"`` rejects an existing identity;
+                ``"keep"`` retains the existing definition.
 
         Raises:
             ValueError: If the cell name is invalid or a cell with the
-                same name already exists.
+                same name already exists under the ``"error"`` policy.
         """
         ...
-    def add_cell_recursive(self, cell: Cell, available_cells: list[Cell]) -> None:
+    def add_cell_recursive(
+        self,
+        cell: Cell,
+        available_cells: list[Cell],
+        *,
+        on_duplicate: Literal["error", "keep"] = "keep",
+    ) -> None:
         """Add a cell and all its referenced cells recursively.
 
         This method automatically adds all cells that are referenced by the
         given cell, resolving the entire hierarchy. You must provide a list
-        of all available cells that may be referenced.
-
-        Cells that already exist in the library (by name) are skipped.
+        of all available cells that may be referenced. Validation completes
+        before mutation, so failures never leave a partial hierarchy.
 
         Args:
             cell: The cell to add (typically the top-level cell)
             available_cells: List of all cells that may be referenced
+            on_duplicate: ``"error"`` rejects reachable existing identities;
+                ``"keep"`` uses their installed definitions.
 
         Raises:
-            ValueError: If any cell name is invalid.
+            ValueError: If a name is invalid, a reference is missing, a cycle
+                exists, candidate identities are ambiguous, or duplicate
+                policy rejects an existing definition.
         """
         ...
     def cell(self, name: str) -> Cell | None: ...
     def cells(self) -> list[Cell]: ...
-    def top_cell(self) -> Cell | None: ...
+    def roots(self) -> list[Cell]:
+        """Get graph-derived roots in deterministic library order.
+
+        A root is a cell that no other cell references. Closed cycles may
+        therefore have no roots.
+        """
+        ...
+    def set_top_cell(self, name: str) -> None:
+        """Select an existing cell as the explicit top entry cell.
+
+        The selection is runtime state and is not persisted by the legacy
+        JSON or GDS formats.
+
+        Raises:
+            ValueError: If ``name`` does not identify a library cell.
+        """
+        ...
+    def clear_top_cell(self) -> None:
+        """Clear explicit top selection and restore unique-root inference."""
+        ...
+    def top_cell(self) -> Cell | None:
+        """Get the explicit top cell or sole graph-derived root.
+
+        Returns ``None`` for empty, ambiguous multi-root, and rootless cyclic
+        libraries when no explicit top is selected.
+        """
+        ...
     def cell_bbox(self, name: str) -> BBox | None:
         """Calculate the fully-resolved bounding box of a cell in this library.
 
@@ -1923,7 +1968,8 @@ def render_png(
         design: The Cell or Library to render.
         bbox: Optional explicit world-space region (microns). If omitted, derived
             from `cell` or the full library extent.
-        cell: Render only the named cell instead of the top cell.
+        cell: Render only the named cell instead of the selected/unique top
+            or the full multi-root library.
         layers: Restrict rendering to these `(layer, datatype)` pairs.
         width: Output width in pixels. Default 1024.
         height: Output height in pixels. If None, derived from aspect ratio.

@@ -135,6 +135,7 @@ Read a GDS file and return a Library.
 
 ```python
 lib = read_gds("input.gds")
+print("roots:", [cell.name for cell in lib.roots()])
 for cell in lib.cells():
     print(cell.name)
 ```
@@ -829,7 +830,8 @@ or the full library extent.
 </PyParameter>
 <PyParameter name={"cell"} type={"str | None"} value={"None"}>
 
-Render only the named cell instead of the top cell.
+Render only the named cell instead of the selected/unique top or the full
+multi-root library.
 
 </PyParameter>
 <PyParameter name={"layers"} type={"list[tuple[int, int]] | None"} value={"None"}>

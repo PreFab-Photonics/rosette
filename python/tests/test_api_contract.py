@@ -172,6 +172,30 @@ def test_native_instance_lowering_hook_matches_private_stub():
     assert _stub_parameter_shape(lowering) == _runtime_parameter_shape(core.CellRef._from_transform)
 
 
+def test_library_method_signatures_match_contracts():
+    methods = {
+        "add_cell",
+        "add_cell_recursive",
+        "roots",
+        "set_top_cell",
+        "clear_top_cell",
+        "top_cell",
+    }
+    for path, runtime in (
+        (NATIVE_STUB_PATH, core.Library),
+        (FACADE_STUB_PATH, rosette.Library),
+    ):
+        library = _stub_symbols(path)["Library"]
+        assert isinstance(library, ast.ClassDef)
+        stub_methods = {
+            node.name: node for node in library.body if isinstance(node, ast.FunctionDef)
+        }
+        for name in methods:
+            assert _stub_parameter_shape(stub_methods[name]) == _runtime_parameter_shape(
+                getattr(runtime, name)
+            )
+
+
 def test_public_facade_methods_are_represented_in_agent_reference():
     stub_classes = {
         name: node
