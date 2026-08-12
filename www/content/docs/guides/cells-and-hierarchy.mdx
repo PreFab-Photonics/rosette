@@ -167,6 +167,32 @@ only observes one copy in an array; it is read-only and cannot be passed to
 `add_ref`.
 </Callout>
 
+## Validated local model
+
+Rosette validates local model state at Python mutation and serialization
+boundaries. Invalid Python input raises `ValueError` before changing a cell,
+instance, reference list, or tracked child set:
+
+- Polygons require at least three finite vertices. This does not impose a
+  topology policy: repeated vertices, zero-area rings, and self-intersections
+  remain representable. Polygon transforms also reject non-finite results.
+- Ports require nonempty names, finite positions, finite nonzero directions,
+  and optional positive finite widths. Directions are normalized, and names
+  are unique within each cell.
+- Paths require at least two finite points and a finite nonzero width. Negative
+  widths retain GDS absolute-width semantics.
+- Text positions must be finite and text heights must be positive and finite.
+- Instance and native reference transforms must be finite and invertible;
+  scale factors must be nonzero. Array counts are `[1, 32767]`, and lattice
+  spacings/vectors must be finite. Negative and zero finite spacings are valid.
+
+JSON and GDS keep their existing serialized shapes. Import rejects malformed
+local model state, while export validates before writing. GDS export also
+checks format-specific limits such as coordinate ranges and representable
+reference transforms. Local validation does not require every reference target
+to exist and does not reject hierarchy cycles; hierarchy operations report
+those graph-level issues separately.
+
 ## Putting it together
 
 A 2x2 grid of a sub-cell, with text labels per copy:

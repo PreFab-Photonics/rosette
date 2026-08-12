@@ -117,6 +117,30 @@ def library(simple_cell: Cell) -> Library:
     return lib
 
 
+@pytest.fixture
+def transform_overflow_hierarchy() -> tuple[Cell, Library]:
+    """Locally valid hierarchy whose accumulated transform overflows."""
+    leaf = Cell("overflow_leaf")
+    leaf.add_polygon(Polygon.rect(Point(2.0, 0.0), 1.0, 1.0), Layer(2, 0))
+    leaf.add_port(Port("overflow", Point(2.0, 0.0), Vector2.unit_x()))
+
+    cells = [leaf]
+    child = leaf
+    for index in range(5):
+        parent = Cell(f"overflow_{index}")
+        parent.add_ref(child.at(0.0, 0.0).scale(1e70))
+        cells.append(parent)
+        child = parent
+
+    top = child
+    top.add_polygon(Polygon.rect(Point.origin(), 1.0, 1.0), Layer(1, 0))
+    top.add_port(Port("external", Point.origin(), Vector2.unit_x()))
+    library = Library("overflow")
+    for cell in cells:
+        library.add_cell(cell)
+    return top, library
+
+
 # =============================================================================
 # Component Fixtures (now return Cells from Python component functions)
 # =============================================================================

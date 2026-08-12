@@ -193,9 +193,9 @@ pub struct WasmRenderer {
     violations_dirty: bool,
 
     /// Cached instance bounding boxes in world coordinates.
-    /// Maps CellRef element index → [minX, minY, maxX, maxY].
+    /// Maps canonical tokenized CellRef ID → [minX, minY, maxX, maxY].
     /// Used to generate outline segments for selected/hovered instances.
-    instance_bboxes: Vec<(usize, [f64; 4])>,
+    instance_bboxes: Vec<(String, [f64; 4])>,
 
     // Buffer capacity tracking for dynamic reallocation
     polygon_vertex_capacity: usize,

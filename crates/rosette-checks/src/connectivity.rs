@@ -38,10 +38,14 @@ fn flatten_ports(cell: &Cell, library: Option<&Library>) -> Vec<FlatPort> {
         walk_hierarchy(library, cell, Transform::identity(), |event| {
             if let HierarchyEvent::Enter(placement) = event {
                 let path = placement.relative_path_string();
-                result.extend(placement.cell.ports().iter().map(|port| FlatPort {
-                    port: port.transform(&placement.transform),
-                    cell_path: path.clone(),
-                    is_top_level: placement.depth == 0,
+                // An otherwise valid hierarchy can overflow while transforms
+                // accumulate. Such placements have no representable ports.
+                result.extend(placement.cell.ports().iter().filter_map(|port| {
+                    Some(FlatPort {
+                        port: port.try_transform(&placement.transform)?,
+                        cell_path: path.clone(),
+                        is_top_level: placement.depth == 0,
+                    })
                 }));
             }
             WalkControl::Continue
@@ -500,6 +504,33 @@ mod tests {
         assert!(violations.is_empty());
         assert_eq!(stats.ports_checked, 0);
         assert_eq!(stats.connections_found, 0);
+    }
+
+    #[test]
+    fn transform_overflow_skips_unrepresentable_ports() {
+        let mut leaf = Cell::new("leaf");
+        leaf.add_port(Port::new(
+            "overflow",
+            Point::new(2.0, 0.0),
+            Vector2::unit_x(),
+        ));
+        let mut middle = Cell::new("middle");
+        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
+        let mut top = Cell::new("top");
+        top.add_port(Port::new("external", Point::origin(), Vector2::unit_x()));
+        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        let mut library = Library::new("test");
+        library.add_cell(leaf).unwrap();
+        library.add_cell(middle).unwrap();
+        library.add_cell(top).unwrap();
+
+        let (violations, stats) = check_connectivity(
+            library.cell("top").unwrap(),
+            &default_config(),
+            Some(&library),
+        );
+        assert!(violations.is_empty());
+        assert_eq!(stats.ports_checked, 1);
     }
 
     #[test]

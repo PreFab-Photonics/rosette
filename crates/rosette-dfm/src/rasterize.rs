@@ -123,6 +123,7 @@ impl LayerRaster {
 /// Flatten a cell hierarchy into polygons grouped by layer.
 ///
 /// This is analogous to the DRC runner's flatten_cell but returns owned polygons.
+/// Placements that cannot be represented after transformation are skipped.
 pub fn flatten_cell(
     cell: &Cell,
     library: Option<&Library>,
@@ -132,10 +133,9 @@ pub fn flatten_cell(
 
     let mut add_element = |element: &Element, placement: Transform| match element {
         Element::Polygon { polygon, layer } => {
-            result
-                .entry(*layer)
-                .or_default()
-                .push(polygon.transform(&placement));
+            if let Some(polygon) = polygon.try_transform(&placement) {
+                result.entry(*layer).or_default().push(polygon);
+            }
         }
         Element::Path {
             points,
@@ -379,5 +379,30 @@ mod tests {
             &Transform::identity(),
         );
         assert_eq!(flattened[&layer].len(), 1);
+    }
+
+    #[test]
+    fn flatten_skips_polygon_transform_overflow() {
+        let kept_layer = Layer::new(1, 0);
+        let skipped_layer = Layer::new(2, 0);
+        let mut leaf = Cell::new("leaf");
+        leaf.add_polygon(Polygon::rect(Point::new(2.0, 0.0), 1.0, 1.0), skipped_layer);
+        let mut middle = Cell::new("middle");
+        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
+        let mut top = Cell::new("top");
+        top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), kept_layer);
+        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        let mut library = Library::new("test");
+        library.add_cell(leaf).unwrap();
+        library.add_cell(middle).unwrap();
+        library.add_cell(top).unwrap();
+
+        let flattened = flatten_cell(
+            library.cell("top").unwrap(),
+            Some(&library),
+            &Transform::identity(),
+        );
+        assert_eq!(flattened[&kept_layer].len(), 1);
+        assert!(!flattened.contains_key(&skipped_layer));
     }
 }

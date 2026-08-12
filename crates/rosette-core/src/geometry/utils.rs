@@ -72,7 +72,10 @@ pub fn arc_points(
 /// assert_eq!(poly.len(), 4);
 /// ```
 pub fn offset_polygon(centerline: &[Point], width: f64) -> Option<Polygon> {
-    if centerline.len() < 2 {
+    if centerline.len() < 2
+        || !width.is_finite()
+        || centerline.iter().any(|point| !point.is_finite())
+    {
         return None;
     }
 
@@ -80,7 +83,7 @@ pub fn offset_polygon(centerline: &[Point], width: f64) -> Option<Polygon> {
     let n = centerline.len();
 
     // Calculate normals at each point
-    let normals = calculate_normals(centerline);
+    let normals = calculate_normals(centerline)?;
 
     // Build polygon vertices: one side forward, other side backward
     let mut vertices = Vec::with_capacity(2 * n);
@@ -103,7 +106,7 @@ pub fn offset_polygon(centerline: &[Point], width: f64) -> Option<Polygon> {
         ));
     }
 
-    Some(Polygon::new(vertices))
+    Polygon::try_new(vertices)
 }
 
 /// Create a polygon from a centerline with varying width.
@@ -128,12 +131,16 @@ pub fn offset_polygon(centerline: &[Point], width: f64) -> Option<Polygon> {
 /// let poly = offset_polygon_varying(&centerline, &widths).unwrap();
 /// ```
 pub fn offset_polygon_varying(centerline: &[Point], widths: &[f64]) -> Option<Polygon> {
-    if centerline.len() < 2 || centerline.len() != widths.len() {
+    if centerline.len() < 2
+        || centerline.len() != widths.len()
+        || centerline.iter().any(|point| !point.is_finite())
+        || widths.iter().any(|width| !width.is_finite())
+    {
         return None;
     }
 
     let n = centerline.len();
-    let normals = calculate_normals(centerline);
+    let normals = calculate_normals(centerline)?;
 
     let mut vertices = Vec::with_capacity(2 * n);
 
@@ -157,7 +164,7 @@ pub fn offset_polygon_varying(centerline: &[Point], widths: &[f64]) -> Option<Po
         ));
     }
 
-    Some(Polygon::new(vertices))
+    Polygon::try_new(vertices)
 }
 
 /// Calculate perpendicular normals at each point of a path.
@@ -165,30 +172,50 @@ pub fn offset_polygon_varying(centerline: &[Point], widths: &[f64]) -> Option<Po
 /// For interior points, the normal is the average of the normals from the
 /// incoming and outgoing segments. For endpoints, the normal is perpendicular
 /// to the single adjacent segment.
-fn calculate_normals(points: &[Point]) -> Vec<Vector2> {
+fn calculate_normals(points: &[Point]) -> Option<Vec<Vector2>> {
     let n = points.len();
     let mut normals = Vec::with_capacity(n);
 
     for i in 0..n {
         let normal = if i == 0 {
             // First point: use direction to next point
-            let dir = (points[1] - points[0]).normalize();
+            let direction = points[1] - points[0];
+            if !direction.is_finite() || !direction.length().is_finite() {
+                return None;
+            }
+            let dir = direction.normalize();
             dir.perpendicular()
         } else if i == n - 1 {
             // Last point: use direction from previous point
-            let dir = (points[n - 1] - points[n - 2]).normalize();
+            let direction = points[n - 1] - points[n - 2];
+            if !direction.is_finite() || !direction.length().is_finite() {
+                return None;
+            }
+            let dir = direction.normalize();
             dir.perpendicular()
         } else {
             // Interior point: average of incoming and outgoing normals
-            let dir_in = (points[i] - points[i - 1]).normalize();
-            let dir_out = (points[i + 1] - points[i]).normalize();
+            let incoming = points[i] - points[i - 1];
+            let outgoing = points[i + 1] - points[i];
+            if !incoming.is_finite()
+                || !outgoing.is_finite()
+                || !incoming.length().is_finite()
+                || !outgoing.length().is_finite()
+            {
+                return None;
+            }
+            let dir_in = incoming.normalize();
+            let dir_out = outgoing.normalize();
             let avg_dir = (dir_in + dir_out).normalize();
             avg_dir.perpendicular()
         };
+        if !normal.is_finite() {
+            return None;
+        }
         normals.push(normal);
     }
 
-    normals
+    Some(normals)
 }
 
 /// Calculate the total length of a polyline path.
@@ -423,6 +450,24 @@ mod tests {
         let widths = vec![1.0]; // Wrong length
         let result = offset_polygon_varying(&centerline, &widths);
         assert!(result.is_none());
+
+        assert!(offset_polygon(&centerline, f64::INFINITY).is_none());
+        assert!(offset_polygon(&[Point::origin(), Point::new(f64::INFINITY, 0.0)], 1.0,).is_none());
+        assert!(
+            offset_polygon(
+                &[Point::new(f64::MAX, 0.0), Point::new(-f64::MAX, 0.0)],
+                1.0,
+            )
+            .is_none()
+        );
+        assert!(
+            offset_polygon(
+                &[Point::new(0.0, f64::MAX), Point::new(1.0, f64::MAX)],
+                f64::MAX,
+            )
+            .is_none()
+        );
+        assert!(offset_polygon_varying(&centerline, &[1.0, f64::NAN]).is_none());
     }
 
     #[test]

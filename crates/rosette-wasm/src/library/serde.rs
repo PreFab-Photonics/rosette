@@ -3,12 +3,169 @@
 
 use super::{ElementRef, WasmLibrary};
 use rosette_core::cell::Element;
-use rosette_core::geometry::Vector2;
-use rosette_core::{Library, Point, Transform};
+use rosette_core::{CellRef, Library, Point, Repetition, Transform};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
+
+fn convert_element_coordinates(
+    element: &Element,
+    coordinate_transform: &Transform,
+    coordinate_inverse: &Transform,
+    scalar: f64,
+) -> Result<Element, JsValue> {
+    match element {
+        Element::Polygon { polygon, layer } => {
+            if polygon
+                .vertices()
+                .iter()
+                .map(|point| coordinate_transform.apply(*point))
+                .any(|point| !point.is_finite())
+            {
+                return Err(JsValue::from_str(
+                    "polygon coordinate conversion overflowed",
+                ));
+            }
+            Ok(Element::Polygon {
+                polygon: polygon
+                    .try_transform(coordinate_transform)
+                    .ok_or_else(|| JsValue::from_str("polygon coordinate conversion overflowed"))?,
+                layer: *layer,
+            })
+        }
+        Element::Path {
+            points,
+            width,
+            layer,
+            end_type,
+        } => {
+            let points: Vec<Point> = points
+                .iter()
+                .map(|point| coordinate_transform.apply(*point))
+                .collect();
+            let width = width * scalar;
+            if points.iter().any(|point| !point.is_finite()) || !width.is_finite() || width == 0.0 {
+                return Err(JsValue::from_str("path coordinate conversion overflowed"));
+            }
+            Ok(Element::Path {
+                points,
+                width,
+                layer: *layer,
+                end_type: *end_type,
+            })
+        }
+        Element::CellRef(cell_ref) => {
+            let transform = coordinate_transform
+                .then(&cell_ref.transform)
+                .then(coordinate_inverse);
+            if !transform.is_invertible() {
+                return Err(JsValue::from_str(
+                    "cell reference coordinate conversion produced an invalid transform",
+                ));
+            }
+            let repetition = match cell_ref.repetition {
+                Some(repetition) => {
+                    if repetition.columns == 0 || repetition.rows == 0 {
+                        return Err(JsValue::from_str(
+                            "cell reference repetition has a zero dimension",
+                        ));
+                    }
+                    let col_vector = coordinate_transform.apply_linear(repetition.col_vector);
+                    let row_vector = coordinate_transform.apply_linear(repetition.row_vector);
+                    if !col_vector.is_finite() || !row_vector.is_finite() {
+                        return Err(JsValue::from_str(
+                            "cell reference repetition conversion overflowed",
+                        ));
+                    }
+                    Some(Repetition::new_vectors(
+                        repetition.columns,
+                        repetition.rows,
+                        col_vector,
+                        row_vector,
+                    ))
+                }
+                None => None,
+            };
+            Ok(Element::CellRef(
+                CellRef::with_transform(cell_ref.cell_name.clone(), transform)
+                    .with_repetition(repetition),
+            ))
+        }
+        Element::Text {
+            text,
+            position,
+            layer,
+            height,
+        } => {
+            let position = coordinate_transform.apply(*position);
+            let height = height * scalar;
+            if !position.is_finite() || !height.is_finite() || height <= 0.0 {
+                return Err(JsValue::from_str("text coordinate conversion overflowed"));
+            }
+            Ok(Element::Text {
+                text: text.clone(),
+                position,
+                layer: *layer,
+                height,
+            })
+        }
+    }
+}
+
+fn convert_library_coordinates(
+    library: &mut Library,
+    coordinate_transform: Transform,
+    coordinate_inverse: Transform,
+    scalar: f64,
+) -> Result<(), JsValue> {
+    let converted: Result<HashMap<String, (Point, Vec<Element>)>, JsValue> = library
+        .cells()
+        .iter()
+        .map(|cell| {
+            let origin = coordinate_transform.apply(cell.origin());
+            if !origin.is_finite() {
+                return Err(JsValue::from_str("cell origin conversion overflowed"));
+            }
+            let elements = cell
+                .elements()
+                .iter()
+                .map(|element| {
+                    convert_element_coordinates(
+                        element,
+                        &coordinate_transform,
+                        &coordinate_inverse,
+                        scalar,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok((cell.name().to_string(), (origin, elements)))
+        })
+        .collect();
+    let converted = converted?;
+
+    let mut candidate = library.clone();
+    let mut element_error = None;
+    candidate
+        .edit_cells(|cell| {
+            if element_error.is_some() {
+                return;
+            }
+            let (origin, elements) = converted
+                .get(cell.name())
+                .expect("converted cell names match the source library");
+            cell.set_origin(*origin);
+            if let Err(error) = cell.edit_elements(|current| current.clone_from_slice(elements)) {
+                element_error = Some(error);
+            }
+        })
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    if let Some(error) = element_error {
+        return Err(JsValue::from_str(&error.to_string()));
+    }
+    *library = candidate;
+    Ok(())
+}
 
 #[wasm_bindgen]
 impl WasmLibrary {
@@ -75,7 +232,7 @@ impl WasmLibrary {
     /// # Errors
     /// Returns a JsValue error if serialization fails.
     pub fn to_json(&self) -> Result<String, JsValue> {
-        rosette_io::json::to_string(&self.library_with_origins())
+        rosette_io::json::to_string(&self.library_with_origins()?)
             .map_err(|e| JsValue::from_str(&format!("JSON serialize error: {}", e)))
     }
 
@@ -101,7 +258,7 @@ impl WasmLibrary {
         let library: Library = rosette_io::json::from_string(json)
             .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
 
-        Ok(Self::init_from_library(library))
+        Self::init_from_library(library)
     }
 
     /// Create a WasmLibrary directly from raw GDS binary bytes.
@@ -113,14 +270,14 @@ impl WasmLibrary {
         let library = rosette_io::gds::read_bytes(bytes)
             .map_err(|e| JsValue::from_str(&format!("GDS parse error: {}", e)))?;
 
-        Ok(Self::init_from_library(library))
+        Self::init_from_library(library)
     }
 
     /// Shared initialization: transform coordinates, build element refs, set active cell.
     ///
     /// Takes a `Library` in SDK coordinates (micrometers, Y-up) and produces a
     /// fully initialized `WasmLibrary` in world coordinates (nm * GRID_SIZE, Y-down).
-    fn init_from_library(mut library: Library) -> WasmLibrary {
+    fn init_from_library(mut library: Library) -> Result<WasmLibrary, JsValue> {
         // Scale factor: SDK uses micrometers, app world units = nm * GRID_SIZE.
         // 1 μm = 1000 nm, and 1 nm = GRID_SIZE world units.
         // Y is negated: GDS/SDK use math convention (Y-up), renderer uses screen (Y-down).
@@ -132,62 +289,17 @@ impl WasmLibrary {
         let flip = Transform::scale(s, -s);
         let flip_inv = Transform::scale(1.0 / s, -1.0 / s);
 
-        // Transform all elements in every cell from um/Y-up to world/Y-down.
-        // Iterate cells by index to avoid O(C^2) name lookups.
-        let mut cell_origins = HashMap::new();
-        library.edit_cells(|cell| {
-            // Import the serialized compatibility field into editor state.
-            let origin = cell.origin();
-            cell_origins.insert(
-                cell.name().to_string(),
-                Point::new(origin.x * s, -origin.y * s),
-            );
-            cell.set_origin(Point::origin());
+        convert_library_coordinates(&mut library, flip, flip_inv, s)?;
 
-            // Transform all elements in-place
-            for element in cell.elements_mut() {
-                match element {
-                    Element::Polygon { polygon, .. } => {
-                        for v in polygon.vertices_mut() {
-                            let x = v.x * s;
-                            let y = -v.y * s;
-                            *v = Point::new(x, y);
-                        }
-                    }
-                    Element::Path { points, width, .. } => {
-                        for p in points.iter_mut() {
-                            let x = p.x * s;
-                            let y = -p.y * s;
-                            *p = Point::new(x, y);
-                        }
-                        *width *= s;
-                    }
-                    Element::CellRef(cell_ref) => {
-                        // Conjugate the CellRef transform by the coordinate change S.
-                        // CellRef transform T maps child→parent in um/Y-up.
-                        // In world/Y-down: T_new = S * T * S^{-1}
-                        // This correctly converts translation, rotation, and mirror.
-                        cell_ref.transform = flip.then(&cell_ref.transform).then(&flip_inv);
-
-                        // Transform repetition lattice vectors (in the CellRef's
-                        // local pre-transform space, matching GDS AREF semantics):
-                        // scale X, scale+negate Y, for each vector component.
-                        if let Some(ref mut rep) = cell_ref.repetition {
-                            rep.col_vector =
-                                Vector2::new(rep.col_vector.x * s, -rep.col_vector.y * s);
-                            rep.row_vector =
-                                Vector2::new(rep.row_vector.x * s, -rep.row_vector.y * s);
-                        }
-                    }
-                    Element::Text {
-                        position, height, ..
-                    } => {
-                        *position = Point::new(position.x * s, -position.y * s);
-                        *height *= s;
-                    }
-                }
-            }
-        });
+        // Import the serialized compatibility field into editor state.
+        let cell_origins = library
+            .cells()
+            .iter()
+            .map(|cell| (cell.name().to_string(), cell.origin()))
+            .collect();
+        library
+            .edit_cells(|cell| cell.set_origin(Point::origin()))
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
 
         // Count total elements across all cells for pre-allocation (Opt 2)
         let total_elements: usize = library.cells().iter().map(|c| c.elements().len()).sum();
@@ -218,7 +330,7 @@ impl WasmLibrary {
             .or_else(|| library.cells().first())
             .map(|cell| cell.name().to_string());
 
-        WasmLibrary {
+        Ok(WasmLibrary {
             library,
             active_cell,
             cell_origins,
@@ -233,7 +345,7 @@ impl WasmLibrary {
             instance_bbox_cache_cell: RefCell::new(None),
             spatial_index: RefCell::new(None),
             spatial_index_cell: RefCell::new(None),
-        }
+        })
     }
 
     /// Export the library as GDS II binary bytes.
@@ -248,7 +360,7 @@ impl WasmLibrary {
     /// Returns a JsValue error if serialization fails.
     pub fn to_gds(&self) -> Result<Vec<u8>, JsValue> {
         // Clone the library and apply inverse coordinate transform
-        let mut library = self.library_with_origins();
+        let mut library = self.library_with_origins()?;
 
         // Inverse scale: world -> um. s = UM_TO_NM * GRID_SIZE = 50000
         const UM_TO_NM: f64 = 1000.0;
@@ -258,50 +370,7 @@ impl WasmLibrary {
         let inv_flip = Transform::scale(inv, -inv);
         let flip = Transform::scale(s, -s);
 
-        library.edit_cells(|cell| {
-            let origin = cell.origin();
-            cell.set_origin(Point::new(origin.x * inv, -origin.y * inv));
-
-            for element in cell.elements_mut() {
-                match element {
-                    Element::Polygon { polygon, .. } => {
-                        for v in polygon.vertices_mut() {
-                            let x = v.x * inv;
-                            let y = -v.y * inv;
-                            *v = Point::new(x, y);
-                        }
-                    }
-                    Element::Path { points, width, .. } => {
-                        for p in points.iter_mut() {
-                            let x = p.x * inv;
-                            let y = -p.y * inv;
-                            *p = Point::new(x, y);
-                        }
-                        *width *= inv;
-                    }
-                    Element::CellRef(cell_ref) => {
-                        // Inverse conjugation: T_original = S^{-1} * T_stored * S
-                        cell_ref.transform = inv_flip.then(&cell_ref.transform).then(&flip);
-
-                        // Inverse of the Y-flip + unit-scale applied on import:
-                        // scale X by `inv`, scale+negate Y. Applied per-component
-                        // of each lattice vector (supports skewed/hex AREFs).
-                        if let Some(ref mut rep) = cell_ref.repetition {
-                            rep.col_vector =
-                                Vector2::new(rep.col_vector.x * inv, -rep.col_vector.y * inv);
-                            rep.row_vector =
-                                Vector2::new(rep.row_vector.x * inv, -rep.row_vector.y * inv);
-                        }
-                    }
-                    Element::Text {
-                        position, height, ..
-                    } => {
-                        *position = Point::new(position.x * inv, -position.y * inv);
-                        *height *= inv;
-                    }
-                }
-            }
-        });
+        convert_library_coordinates(&mut library, inv_flip, flip, inv)?;
 
         rosette_io::gds::write_bytes(&library)
             .map_err(|e| JsValue::from_str(&format!("GDS write error: {}", e)))
@@ -319,7 +388,7 @@ impl WasmLibrary {
     /// Returns a JsValue error if serialization fails.
     pub fn to_library_json(&self) -> Result<String, JsValue> {
         // Clone the library and apply inverse coordinate transform
-        let mut library = self.library_with_origins();
+        let mut library = self.library_with_origins()?;
 
         const UM_TO_NM: f64 = 1000.0;
         const GRID_SIZE: f64 = 50.0;
@@ -328,50 +397,7 @@ impl WasmLibrary {
         let inv_flip = Transform::scale(inv, -inv);
         let flip = Transform::scale(s, -s);
 
-        library.edit_cells(|cell| {
-            let origin = cell.origin();
-            cell.set_origin(Point::new(origin.x * inv, -origin.y * inv));
-
-            for element in cell.elements_mut() {
-                match element {
-                    Element::Polygon { polygon, .. } => {
-                        for v in polygon.vertices_mut() {
-                            let x = v.x * inv;
-                            let y = -v.y * inv;
-                            *v = Point::new(x, y);
-                        }
-                    }
-                    Element::Path { points, width, .. } => {
-                        for p in points.iter_mut() {
-                            let x = p.x * inv;
-                            let y = -p.y * inv;
-                            *p = Point::new(x, y);
-                        }
-                        *width *= inv;
-                    }
-                    Element::CellRef(cell_ref) => {
-                        // Inverse conjugation: T_original = S^{-1} * T_stored * S
-                        cell_ref.transform = inv_flip.then(&cell_ref.transform).then(&flip);
-
-                        // Inverse of the Y-flip + unit-scale applied on import:
-                        // scale X by `inv`, scale+negate Y. Applied per-component
-                        // of each lattice vector (supports skewed/hex AREFs).
-                        if let Some(ref mut rep) = cell_ref.repetition {
-                            rep.col_vector =
-                                Vector2::new(rep.col_vector.x * inv, -rep.col_vector.y * inv);
-                            rep.row_vector =
-                                Vector2::new(rep.row_vector.x * inv, -rep.row_vector.y * inv);
-                        }
-                    }
-                    Element::Text {
-                        position, height, ..
-                    } => {
-                        *position = Point::new(position.x * inv, -position.y * inv);
-                        *height *= inv;
-                    }
-                }
-            }
-        });
+        convert_library_coordinates(&mut library, inv_flip, flip, inv)?;
 
         rosette_io::json::to_string(&library)
             .map_err(|e| JsValue::from_str(&format!("JSON serialize error: {}", e)))
@@ -379,17 +405,19 @@ impl WasmLibrary {
 }
 
 impl WasmLibrary {
-    fn library_with_origins(&self) -> Library {
+    fn library_with_origins(&self) -> Result<Library, JsValue> {
         let mut library = self.library.clone();
-        library.edit_cells(|cell| {
-            cell.set_origin(
-                self.cell_origins
-                    .get(cell.name())
-                    .copied()
-                    .unwrap_or_else(Point::origin),
-            );
-        });
         library
+            .edit_cells(|cell| {
+                cell.set_origin(
+                    self.cell_origins
+                        .get(cell.name())
+                        .copied()
+                        .unwrap_or_else(Point::origin),
+                );
+            })
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        Ok(library)
     }
 }
 
@@ -435,6 +463,135 @@ mod tests {
             restored.cell("origin").unwrap().origin(),
             Point::new(1.25, -2.5)
         );
+    }
+
+    #[test]
+    fn coordinate_round_trip_preserves_element_semantics_and_order() {
+        let mut child = Cell::new("child");
+        child.add_polygon(
+            Polygon::new(vec![
+                Point::origin(),
+                Point::new(1.0, 0.0),
+                Point::new(0.0, 1.0),
+            ]),
+            Layer::new(10, 0),
+        );
+
+        let mut top = Cell::new("top");
+        top.set_origin(Point::new(1.25, -2.5));
+        top.add_polygon(
+            Polygon::new(vec![
+                Point::new(1.0, 2.0),
+                Point::new(3.0, 2.0),
+                Point::new(3.0, 4.0),
+            ]),
+            Layer::new(1, 2),
+        );
+        top.add_path(
+            vec![Point::new(-1.0, 2.0), Point::new(5.0, -6.0)],
+            -2.0,
+            Layer::new(3, 4),
+            PathEndType::Round,
+        );
+        top.add_ref(
+            CellRef::with_transform("child", Transform::new(0.0, -1.0, 1.0, 0.0, 3.0, -4.0))
+                .with_repetition(Some(Repetition::new_vectors(
+                    3,
+                    2,
+                    rosette_core::Vector2::new(8.0, 1.0),
+                    rosette_core::Vector2::new(2.0, 6.0),
+                ))),
+        );
+        top.add_text_with_height("label", Point::new(7.0, -8.0), Layer::new(5, 6), 9.0);
+
+        let mut source = Library::new("round-trip");
+        source.add_cell(child).unwrap();
+        source.add_cell(top).unwrap();
+        let json = rosette_io::json::to_string(&source).unwrap();
+        let wasm = WasmLibrary::from_library_json(&json).unwrap();
+
+        assert_eq!(wasm.get_cell_origin(), Some(vec![62500.0, 125000.0]));
+        let world_top = wasm.library.cell("top").unwrap();
+        assert_eq!(world_top.elements().len(), 4);
+        let Element::Polygon { polygon, .. } = &world_top.elements()[0] else {
+            panic!("polygon order changed");
+        };
+        assert_eq!(polygon.vertices()[0], Point::new(50000.0, -100000.0));
+        let Element::Path { points, width, .. } = &world_top.elements()[1] else {
+            panic!("path order changed");
+        };
+        assert_eq!(points[0], Point::new(-50000.0, -100000.0));
+        assert_eq!(*width, -100000.0);
+        let Element::CellRef(cell_ref) = &world_top.elements()[2] else {
+            panic!("cell reference order changed");
+        };
+        assert_eq!(
+            cell_ref.transform,
+            Transform::new(0.0, 1.0, -1.0, 0.0, 150000.0, 200000.0)
+        );
+        let repetition = cell_ref.repetition.unwrap();
+        assert_eq!(
+            repetition.col_vector,
+            rosette_core::Vector2::new(400000.0, -50000.0)
+        );
+        assert_eq!(
+            repetition.row_vector,
+            rosette_core::Vector2::new(100000.0, -300000.0)
+        );
+        let Element::Text {
+            position, height, ..
+        } = &world_top.elements()[3]
+        else {
+            panic!("text order changed");
+        };
+        assert_eq!(*position, Point::new(350000.0, 400000.0));
+        assert_eq!(*height, 450000.0);
+        assert_eq!(wasm.element_refs.len(), 5);
+
+        let restored: Library =
+            rosette_io::json::from_string(&wasm.to_library_json().unwrap()).unwrap();
+        let restored_top = restored.cell("top").unwrap();
+        assert_eq!(restored_top.origin(), Point::new(1.25, -2.5));
+        assert!(matches!(
+            restored_top.elements()[0],
+            Element::Polygon { .. }
+        ));
+        let Element::Path { points, width, .. } = &restored_top.elements()[1] else {
+            panic!("path order changed after round trip");
+        };
+        for (actual, expected) in points
+            .iter()
+            .zip([Point::new(-1.0, 2.0), Point::new(5.0, -6.0)])
+        {
+            assert!((actual.x - expected.x).abs() < 1e-12);
+            assert!((actual.y - expected.y).abs() < 1e-12);
+        }
+        assert!((*width + 2.0).abs() < 1e-12);
+        let Element::CellRef(cell_ref) = &restored_top.elements()[2] else {
+            panic!("cell reference order changed after round trip");
+        };
+        let expected_transform = [0.0, -1.0, 1.0, 0.0, 3.0, -4.0];
+        let actual_transform = [
+            cell_ref.transform.a,
+            cell_ref.transform.b,
+            cell_ref.transform.c,
+            cell_ref.transform.d,
+            cell_ref.transform.tx,
+            cell_ref.transform.ty,
+        ];
+        for (actual, expected) in actual_transform.into_iter().zip(expected_transform) {
+            assert!((actual - expected).abs() < 1e-12);
+        }
+        assert_eq!(cell_ref.repetition.unwrap().columns, 3);
+        let Element::Text {
+            position, height, ..
+        } = &restored_top.elements()[3]
+        else {
+            panic!("text order changed after round trip");
+        };
+        assert!((position.x - 7.0).abs() < 1e-12);
+        assert!((position.y + 8.0).abs() < 1e-12);
+        assert!((*height - 9.0).abs() < 1e-12);
     }
 
     #[test]

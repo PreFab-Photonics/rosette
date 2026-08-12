@@ -44,3 +44,10 @@ pub const INT16: u8 = 0x02;
 pub const INT32: u8 = 0x03;
 pub const REAL64: u8 = 0x05;
 pub const ASCII: u8 = 0x06;
+
+// STRANS bit flags. GDS numbers these from the most-significant bit.
+pub const STRANS_REFLECTION: u16 = 0x8000;
+pub const STRANS_ABSOLUTE_MAGNIFICATION: u16 = 0x0004;
+pub const STRANS_ABSOLUTE_ANGLE: u16 = 0x0002;
+pub const STRANS_SUPPORTED_BITS: u16 =
+    STRANS_REFLECTION | STRANS_ABSOLUTE_MAGNIFICATION | STRANS_ABSOLUTE_ANGLE;

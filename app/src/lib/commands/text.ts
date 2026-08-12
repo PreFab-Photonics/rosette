@@ -74,13 +74,17 @@ export class UpdateTextContentCommand implements Command {
   ) {}
 
   execute(ctx: CommandContext): void {
-    ctx.library.update_text(this.elementId, this.newText);
+    if (!ctx.library.update_text(this.elementId, this.newText)) {
+      throw new Error("Could not update text content");
+    }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
 
   undo(ctx: CommandContext): void {
-    ctx.library.update_text(this.elementId, this.oldText);
+    if (!ctx.library.update_text(this.elementId, this.oldText)) {
+      throw new Error("Could not restore text content");
+    }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
@@ -102,13 +106,17 @@ export class MoveTextCommand implements Command {
   ) {}
 
   execute(ctx: CommandContext): void {
-    ctx.library.set_text_position(this.elementId, this.newX, this.newY);
+    if (!ctx.library.set_text_position(this.elementId, this.newX, this.newY)) {
+      throw new Error("Could not move text");
+    }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
 
   undo(ctx: CommandContext): void {
-    ctx.library.set_text_position(this.elementId, this.oldX, this.oldY);
+    if (!ctx.library.set_text_position(this.elementId, this.oldX, this.oldY)) {
+      throw new Error("Could not restore text position");
+    }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
@@ -128,13 +136,17 @@ export class SetTextHeightCommand implements Command {
   ) {}
 
   execute(ctx: CommandContext): void {
-    ctx.library.set_text_height(this.elementId, this.newHeight);
+    if (!ctx.library.set_text_height(this.elementId, this.newHeight)) {
+      throw new Error("Could not set text height");
+    }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
 
   undo(ctx: CommandContext): void {
-    ctx.library.set_text_height(this.elementId, this.oldHeight);
+    if (!ctx.library.set_text_height(this.elementId, this.oldHeight)) {
+      throw new Error("Could not restore text height");
+    }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }

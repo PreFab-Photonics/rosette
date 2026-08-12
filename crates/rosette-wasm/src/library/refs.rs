@@ -1,12 +1,54 @@
 //! Cell reference (instance) operations: placement, arrays, instance labels,
 //! cell bounds/preview, and the cell hierarchy tree.
 
-use super::{CellRefInfo, ElementRef, WasmLibrary, array_transforms, parse_ref_uuid_element_index};
+use super::{CellRefInfo, ElementRef, WasmLibrary};
 use rosette_core::cell::Element;
 use rosette_core::geometry::BBox;
 use rosette_core::{CellRef, Repetition, Transform, Vector2};
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
+
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ParentRef {
+    parent: String,
+    element_index: usize,
+    transform: Vec<f64>,
+    repetition: Option<Vec<f64>>,
+}
+
+fn parse_transform(values: &[f64]) -> Option<Transform> {
+    if values.len() != 6 || !values.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    let transform = Transform::new(
+        values[0], values[1], values[2], values[3], values[4], values[5],
+    );
+    transform.is_invertible().then_some(transform)
+}
+
+fn parse_repetition(values: &[f64]) -> Option<Repetition> {
+    if values.len() != 6 || !values.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    let columns = values[0];
+    let rows = values[1];
+    if columns < 1.0
+        || columns > u16::MAX as f64
+        || columns.fract() != 0.0
+        || rows < 1.0
+        || rows > u16::MAX as f64
+        || rows.fract() != 0.0
+    {
+        return None;
+    }
+    Some(Repetition::new_vectors(
+        columns as u16,
+        rows as u16,
+        Vector2::new(values[2], values[3]),
+        Vector2::new(values[4], values[5]),
+    ))
+}
 
 #[wasm_bindgen]
 impl WasmLibrary {
@@ -15,24 +57,9 @@ impl WasmLibrary {
     /// Works with both real UUIDs and synthetic ref UUIDs.
     /// Returns None if the element is not a CellRef.
     pub fn get_cell_ref_info(&self, id: &str) -> Option<CellRefInfo> {
-        // Try synthetic ref UUID first
-        if let Some(elem_idx) = parse_ref_uuid_element_index(id) {
-            let cell_name = self.active_cell.as_ref()?;
-            let cell = self.library.cell(cell_name)?;
-            if let Some(Element::CellRef(cell_ref)) = cell.elements().get(elem_idx) {
-                let t = &cell_ref.transform;
-                return Some(CellRefInfo {
-                    cell_name: cell_ref.cell_name.clone(),
-                    transform: vec![t.a, t.b, t.c, t.d, t.tx, t.ty],
-                });
-            }
-            return None;
-        }
-
-        // Try real UUID
-        let elem_ref = self.element_refs.get(id)?;
-        let cell = self.library.cell(&elem_ref.cell_name)?;
-        if let Some(Element::CellRef(cell_ref)) = cell.elements().get(elem_ref.element_index) {
+        let (cell_name, element_index) = self.resolve_cell_ref_id(id)?;
+        let cell = self.library.cell(&cell_name)?;
+        if let Some(Element::CellRef(cell_ref)) = cell.elements().get(element_index) {
             let t = &cell_ref.transform;
             Some(CellRefInfo {
                 cell_name: cell_ref.cell_name.clone(),
@@ -52,10 +79,6 @@ impl WasmLibrary {
         ref_cell_name: &str,
         transform: Vec<f64>,
     ) -> Option<String> {
-        if transform.len() != 6 {
-            return None;
-        }
-
         let active_name = self.active_cell.as_ref()?.clone();
 
         if active_name == ref_cell_name {
@@ -70,20 +93,16 @@ impl WasmLibrary {
             return None;
         }
 
-        let t = Transform::new(
-            transform[0],
-            transform[1],
-            transform[2],
-            transform[3],
-            transform[4],
-            transform[5],
-        );
+        let t = parse_transform(&transform)?;
         let cell_ref = CellRef::with_transform(ref_cell_name.to_string(), t);
 
-        let element_index = self.library.edit_cell(&active_name, |cell| {
-            cell.add_ref(cell_ref);
-            cell.elements().len() - 1
-        })?;
+        let element_index = self
+            .library
+            .edit_cell(&active_name, |cell| {
+                cell.add_ref(cell_ref);
+                cell.elements().len() - 1
+            })
+            .ok()?;
 
         let uuid = Uuid::new_v4().to_string();
         self.element_refs.insert(
@@ -100,38 +119,32 @@ impl WasmLibrary {
 
     /// Set the full affine transform on a CellRef instance.
     ///
-    /// `id` must be a synthetic ref UUID (e.g. "ref:3:0").
+    /// `id` may be a tokenized synthetic ref UUID or a real CellRef UUID.
     /// `transform` must be `[a, b, c, d, tx, ty]` (6 elements).
     ///
     /// Returns true if the transform was set, false otherwise.
     pub fn set_cell_ref_transform(&mut self, id: &str, transform: Vec<f64>) -> bool {
-        if transform.len() != 6 {
+        let Some(transform) = parse_transform(&transform) else {
             return false;
-        }
-        let elem_idx = match parse_ref_uuid_element_index(id) {
-            Some(idx) => idx,
-            None => return false,
         };
-        let active_cell_name = match &self.active_cell {
-            Some(name) => name.clone(),
+        let (active_cell_name, elem_idx) = match self.resolve_cell_ref_id(id) {
+            Some(target) => target,
             None => return false,
         };
         let updated = self
             .library
             .edit_cell(&active_cell_name, |cell| {
-                let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx) else {
-                    return false;
-                };
-                cell_ref.transform = Transform::new(
-                    transform[0],
-                    transform[1],
-                    transform[2],
-                    transform[3],
-                    transform[4],
-                    transform[5],
-                );
-                true
+                cell.edit_element(elem_idx, |element| {
+                    let Element::CellRef(cell_ref) = element else {
+                        return false;
+                    };
+                    *cell_ref = CellRef::with_transform(cell_ref.cell_name.clone(), transform)
+                        .with_repetition(cell_ref.repetition);
+                    true
+                })
             })
+            .ok()
+            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -142,7 +155,7 @@ impl WasmLibrary {
     /// Get the array repetition parameters for a CellRef instance
     /// as scalar column/row pitches.
     ///
-    /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+    /// `id` can be a tokenized synthetic ref UUID or a real element UUID.
     /// Returns `[columns, rows, col_spacing, row_spacing]` or None if not
     /// arrayed. For non-axis-aligned (skewed/hex) AREFs this collapses each
     /// lattice vector to its magnitude — callers that care about skew should
@@ -158,20 +171,14 @@ impl WasmLibrary {
     /// Get the full array repetition parameters for a CellRef instance,
     /// including skewed/non-orthogonal column and row displacement vectors.
     ///
-    /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+    /// `id` can be a tokenized synthetic ref UUID or a real element UUID.
     /// Returns `[columns, rows, col_x, col_y, row_x, row_y]` where
     /// `(col_x, col_y)` is the column displacement vector and
     /// `(row_x, row_y)` is the row displacement vector, both in the
     /// CellRef's local (pre-transform) coordinate space.
     pub fn get_cell_ref_array_vectors(&self, id: &str) -> Option<Vec<f64>> {
         // Resolve element index from either synthetic ref UUID or real UUID
-        let (cell_name, elem_idx) = if let Some(idx) = parse_ref_uuid_element_index(id) {
-            (self.active_cell.as_ref()?.clone(), idx)
-        } else if let Some(elem_ref) = self.element_refs.get(id) {
-            (elem_ref.cell_name.clone(), elem_ref.element_index)
-        } else {
-            return None;
-        };
+        let (cell_name, elem_idx) = self.resolve_cell_ref_id(id)?;
 
         let cell = self.library.cell(&cell_name)?;
         if let Some(Element::CellRef(cell_ref)) = cell.elements().get(elem_idx)
@@ -192,7 +199,7 @@ impl WasmLibrary {
     /// Set the array repetition parameters on a CellRef instance as an
     /// axis-aligned rectangular grid.
     ///
-    /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+    /// `id` can be a tokenized synthetic ref UUID or a real element UUID.
     /// If columns and rows are both 1, removes the array (reverts to single instance).
     ///
     /// # Skew preservation
@@ -215,40 +222,41 @@ impl WasmLibrary {
         col_spacing: f64,
         row_spacing: f64,
     ) -> bool {
-        let (cell_name, elem_idx) = if let Some(idx) = parse_ref_uuid_element_index(id) {
-            match &self.active_cell {
-                Some(name) => (name.clone(), idx),
-                None => return false,
-            }
-        } else if let Some(elem_ref) = self.element_refs.get(id) {
-            (elem_ref.cell_name.clone(), elem_ref.element_index)
-        } else {
+        if columns == 0 || rows == 0 || !col_spacing.is_finite() || !row_spacing.is_finite() {
             return false;
+        }
+        let (cell_name, elem_idx) = match self.resolve_cell_ref_id(id) {
+            Some(target) => target,
+            None => return false,
         };
 
         let updated = self
             .library
             .edit_cell(&cell_name, |cell| {
-                let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx) else {
-                    return false;
-                };
-                if columns <= 1 && rows <= 1 {
-                    cell_ref.repetition = None;
-                } else if let Some(existing) = cell_ref.repetition
-                    && (existing.col_vector.y != 0.0 || existing.row_vector.x != 0.0)
-                {
-                    cell_ref.repetition = Some(Repetition::new_vectors(
-                        columns,
-                        rows,
-                        existing.col_vector,
-                        existing.row_vector,
-                    ));
-                } else {
-                    cell_ref.repetition =
-                        Some(Repetition::new(columns, rows, col_spacing, row_spacing));
-                }
-                true
+                cell.edit_element(elem_idx, |element| {
+                    let Element::CellRef(cell_ref) = element else {
+                        return false;
+                    };
+                    let repetition = if columns == 1 && rows == 1 {
+                        None
+                    } else if let Some(existing) = cell_ref.repetition
+                        && (existing.col_vector.y != 0.0 || existing.row_vector.x != 0.0)
+                    {
+                        Some(Repetition::new_vectors(
+                            columns,
+                            rows,
+                            existing.col_vector,
+                            existing.row_vector,
+                        ))
+                    } else {
+                        Some(Repetition::new(columns, rows, col_spacing, row_spacing))
+                    };
+                    *cell_ref = cell_ref.clone().with_repetition(repetition);
+                    true
+                })
             })
+            .ok()
+            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -259,7 +267,7 @@ impl WasmLibrary {
     /// Set the array repetition parameters on a CellRef instance from full
     /// column and row displacement vectors (supports skewed/hex lattices).
     ///
-    /// `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+    /// `id` can be a tokenized synthetic ref UUID or a real element UUID.
     /// `(col_x, col_y)` is the column displacement vector, `(row_x, row_y)`
     /// is the row displacement vector, both in the CellRef's local
     /// (pre-transform) coordinate space. If columns and rows are both 1,
@@ -277,36 +285,43 @@ impl WasmLibrary {
         row_x: f64,
         row_y: f64,
     ) -> bool {
-        // Resolve element index from either synthetic ref UUID or real UUID
-        let (cell_name, elem_idx) = if let Some(idx) = parse_ref_uuid_element_index(id) {
-            match &self.active_cell {
-                Some(name) => (name.clone(), idx),
-                None => return false,
-            }
-        } else if let Some(elem_ref) = self.element_refs.get(id) {
-            (elem_ref.cell_name.clone(), elem_ref.element_index)
-        } else {
+        if columns == 0
+            || rows == 0
+            || ![col_x, col_y, row_x, row_y]
+                .iter()
+                .all(|value| value.is_finite())
+        {
             return false;
+        }
+        // Resolve element index from either synthetic ref UUID or real UUID
+        let (cell_name, elem_idx) = match self.resolve_cell_ref_id(id) {
+            Some(target) => target,
+            None => return false,
         };
 
         let updated = self
             .library
             .edit_cell(&cell_name, |cell| {
-                let Some(Element::CellRef(cell_ref)) = cell.elements_mut().get_mut(elem_idx) else {
-                    return false;
-                };
-                if columns <= 1 && rows <= 1 {
-                    cell_ref.repetition = None;
-                } else {
-                    cell_ref.repetition = Some(Repetition::new_vectors(
-                        columns,
-                        rows,
-                        Vector2::new(col_x, col_y),
-                        Vector2::new(row_x, row_y),
-                    ));
-                }
-                true
+                cell.edit_element(elem_idx, |element| {
+                    let Element::CellRef(cell_ref) = element else {
+                        return false;
+                    };
+                    let repetition = if columns == 1 && rows == 1 {
+                        None
+                    } else {
+                        Some(Repetition::new_vectors(
+                            columns,
+                            rows,
+                            Vector2::new(col_x, col_y),
+                            Vector2::new(row_x, row_y),
+                        ))
+                    };
+                    *cell_ref = cell_ref.clone().with_repetition(repetition);
+                    true
+                })
             })
+            .ok()
+            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -335,6 +350,9 @@ impl WasmLibrary {
         x: f64,
         y: f64,
     ) -> Option<String> {
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
         if parent_cell == ref_cell_name {
             return None;
         }
@@ -352,15 +370,21 @@ impl WasmLibrary {
             .get(ref_cell_name)
             .copied()
             .unwrap_or_else(rosette_core::Point::origin);
+        if !(x - origin.x).is_finite() || !(y - origin.y).is_finite() {
+            return None;
+        }
         let cell_ref = CellRef::with_transform(
             ref_cell_name.to_string(),
             Transform::translate(x - origin.x, y - origin.y),
         );
 
-        let element_index = self.library.edit_cell(parent_cell, |cell| {
-            cell.add_ref(cell_ref);
-            cell.elements().len() - 1
-        })?;
+        let element_index = self
+            .library
+            .edit_cell(parent_cell, |cell| {
+                cell.add_ref(cell_ref);
+                cell.elements().len() - 1
+            })
+            .ok()?;
 
         let uuid = Uuid::new_v4().to_string();
         self.element_refs.insert(
@@ -377,26 +401,23 @@ impl WasmLibrary {
 
     /// Get all parent cells that reference a given cell, with their transforms.
     ///
-    /// Returns a JS array of `{parent, transform, repetition}` records.
+    /// Returns a JS array of `{parent, elementIndex, transform, repetition}` records.
     /// `repetition` is `[columns, rows, col_x, col_y, row_x, row_y]` or null.
     pub fn get_cell_ref_parents(&self, name: &str) -> JsValue {
-        #[derive(serde::Serialize)]
-        struct ParentRef {
-            parent: String,
-            transform: Vec<f64>,
-            repetition: Option<Vec<f64>>,
-        }
+        serde_wasm_bindgen::to_value(&self.cell_ref_parents(name)).unwrap_or(JsValue::NULL)
+    }
 
-        let mut entries: Vec<ParentRef> = Vec::new();
-
+    fn cell_ref_parents(&self, name: &str) -> Vec<ParentRef> {
+        let mut entries = Vec::new();
         for cell in self.library.cells() {
-            for element in cell.elements() {
+            for (element_index, element) in cell.elements().iter().enumerate() {
                 if let Element::CellRef(cell_ref) = element
                     && cell_ref.cell_name == name
                 {
                     let t = &cell_ref.transform;
                     entries.push(ParentRef {
                         parent: cell.name().to_string(),
+                        element_index,
                         transform: vec![t.a, t.b, t.c, t.d, t.tx, t.ty],
                         repetition: cell_ref.repetition.map(|repetition| {
                             vec![
@@ -412,8 +433,7 @@ impl WasmLibrary {
                 }
             }
         }
-
-        serde_wasm_bindgen::to_value(&entries).unwrap_or(JsValue::NULL)
+        entries
     }
 
     /// Add a CellRef to a specific parent cell with a full affine transform.
@@ -463,38 +483,66 @@ impl WasmLibrary {
         transform: Vec<f64>,
         repetition: Option<Vec<f64>>,
     ) -> Option<String> {
-        if transform.len() != 6
-            || !self.library.contains(parent_cell)
-            || !self.library.contains(ref_cell_name)
-        {
+        let element_index = self.library.cell(parent_cell)?.elements().len();
+        self.restore_cell_ref_to_with_transform_at(
+            parent_cell,
+            ref_cell_name,
+            transform,
+            repetition,
+            element_index,
+        )
+    }
+
+    /// Restore a CellRef at its original element index without rejecting
+    /// imported cycles or dangling targets.
+    pub fn restore_cell_ref_to_with_transform_at(
+        &mut self,
+        parent_cell: &str,
+        ref_cell_name: &str,
+        transform: Vec<f64>,
+        repetition: Option<Vec<f64>>,
+        element_index: usize,
+    ) -> Option<String> {
+        if ref_cell_name.is_empty() || !self.library.contains(parent_cell) {
             return None;
         }
 
-        let t = Transform::new(
-            transform[0],
-            transform[1],
-            transform[2],
-            transform[3],
-            transform[4],
-            transform[5],
-        );
-        let mut cell_ref = CellRef::with_transform(ref_cell_name.to_string(), t);
-        if let Some(repetition) = repetition {
-            if repetition.len() != 6 {
-                return None;
-            }
-            cell_ref.repetition = Some(Repetition::new_vectors(
-                repetition[0] as u16,
-                repetition[1] as u16,
-                Vector2::new(repetition[2], repetition[3]),
-                Vector2::new(repetition[4], repetition[5]),
-            ));
+        let current_len = self.library.cell(parent_cell)?.elements().len();
+        if element_index > current_len {
+            return None;
         }
 
-        let element_index = self.library.edit_cell(parent_cell, |cell| {
-            cell.add_ref(cell_ref);
-            cell.elements().len() - 1
-        })?;
+        let t = parse_transform(&transform)?;
+        let repetition = match repetition {
+            Some(values) => Some(parse_repetition(&values)?),
+            None => None,
+        };
+        let cell_ref =
+            CellRef::with_transform(ref_cell_name.to_string(), t).with_repetition(repetition);
+
+        let inserted = self
+            .library
+            .edit_cell(parent_cell, |cell| {
+                cell.add_ref(cell_ref);
+                if cell
+                    .edit_elements(|elements| elements[element_index..].rotate_right(1))
+                    .is_err()
+                {
+                    cell.remove_element(current_len);
+                    return false;
+                }
+                true
+            })
+            .ok()?;
+        if !inserted {
+            return None;
+        }
+
+        for element_ref in self.element_refs.values_mut() {
+            if element_ref.cell_name == parent_cell && element_ref.element_index >= element_index {
+                element_ref.element_index += 1;
+            }
+        }
 
         let uuid = Uuid::new_v4().to_string();
         self.element_refs.insert(
@@ -527,6 +575,9 @@ impl WasmLibrary {
     /// Returns a JS array of `{ vertices: number[], color: [r, g, b, a] }` objects
     /// suitable for rendering a preview during drag-and-drop.
     pub fn get_cell_preview_polygons(&self, cell_name: &str, x: f64, y: f64) -> JsValue {
+        if !x.is_finite() || !y.is_finite() {
+            return JsValue::NULL;
+        }
         let cell = match self.library.cell(cell_name) {
             Some(c) => c,
             None => return JsValue::NULL,
@@ -554,8 +605,9 @@ impl WasmLibrary {
         let labels = self.get_instance_labels();
         let result = js_sys::Array::new();
 
-        for (elem_idx, name, bbox, rep) in labels {
+        for (id, elem_idx, name, bbox, rep) in labels {
             let obj = js_sys::Object::new();
+            js_sys::Reflect::set(&obj, &JsValue::from_str("id"), &JsValue::from_str(&id)).ok();
             js_sys::Reflect::set(&obj, &JsValue::from_str("name"), &JsValue::from_str(&name)).ok();
             js_sys::Reflect::set(
                 &obj,
@@ -615,49 +667,7 @@ impl WasmLibrary {
     /// world-space transform. Used by the JS-side image overlay to render
     /// images belonging to child cells at their instance positions.
     pub fn get_instance_cell_contexts(&self) -> JsValue {
-        let cell_name = match &self.active_cell {
-            Some(name) => name,
-            None => return js_sys::Array::new().into(),
-        };
-        let cell = match self.library.cell(cell_name) {
-            Some(c) => c,
-            None => return js_sys::Array::new().into(),
-        };
-
-        let max_depth = self.hierarchy_depth_limit;
-        let mut contexts: Vec<(String, [f64; 6])> = Vec::new();
-
-        // Walk top-level CellRefs
-        for element in cell.elements() {
-            if let Element::CellRef(cell_ref) = element {
-                if cell_ref.cell_name == cell.name()
-                    || self.hidden_cells.contains(&cell_ref.cell_name)
-                {
-                    continue;
-                }
-                if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) {
-                    for copy_transform in array_transforms(cell_ref) {
-                        let t = [
-                            copy_transform.a,
-                            copy_transform.b,
-                            copy_transform.c,
-                            copy_transform.d,
-                            copy_transform.tx,
-                            copy_transform.ty,
-                        ];
-                        contexts.push((cell_ref.cell_name.clone(), t));
-                        self.collect_cell_contexts_recursive(
-                            ref_cell,
-                            &copy_transform,
-                            cell.name(),
-                            0,
-                            max_depth,
-                            &mut contexts,
-                        );
-                    }
-                }
-            }
-        }
+        let contexts = self.instance_cell_contexts_internal();
 
         // Convert to JS array of { cellName, transform }
         let result = js_sys::Array::new();
@@ -707,16 +717,7 @@ impl WasmLibrary {
             return JsValue::NULL;
         }
 
-        // Each root gets its own visited set so shared sub-cells appear
-        // correctly under every root that references them.
-        let roots = js_sys::Array::new();
-        for cell in self.library.roots() {
-            let mut visited = Vec::new();
-            let node = self.build_cell_tree_node(cell.name(), &mut visited);
-            roots.push(&node);
-        }
-
-        roots.into()
+        serde_wasm_bindgen::to_value(&self.cell_tree_nodes()).unwrap_or(JsValue::NULL)
     }
 }
 
@@ -762,30 +763,77 @@ mod tests {
             .cell_refs()
             .next()
             .unwrap();
-        let bbox = library.compute_instance_bbox("parent", cell_ref);
+        let bbox = library.compute_instance_bbox("parent", cell_ref).unwrap();
         assert_eq!((bbox.min().x, bbox.min().y), (-400.0, -300.0));
         assert_eq!((bbox.max().x, bbox.max().y), (650.0, 700.0));
     }
 
     #[test]
-    fn malformed_zero_dimension_aref_bounds_do_not_panic() {
+    fn overflowed_empty_instance_origins_have_no_bounds_or_spatial_entries() {
         let mut library = WasmLibrary::new("test");
         library.add_cell("child").unwrap();
+        assert!(library.set_cell_origin(f64::MAX, 0.0));
         library.add_cell("parent").unwrap();
-        let cell_ref = CellRef {
-            cell_name: "child".to_string(),
-            transform: Transform::translate(100.0, 200.0),
-            repetition: Some(Repetition {
-                columns: 0,
-                rows: 2,
-                col_vector: Vector2::new(10.0, 0.0),
-                row_vector: Vector2::new(0.0, 10.0),
-            }),
-        };
+        assert!(library.set_active_cell("parent"));
+        let real_id = library
+            .add_cell_ref_with_transform("child", vec![2.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+            .unwrap();
+        let synthetic_id = library.get_canonical_element_id(&real_id).unwrap();
+        let cell_ref = library
+            .library
+            .cell("parent")
+            .unwrap()
+            .cell_refs()
+            .next()
+            .unwrap();
 
-        let bbox = library.compute_instance_bbox("parent", &cell_ref);
-        assert_eq!((bbox.min().x, bbox.min().y), (-400.0, -300.0));
-        assert_eq!((bbox.max().x, bbox.max().y), (600.0, 700.0));
+        assert!(library.compute_instance_bbox("parent", cell_ref).is_none());
+        assert!(library.get_instance_bboxes().is_empty());
+        assert!(library.get_instance_labels().is_empty());
+        assert!(library.get_bounds_for_ids(vec![synthetic_id]).is_none());
+        assert!(library.hit_test_rect(-1.0, -1.0, 1.0, 1.0).is_empty());
+    }
+
+    #[test]
+    fn image_contexts_skip_overflowed_and_noninvertible_accumulated_transforms() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("array_child").unwrap();
+        library.add_cell("array_parent").unwrap();
+        assert!(library.set_active_cell("array_parent"));
+        let id = library
+            .add_cell_ref_with_transform("array_child", vec![2.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+            .unwrap();
+        assert!(library.set_cell_ref_array_vectors(&id, 2, 1, f64::MAX, 0.0, 0.0, 0.0));
+
+        let contexts = library.instance_cell_contexts_internal();
+        assert_eq!(contexts.len(), 1);
+        assert!(contexts[0].1.iter().all(|value| value.is_finite()));
+
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("leaf").unwrap();
+        library.add_cell("middle").unwrap();
+        assert!(library.set_active_cell("middle"));
+        library
+            .add_cell_ref_with_transform("leaf", vec![f64::MIN_POSITIVE, 0.0, 0.0, 1.0, 0.0, 0.0])
+            .unwrap();
+        library.add_cell("top").unwrap();
+        assert!(library.set_active_cell("top"));
+        library
+            .add_cell_ref_with_transform("middle", vec![f64::MIN_POSITIVE, 0.0, 0.0, 1.0, 0.0, 0.0])
+            .unwrap();
+
+        let contexts = library.instance_cell_contexts_internal();
+        assert_eq!(contexts.len(), 1);
+        let transform = Transform::new(
+            contexts[0].1[0],
+            contexts[0].1[1],
+            contexts[0].1[2],
+            contexts[0].1[3],
+            contexts[0].1[4],
+            contexts[0].1[5],
+        );
+        assert!(transform.is_finite());
+        assert!(transform.is_invertible());
     }
 
     #[test]
@@ -832,5 +880,209 @@ mod tests {
                 .is_some()
         );
         assert_eq!(library.library.cell("self_ref").unwrap().ref_count(), 1);
+    }
+
+    #[test]
+    fn invalid_ref_edits_are_atomic_and_do_not_dirty() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        library.add_cell("parent").unwrap();
+        assert!(library.set_active_cell("parent"));
+        let id = library.add_cell_ref("child", 10.0, 20.0).unwrap();
+        let synthetic_id = library.get_canonical_element_id(&id).unwrap();
+        library.mark_clean();
+
+        assert!(
+            !library.set_cell_ref_transform(&synthetic_id, vec![1.0, 0.0, 0.0, 0.0, 30.0, 40.0])
+        );
+        assert!(!library.set_cell_ref_array(&synthetic_id, 0, 2, 5.0, 6.0));
+        assert!(!library.set_cell_ref_array_vectors(&synthetic_id, 2, 2, f64::NAN, 0.0, 0.0, 6.0,));
+
+        let cell_ref = library
+            .library
+            .cell("parent")
+            .unwrap()
+            .cell_refs()
+            .next()
+            .unwrap();
+        assert_eq!(cell_ref.transform, Transform::translate(10.0, 20.0));
+        assert!(cell_ref.repetition.is_none());
+        assert!(!library.is_dirty());
+    }
+
+    #[test]
+    fn valid_transform_and_repetition_edits_preserve_the_element_id() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        library.add_cell("parent").unwrap();
+        assert!(library.set_active_cell("parent"));
+        let id = library.add_cell_ref("child", 0.0, 0.0).unwrap();
+        let element_index = library.get_element_index(&id);
+        let synthetic_id = library.get_canonical_element_id(&id).unwrap();
+
+        assert!(
+            library.set_cell_ref_transform(&synthetic_id, vec![0.0, 1.0, -1.0, 0.0, 30.0, 40.0])
+        );
+        assert!(library.set_cell_ref_array_vectors(&synthetic_id, 3, 2, 8.0, 1.0, 2.0, 6.0,));
+
+        assert_eq!(library.get_element_index(&id), element_index);
+        assert_eq!(
+            library.get_cell_ref_array_vectors(&synthetic_id),
+            Some(vec![3.0, 2.0, 8.0, 1.0, 2.0, 6.0])
+        );
+        assert_eq!(
+            library
+                .get_cell_ref_info(&synthetic_id)
+                .unwrap()
+                .transform(),
+            vec![0.0, 1.0, -1.0, 0.0, 30.0, 40.0]
+        );
+        assert_eq!(
+            library.translate_elements(vec![synthetic_id.clone()], 5.0, -2.0),
+            1
+        );
+        assert_eq!(
+            library
+                .get_cell_ref_info(&synthetic_id)
+                .unwrap()
+                .transform(),
+            vec![0.0, 1.0, -1.0, 0.0, 35.0, 38.0]
+        );
+        assert_eq!(
+            library.get_cell_ref_array_vectors(&synthetic_id),
+            Some(vec![3.0, 2.0, 8.0, 1.0, 2.0, 6.0])
+        );
+    }
+
+    #[test]
+    fn restore_api_accepts_dangling_references_but_rejects_invalid_numbers() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("parent").unwrap();
+
+        assert!(
+            library
+                .restore_cell_ref_to_with_transform(
+                    "parent",
+                    "missing",
+                    vec![1.0, 0.0, 0.0, 1.0, 2.0, 3.0],
+                    Some(vec![2.0, 3.0, 8.0, 1.0, 2.0, 6.0]),
+                )
+                .is_some()
+        );
+        assert!(
+            library
+                .restore_cell_ref_to_with_transform(
+                    "parent",
+                    "missing",
+                    vec![1.0, 0.0, 0.0, 1.0, 2.0, 3.0],
+                    Some(vec![0.0, 3.0, 8.0, 1.0, 2.0, 6.0]),
+                )
+                .is_none()
+        );
+        assert_eq!(library.library.cell("parent").unwrap().ref_count(), 1);
+    }
+
+    #[test]
+    fn indexed_restore_reinstates_order_and_shifts_surviving_ids() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        library.add_cell("other").unwrap();
+        library.add_cell("parent").unwrap();
+        assert!(library.set_active_cell("parent"));
+
+        let first_id = library
+            .add_polygon(&[0.0, 0.0, 1.0, 0.0, 1.0, 1.0], 1, 0)
+            .unwrap();
+        let trailing_id = library.add_text("tail", 0.0, 0.0, 1.0, 2, 0).unwrap();
+
+        let restored_id = library
+            .restore_cell_ref_to_with_transform_at(
+                "parent",
+                "child",
+                vec![1.0, 0.0, 0.0, 1.0, 10.0, 20.0],
+                Some(vec![2.0, 3.0, 8.0, 1.0, 2.0, 6.0]),
+                1,
+            )
+            .unwrap();
+
+        assert_eq!(library.get_element_index(&first_id), 0);
+        assert_eq!(library.get_element_index(&restored_id), 1);
+        assert_eq!(library.get_element_index(&trailing_id), 2);
+        let elements = library.library.cell("parent").unwrap().elements();
+        assert!(matches!(elements[0], Element::Polygon { .. }));
+        assert!(matches!(elements[1], Element::CellRef(_)));
+        assert!(matches!(elements[2], Element::Text { .. }));
+        assert!(
+            library
+                .restore_cell_ref_to_with_transform_at(
+                    "parent",
+                    "other",
+                    vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                    None,
+                    4,
+                )
+                .is_none()
+        );
+        assert_eq!(library.library.cell("parent").unwrap().elements().len(), 3);
+    }
+
+    #[test]
+    fn parent_snapshots_include_original_element_indices() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        library.add_cell("parent").unwrap();
+        assert!(library.set_active_cell("parent"));
+        library
+            .add_polygon(&[0.0, 0.0, 1.0, 0.0, 1.0, 1.0], 1, 0)
+            .unwrap();
+        library.add_cell_ref("child", 0.0, 0.0).unwrap();
+        library.add_text("middle", 0.0, 0.0, 1.0, 2, 0).unwrap();
+        library.add_cell_ref("child", 1.0, 2.0).unwrap();
+
+        let parents = library.cell_ref_parents("child");
+        assert_eq!(parents.len(), 2);
+        assert_eq!(parents[0].element_index, 1);
+        assert_eq!(parents[1].element_index, 3);
+    }
+
+    #[test]
+    fn cell_tree_exposes_rootless_cycle_components_and_omits_dangling_targets() {
+        let mut library = WasmLibrary::new("test");
+        for name in ["A", "B", "C", "D", "dangling_parent"] {
+            library.add_cell(name).unwrap();
+        }
+        library
+            .restore_cell_ref_to_with_transform("A", "B", vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0], None)
+            .unwrap();
+        library
+            .restore_cell_ref_to_with_transform("B", "A", vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0], None)
+            .unwrap();
+        library
+            .restore_cell_ref_to_with_transform("C", "D", vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0], None)
+            .unwrap();
+        library
+            .restore_cell_ref_to_with_transform("D", "C", vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0], None)
+            .unwrap();
+        library
+            .restore_cell_ref_to_with_transform(
+                "dangling_parent",
+                "missing",
+                vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                None,
+            )
+            .unwrap();
+
+        let tree = library.cell_tree_nodes();
+        assert_eq!(
+            tree.iter()
+                .map(|node| node.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["dangling_parent", "A", "C"]
+        );
+        assert!(tree[0].children.is_empty());
+        assert_eq!(tree[1].children[0].name, "B");
+        assert!(tree[1].children[0].children.is_empty());
+        assert_eq!(tree[2].children[0].name, "D");
+        assert!(tree[2].children[0].children.is_empty());
     }
 }

@@ -84,10 +84,17 @@ impl BuildSummary {
                 if let Some(ref_cell) = lib.cell(&cell_ref.cell_name) {
                     for copy in cell_ref.copies() {
                         let origin = copy.transform.apply(rosette_core::Point::new(0.0, 0.0));
+                        if !origin.is_finite() {
+                            // Accumulated hierarchy arithmetic can overflow even
+                            // when every stored transform is locally valid.
+                            continue;
+                        }
                         let mut port_infos = Vec::new();
                         let mut angles = Vec::new();
                         for port in ref_cell.ports() {
-                            let transformed = port.transform(&copy.transform);
+                            let Some(transformed) = port.try_transform(&copy.transform) else {
+                                continue;
+                            };
                             port_infos.push(PortInfo {
                                 name: transformed.name.clone(),
                                 x: transformed.position.x,
@@ -381,6 +388,24 @@ mod tests {
         assert_eq!(summary.instance_ports[0].origin_x, 0.0);
         assert_eq!(summary.instance_ports[1].origin_x, 10.0);
         assert_eq!(summary.instance_ports[1].ports[0].x, 11.0);
+    }
+
+    #[test]
+    fn build_summary_skips_overflowed_instance_ports() {
+        let mut child = Cell::new("child");
+        child.add_port(Port::new("port", Point::new(2.0, 0.0), Vector2::unit_x()));
+        let mut top = Cell::new("top");
+        top.add_ref(CellRef::new("child").scale(f64::MAX));
+        let mut library = Library::new("test");
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
+
+        let summary =
+            BuildSummary::from_cell_with_library(library.cell("top").unwrap(), Some(&library));
+
+        assert_eq!(summary.instance_ports.len(), 1);
+        assert!(summary.instance_ports[0].ports.is_empty());
+        assert!(summary.instance_ports[0].angles.is_empty());
     }
 }
 

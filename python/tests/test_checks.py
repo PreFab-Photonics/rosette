@@ -155,6 +155,14 @@ class TestRunChecks:
         result = run_checks(cell, config)
         assert result.passed
 
+    def test_skips_ports_from_overflowed_transform(self, transform_overflow_hierarchy):
+        top, library = transform_overflow_hierarchy
+
+        result = run_checks(top, library=library)
+
+        assert result.passed
+        assert result.ports_checked == 1
+
 
 class TestBendRadiusChecks:
     """Tests for bend radius checking via run_checks."""

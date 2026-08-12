@@ -179,9 +179,11 @@ mod tests {
         // 10 000-vertex polygon with one deliberate twist near the start.
         // Construct it from a regular polygon with two vertices swapped to
         // introduce exactly one X-crossing.
-        let mut poly = Polygon::regular(Point::origin(), 10.0, 10_000);
-        let verts = poly.vertices_mut();
+        let mut verts = Polygon::regular(Point::origin(), 10.0, 10_000)
+            .vertices()
+            .to_vec();
         verts.swap(1, 2_000);
+        let poly = Polygon::new(verts);
 
         let result = check_self_intersection(&poly, Layer::new(1, 0), None);
         assert!(

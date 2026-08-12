@@ -3,17 +3,87 @@
 use crate::extract_layer;
 use crate::geometry::PyPoint;
 use crate::layout::{PyCell, PyPort};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
 use rosette_route::{BendProfile, Route};
 use std::f64::consts::PI;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
+fn positive_finite(name: &str, value: f64) -> PyResult<()> {
+    let max_safe_value = f64::MAX.sqrt() / 4.0;
+    if !value.is_finite() || value <= 0.0 || value > max_safe_value {
+        return Err(PyValueError::new_err(format!(
+            "{name} must be positive and finite and within the route geometry range"
+        )));
+    }
+    Ok(())
+}
+
+fn finite_position(x: f64, y: f64) -> PyResult<()> {
+    let max_safe_coordinate = f64::MAX.sqrt() / 4.0;
+    if !x.is_finite()
+        || !y.is_finite()
+        || x.abs() > max_safe_coordinate
+        || y.abs() > max_safe_coordinate
+    {
+        return Err(PyValueError::new_err(
+            "Route waypoint coordinates must be finite within the route geometry range",
+        ));
+    }
+    Ok(())
+}
+
+fn angle_radians(angle: f64) -> PyResult<f64> {
+    let radians = angle * PI / 180.0;
+    if !angle.is_finite() || !radians.is_finite() {
+        return Err(PyValueError::new_err("Route angle must be finite"));
+    }
+    Ok(radians)
+}
+
+fn validate_port(port: &PyPort) -> PyResult<()> {
+    finite_position(port.0.position.x, port.0.position.y)?;
+    let direction_length = port.0.direction.length();
+    if !port.0.direction.is_finite() || direction_length == 0.0 || !direction_length.is_finite() {
+        return Err(PyValueError::new_err(
+            "Route port direction must be finite and nonzero",
+        ));
+    }
+    if let Some(width) = port.0.width {
+        positive_finite("Route port width", width)?;
+    }
+    Ok(())
+}
+
+fn route_generation_error() -> PyErr {
+    PyValueError::new_err("Route geometry generation produced invalid or non-finite geometry")
+}
+
+fn validate_generated_route(route: &Route) -> PyResult<()> {
+    let result =
+        catch_unwind(AssertUnwindSafe(|| route.build())).map_err(|_| route_generation_error())?;
+    let Ok(result) = result else {
+        return Ok(());
+    };
+    if !result.path_length().is_finite()
+        || result
+            .polygons()
+            .iter()
+            .flat_map(|polygon| polygon.vertices())
+            .any(|point| !point.is_finite())
+    {
+        return Err(route_generation_error());
+    }
+    Ok(())
+}
 
 /// Parse a `bend_profile` string from Python into the Rust enum.
 fn parse_bend_profile(s: &str) -> PyResult<BendProfile> {
     match s {
         "circular" => Ok(BendProfile::Circular),
         "euler" => Ok(BendProfile::Euler),
-        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+        other => Err(PyValueError::new_err(format!(
             "bend_profile must be 'circular' or 'euler', got {other:?}"
         ))),
     }
@@ -59,16 +129,8 @@ impl PyRoute {
     ) -> PyResult<Self> {
         let layer = extract_layer(layer)?;
 
-        if width <= 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "width must be positive",
-            ));
-        }
-        if bend_radius <= 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "bend_radius must be positive",
-            ));
-        }
+        positive_finite("width", width)?;
+        positive_finite("bend_radius", bend_radius)?;
         let profile = parse_bend_profile(bend_profile)?;
 
         let route = Route::new(layer)
@@ -86,16 +148,26 @@ impl PyRoute {
     ///     y: Y coordinate
     ///     angle: Direction angle in degrees (0 = +X direction)
     #[pyo3(signature = (x, y, angle=0.0))]
-    fn start_at(&mut self, x: f64, y: f64, angle: f64) {
-        let angle_rad = angle * PI / 180.0;
-        self.route.start_at(x, y, angle_rad);
+    fn start_at(&mut self, x: f64, y: f64, angle: f64) -> PyResult<()> {
+        finite_position(x, y)?;
+        let angle_rad = angle_radians(angle)?;
+        let mut route = self.route.clone();
+        route.start_at(x, y, angle_rad);
+        validate_generated_route(&route)?;
+        self.route = route;
+        Ok(())
     }
 
     /// Start the route at a port.
     ///
     /// Uses the port's position, direction, and width.
-    fn start_at_port(&mut self, port: &PyPort) {
-        self.route.start_at_port(&port.0);
+    fn start_at_port(&mut self, port: &PyPort) -> PyResult<()> {
+        validate_port(port)?;
+        let mut route = self.route.clone();
+        route.start_at_port(&port.0);
+        validate_generated_route(&route)?;
+        self.route = route;
+        Ok(())
     }
 
     /// Add a waypoint to the route.
@@ -107,8 +179,19 @@ impl PyRoute {
     ///         interpolated across the full segment ending at this waypoint.
     ///     bend_radius: Optional bend radius override at this corner
     #[pyo3(signature = (x, y, width=None, bend_radius=None))]
-    fn to(&mut self, x: f64, y: f64, width: Option<f64>, bend_radius: Option<f64>) {
-        self.route.to_full(x, y, width, bend_radius);
+    fn to(&mut self, x: f64, y: f64, width: Option<f64>, bend_radius: Option<f64>) -> PyResult<()> {
+        finite_position(x, y)?;
+        if let Some(width) = width {
+            positive_finite("width", width)?;
+        }
+        if let Some(bend_radius) = bend_radius {
+            positive_finite("bend_radius", bend_radius)?;
+        }
+        let mut route = self.route.clone();
+        route.to_full(x, y, width, bend_radius);
+        validate_generated_route(&route)?;
+        self.route = route;
+        Ok(())
     }
 
     /// End the route at a specific position and angle.
@@ -118,14 +201,24 @@ impl PyRoute {
     ///     y: Y coordinate
     ///     angle: Direction angle in degrees (0 = +X direction)
     #[pyo3(signature = (x, y, angle=0.0))]
-    fn end_at(&mut self, x: f64, y: f64, angle: f64) {
-        let angle_rad = angle * PI / 180.0;
-        self.route.end_at(x, y, angle_rad);
+    fn end_at(&mut self, x: f64, y: f64, angle: f64) -> PyResult<()> {
+        finite_position(x, y)?;
+        let angle_rad = angle_radians(angle)?;
+        let mut route = self.route.clone();
+        route.end_at(x, y, angle_rad);
+        validate_generated_route(&route)?;
+        self.route = route;
+        Ok(())
     }
 
     /// End the route at a port.
-    fn end_at_port(&mut self, port: &PyPort) {
-        self.route.end_at_port(&port.0);
+    fn end_at_port(&mut self, port: &PyPort) -> PyResult<()> {
+        validate_port(port)?;
+        let mut route = self.route.clone();
+        route.end_at_port(&port.0);
+        validate_generated_route(&route)?;
+        self.route = route;
+        Ok(())
     }
 
     /// Convert the route to a Cell.
@@ -135,20 +228,29 @@ impl PyRoute {
     ///
     /// Returns:
     ///     Cell containing the route geometry
-    fn to_cell(&self, name: &str) -> PyCell {
-        PyCell(self.route.to_cell(name))
+    fn to_cell(&self, name: &str) -> PyResult<PyCell> {
+        let cell = catch_unwind(AssertUnwindSafe(|| self.route.to_cell(name)))
+            .map_err(|_| route_generation_error())?;
+        cell.validate().map_err(|_| route_generation_error())?;
+        Ok(PyCell(cell))
     }
 
     /// Get the total optical path length.
     #[getter]
-    fn path_length(&self) -> f64 {
-        self.route.path_length()
+    fn path_length(&self) -> PyResult<f64> {
+        let length = catch_unwind(AssertUnwindSafe(|| self.route.path_length()))
+            .map_err(|_| route_generation_error())?;
+        if !length.is_finite() {
+            return Err(route_generation_error());
+        }
+        Ok(length)
     }
 
     /// Get warnings from route generation.
     #[getter]
-    fn warnings(&self) -> Vec<String> {
-        self.route.warnings()
+    fn warnings(&self) -> PyResult<Vec<String>> {
+        catch_unwind(AssertUnwindSafe(|| self.route.warnings()))
+            .map_err(|_| route_generation_error())
     }
 
     /// Create a route through a series of waypoints.
@@ -183,16 +285,8 @@ impl PyRoute {
     ) -> PyResult<PyRoute> {
         let layer_val = extract_layer(layer)?;
 
-        if width <= 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "width must be positive",
-            ));
-        }
-        if bend_radius <= 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "bend_radius must be positive",
-            ));
-        }
+        positive_finite("width", width)?;
+        positive_finite("bend_radius", bend_radius)?;
 
         let profile = parse_bend_profile(bend_profile)?;
 
@@ -203,8 +297,8 @@ impl PyRoute {
 
         let items: Vec<Bound<'_, PyAny>> = waypoints.iter().collect();
 
-        if items.is_empty() {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+        if items.len() < 2 {
+            return Err(PyValueError::new_err(
                 "Route.through() requires at least 2 waypoints",
             ));
         }
@@ -215,6 +309,7 @@ impl PyRoute {
 
             // Try to extract as Port
             if let Ok(port) = item.extract::<PyPort>() {
+                validate_port(&port)?;
                 if is_first {
                     route.start_at_port(&port.0);
                 } else if is_last {
@@ -228,6 +323,7 @@ impl PyRoute {
 
             // Try to extract as Point
             if let Ok(point) = item.extract::<PyPoint>() {
+                finite_position(point.0.x, point.0.y)?;
                 if is_first {
                     // First point without angle - use 0
                     route.start_at(point.0.x, point.0.y, 0.0);
@@ -246,22 +342,16 @@ impl PyRoute {
                 if len >= 2 {
                     let x: f64 = tuple.get_item(0)?.extract()?;
                     let y: f64 = tuple.get_item(1)?.extract()?;
+                    finite_position(x, y)?;
+                    let angle = if len >= 3 {
+                        angle_radians(tuple.get_item(2)?.extract()?)?
+                    } else {
+                        0.0
+                    };
 
                     if is_first {
-                        let angle = if len >= 3 {
-                            let a: f64 = tuple.get_item(2)?.extract()?;
-                            a * PI / 180.0
-                        } else {
-                            0.0
-                        };
                         route.start_at(x, y, angle);
                     } else if is_last {
-                        let angle = if len >= 3 {
-                            let a: f64 = tuple.get_item(2)?.extract()?;
-                            a * PI / 180.0
-                        } else {
-                            0.0
-                        };
                         route.end_at(x, y, angle);
                     } else {
                         route.to(x, y);
@@ -276,22 +366,16 @@ impl PyRoute {
                 if len >= 2 {
                     let x: f64 = list.get_item(0)?.extract()?;
                     let y: f64 = list.get_item(1)?.extract()?;
+                    finite_position(x, y)?;
+                    let angle = if len >= 3 {
+                        angle_radians(list.get_item(2)?.extract()?)?
+                    } else {
+                        0.0
+                    };
 
                     if is_first {
-                        let angle = if len >= 3 {
-                            let a: f64 = list.get_item(2)?.extract()?;
-                            a * PI / 180.0
-                        } else {
-                            0.0
-                        };
                         route.start_at(x, y, angle);
                     } else if is_last {
-                        let angle = if len >= 3 {
-                            let a: f64 = list.get_item(2)?.extract()?;
-                            a * PI / 180.0
-                        } else {
-                            0.0
-                        };
                         route.end_at(x, y, angle);
                     } else {
                         route.to(x, y);
@@ -300,16 +384,17 @@ impl PyRoute {
                 }
             }
 
-            return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+            return Err(PyTypeError::new_err(format!(
                 "Waypoint {} must be a Port, Point, (x, y) tuple, or [x, y] list",
                 i
             )));
         }
 
+        validate_generated_route(&route)?;
         Ok(PyRoute { route })
     }
 
-    fn __repr__(&self) -> String {
-        format!("Route(path_length={:.3})", self.route.path_length())
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!("Route(path_length={:.3})", self.path_length()?))
     }
 }

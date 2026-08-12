@@ -23,7 +23,7 @@ mod naming;
 mod reader;
 mod writer;
 
-pub use error::GdsError;
+pub use error::{GdsElementError, GdsError, GdsTransformError};
 pub use naming::{GdsNameError, MAX_STRUCTURE_NAME_LENGTH, validate_structure_name};
 pub use reader::{read, read_bytes};
 pub use writer::{write, write_bytes, write_library};

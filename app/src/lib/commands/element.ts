@@ -16,6 +16,7 @@ import {
   offsetSnapshot,
   warnBendRadiusReductions,
   syncCellTree,
+  translateElementsOrThrow,
 } from "./helpers";
 
 /**
@@ -142,7 +143,7 @@ export class DeleteElementsCommand implements Command {
   }
 
   undo(ctx: CommandContext): void {
-    this.restoredIds = restoreSnapshots(ctx.library, this.snapshots);
+    this.restoredIds = restoreSnapshots(ctx.library, this.snapshots, false, true);
 
     syncCellTree(ctx.library);
     ctx.renderer.sync_from_library(ctx.library);
@@ -180,6 +181,7 @@ export class PasteElementsCommand implements Command {
       if (e.type === "cell-ref") {
         return {
           type: "cell-ref",
+          originalIndex: e.originalIndex,
           cellName: e.cellName,
           transform: new Float64Array(e.transform),
           repetition: e.repetition ? new Float64Array(e.repetition) : null,
@@ -194,6 +196,7 @@ export class PasteElementsCommand implements Command {
       if (e.type === "path") {
         return {
           type: "path",
+          originalIndex: e.originalIndex,
           waypoints: e.waypoints.map((wp) => ({ ...wp })),
           width: e.width,
           cornerRadius: e.cornerRadius,
@@ -202,8 +205,12 @@ export class PasteElementsCommand implements Command {
           datatype: e.datatype,
         };
       }
+      if (e.type === "native-path") {
+        return { ...e, centerline: new Float64Array(e.centerline) };
+      }
       return {
         type: "polygon",
+        originalIndex: e.originalIndex,
         vertices: new Float64Array(e.vertices),
         layer: e.layer,
         datatype: e.datatype,
@@ -551,39 +558,40 @@ export class CreatePathCommand implements Command {
       this.datatype,
     );
 
-    if (id) {
-      this.elementId = id;
+    if (!id) {
+      throw new Error("Could not create path");
+    }
+    this.elementId = id;
 
-      // Restore path metadata on redo (metadata is set after first execute by the caller,
-      // or by the command itself on redo if waypoints were provided).
-      if (this.metadata) {
-        // Ensure actual radius is populated (may be missing from older metadata)
-        this.metadata.actualCornerRadius = computeActualCornerRadius(
-          this.metadata.waypoints,
-          this.metadata.cornerRadius,
-        );
-        usePathStore.getState().setPathMetadata(id, this.metadata);
-      } else if (this.waypoints) {
-        this.metadata = {
-          waypoints: this.waypoints,
-          width: this.width,
-          cornerRadius: this.cornerRadius,
-          actualCornerRadius: computeActualCornerRadius(this.waypoints, this.cornerRadius),
-          numArcPoints: this.numArcPoints,
-          layer: this.layer,
-          datatype: this.datatype,
-        };
-        usePathStore.getState().setPathMetadata(id, this.metadata);
-      }
+    // Restore path metadata on redo (metadata is set after first execute by the caller,
+    // or by the command itself on redo if waypoints were provided).
+    if (this.metadata) {
+      // Ensure actual radius is populated (may be missing from older metadata)
+      this.metadata.actualCornerRadius = computeActualCornerRadius(
+        this.metadata.waypoints,
+        this.metadata.cornerRadius,
+      );
+      usePathStore.getState().setPathMetadata(id, this.metadata);
+    } else if (this.waypoints) {
+      this.metadata = {
+        waypoints: this.waypoints,
+        width: this.width,
+        cornerRadius: this.cornerRadius,
+        actualCornerRadius: computeActualCornerRadius(this.waypoints, this.cornerRadius),
+        numArcPoints: this.numArcPoints,
+        layer: this.layer,
+        datatype: this.datatype,
+      };
+      usePathStore.getState().setPathMetadata(id, this.metadata);
+    }
 
-      ctx.renderer.sync_from_library(ctx.library);
-      ctx.renderer.mark_dirty();
-      useSelectionStore.getState().select(id);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+    useSelectionStore.getState().select(id);
 
-      // Warn if any corners had their bend radius auto-reduced
-      if (this.waypoints) {
-        warnBendRadiusReductions(this.waypoints, this.cornerRadius);
-      }
+    // Warn if any corners had their bend radius auto-reduced
+    if (this.waypoints) {
+      warnBendRadiusReductions(this.waypoints, this.cornerRadius);
     }
   }
 
@@ -710,8 +718,7 @@ export class MoveElementsCommand implements Command {
   }
 
   execute(ctx: CommandContext): void {
-    // Translate all elements by the delta
-    ctx.library.translate_elements(this.elementIds, this.deltaX, this.deltaY);
+    translateElementsOrThrow(ctx.library, this.elementIds, this.deltaX, this.deltaY);
 
     // Keep path waypoints in sync with the WASM polygon
     usePathStore.getState().translateWaypoints(this.elementIds, this.deltaX, this.deltaY);
@@ -721,8 +728,7 @@ export class MoveElementsCommand implements Command {
   }
 
   undo(ctx: CommandContext): void {
-    // Translate in the opposite direction
-    ctx.library.translate_elements(this.elementIds, -this.deltaX, -this.deltaY);
+    translateElementsOrThrow(ctx.library, this.elementIds, -this.deltaX, -this.deltaY);
 
     // Keep path waypoints in sync with the WASM polygon
     usePathStore.getState().translateWaypoints(this.elementIds, -this.deltaX, -this.deltaY);
@@ -1086,14 +1092,14 @@ export class MoveElementsToCommand implements Command {
   }
 
   execute(ctx: CommandContext): void {
-    ctx.library.translate_elements(this.currentIds, this.deltaX, this.deltaY);
+    translateElementsOrThrow(ctx.library, this.currentIds, this.deltaX, this.deltaY);
     usePathStore.getState().translateWaypoints(this.currentIds, this.deltaX, this.deltaY);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
 
   undo(ctx: CommandContext): void {
-    ctx.library.translate_elements(this.currentIds, -this.deltaX, -this.deltaY);
+    translateElementsOrThrow(ctx.library, this.currentIds, -this.deltaX, -this.deltaY);
     usePathStore.getState().translateWaypoints(this.currentIds, -this.deltaX, -this.deltaY);
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
@@ -1133,8 +1139,19 @@ export class AlignElementsCommand implements Command {
       );
     }
 
+    const applied: AlignmentDelta[] = [];
+    try {
+      for (const delta of this.deltas) {
+        translateElementsOrThrow(ctx.library, delta.ids, delta.dx, delta.dy);
+        applied.push(delta);
+      }
+    } catch (error) {
+      for (const delta of applied.reverse()) {
+        translateElementsOrThrow(ctx.library, delta.ids, -delta.dx, -delta.dy);
+      }
+      throw error;
+    }
     for (const delta of this.deltas) {
-      ctx.library.translate_elements(delta.ids, delta.dx, delta.dy);
       usePathStore.getState().translateWaypoints(delta.ids, delta.dx, delta.dy);
     }
 
@@ -1143,10 +1160,20 @@ export class AlignElementsCommand implements Command {
   }
 
   undo(ctx: CommandContext): void {
-    // Apply inverse translations in reverse order
-    for (let i = this.deltas.length - 1; i >= 0; i--) {
-      const delta = this.deltas[i];
-      ctx.library.translate_elements(delta.ids, -delta.dx, -delta.dy);
+    const ordered = [...this.deltas].reverse();
+    const applied: AlignmentDelta[] = [];
+    try {
+      for (const delta of ordered) {
+        translateElementsOrThrow(ctx.library, delta.ids, -delta.dx, -delta.dy);
+        applied.push(delta);
+      }
+    } catch (error) {
+      for (const delta of applied.reverse()) {
+        translateElementsOrThrow(ctx.library, delta.ids, delta.dx, delta.dy);
+      }
+      throw error;
+    }
+    for (const delta of ordered) {
       usePathStore.getState().translateWaypoints(delta.ids, -delta.dx, -delta.dy);
     }
 
@@ -1182,6 +1209,8 @@ export class BooleanOperationCommand implements Command {
   private currentIds: string[];
   /** Current base ID (updated on undo when elements get new UUIDs). */
   private currentBaseId: string;
+  /** Snapshot position of the subtraction base after deterministic ordering. */
+  private baseSnapshotIndex = -1;
   /** IDs of result polygons created by the operation. */
   private resultIds: string[] = [];
 
@@ -1199,6 +1228,11 @@ export class BooleanOperationCommand implements Command {
     // Snapshot originals on first execution only
     if (this.snapshots.length === 0) {
       this.snapshots = snapshotElements(ctx.library, this.currentIds);
+      const canonicalBase = ctx.library.get_canonical_element_id(this.currentBaseId);
+      const baseElementIndex = canonicalBase ? ctx.library.get_element_index(canonicalBase) : -1;
+      this.baseSnapshotIndex = this.snapshots.findIndex(
+        (snapshot) => snapshot.originalIndex === baseElementIndex,
+      );
     }
 
     // Run the WASM boolean operation (removes inputs, creates results)
@@ -1228,15 +1262,10 @@ export class BooleanOperationCommand implements Command {
     // Restore original elements from snapshots (they get new UUIDs)
     const restoredIds = restoreSnapshots(ctx.library, this.snapshots);
 
-    // Map the old base ID to the new one. The snapshots are created
-    // in the same order as currentIds (polygon-only), so we can find
-    // the base by its position.
-    const oldBaseIdx = this.currentIds.indexOf(this.currentBaseId);
-
     // Update currentIds for the next redo
     this.currentIds = restoredIds;
-    if (oldBaseIdx >= 0 && oldBaseIdx < restoredIds.length) {
-      this.currentBaseId = restoredIds[oldBaseIdx];
+    if (this.baseSnapshotIndex >= 0 && this.baseSnapshotIndex < restoredIds.length) {
+      this.currentBaseId = restoredIds[this.baseSnapshotIndex];
     }
     this.resultIds = [];
 

@@ -54,6 +54,21 @@ impl Transform {
         }
     }
 
+    /// Whether every affine matrix component is finite.
+    pub fn is_finite(&self) -> bool {
+        self.a.is_finite()
+            && self.b.is_finite()
+            && self.c.is_finite()
+            && self.d.is_finite()
+            && self.tx.is_finite()
+            && self.ty.is_finite()
+    }
+
+    /// Whether this is a finite transform with a nonsingular linear part.
+    pub fn is_invertible(&self) -> bool {
+        self.inverse().is_some()
+    }
+
     /// Translation transform.
     pub fn translate(tx: f64, ty: f64) -> Self {
         Self {
@@ -156,21 +171,56 @@ impl Transform {
 
     /// Compute the inverse transform.
     ///
-    /// Returns None if the transform is not invertible (determinant is zero).
+    /// Returns `None` if the transform or its inverse is not finite, or if its
+    /// linear part is singular.
     pub fn inverse(&self) -> Option<Self> {
-        let det = self.a * self.d - self.b * self.c;
-        if det.abs() < 1e-15 {
+        if !self.is_finite() {
             return None;
         }
-        let inv_det = 1.0 / det;
-        Some(Self {
-            a: self.d * inv_det,
-            b: -self.b * inv_det,
-            c: -self.c * inv_det,
-            d: self.a * inv_det,
-            tx: (self.b * self.ty - self.d * self.tx) * inv_det,
-            ty: (self.c * self.tx - self.a * self.ty) * inv_det,
-        })
+
+        // Scale each row independently so determinant products cannot overflow
+        // or underflow solely because the matrix has extreme finite units.
+        let row0_scale = self.a.abs().max(self.b.abs());
+        let row1_scale = self.c.abs().max(self.d.abs());
+        if row0_scale == 0.0 || row1_scale == 0.0 {
+            return None;
+        }
+        let a = self.a / row0_scale;
+        let b = self.b / row0_scale;
+        let c = self.c / row1_scale;
+        let d = self.d / row1_scale;
+        let det = a * d - b * c;
+        if !det.is_finite() || det == 0.0 {
+            return None;
+        }
+
+        fn inverse_entry(numerator: f64, determinant: f64, row_scale: f64) -> f64 {
+            let denominator = determinant * row_scale;
+            if denominator.is_finite() && denominator != 0.0 {
+                numerator / denominator
+            } else {
+                let quotient = numerator / determinant;
+                if quotient.is_finite() {
+                    quotient / row_scale
+                } else {
+                    (numerator / row_scale) / determinant
+                }
+            }
+        }
+
+        let inv_a = inverse_entry(d, det, row0_scale);
+        let inv_b = inverse_entry(-b, det, row1_scale);
+        let inv_c = inverse_entry(-c, det, row0_scale);
+        let inv_d = inverse_entry(a, det, row1_scale);
+        let inverse = Self {
+            a: inv_a,
+            b: inv_b,
+            c: inv_c,
+            d: inv_d,
+            tx: -(inv_a * self.tx + inv_b * self.ty),
+            ty: -(inv_c * self.tx + inv_d * self.ty),
+        };
+        inverse.is_finite().then_some(inverse)
     }
 
     /// Get the determinant of the linear part.
@@ -290,6 +340,38 @@ mod tests {
         let transformed = t.apply(p);
         let back = inv.apply(transformed);
         assert!(point_approx_eq(back, p));
+    }
+
+    #[test]
+    fn inverse_handles_extreme_finite_scales() {
+        for transform in [
+            Transform::scale_uniform(1e200),
+            Transform::scale_uniform(1e-200),
+            Transform::scale(1e200, 1e-200),
+            Transform::new(0.0, 1e200, 1e-200, 0.0, 0.0, 0.0),
+        ] {
+            let inverse = transform.inverse().expect("transform should be invertible");
+            let product = transform.then(&inverse);
+            assert!(approx_eq(product.a, 1.0));
+            assert!(approx_eq(product.b, 0.0));
+            assert!(approx_eq(product.c, 0.0));
+            assert!(approx_eq(product.d, 1.0));
+        }
+    }
+
+    #[test]
+    fn inverse_rejects_singular_and_nonfinite_results() {
+        assert!(
+            Transform::new(1e200, 2e200, 0.5e200, 1e200, 0.0, 0.0)
+                .inverse()
+                .is_none()
+        );
+        assert!(
+            Transform::scale_uniform(f64::from_bits(1))
+                .inverse()
+                .is_none()
+        );
+        assert!(Transform::translate(f64::INFINITY, 0.0).inverse().is_none());
     }
 
     #[test]

@@ -20,15 +20,21 @@ impl WasmLibrary {
         layer: u16,
         datatype: u16,
     ) -> Option<String> {
+        if !x.is_finite() || !y.is_finite() || !height.is_finite() || height <= 0.0 {
+            return None;
+        }
         let cell_name = self.active_cell.clone()?;
 
         let position = Point::new(x, y);
         let layer_spec = Layer::new(layer, datatype);
 
-        let element_index = self.library.edit_cell(&cell_name, |cell| {
-            cell.add_text_with_height(text, position, layer_spec, height);
-            cell.elements().len() - 1
-        })?;
+        let element_index = self
+            .library
+            .edit_cell(&cell_name, |cell| {
+                cell.add_text_with_height(text, position, layer_spec, height);
+                cell.elements().len() - 1
+            })
+            .ok()?;
         let uuid = Uuid::new_v4().to_string();
 
         self.element_refs.insert(
@@ -115,14 +121,16 @@ impl WasmLibrary {
         let updated = self
             .library
             .edit_cell(&elem_ref.cell_name, |cell| {
-                let Some(Element::Text { text, .. }) =
-                    cell.elements_mut().get_mut(elem_ref.element_index)
-                else {
-                    return false;
-                };
-                *text = new_text.to_string();
-                true
+                cell.edit_element(elem_ref.element_index, |element| {
+                    let Element::Text { text, .. } = element else {
+                        return false;
+                    };
+                    *text = new_text.to_string();
+                    true
+                })
             })
+            .ok()
+            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -179,6 +187,9 @@ impl WasmLibrary {
     ///
     /// Returns true if the element was found and updated.
     pub fn set_text_position(&mut self, id: &str, x: f64, y: f64) -> bool {
+        if !x.is_finite() || !y.is_finite() {
+            return false;
+        }
         let elem_ref = match self.element_refs.get(id) {
             Some(r) => r.clone(),
             None => return false,
@@ -187,14 +198,16 @@ impl WasmLibrary {
         let updated = self
             .library
             .edit_cell(&elem_ref.cell_name, |cell| {
-                let Some(Element::Text { position, .. }) =
-                    cell.elements_mut().get_mut(elem_ref.element_index)
-                else {
-                    return false;
-                };
-                *position = Point::new(x, y);
-                true
+                cell.edit_element(elem_ref.element_index, |element| {
+                    let Element::Text { position, .. } = element else {
+                        return false;
+                    };
+                    *position = Point::new(x, y);
+                    true
+                })
             })
+            .ok()
+            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -206,6 +219,9 @@ impl WasmLibrary {
     ///
     /// Returns true if the element was found and updated.
     pub fn set_text_height(&mut self, id: &str, new_height: f64) -> bool {
+        if !new_height.is_finite() || new_height <= 0.0 {
+            return false;
+        }
         let elem_ref = match self.element_refs.get(id) {
             Some(r) => r.clone(),
             None => return false,
@@ -214,14 +230,16 @@ impl WasmLibrary {
         let updated = self
             .library
             .edit_cell(&elem_ref.cell_name, |cell| {
-                let Some(Element::Text { height, .. }) =
-                    cell.elements_mut().get_mut(elem_ref.element_index)
-                else {
-                    return false;
-                };
-                *height = new_height;
-                true
+                cell.edit_element(elem_ref.element_index, |element| {
+                    let Element::Text { height, .. } = element else {
+                        return false;
+                    };
+                    *height = new_height;
+                    true
+                })
             })
+            .ok()
+            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -300,5 +318,32 @@ impl WasmLibrary {
 
         self.mark_dirty();
         new_ids
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_edits_validate_inputs_and_remain_atomic() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("top").unwrap();
+        let id = library.add_text("label", 1.0, 2.0, 3.0, 4, 5).unwrap();
+        library.mark_clean();
+
+        assert!(!library.set_text_position(&id, f64::NAN, 8.0));
+        assert!(!library.set_text_height(&id, 0.0));
+        assert!(!library.set_text_height(&id, f64::INFINITY));
+        assert!(!library.is_dirty());
+
+        let cell = library.library.cell("top").unwrap();
+        let (_, position, _, height) = cell.texts().next().unwrap();
+        assert_eq!(position, Point::new(1.0, 2.0));
+        assert_eq!(height, 3.0);
+
+        assert!(library.set_text_position(&id, 7.0, 8.0));
+        assert!(library.set_text_height(&id, 9.0));
+        assert_eq!(library.get_element_index(&id), 0);
     }
 }

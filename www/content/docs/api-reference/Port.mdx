@@ -9,6 +9,12 @@ waveguides. Each port has a position in layout space, a unit vector
 `direction` pointing **outward** from the component, and an optional
 `width` used for waveguide width matching.
 
+Port names must be nonempty. Positions must be finite, directions must be
+finite and nonzero, and optional widths must be positive and finite. Rosette
+normalizes the direction during construction, so callers may pass any valid
+nonzero vector. A cell cannot contain two ports with the same name. Invalid
+Python inputs raise `ValueError` before changing model state.
+
 ```python
 # Port facing +X at the origin, 0.5 um wide
 p = Port("opt", Point(0, 0), Vector2(1, 0), width=0.5)
@@ -25,26 +31,27 @@ p.can_connect_to(other)  # True
 
 <PyAttribute name={"name"} type={"str"}>
 
-Name of the port (e.g. `"opt"`, `"in"`, `"out_1"`).
+Nonempty name of the port (e.g. `"opt"`, `"in"`, `"out_1"`). Names are
+unique within a cell.
 
 </PyAttribute>
 
 <PyAttribute name={"position"} type={"Point"}>
 
-Position of the port in layout coordinates.
+Finite position of the port in layout coordinates.
 
 </PyAttribute>
 
 <PyAttribute name={"direction"} type={"Vector2"}>
 
-Unit vector pointing **outward** from the component. For example, a port
-on the right edge of a component has direction `(1, 0)`.
+Normalized unit vector pointing **outward** from the component. For example,
+a port on the right edge of a component has direction `(1, 0)`.
 
 </PyAttribute>
 
 <PyAttribute name={"width"} type={"float | None"}>
 
-Waveguide width at this port, or `None` if unspecified.
+Positive finite waveguide width at this port, or `None` if unspecified.
 
 </PyAttribute>
 
@@ -67,28 +74,30 @@ Port("elec", Point(10, 5), Vector2(0, 1))  # No width
 
 <PyParameter name={"name"} type={"str"}>
 
-Name of the port.
+Nonempty name of the port.
 
 </PyParameter>
 <PyParameter name={"position"} type={"Point"}>
 
-Position in layout coordinates.
+Finite position in layout coordinates.
 
 </PyParameter>
 <PyParameter name={"direction"} type={"Vector2"}>
 
-Outward-facing unit vector.
+Finite, nonzero outward-facing vector. It is normalized during construction.
 
 </PyParameter>
 <PyParameter name={"width"} type={"float | None"} value={"None"}>
 
-Waveguide width at the port, or `None`.
+Positive finite waveguide width at the port, or `None`.
 
 </PyParameter>
 
 </div>
 
 <PyFunctionReturn type={"None"} />
+
+Raises `ValueError` if any invariant is violated.
 
 </PyFunction>
 

@@ -65,7 +65,7 @@ export function NumberField({
     // didn't confirm the edit.
     if (!mountedRef.current) return;
     const parsed = Number.parseFloat(editValue);
-    if (!Number.isNaN(parsed) && onChange) {
+    if (Number.isFinite(parsed) && onChange) {
       onChange(parsed);
     }
     setEditing(false);

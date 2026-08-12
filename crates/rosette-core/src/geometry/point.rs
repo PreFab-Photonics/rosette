@@ -24,6 +24,11 @@ impl Point {
         Self { x: 0.0, y: 0.0 }
     }
 
+    /// Whether both coordinates are finite.
+    pub fn is_finite(self) -> bool {
+        self.x.is_finite() && self.y.is_finite()
+    }
+
     /// Convert to a vector from the origin.
     pub fn to_vector(self) -> Vector2 {
         Vector2 {
@@ -127,6 +132,16 @@ impl Vector2 {
         Self { x: 0.0, y: 0.0 }
     }
 
+    /// Whether both components are finite.
+    pub fn is_finite(self) -> bool {
+        self.x.is_finite() && self.y.is_finite()
+    }
+
+    /// Whether both components are zero.
+    pub fn is_zero(self) -> bool {
+        self.x == 0.0 && self.y == 0.0
+    }
+
     /// Unit vector in X direction.
     pub fn unit_x() -> Self {
         Self { x: 1.0, y: 0.0 }
@@ -147,7 +162,7 @@ impl Vector2 {
 
     /// Length of the vector.
     pub fn length(self) -> f64 {
-        (self.x * self.x + self.y * self.y).sqrt()
+        self.x.hypot(self.y)
     }
 
     /// Squared length (avoids sqrt).

@@ -29,6 +29,7 @@ import {
   initNewTab,
   switchTab,
 } from "@/stores/tabs";
+import { parseSyntheticRefId } from "@/lib/element-id";
 
 // Module-level singleton for library
 let libraryInstance: WasmLibrary | null = null;
@@ -725,16 +726,16 @@ export function useLibrary(
             // Save selection state before clearing — we'll re-select equivalent
             // elements in the new library after it's ready.
             const prevSelectedIds = [...useSelectionStore.getState().selectedIds];
-            const prevElemIndices: { elemIdx: number; refId: string }[] = [];
+            const prevElemIndices: number[] = [];
             for (const id of prevSelectedIds) {
-              if (id.startsWith("ref:")) {
-                // Synthetic ref:N:M IDs are stable across library replacements
-                prevElemIndices.push({ elemIdx: -1, refId: id });
+              const ref = parseSyntheticRefId(id);
+              if (ref) {
+                prevElemIndices.push(ref.elementIndex);
               } else if (oldLib) {
                 let idx = oldLib.get_element_index(id);
                 if (idx < 0) idx = elemIdxCache.get(id) ?? -1;
                 if (idx >= 0) elemIdxCache.set(id, idx);
-                prevElemIndices.push({ elemIdx: idx, refId: "" });
+                if (idx >= 0) prevElemIndices.push(idx);
               }
             }
 
@@ -783,22 +784,11 @@ export function useLibrary(
               const newIds = new Set<string>();
               const allNewIds = newLibrary.get_all_ids();
 
-              // Build index→UUID lookup for the new library
-              const idxToNewUuid = new Map<number, string>();
-              for (const id of allNewIds) {
-                if (!id.startsWith("ref:")) {
-                  const idx = newLibrary.get_element_index(id);
-                  if (idx >= 0) idxToNewUuid.set(idx, id);
-                }
-              }
-
-              for (const entry of prevElemIndices) {
-                if (entry.refId) {
-                  newIds.add(entry.refId);
-                } else if (entry.elemIdx >= 0) {
-                  const newId = idxToNewUuid.get(entry.elemIdx);
-                  if (newId) newIds.add(newId);
-                }
+              // get_all_ids is in exact element order and generates fresh
+              // tokenized IDs for CellRefs in the replacement library.
+              for (const elementIndex of prevElemIndices) {
+                const newId = allNewIds[elementIndex];
+                if (newId) newIds.add(newId);
               }
 
               if (newIds.size > 0) {

@@ -1,5 +1,6 @@
 //! Python bindings for geometry types.
 
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rosette_core::{BBox, Point, Polygon, Transform, Vector2};
 use rosette_core::{
@@ -177,38 +178,114 @@ impl PyVector2 {
 #[derive(Clone)]
 pub struct PyPolygon(pub Polygon);
 
+fn validate_polygon_points(points: &[Point], context: &str) -> PyResult<()> {
+    if let Some(index) = points.iter().position(|point| !point.is_finite()) {
+        return Err(PyValueError::new_err(format!(
+            "{context} contains a non-finite point at index {index}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_rect_inputs(origin: Point, width: f64, height: f64, centered: bool) -> PyResult<()> {
+    if !origin.is_finite() {
+        return Err(PyValueError::new_err(
+            "Rectangle origin or center must be finite",
+        ));
+    }
+    if !width.is_finite() || !height.is_finite() {
+        return Err(PyValueError::new_err(
+            "Rectangle width and height must be finite",
+        ));
+    }
+
+    let corners = if centered {
+        let half_width = width / 2.0;
+        let half_height = height / 2.0;
+        [
+            Point::new(origin.x - half_width, origin.y - half_height),
+            Point::new(origin.x + half_width, origin.y + half_height),
+        ]
+    } else {
+        [origin, Point::new(origin.x + width, origin.y + height)]
+    };
+    if !corners.iter().all(|point| point.is_finite()) {
+        return Err(PyValueError::new_err(
+            "Rectangle coordinates must remain finite",
+        ));
+    }
+    Ok(())
+}
+
+impl PyPolygon {
+    fn from_transformed_points(points: Vec<Point>) -> PyResult<Self> {
+        validate_polygon_points(&points, "Polygon transformation")?;
+        Ok(Self(Polygon::new(points)))
+    }
+}
+
 #[pymethods]
 impl PyPolygon {
     /// Create a polygon from a list of points.
     #[new]
     fn new(vertices: Vec<PyPoint>) -> PyResult<Self> {
         if vertices.len() < 3 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            return Err(PyValueError::new_err(
                 "Polygon requires at least 3 vertices",
             ));
         }
         let points: Vec<Point> = vertices.into_iter().map(|p| p.0).collect();
+        validate_polygon_points(&points, "Polygon")?;
         Ok(PyPolygon(Polygon::new(points)))
     }
 
     /// Create a rectangle from origin, width, and height.
     #[staticmethod]
-    fn rect(origin: &PyPoint, width: f64, height: f64) -> Self {
-        PyPolygon(Polygon::rect(origin.0, width, height))
+    fn rect(origin: &PyPoint, width: f64, height: f64) -> PyResult<Self> {
+        validate_rect_inputs(origin.0, width, height, false)?;
+        Ok(PyPolygon(Polygon::rect(origin.0, width, height)))
     }
 
     /// Create a centered rectangle.
     #[staticmethod]
-    fn rect_centered(center: &PyPoint, width: f64, height: f64) -> Self {
-        PyPolygon(Polygon::rect_centered(center.0, width, height))
+    fn rect_centered(center: &PyPoint, width: f64, height: f64) -> PyResult<Self> {
+        validate_rect_inputs(center.0, width, height, true)?;
+        Ok(PyPolygon(Polygon::rect_centered(center.0, width, height)))
     }
 
     /// Create a regular polygon with n sides.
     #[staticmethod]
-    fn regular(center: &PyPoint, radius: f64, sides: usize) -> PyResult<Self> {
+    fn regular(center: &PyPoint, radius: f64, sides: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let sides = sides.extract::<usize>().map_err(|_| {
+            PyValueError::new_err("Regular polygon sides must be an integer of at least 3")
+        })?;
         if sides < 3 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            return Err(PyValueError::new_err(
                 "Regular polygon requires at least 3 sides",
+            ));
+        }
+        if !center.0.is_finite() {
+            return Err(PyValueError::new_err(
+                "Regular polygon center must be finite",
+            ));
+        }
+        if !radius.is_finite() {
+            return Err(PyValueError::new_err(
+                "Regular polygon radius must be finite",
+            ));
+        }
+        let extent = radius.abs();
+        if ![
+            center.0.x - extent,
+            center.0.x + extent,
+            center.0.y - extent,
+            center.0.y + extent,
+        ]
+        .iter()
+        .all(|value| value.is_finite())
+        {
+            return Err(PyValueError::new_err(
+                "Regular polygon coordinates must remain finite",
             ));
         }
         Ok(PyPolygon(Polygon::regular(center.0, radius, sides)))
@@ -240,23 +317,74 @@ impl PyPolygon {
     }
 
     /// Translate by a vector.
-    fn translate(&self, v: &PyVector2) -> Self {
-        PyPolygon(self.0.translate(v.0))
+    fn translate(&self, v: &PyVector2) -> PyResult<Self> {
+        if !v.0.is_finite() {
+            return Err(PyValueError::new_err(
+                "Polygon translation vector must be finite",
+            ));
+        }
+        Self::from_transformed_points(
+            self.0
+                .vertices()
+                .iter()
+                .map(|point| point.translate(v.0))
+                .collect(),
+        )
     }
 
     /// Rotate around the origin (in degrees).
-    fn rotate(&self, angle_deg: f64) -> Self {
-        PyPolygon(self.0.rotate(angle_deg * PI / 180.0))
+    fn rotate(&self, angle_deg: f64) -> PyResult<Self> {
+        let angle = angle_deg * PI / 180.0;
+        if !angle.is_finite() {
+            return Err(PyValueError::new_err(
+                "Polygon rotation angle must be finite",
+            ));
+        }
+        Self::from_transformed_points(
+            self.0
+                .vertices()
+                .iter()
+                .map(|point| point.rotate(angle))
+                .collect(),
+        )
     }
 
     /// Rotate around a point (in degrees).
-    fn rotate_around(&self, center: &PyPoint, angle_deg: f64) -> Self {
-        PyPolygon(self.0.rotate_around(center.0, angle_deg * PI / 180.0))
+    fn rotate_around(&self, center: &PyPoint, angle_deg: f64) -> PyResult<Self> {
+        let angle = angle_deg * PI / 180.0;
+        if !center.0.is_finite() {
+            return Err(PyValueError::new_err(
+                "Polygon rotation center must be finite",
+            ));
+        }
+        if !angle.is_finite() {
+            return Err(PyValueError::new_err(
+                "Polygon rotation angle must be finite",
+            ));
+        }
+        Self::from_transformed_points(
+            self.0
+                .vertices()
+                .iter()
+                .map(|point| point.rotate_around(center.0, angle))
+                .collect(),
+        )
     }
 
     /// Scale relative to the origin.
-    fn scale(&self, sx: f64, sy: f64) -> Self {
-        PyPolygon(self.0.scale(sx, sy))
+    fn scale(&self, sx: f64, sy: f64) -> PyResult<Self> {
+        if !sx.is_finite() || !sy.is_finite() {
+            return Err(PyValueError::new_err(
+                "Polygon scale factors must be finite",
+            ));
+        }
+        Self::from_transformed_points(
+            self.0
+                .vertices()
+                .iter()
+                .map(|point| point.scale(sx, sy))
+                .collect(),
+        )
     }
 
     /// Mirror across the X axis.
@@ -399,6 +527,11 @@ impl PyTransform {
         PyTransform(self.0.then(&other.0))
     }
 
+    /// Whether this transform is finite and has a finite inverse.
+    fn _is_finite_invertible(&self) -> bool {
+        self.0.is_finite() && self.0.is_invertible()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Transform(a={}, b={}, c={}, d={}, tx={}, ty={})",
@@ -520,11 +653,13 @@ pub fn py_arc_points(
 #[pyo3(name = "offset_polygon")]
 pub fn py_offset_polygon(centerline: Vec<PyPoint>, width: f64) -> PyResult<PyPolygon> {
     let points: Vec<Point> = centerline.into_iter().map(|p| p.0).collect();
+    validate_polygon_points(&points, "Centerline")?;
+    if !width.is_finite() {
+        return Err(PyValueError::new_err("Width must be finite"));
+    }
     offset_polygon(&points, width)
         .map(PyPolygon)
-        .ok_or_else(|| {
-            pyo3::exceptions::PyValueError::new_err("Centerline requires at least 2 points")
-        })
+        .ok_or_else(|| PyValueError::new_err("Centerline or width produced invalid geometry"))
 }
 
 /// Create a polygon from a centerline with varying width.
@@ -545,12 +680,16 @@ pub fn py_offset_polygon_varying(
     widths: Vec<f64>,
 ) -> PyResult<PyPolygon> {
     let points: Vec<Point> = centerline.into_iter().map(|p| p.0).collect();
+    validate_polygon_points(&points, "Centerline")?;
+    if let Some(index) = widths.iter().position(|width| !width.is_finite()) {
+        return Err(PyValueError::new_err(format!(
+            "Width at index {index} must be finite"
+        )));
+    }
     offset_polygon_varying(&points, &widths)
         .map(PyPolygon)
         .ok_or_else(|| {
-            pyo3::exceptions::PyValueError::new_err(
-                "Centerline requires at least 2 points and widths must match centerline length",
-            )
+            PyValueError::new_err("Centerline and widths must match and produce valid geometry")
         })
 }
 

@@ -146,3 +146,43 @@ impl WasmLibrary {
         cell.path_length()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn area_accumulation_never_stores_nonfinite_values() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("finite_det").unwrap();
+        library
+            .add_polygon(&[0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0], 1, 0)
+            .unwrap();
+        library.add_cell("overflow_det").unwrap();
+        assert!(library.set_active_cell("overflow_det"));
+        library
+            .add_polygon(&[0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0], 2, 0)
+            .unwrap();
+        library.add_cell("top").unwrap();
+        assert!(library.set_active_cell("top"));
+        library
+            .add_polygon(&[0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0], 3, 0)
+            .unwrap();
+
+        for _ in 0..2 {
+            library
+                .add_cell_ref_with_transform("finite_det", vec![f64::MAX, 0.0, 0.0, 1.0, 0.0, 0.0])
+                .unwrap();
+        }
+        library
+            .add_cell_ref_with_transform(
+                "overflow_det",
+                vec![f64::MAX, 0.0, 0.0, f64::MAX, 0.0, 0.0],
+            )
+            .unwrap();
+
+        let areas = library.get_area_by_layer();
+        assert!(areas.iter().all(|value| value.is_finite()));
+        assert_eq!(areas, vec![1.0, 0.0, f64::MAX, 3.0, 0.0, 1.0]);
+    }
+}

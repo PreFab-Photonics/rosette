@@ -9,6 +9,11 @@ filled shapes on a layer -- waveguides, pads, gratings, and any other
 structure. Polygons are immutable; all transformation methods return new
 Polygon instances.
 
+A polygon requires at least three vertices, and every coordinate must be
+finite. This is a local numeric and cardinality invariant, not a topology
+check: repeated vertices, zero-area polygons, and self-intersecting polygons
+remain representable. Invalid Python inputs raise `ValueError`.
+
 ```python
 # Rectangle from origin
 rect = Polygon.rect(Point.origin(), 10, 5)
@@ -121,7 +126,8 @@ closed (you do not need to repeat the first vertex).
 
 <PyParameter name={"vertices"} type={"list[Point]"}>
 
-Ordered list of vertex points.
+Ordered list of at least three finite vertex points. Repeated vertices,
+zero-area rings, and self-intersections are accepted.
 
 </PyParameter>
 
@@ -141,8 +147,8 @@ Return the list of vertices.
 
 <PyFunction name={"area"} type={"() -> float"}>
 
-Compute the signed area of the polygon. Positive for counter-clockwise
-winding, negative for clockwise.
+Compute the absolute area of the polygon. The result is non-negative and does
+not depend on clockwise or counter-clockwise vertex winding.
 
 <PyFunctionReturn type={"float"} />
 
@@ -165,6 +171,10 @@ Compute the axis-aligned bounding box of the polygon.
 </PyFunction>
 
 ### Transformations
+
+Transformation inputs and resulting vertex coordinates must be finite. A
+translation, rotation, or scale that would produce a non-finite coordinate
+raises `ValueError` instead of returning invalid geometry.
 
 <PyFunction name={"translate"} type={"(v) -> Polygon"}>
 

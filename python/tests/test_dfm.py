@@ -155,6 +155,20 @@ class TestRunDfm:
         assert result.total_predicted_polygons == 0
         assert result.passed is True
 
+    def test_skips_geometry_from_overflowed_transform(self, transform_overflow_hierarchy):
+        top, library = transform_overflow_hierarchy
+        config = DfmConfig(resolution=0.25, padding=0.25)
+
+        result = run_dfm(
+            top,
+            layers=[Layer(1, 0), Layer(2, 0)],
+            config=config,
+            library=library,
+        )
+
+        assert result.layers[0].input_polygon_count == 1
+        assert result.layers[1].input_polygon_count == 0
+
     def test_multiple_layers(self):
         """Prediction works on multiple layers."""
         cell = Cell("test")

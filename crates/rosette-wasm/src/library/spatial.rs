@@ -24,8 +24,8 @@ pub(super) enum IndexedKind {
     /// A direct element (Polygon / Path / Text). Carries its stable UUID so
     /// candidates resolve to a selection id without scanning `element_refs`.
     Direct { uuid: String },
-    /// A CellRef instance at `element_index`.
-    Instance,
+    /// A CellRef instance with its canonical tokenized synthetic ID.
+    Instance { uuid: String },
 }
 
 /// An element keyed into the spatial index by its (precomputed) bounding box.
@@ -150,17 +150,31 @@ impl WasmLibrary {
                     let Some(uuid) = index_to_uuid.get(&elem_idx) else {
                         continue;
                     };
+                    let Some(bbox) = text_bbox(text, position, *height) else {
+                        continue;
+                    };
                     (
-                        text_bbox(text, position, *height),
+                        bbox,
                         IndexedKind::Direct {
                             uuid: (*uuid).to_string(),
                         },
                     )
                 }
-                Element::CellRef(cell_ref) => (
-                    self.instance_bbox_cached(cell_name, elem_idx, cell_ref),
-                    IndexedKind::Instance,
-                ),
+                Element::CellRef(cell_ref) => {
+                    let Some(uuid) = index_to_uuid.get(&elem_idx) else {
+                        continue;
+                    };
+                    let Some(bbox) = self.instance_bbox_cached(cell_name, elem_idx, cell_ref)
+                    else {
+                        continue;
+                    };
+                    (
+                        bbox,
+                        IndexedKind::Instance {
+                            uuid: Self::format_ref_uuid(elem_idx, 0, uuid),
+                        },
+                    )
+                }
             };
 
             items.push(IndexedElement {

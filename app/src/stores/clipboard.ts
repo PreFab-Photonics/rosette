@@ -1,9 +1,14 @@
 import { create } from "zustand";
 
+interface OriginalElementPosition {
+  /** Element index before snapshotting, when the snapshot came from WASM. */
+  originalIndex?: number;
+}
+
 /**
  * Snapshot of a polygon element for clipboard operations.
  */
-export interface PolygonSnapshot {
+export interface PolygonSnapshot extends OriginalElementPosition {
   type: "polygon";
   /** Flat array of vertices [x0, y0, x1, y1, ...]. */
   vertices: Float64Array;
@@ -21,7 +26,7 @@ export interface PolygonSnapshot {
  * This snapshot preserves that metadata so duplicated/pasted paths
  * remain editable paths rather than becoming plain polygons.
  */
-export interface PathSnapshot {
+export interface PathSnapshot extends OriginalElementPosition {
   type: "path";
   /** Original waypoint positions in world coordinates. */
   waypoints: { x: number; y: number }[];
@@ -37,10 +42,23 @@ export interface PathSnapshot {
   datatype: number;
 }
 
+/** Snapshot of an imported native GDS path record. */
+export interface NativePathSnapshot extends OriginalElementPosition {
+  type: "native-path";
+  /** Exact centerline coordinates [x0, y0, x1, y1, ...]. */
+  centerline: Float64Array;
+  /** Signed GDS width. Negative widths are absolute-width paths. */
+  width: number;
+  /** GDS path end type (0=flush, 1=round, 2=half-width extension). */
+  endType: number;
+  layer: number;
+  datatype: number;
+}
+
 /**
  * Snapshot of a CellRef (cell instance) for clipboard operations.
  */
-export interface CellRefSnapshot {
+export interface CellRefSnapshot extends OriginalElementPosition {
   type: "cell-ref";
   /** Name of the referenced cell. */
   cellName: string;
@@ -62,7 +80,7 @@ export interface CellRefSnapshot {
 /**
  * Snapshot of a text label element for clipboard operations.
  */
-export interface TextSnapshot {
+export interface TextSnapshot extends OriginalElementPosition {
   type: "text";
   /** Text content. */
   text: string;
@@ -85,7 +103,7 @@ export interface TextSnapshot {
  * The snapshot stores the object URL (which remains valid within the
  * same session) and all positioning/sizing metadata.
  */
-export interface ImageSnapshot {
+export interface ImageSnapshot extends OriginalElementPosition {
   type: "image";
   /** Object URL for rendering. */
   url: string;
@@ -113,7 +131,7 @@ export interface ImageSnapshot {
  * Used by commands that only operate on polygons (layer changes, resize, etc.).
  * For general-purpose snapshotting that includes CellRef instances, use `ClipboardSnapshot`.
  */
-export interface ElementSnapshot {
+export interface ElementSnapshot extends OriginalElementPosition {
   /** Flat array of vertices [x0, y0, x1, y1, ...]. */
   vertices: Float64Array;
   /** Layer number. */
@@ -126,6 +144,7 @@ export interface ElementSnapshot {
 export type ClipboardSnapshot =
   | PolygonSnapshot
   | PathSnapshot
+  | NativePathSnapshot
   | CellRefSnapshot
   | TextSnapshot
   | ImageSnapshot;

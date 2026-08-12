@@ -265,7 +265,7 @@ fn collect_waiver_regions(top: &Cell, library: Option<&Library>, policy: &DrcPol
                     policy
                         .waiver_regions(placement.cell.name())
                         .iter()
-                        .map(|region| region.transform(&placement.transform)),
+                        .filter_map(|region| region.try_transform(&placement.transform)),
                 );
             }
             WalkControl::Continue
@@ -773,7 +773,10 @@ impl DrcRunner {
             // Emit one violation per rigid instance with transformed location.
             for template in cached.iter() {
                 let mut v = template.clone();
-                v.location = v.location.transform(transform);
+                let Some(location) = v.location.try_transform(transform) else {
+                    continue;
+                };
+                v.location = location;
                 v.cell_name = Some(cell.name().to_string());
                 // Per-polygon violations have no second side.
                 v.cell_name2 = None;
@@ -867,7 +870,10 @@ impl DrcRunner {
             });
             for template in cached.iter() {
                 let mut v = template.clone();
-                v.location = v.location.transform(transform);
+                let Some(location) = v.location.try_transform(transform) else {
+                    continue;
+                };
+                v.location = location;
                 v.cell_name = Some(cell_name.clone());
                 v.cell_name2 = Some(cell_name.clone());
                 v.polygon_idx = None;
@@ -983,7 +989,14 @@ impl DrcRunner {
         global_index: &mut usize,
     ) {
         let (polygon, layer) = match element {
-            Element::Polygon { polygon, layer } => (polygon.clone(), *layer),
+            Element::Polygon { polygon, layer } => {
+                let Some(polygon) = polygon.try_transform(transform) else {
+                    // A finite local placement can become unrepresentable after
+                    // hierarchy transforms accumulate; omit that placement.
+                    return;
+                };
+                (polygon, *layer)
+            }
             Element::Path {
                 points,
                 width,
@@ -997,11 +1010,6 @@ impl DrcRunner {
                 (polygon, *layer)
             }
             Element::CellRef(_) | Element::Text { .. } => return,
-        };
-        let polygon = if matches!(element, Element::Path { .. }) {
-            polygon
-        } else {
-            polygon.transform(transform)
         };
         let polygon_bbox = polygon.bbox();
         *bbox = Some(match bbox.take() {
@@ -1215,9 +1223,10 @@ impl DrcRunner {
         for element in cell.elements() {
             match element {
                 Element::Polygon { polygon, layer } => {
-                    let transformed = polygon.transform(transform);
-                    result.entry(*layer).or_default().push((transformed, index));
-                    index += 1;
+                    if let Some(transformed) = polygon.try_transform(transform) {
+                        result.entry(*layer).or_default().push((transformed, index));
+                        index += 1;
+                    }
                 }
                 Element::Path {
                     points,
@@ -1273,47 +1282,36 @@ impl DrcRunner {
 
     /// Count total flattened polygons without materializing them (for stats).
     fn count_polygons(&self, cell: &Cell, library: Option<&Library>) -> usize {
-        fn count_cell(
-            cell: &Cell,
-            library: Option<&Library>,
-            ancestors: &mut HashSet<String>,
-        ) -> usize {
-            let mut count = 0_usize;
-            for element in cell.elements() {
-                match element {
-                    Element::Polygon { .. } => count = count.saturating_add(1),
-                    Element::Path {
-                        points,
-                        width,
-                        end_type,
-                        ..
-                    } => {
-                        count = count.saturating_add(usize::from(
-                            stroke_path(points, *width, *end_type).is_some(),
-                        ));
-                    }
-                    Element::CellRef(cell_ref) => {
-                        let Some(child) =
-                            library.and_then(|library| library.cell(&cell_ref.cell_name))
-                        else {
-                            continue;
-                        };
-                        if !ancestors.insert(child.name().to_string()) {
-                            continue;
-                        }
-                        let child_count = count_cell(child, library, ancestors);
-                        ancestors.remove(child.name());
-                        count = count
-                            .saturating_add(cell_ref.copies().len().saturating_mul(child_count));
-                    }
-                    Element::Text { .. } => {}
-                }
+        let mut count = 0_usize;
+        let mut count_element = |element: &Element, transform: &Transform| {
+            let representable = match element {
+                Element::Polygon { polygon, .. } => polygon.try_transform(transform).is_some(),
+                Element::Path {
+                    points,
+                    width,
+                    end_type,
+                    ..
+                } => stroke_path_transformed(points, *width, *end_type, transform).is_some(),
+                Element::CellRef(_) | Element::Text { .. } => false,
+            };
+            if representable {
+                count = count.saturating_add(1);
             }
-            count
-        }
+        };
 
-        let mut ancestors = HashSet::from([cell.name().to_string()]);
-        count_cell(cell, library, &mut ancestors)
+        if let Some(library) = library {
+            walk_hierarchy(library, cell, Transform::identity(), |event| {
+                if let HierarchyEvent::Element(placed) = event {
+                    count_element(placed.element, &placed.placement.transform);
+                }
+                WalkControl::Continue
+            });
+        } else {
+            for element in cell.elements() {
+                count_element(element, &Transform::identity());
+            }
+        }
+        count
     }
 
     /// Check a single rule against the flattened polygons.

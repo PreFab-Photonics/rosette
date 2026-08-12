@@ -6,8 +6,14 @@ import { useRulerStore } from "@/stores/ruler";
 import { translateRuler } from "@/stores/ruler-geometry";
 import { useImageStore, hitTestImages, isImageId, imageIdToKey } from "@/stores/image";
 import { useViewportStore } from "@/stores/viewport";
-import { MoveElementsCommand, MoveRulersCommand, MoveImagesCommand } from "@/lib/commands";
+import {
+  MoveElementsCommand,
+  MoveRulersCommand,
+  MoveImagesCommand,
+  translateElementsOrThrow,
+} from "@/lib/commands";
 import { usePathStore } from "@/stores/path";
+import { useStatusMessageStore } from "@/stores/status-message";
 import { findRulerAtScreenPoint } from "@/lib/ruler-hittest";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 
@@ -208,6 +214,7 @@ export function useMove(
 
       // Apply the incremental translation for real-time feedback
       if (incrementalDeltaX !== 0 || incrementalDeltaY !== 0) {
+        let applied = true;
         if (state.rulerId) {
           // Moving a ruler — translate every control point. Works for any
           // ruler kind (simple/super/polyline/etc.) via the kind-aware
@@ -236,19 +243,32 @@ export function useMove(
           }
         } else if (library && renderer) {
           // Moving shapes
-          library.translate_elements(state.elementIds, incrementalDeltaX, incrementalDeltaY);
-          // Keep path waypoints in sync with the WASM polygon
-          usePathStore
-            .getState()
-            .translateWaypoints(state.elementIds, incrementalDeltaX, incrementalDeltaY);
-          renderer.sync_from_library(library);
-          renderer.mark_dirty();
-          // Notify subscribers (e.g. instance labels) that library data changed
-          useWasmContextStore.getState().bumpSyncGeneration();
+          try {
+            translateElementsOrThrow(
+              library,
+              state.elementIds,
+              incrementalDeltaX,
+              incrementalDeltaY,
+            );
+            // Keep path waypoints in sync with the WASM polygon
+            usePathStore
+              .getState()
+              .translateWaypoints(state.elementIds, incrementalDeltaX, incrementalDeltaY);
+            renderer.sync_from_library(library);
+            renderer.mark_dirty();
+            // Notify subscribers (e.g. instance labels) that library data changed
+            useWasmContextStore.getState().bumpSyncGeneration();
+          } catch (error) {
+            applied = false;
+            useStatusMessageStore.getState().show(String(error), "warn");
+          }
+        } else {
+          applied = false;
         }
 
-        // Update current delta
-        state.currentDelta = { x: totalDeltaX, y: totalDeltaY };
+        if (applied) {
+          state.currentDelta = { x: totalDeltaX, y: totalDeltaY };
+        }
       }
     },
     [screenToWorld, library, renderer, rulers, zoom, offset, isMoving, hoveredId, hoveredRulerId],
@@ -341,13 +361,22 @@ export function useMove(
         }
       } else if (library && renderer) {
         // Undo shape moves
-        library.translate_elements(state.elementIds, -state.currentDelta.x, -state.currentDelta.y);
-        // Revert path waypoints
-        usePathStore
-          .getState()
-          .translateWaypoints(state.elementIds, -state.currentDelta.x, -state.currentDelta.y);
-        renderer.sync_from_library(library);
-        renderer.mark_dirty();
+        try {
+          translateElementsOrThrow(
+            library,
+            state.elementIds,
+            -state.currentDelta.x,
+            -state.currentDelta.y,
+          );
+          // Revert path waypoints
+          usePathStore
+            .getState()
+            .translateWaypoints(state.elementIds, -state.currentDelta.x, -state.currentDelta.y);
+          renderer.sync_from_library(library);
+          renderer.mark_dirty();
+        } catch (error) {
+          useStatusMessageStore.getState().show(String(error), "warn");
+        }
       }
     }
 

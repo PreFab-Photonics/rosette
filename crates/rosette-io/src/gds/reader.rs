@@ -13,7 +13,7 @@ use rosette_core::geometry::Vector2;
 use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform};
 
 use super::constants::*;
-use super::error::GdsError;
+use super::error::{GdsElementError, GdsError, GdsTransformError};
 
 /// Read a GDS file from disk into a [`Library`].
 ///
@@ -42,7 +42,6 @@ pub fn read_bytes(data: &[u8]) -> Result<Library, GdsError> {
 /// A raw GDS record as read from the file.
 struct Record {
     record_type: u8,
-    _data_type: u8,
     data: Vec<u8>,
 }
 
@@ -51,16 +50,13 @@ struct GdsReader<'a> {
     cursor: Cursor<&'a [u8]>,
     /// Database unit in meters, read from UNITS record.
     db_unit_m: f64,
-    /// User unit in meters, read from UNITS record.
-    user_unit_m: f64,
 }
 
 impl<'a> GdsReader<'a> {
     fn new(data: &'a [u8]) -> Self {
         Self {
             cursor: Cursor::new(data),
-            db_unit_m: 1e-9,   // default: 1 nm
-            user_unit_m: 1e-6, // default: 1 um
+            db_unit_m: 1e-9, // default: 1 nm
         }
     }
 
@@ -71,17 +67,27 @@ impl<'a> GdsReader<'a> {
 
     /// Read the next record from the stream. Returns None at EOF.
     fn read_record(&mut self) -> Result<Option<Record>, GdsError> {
-        // Read 2-byte record length
-        let len = match self.cursor.read_u16::<BigEndian>() {
-            Ok(l) => l,
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-            Err(e) => return Err(GdsError::Io(e)),
-        };
+        let offset = self.offset();
+        let remaining = self.cursor.get_ref().len().saturating_sub(offset);
+        if remaining == 0 {
+            return Ok(None);
+        }
+        if remaining < 2 {
+            return Err(GdsError::UnexpectedEof);
+        }
+
+        let len = self.cursor.read_u16::<BigEndian>()?;
 
         if len < 4 {
             return Err(GdsError::InvalidRecord {
-                offset: self.offset() - 2,
+                offset,
                 message: format!("record length {} is less than minimum 4", len),
+            });
+        }
+        if !len.is_multiple_of(2) {
+            return Err(GdsError::InvalidRecord {
+                offset,
+                message: format!("record length {len} is not even"),
             });
         }
 
@@ -89,21 +95,76 @@ impl<'a> GdsReader<'a> {
         let data_type = self.cursor.read_u8()?;
 
         let data_len = (len - 4) as usize;
+        if let Some(expected) = expected_data_type(record_type)
+            && data_type != expected
+        {
+            return Err(GdsError::InvalidRecord {
+                offset,
+                message: format!(
+                    "record 0x{record_type:02X} has data type 0x{data_type:02X}, expected 0x{expected:02X}"
+                ),
+            });
+        }
+        if data_type == NO_DATA && data_len != 0 {
+            return Err(GdsError::InvalidRecord {
+                offset,
+                message: format!("NO_DATA record has {data_len} payload bytes"),
+            });
+        }
+        if let Some(expected_len) = fixed_data_len(record_type)
+            && data_len != expected_len
+        {
+            return Err(GdsError::InvalidRecord {
+                offset,
+                message: format!(
+                    "record 0x{record_type:02X} has {data_len} data bytes, expected {expected_len}"
+                ),
+            });
+        }
+
         let mut data = vec![0u8; data_len];
         self.cursor
             .read_exact(&mut data)
             .map_err(|_| GdsError::UnexpectedEof)?;
 
-        Ok(Some(Record {
-            record_type,
-            _data_type: data_type,
-            data,
-        }))
+        Ok(Some(Record { record_type, data }))
     }
 
     /// Read the next record, returning an error if EOF.
     fn expect_record(&mut self) -> Result<Record, GdsError> {
         self.read_record()?.ok_or(GdsError::UnexpectedEof)
+    }
+
+    /// Read a record within an element without crossing its ENDEL boundary.
+    fn expect_element_record(&mut self) -> Result<Record, GdsError> {
+        let rec = self.expect_record()?;
+        let message = match rec.record_type {
+            BOUNDARY | PATH | SREF | AREF | TEXT | NODE | BOX => Some(format!(
+                "nested element start 0x{:02X} encountered before ENDEL",
+                rec.record_type
+            )),
+            HEADER | BGNLIB | LIBNAME | UNITS | ENDLIB | BGNSTR | STRNAME | ENDSTR => Some(
+                format!("record 0x{:02X} encountered before ENDEL", rec.record_type),
+            ),
+            _ => None,
+        };
+        if let Some(message) = message {
+            return Err(GdsError::InvalidRecord {
+                offset: self.offset(),
+                message,
+            });
+        }
+        Ok(rec)
+    }
+
+    fn reject_known_record(&self, rec: &Record, context: &str) -> Result<(), GdsError> {
+        if expected_data_type(rec.record_type).is_some() {
+            return Err(GdsError::InvalidRecord {
+                offset: self.offset(),
+                message: format!("record 0x{:02X} is not valid {context}", rec.record_type),
+            });
+        }
+        Ok(())
     }
 
     /// Read the full library.
@@ -117,9 +178,7 @@ impl<'a> GdsReader<'a> {
             });
         }
         // Version check (informational, we accept any)
-        if rec.data.len() >= 2 {
-            let _version = u16::from_be_bytes([rec.data[0], rec.data[1]]);
-        }
+        let _version = u16::from_be_bytes([rec.data[0], rec.data[1]]);
 
         // BGNLIB
         let rec = self.expect_record()?;
@@ -148,12 +207,27 @@ impl<'a> GdsReader<'a> {
                 message: format!("expected UNITS, got 0x{:02X}", rec.record_type),
             });
         }
-        if rec.data.len() >= 16 {
-            let user_unit_ratio = gds_real_to_f64(&rec.data[0..8]);
-            let db_unit_in_meters = gds_real_to_f64(&rec.data[8..16]);
-            self.db_unit_m = db_unit_in_meters;
-            self.user_unit_m = db_unit_in_meters / user_unit_ratio;
+        if rec.data.len() != 16 {
+            return Err(GdsError::InvalidRecord {
+                offset: self.offset(),
+                message: format!(
+                    "UNITS record has {} data bytes, expected 16",
+                    rec.data.len()
+                ),
+            });
         }
+        let db_unit_in_user_units = gds_real_to_f64(&rec.data[0..8]);
+        let db_unit_in_meters = gds_real_to_f64(&rec.data[8..16]);
+        if !db_unit_in_user_units.is_finite()
+            || db_unit_in_user_units <= 0.0
+            || !db_unit_in_meters.is_finite()
+            || db_unit_in_meters <= 0.0
+        {
+            return Err(GdsError::InvalidUnits {
+                reason: "database and user units must be finite and positive",
+            });
+        }
+        self.db_unit_m = db_unit_in_meters;
 
         let mut library = Library::new(lib_name);
 
@@ -166,20 +240,14 @@ impl<'a> GdsReader<'a> {
                     // Core identities are format-neutral, so representable
                     // third-party names are retained even when Rosette would
                     // not emit them as GDS.
-                    library
-                        .add_cell(cell)
-                        .map_err(|error| GdsError::InvalidRecord {
-                            offset: self.offset(),
-                            message: error.to_string(),
-                        })?;
+                    library.add_cell(cell)?;
                 }
                 ENDLIB => break,
-                _ => {
-                    // Skip unknown top-level records
-                }
+                _ => self.reject_known_record(&rec, "at library scope")?,
             }
         }
 
+        library.validate()?;
         Ok(library)
     }
 
@@ -208,9 +276,7 @@ impl<'a> GdsReader<'a> {
                 ENDSTR => break,
                 // Skip unsupported element types gracefully
                 NODE | BOX => self.skip_element()?,
-                _ => {
-                    // Unknown record inside a cell — skip
-                }
+                _ => self.reject_known_record(&rec, "between structure elements")?,
             }
         }
 
@@ -220,7 +286,7 @@ impl<'a> GdsReader<'a> {
     /// Skip records until ENDEL (for unsupported element types).
     fn skip_element(&mut self) -> Result<(), GdsError> {
         loop {
-            let rec = self.expect_record()?;
+            let rec = self.expect_element_record()?;
             if rec.record_type == ENDEL {
                 break;
             }
@@ -230,110 +296,172 @@ impl<'a> GdsReader<'a> {
 
     /// Read a BOUNDARY (polygon) element.
     fn read_boundary(&mut self, cell: &mut Cell) -> Result<(), GdsError> {
-        let mut layer: i16 = 0;
-        let mut datatype: i16 = 0;
-        let mut xy_data: Vec<u8> = Vec::new();
+        let element_index = cell.elements().len();
+        let mut layer = None;
+        let mut datatype = None;
+        let mut xy_data = None;
 
         loop {
-            let rec = self.expect_record()?;
+            let rec = self.expect_element_record()?;
             match rec.record_type {
-                LAYER => layer = parse_int16(&rec.data),
-                DATATYPE => datatype = parse_int16(&rec.data),
-                XY => xy_data = rec.data,
+                LAYER => layer = Some(parse_int16_record(&rec.data, self.offset(), "LAYER")?),
+                DATATYPE => {
+                    datatype = Some(parse_int16_record(&rec.data, self.offset(), "DATATYPE")?)
+                }
+                XY => xy_data = Some(rec.data),
                 ENDEL => break,
                 PROPATTR | PROPVALUE => {} // skip properties
-                _ => {}
+                _ => self.reject_known_record(&rec, "in a BOUNDARY element")?,
             }
         }
 
-        let points = self.parse_xy_points(&xy_data);
-        // GDS polygons are closed (first == last), strip the closing vertex
-        if points.len() > 1 {
-            let vertices = points[..points.len() - 1].to_vec();
-            if !vertices.is_empty() {
-                cell.add_polygon(
-                    Polygon::new(vertices),
-                    Layer::new(layer.max(0) as u16, datatype.max(0) as u16),
-                );
-            }
+        let layer = require_element_record(layer, cell.name(), element_index, "BOUNDARY", "LAYER")?;
+        let datatype =
+            require_element_record(datatype, cell.name(), element_index, "BOUNDARY", "DATATYPE")?;
+        let xy_data =
+            require_element_record(xy_data, cell.name(), element_index, "BOUNDARY", "XY")?;
+        let mut vertices = self.parse_xy_points(&xy_data, cell.name(), element_index)?;
+        let closing_point = vertices.pop();
+        if !(3..=8190).contains(&vertices.len()) {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::BoundaryPointCount {
+                    count: vertices.len(),
+                },
+            ));
         }
+        if closing_point != vertices.first().copied() {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::BoundaryNotClosed,
+            ));
+        }
+        let layer = parse_layer(cell.name(), element_index, layer, datatype)?;
+        cell.add_polygon(Polygon::new(vertices), layer);
 
         Ok(())
     }
 
     /// Read a PATH element.
     fn read_path(&mut self, cell: &mut Cell) -> Result<(), GdsError> {
-        let mut layer: i16 = 0;
-        let mut datatype: i16 = 0;
-        let mut width_db: i32 = 0;
+        let element_index = cell.elements().len();
+        let mut layer = None;
+        let mut datatype = None;
+        let mut width_db = 0;
         let mut pathtype: i16 = 0;
-        let mut xy_data: Vec<u8> = Vec::new();
+        let mut xy_data = None;
 
         loop {
-            let rec = self.expect_record()?;
+            let rec = self.expect_element_record()?;
             match rec.record_type {
-                LAYER => layer = parse_int16(&rec.data),
-                DATATYPE => datatype = parse_int16(&rec.data),
-                PATHTYPE => pathtype = parse_int16(&rec.data),
-                WIDTH => width_db = parse_int32(&rec.data),
-                XY => xy_data = rec.data,
+                LAYER => layer = Some(parse_int16_record(&rec.data, self.offset(), "LAYER")?),
+                DATATYPE => {
+                    datatype = Some(parse_int16_record(&rec.data, self.offset(), "DATATYPE")?)
+                }
+                PATHTYPE => pathtype = parse_int16_record(&rec.data, self.offset(), "PATHTYPE")?,
+                WIDTH => width_db = parse_int32_record(&rec.data, self.offset(), "WIDTH")?,
+                XY => xy_data = Some(rec.data),
                 ENDEL => break,
                 PROPATTR | PROPVALUE => {}
-                _ => {}
+                _ => self.reject_known_record(&rec, "in a PATH element")?,
             }
         }
 
-        let points = self.parse_xy_points(&xy_data);
+        let layer = require_element_record(layer, cell.name(), element_index, "PATH", "LAYER")?;
+        let datatype =
+            require_element_record(datatype, cell.name(), element_index, "PATH", "DATATYPE")?;
+        let xy_data = require_element_record(xy_data, cell.name(), element_index, "PATH", "XY")?;
+        let points = self.parse_xy_points(&xy_data, cell.name(), element_index)?;
+        if !(2..=8191).contains(&points.len()) {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::PathPointCount {
+                    count: points.len(),
+                },
+            ));
+        }
         let width = self.db_to_user(width_db);
+        if !width.is_finite() {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::NonFiniteValue {
+                    field: "path width",
+                },
+            ));
+        }
+        if width == 0.0 {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::ZeroPathWidth,
+            ));
+        }
         let end_type = match pathtype {
+            0 => PathEndType::Flush,
             1 => PathEndType::Round,
             2 => PathEndType::HalfWidthExtension,
-            _ => PathEndType::Flush,
+            value => {
+                return Err(invalid_element(
+                    cell.name(),
+                    element_index,
+                    GdsElementError::UnsupportedPathType(value),
+                ));
+            }
         };
-
-        if points.len() >= 2 {
-            cell.add_path(
-                points,
-                width,
-                Layer::new(layer.max(0) as u16, datatype.max(0) as u16),
-                end_type,
-            );
-        }
+        let layer = parse_layer(cell.name(), element_index, layer, datatype)?;
+        cell.add_path(points, width, layer, end_type);
 
         Ok(())
     }
 
     /// Read an SREF (single cell reference) element.
     fn read_sref(&mut self, cell: &mut Cell) -> Result<(), GdsError> {
-        let mut sname = String::new();
+        let element_index = cell.elements().len();
+        let mut sname = None;
         let mut strans: u16 = 0;
-        let mut has_strans = false;
         let mut mag: f64 = 1.0;
         let mut angle_deg: f64 = 0.0;
-        let mut xy_data: Vec<u8> = Vec::new();
+        let mut xy_data = None;
 
         loop {
-            let rec = self.expect_record()?;
+            let rec = self.expect_element_record()?;
             match rec.record_type {
-                SNAME => sname = parse_string(&rec.data),
+                SNAME => sname = Some(parse_string(&rec.data)),
                 STRANS => {
-                    has_strans = true;
-                    strans = parse_uint16(&rec.data);
+                    strans = parse_uint16_record(&rec.data, self.offset(), "STRANS")?;
                 }
-                MAG => mag = gds_real_to_f64(&rec.data),
-                ANGLE => angle_deg = gds_real_to_f64(&rec.data),
-                XY => xy_data = rec.data,
+                MAG => mag = parse_real_record(&rec.data, self.offset(), "MAG")?,
+                ANGLE => angle_deg = parse_real_record(&rec.data, self.offset(), "ANGLE")?,
+                XY => xy_data = Some(rec.data),
                 ENDEL => break,
                 PROPATTR | PROPVALUE => {}
-                _ => {}
+                _ => self.reject_known_record(&rec, "in an SREF element")?,
             }
         }
 
-        let points = self.parse_xy_points(&xy_data);
-        let origin = points.first().copied().unwrap_or(Point::origin());
+        let sname = require_element_record(sname, cell.name(), element_index, "SREF", "SNAME")?;
+        let xy_data = require_element_record(xy_data, cell.name(), element_index, "SREF", "XY")?;
+        validate_reference_strans(cell.name(), element_index, strans)?;
+        validate_reference_target(cell.name(), element_index, &sname)?;
+        let points = self.parse_xy_points(&xy_data, cell.name(), element_index)?;
+        validate_xy_count(cell.name(), element_index, "SREF", points.len(), 1)?;
+        validate_magnification(cell.name(), element_index, mag)?;
+        if !angle_deg.is_finite() {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::NonFiniteValue { field: "angle" },
+            ));
+        }
+        let origin = points[0];
 
-        let reflected = has_strans && (strans & 0x8000) != 0;
+        let reflected = (strans & STRANS_REFLECTION) != 0;
         let transform = build_transform(origin, angle_deg, mag, reflected);
+        validate_imported_transform(cell.name(), element_index, &transform)?;
 
         cell.add_ref(CellRef::with_transform(sname, transform));
         Ok(())
@@ -341,58 +469,75 @@ impl<'a> GdsReader<'a> {
 
     /// Read an AREF (array cell reference) element.
     fn read_aref(&mut self, cell: &mut Cell) -> Result<(), GdsError> {
-        let mut sname = String::new();
+        let element_index = cell.elements().len();
+        let mut sname = None;
         let mut strans: u16 = 0;
-        let mut has_strans = false;
         let mut mag: f64 = 1.0;
         let mut angle_deg: f64 = 0.0;
-        let mut xy_data: Vec<u8> = Vec::new();
-        let mut columns: u16 = 1;
-        let mut rows: u16 = 1;
+        let mut xy_data = None;
+        let mut colrow: Option<(u16, u16)> = None;
 
         loop {
-            let rec = self.expect_record()?;
+            let rec = self.expect_element_record()?;
             match rec.record_type {
-                SNAME => sname = parse_string(&rec.data),
+                SNAME => sname = Some(parse_string(&rec.data)),
                 STRANS => {
-                    has_strans = true;
-                    strans = parse_uint16(&rec.data);
+                    strans = parse_uint16_record(&rec.data, self.offset(), "STRANS")?;
                 }
-                MAG => mag = gds_real_to_f64(&rec.data),
-                ANGLE => angle_deg = gds_real_to_f64(&rec.data),
-                COLROW if rec.data.len() >= 4 => {
-                    columns = u16::from_be_bytes([rec.data[0], rec.data[1]]);
-                    rows = u16::from_be_bytes([rec.data[2], rec.data[3]]);
+                MAG => mag = parse_real_record(&rec.data, self.offset(), "MAG")?,
+                ANGLE => angle_deg = parse_real_record(&rec.data, self.offset(), "ANGLE")?,
+                COLROW => {
+                    require_record_data_len(&rec.data, 4, self.offset(), "COLROW")?;
+                    colrow = Some((
+                        u16::from_be_bytes([rec.data[0], rec.data[1]]),
+                        u16::from_be_bytes([rec.data[2], rec.data[3]]),
+                    ));
                 }
-                XY => xy_data = rec.data,
+                XY => xy_data = Some(rec.data),
                 ENDEL => break,
                 PROPATTR | PROPVALUE => {}
-                _ => {}
+                _ => self.reject_known_record(&rec, "in an AREF element")?,
             }
         }
 
-        let points = self.parse_xy_points(&xy_data);
-
-        // AREF XY has 3 points: origin, col_end, row_end
-        // col_end = origin + col_vector * num_columns
-        // row_end = origin + row_vector * num_rows
-        if points.len() < 3 {
-            return Ok(()); // malformed AREF, skip
+        let sname = require_element_record(sname, cell.name(), element_index, "AREF", "SNAME")?;
+        let colrow = require_element_record(colrow, cell.name(), element_index, "AREF", "COLROW")?;
+        let xy_data = require_element_record(xy_data, cell.name(), element_index, "AREF", "XY")?;
+        validate_reference_strans(cell.name(), element_index, strans)?;
+        validate_reference_target(cell.name(), element_index, &sname)?;
+        let points = self.parse_xy_points(&xy_data, cell.name(), element_index)?;
+        validate_xy_count(cell.name(), element_index, "AREF", points.len(), 3)?;
+        validate_magnification(cell.name(), element_index, mag)?;
+        if !angle_deg.is_finite() {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::NonFiniteValue { field: "angle" },
+            ));
+        }
+        let (columns, rows) = colrow;
+        if columns == 0 || rows == 0 || columns > i16::MAX as u16 || rows > i16::MAX as u16 {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::RepetitionDimensions { columns, rows },
+            ));
         }
 
         let origin = points[0];
         let col_end = points[1];
         let row_end = points[2];
 
-        let reflected = has_strans && (strans & 0x8000) != 0;
+        let reflected = (strans & STRANS_REFLECTION) != 0;
         let transform = build_transform(origin, angle_deg, mag, reflected);
+        validate_imported_transform(cell.name(), element_index, &transform)?;
 
         // Recover per-instance world-space lattice vectors from the three
         // XY points:
         //   col_world_vec = (col_end - origin) / columns
         //   row_world_vec = (row_end - origin) / rows
-        let cols = columns.max(1) as f64;
-        let rows_f = rows.max(1) as f64;
+        let cols = columns as f64;
+        let rows_f = rows as f64;
         let col_world_x = (col_end.x - origin.x) / cols;
         let col_world_y = (col_end.y - origin.y) / cols;
         let row_world_x = (row_end.x - origin.x) / rows_f;
@@ -406,20 +551,25 @@ impl<'a> GdsReader<'a> {
         // instead of the old behaviour of collapsing to scalar magnitudes
         // and losing any off-axis component.
         //
-        // Determinant == 0 would indicate a degenerate transform; fall
-        // back to the world-space vectors (equivalent to identity).
         let det = transform.a * transform.d - transform.b * transform.c;
-        let (col_local_x, col_local_y, row_local_x, row_local_y) = if det.abs() > 1e-18 {
-            let inv_det = 1.0 / det;
-            // [a b; c d]^{-1} = (1/det) * [ d -b; -c  a ]
-            let col_lx = inv_det * (transform.d * col_world_x - transform.b * col_world_y);
-            let col_ly = inv_det * (-transform.c * col_world_x + transform.a * col_world_y);
-            let row_lx = inv_det * (transform.d * row_world_x - transform.b * row_world_y);
-            let row_ly = inv_det * (-transform.c * row_world_x + transform.a * row_world_y);
-            (col_lx, col_ly, row_lx, row_ly)
-        } else {
-            (col_world_x, col_world_y, row_world_x, row_world_y)
-        };
+        let inv_det = 1.0 / det;
+        // [a b; c d]^{-1} = (1/det) * [ d -b; -c  a ]
+        let col_local_x = inv_det * (transform.d * col_world_x - transform.b * col_world_y);
+        let col_local_y = inv_det * (-transform.c * col_world_x + transform.a * col_world_y);
+        let row_local_x = inv_det * (transform.d * row_world_x - transform.b * row_world_y);
+        let row_local_y = inv_det * (-transform.c * row_world_x + transform.a * row_world_y);
+        if ![col_local_x, col_local_y, row_local_x, row_local_y]
+            .into_iter()
+            .all(f64::is_finite)
+        {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::NonFiniteValue {
+                    field: "array repetition vector",
+                },
+            ));
+        }
 
         let repetition = Repetition::new_vectors(
             columns,
@@ -437,67 +587,381 @@ impl<'a> GdsReader<'a> {
 
     /// Read a TEXT element.
     fn read_text(&mut self, cell: &mut Cell) -> Result<(), GdsError> {
-        let mut layer: i16 = 0;
-        let mut _texttype: i16 = 0;
+        let element_index = cell.elements().len();
+        let mut layer = None;
+        let mut texttype = None;
+        let mut pathtype: i16 = 0;
+        let mut width_db: i32 = 0;
+        let mut presentation: u16 = 0;
+        let mut strans: u16 = 0;
         let mut mag: f64 = 1.0;
-        let mut text_string = String::new();
-        let mut xy_data: Vec<u8> = Vec::new();
+        let mut angle_deg: f64 = 0.0;
+        let mut text_string = None;
+        let mut xy_data = None;
 
         loop {
-            let rec = self.expect_record()?;
+            let rec = self.expect_element_record()?;
             match rec.record_type {
-                LAYER => layer = parse_int16(&rec.data),
-                TEXTTYPE => _texttype = parse_int16(&rec.data),
-                STRANS => {} // consume but we only care about MAG for text height
-                MAG => mag = gds_real_to_f64(&rec.data),
-                ANGLE => {}        // text angle — not stored in rosette's Text element
-                PRESENTATION => {} // skip
-                XY => xy_data = rec.data,
-                STRING => text_string = parse_string(&rec.data),
+                LAYER => layer = Some(parse_int16_record(&rec.data, self.offset(), "LAYER")?),
+                TEXTTYPE => {
+                    texttype = Some(parse_int16_record(&rec.data, self.offset(), "TEXTTYPE")?)
+                }
+                PATHTYPE => pathtype = parse_int16_record(&rec.data, self.offset(), "PATHTYPE")?,
+                WIDTH => width_db = parse_int32_record(&rec.data, self.offset(), "WIDTH")?,
+                STRANS => {
+                    strans = parse_uint16_record(&rec.data, self.offset(), "STRANS")?;
+                }
+                MAG => mag = parse_real_record(&rec.data, self.offset(), "MAG")?,
+                ANGLE => {
+                    angle_deg = parse_real_record(&rec.data, self.offset(), "ANGLE")?;
+                }
+                PRESENTATION => {
+                    presentation = parse_uint16_record(&rec.data, self.offset(), "PRESENTATION")?;
+                }
+                XY => xy_data = Some(rec.data),
+                STRING => text_string = Some(parse_string(&rec.data)),
                 ENDEL => break,
                 PROPATTR | PROPVALUE => {}
-                _ => {}
+                _ => self.reject_known_record(&rec, "in a TEXT element")?,
             }
         }
 
-        let points = self.parse_xy_points(&xy_data);
-        let position = points.first().copied().unwrap_or(Point::origin());
+        let layer = require_element_record(layer, cell.name(), element_index, "TEXT", "LAYER")?;
+        let texttype =
+            require_element_record(texttype, cell.name(), element_index, "TEXT", "TEXTTYPE")?;
+        let xy_data = require_element_record(xy_data, cell.name(), element_index, "TEXT", "XY")?;
+        let text_string =
+            require_element_record(text_string, cell.name(), element_index, "TEXT", "STRING")?;
+        if pathtype != 0 {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::UnsupportedTextPresentation {
+                    record: "PATHTYPE",
+                    value: i32::from(pathtype),
+                },
+            ));
+        }
+        if width_db != 0 {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::UnsupportedTextPresentation {
+                    record: "WIDTH",
+                    value: width_db,
+                },
+            ));
+        }
+        if presentation != 0 {
+            return Err(invalid_element(
+                cell.name(),
+                element_index,
+                GdsElementError::UnsupportedTextPresentation {
+                    record: "PRESENTATION",
+                    value: i32::from(presentation),
+                },
+            ));
+        }
+        validate_text_transform(cell.name(), element_index, strans, angle_deg)?;
+        let points = self.parse_xy_points(&xy_data, cell.name(), element_index)?;
+        validate_xy_count(cell.name(), element_index, "TEXT", points.len(), 1)?;
+        validate_magnification(cell.name(), element_index, mag)?;
+        let position = points[0];
+        let layer = parse_layer(cell.name(), element_index, layer, texttype)?;
 
-        cell.add_text_with_height(
-            text_string,
-            position,
-            Layer::new(layer.max(0) as u16, 0),
-            mag,
-        );
+        cell.add_text_with_height(text_string, position, layer, mag);
 
         Ok(())
     }
 
-    /// Parse XY record data into Points, converting from database units to user units (um).
-    fn parse_xy_points(&self, data: &[u8]) -> Vec<Point> {
+    /// Parse XY record data into Points, converting database units to micrometers.
+    fn parse_xy_points(
+        &self,
+        data: &[u8],
+        cell: &str,
+        element_index: usize,
+    ) -> Result<Vec<Point>, GdsError> {
+        if !data.len().is_multiple_of(8) {
+            return Err(invalid_element(
+                cell,
+                element_index,
+                GdsElementError::MalformedCoordinates {
+                    byte_count: data.len(),
+                },
+            ));
+        }
         let mut points = Vec::with_capacity(data.len() / 8);
         let mut cursor = Cursor::new(data);
         while let (Ok(x), Ok(y)) = (
             cursor.read_i32::<BigEndian>(),
             cursor.read_i32::<BigEndian>(),
         ) {
-            points.push(Point::new(self.db_to_user(x), self.db_to_user(y)));
+            let x = self.db_to_user(x);
+            let y = self.db_to_user(y);
+            if !x.is_finite() || !y.is_finite() {
+                return Err(invalid_element(
+                    cell,
+                    element_index,
+                    GdsElementError::NonFiniteValue {
+                        field: "coordinate",
+                    },
+                ));
+            }
+            points.push(Point::new(x, y));
         }
-        points
+        Ok(points)
     }
 
     /// Convert a database unit integer to user units (micrometers).
     fn db_to_user(&self, db: i32) -> f64 {
-        // db is in database units. Convert to meters, then to user units.
-        // db_value_in_meters = db * db_unit_m
-        // user_value = db_value_in_meters / user_unit_m
-        (db as f64) * self.db_unit_m / self.user_unit_m
+        (db as f64) * self.db_unit_m * 1e6
     }
 }
 
 // ============================================================
 // Helper functions
 // ============================================================
+
+fn expected_data_type(record_type: u8) -> Option<u8> {
+    let data_type = match record_type {
+        HEADER | BGNLIB | BGNSTR | LAYER | DATATYPE | COLROW | TEXTTYPE | PATHTYPE | PROPATTR
+        | BOXTYPE => INT16,
+        LIBNAME | STRNAME | SNAME | STRING | PROPVALUE => ASCII,
+        UNITS | MAG | ANGLE => REAL64,
+        ENDLIB | ENDSTR | BOUNDARY | PATH | SREF | AREF | TEXT | ENDEL | NODE | BOX => NO_DATA,
+        WIDTH | XY => INT32,
+        PRESENTATION | STRANS => BIT_ARRAY,
+        _ => return None,
+    };
+    Some(data_type)
+}
+
+fn fixed_data_len(record_type: u8) -> Option<usize> {
+    match record_type {
+        HEADER => Some(2),
+        BGNLIB | BGNSTR => Some(24),
+        _ => None,
+    }
+}
+
+fn invalid_element(cell: &str, element_index: usize, reason: GdsElementError) -> GdsError {
+    GdsError::InvalidElement {
+        cell: cell.to_string(),
+        element_index,
+        reason,
+    }
+}
+
+fn require_element_record<T>(
+    value: Option<T>,
+    cell: &str,
+    element_index: usize,
+    element: &'static str,
+    record: &'static str,
+) -> Result<T, GdsError> {
+    value.ok_or_else(|| {
+        invalid_element(
+            cell,
+            element_index,
+            GdsElementError::MissingRequiredRecord { element, record },
+        )
+    })
+}
+
+fn require_record_data_len(
+    data: &[u8],
+    expected: usize,
+    offset: usize,
+    record: &str,
+) -> Result<(), GdsError> {
+    if data.len() != expected {
+        return Err(GdsError::InvalidRecord {
+            offset,
+            message: format!(
+                "{record} record has {} data bytes, expected {expected}",
+                data.len()
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn parse_int16_record(data: &[u8], offset: usize, record: &str) -> Result<i16, GdsError> {
+    require_record_data_len(data, 2, offset, record)?;
+    Ok(i16::from_be_bytes([data[0], data[1]]))
+}
+
+fn parse_uint16_record(data: &[u8], offset: usize, record: &str) -> Result<u16, GdsError> {
+    require_record_data_len(data, 2, offset, record)?;
+    Ok(u16::from_be_bytes([data[0], data[1]]))
+}
+
+fn parse_int32_record(data: &[u8], offset: usize, record: &str) -> Result<i32, GdsError> {
+    require_record_data_len(data, 4, offset, record)?;
+    Ok(i32::from_be_bytes([data[0], data[1], data[2], data[3]]))
+}
+
+fn parse_real_record(data: &[u8], offset: usize, record: &str) -> Result<f64, GdsError> {
+    require_record_data_len(data, 8, offset, record)?;
+    Ok(gds_real_to_f64(data))
+}
+
+fn parse_layer(
+    cell: &str,
+    element_index: usize,
+    number: i16,
+    datatype: i16,
+) -> Result<Layer, GdsError> {
+    if number < 0 {
+        return Err(invalid_element(
+            cell,
+            element_index,
+            GdsElementError::NegativeRecordValue {
+                field: "layer",
+                value: number,
+            },
+        ));
+    }
+    if datatype < 0 {
+        return Err(invalid_element(
+            cell,
+            element_index,
+            GdsElementError::NegativeRecordValue {
+                field: "datatype",
+                value: datatype,
+            },
+        ));
+    }
+    Ok(Layer::new(number as u16, datatype as u16))
+}
+
+fn validate_reference_strans(
+    cell: &str,
+    element_index: usize,
+    strans: u16,
+) -> Result<(), GdsError> {
+    let reserved = strans & !STRANS_SUPPORTED_BITS;
+    let reason = if reserved != 0 {
+        Some(GdsTransformError::ReservedBits(reserved))
+    } else if (strans & STRANS_ABSOLUTE_MAGNIFICATION) != 0 {
+        Some(GdsTransformError::AbsoluteMagnification)
+    } else if (strans & STRANS_ABSOLUTE_ANGLE) != 0 {
+        Some(GdsTransformError::AbsoluteAngle)
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        return Err(invalid_element(
+            cell,
+            element_index,
+            GdsElementError::UnsupportedTransform(reason),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_text_transform(
+    cell: &str,
+    element_index: usize,
+    strans: u16,
+    angle_deg: f64,
+) -> Result<(), GdsError> {
+    let reserved = strans & !STRANS_SUPPORTED_BITS;
+    let reason = if reserved != 0 {
+        Some(GdsTransformError::ReservedBits(reserved))
+    } else if (strans & STRANS_ABSOLUTE_MAGNIFICATION) != 0 {
+        Some(GdsTransformError::AbsoluteMagnification)
+    } else if (strans & STRANS_ABSOLUTE_ANGLE) != 0 {
+        Some(GdsTransformError::AbsoluteAngle)
+    } else if (strans & STRANS_REFLECTION) != 0 {
+        Some(GdsTransformError::TextReflection)
+    } else if angle_deg != 0.0 {
+        Some(GdsTransformError::TextRotation)
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        return Err(invalid_element(
+            cell,
+            element_index,
+            GdsElementError::UnsupportedTransform(reason),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_reference_target(
+    cell: &str,
+    element_index: usize,
+    target: &str,
+) -> Result<(), GdsError> {
+    if target.is_empty() {
+        return Err(invalid_element(
+            cell,
+            element_index,
+            GdsElementError::EmptyReferenceTarget,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_xy_count(
+    cell: &str,
+    element_index: usize,
+    kind: &'static str,
+    count: usize,
+    expected: usize,
+) -> Result<(), GdsError> {
+    if count != expected {
+        return Err(invalid_element(
+            cell,
+            element_index,
+            GdsElementError::ReferencePointCount {
+                kind,
+                count,
+                expected,
+            },
+        ));
+    }
+    Ok(())
+}
+
+fn validate_magnification(
+    cell: &str,
+    element_index: usize,
+    magnification: f64,
+) -> Result<(), GdsError> {
+    if !magnification.is_finite() || magnification <= 0.0 {
+        return Err(invalid_element(
+            cell,
+            element_index,
+            GdsElementError::InvalidMagnification,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_imported_transform(
+    cell: &str,
+    element_index: usize,
+    transform: &Transform,
+) -> Result<(), GdsError> {
+    let reason = if !transform.is_finite() {
+        Some(GdsTransformError::NonFinite)
+    } else if !transform.is_invertible() {
+        Some(GdsTransformError::Singular)
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        return Err(invalid_element(
+            cell,
+            element_index,
+            GdsElementError::UnsupportedTransform(reason),
+        ));
+    }
+    Ok(())
+}
 
 /// Decode GDS REAL8 (8-byte excess-64 base-16 float) to f64.
 fn gds_real_to_f64(bytes: &[u8]) -> f64 {
@@ -526,6 +990,7 @@ fn gds_real_to_f64(bytes: &[u8]) -> f64 {
 }
 
 /// Parse a big-endian INT16 from record data.
+#[cfg(test)]
 fn parse_int16(data: &[u8]) -> i16 {
     if data.len() >= 2 {
         i16::from_be_bytes([data[0], data[1]])
@@ -534,16 +999,8 @@ fn parse_int16(data: &[u8]) -> i16 {
     }
 }
 
-/// Parse a big-endian unsigned INT16 from record data.
-fn parse_uint16(data: &[u8]) -> u16 {
-    if data.len() >= 2 {
-        u16::from_be_bytes([data[0], data[1]])
-    } else {
-        0
-    }
-}
-
 /// Parse a big-endian INT32 from record data.
+#[cfg(test)]
 fn parse_int32(data: &[u8]) -> i32 {
     if data.len() >= 4 {
         i32::from_be_bytes([data[0], data[1], data[2], data[3]])
@@ -598,6 +1055,348 @@ fn build_transform(origin: Point, angle_deg: f64, mag: f64, reflected: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn record_bytes(record_type: u8, data_type: u8, data: &[u8]) -> Vec<u8> {
+        assert!(data.len().is_multiple_of(2));
+        let length = 4 + data.len();
+        let mut record = Vec::with_capacity(length);
+        record.extend_from_slice(&(length as u16).to_be_bytes());
+        record.push(record_type);
+        record.push(data_type);
+        record.extend_from_slice(data);
+        record
+    }
+
+    fn replace_record_data(bytes: &mut Vec<u8>, record_type: u8, data: &[u8]) {
+        assert!(data.len().is_multiple_of(2));
+        let mut offset = 0;
+        while offset + 4 <= bytes.len() {
+            let length = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]) as usize;
+            assert!(length >= 4 && offset + length <= bytes.len());
+            if bytes[offset + 2] == record_type {
+                let new_length = 4 + data.len();
+                let data_type = bytes[offset + 3];
+                let mut replacement = Vec::with_capacity(new_length);
+                replacement.extend_from_slice(&(new_length as u16).to_be_bytes());
+                replacement.push(record_type);
+                replacement.push(data_type);
+                replacement.extend_from_slice(data);
+                bytes.splice(offset..offset + length, replacement);
+                return;
+            }
+            offset += length;
+        }
+        panic!("record type 0x{record_type:02x} not found");
+    }
+
+    fn remove_record(bytes: &mut Vec<u8>, record_type: u8) {
+        let mut offset = 0;
+        while offset + 4 <= bytes.len() {
+            let length = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]) as usize;
+            assert!(length >= 4 && offset + length <= bytes.len());
+            if bytes[offset + 2] == record_type {
+                bytes.drain(offset..offset + length);
+                return;
+            }
+            offset += length;
+        }
+        panic!("record type 0x{record_type:02x} not found");
+    }
+
+    fn insert_record_before(
+        bytes: &mut Vec<u8>,
+        before: u8,
+        record_type: u8,
+        data_type: u8,
+        data: &[u8],
+    ) {
+        let mut offset = 0;
+        while offset + 4 <= bytes.len() {
+            let length = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]) as usize;
+            assert!(length >= 4 && offset + length <= bytes.len());
+            if bytes[offset + 2] == before {
+                bytes.splice(offset..offset, record_bytes(record_type, data_type, data));
+                return;
+            }
+            offset += length;
+        }
+        panic!("record type 0x{before:02x} not found");
+    }
+
+    fn xy_data(points: &[(i32, i32)]) -> Vec<u8> {
+        points
+            .iter()
+            .flat_map(|(x, y)| x.to_be_bytes().into_iter().chain(y.to_be_bytes()))
+            .collect()
+    }
+
+    fn polygon_library() -> Library {
+        let mut cell = Cell::new("TOP");
+        cell.add_polygon(
+            Polygon::new(vec![
+                Point::origin(),
+                Point::new(1.0, 0.0),
+                Point::new(0.0, 1.0),
+            ]),
+            Layer::new(1, 0),
+        );
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        library
+    }
+
+    fn valid_record_data(record_type: u8) -> Vec<u8> {
+        vec![0; fixed_data_len(record_type).unwrap_or(0)]
+    }
+
+    fn assert_missing_required_record(
+        mut bytes: Vec<u8>,
+        record_type: u8,
+        element: &'static str,
+        record: &'static str,
+    ) {
+        remove_record(&mut bytes, record_type);
+        assert!(matches!(
+            read_bytes(&bytes),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::MissingRequiredRecord {
+                    element: actual_element,
+                    record: actual_record,
+                },
+                ..
+            }) if actual_element == element && actual_record == record
+        ));
+    }
+
+    #[test]
+    fn validates_headers_for_every_known_record_type() {
+        let known_records = [
+            (HEADER, INT16),
+            (BGNLIB, INT16),
+            (LIBNAME, ASCII),
+            (UNITS, REAL64),
+            (ENDLIB, NO_DATA),
+            (BGNSTR, INT16),
+            (STRNAME, ASCII),
+            (ENDSTR, NO_DATA),
+            (BOUNDARY, NO_DATA),
+            (PATH, NO_DATA),
+            (SREF, NO_DATA),
+            (AREF, NO_DATA),
+            (TEXT, NO_DATA),
+            (LAYER, INT16),
+            (DATATYPE, INT16),
+            (WIDTH, INT32),
+            (XY, INT32),
+            (ENDEL, NO_DATA),
+            (SNAME, ASCII),
+            (COLROW, INT16),
+            (NODE, NO_DATA),
+            (TEXTTYPE, INT16),
+            (PRESENTATION, BIT_ARRAY),
+            (STRING, ASCII),
+            (STRANS, BIT_ARRAY),
+            (MAG, REAL64),
+            (ANGLE, REAL64),
+            (PATHTYPE, INT16),
+            (PROPATTR, INT16),
+            (PROPVALUE, ASCII),
+            (BOX, NO_DATA),
+            (BOXTYPE, INT16),
+        ];
+
+        for (record_type, expected_type) in known_records {
+            let data = valid_record_data(record_type);
+            let valid = record_bytes(record_type, expected_type, &data);
+            assert!(GdsReader::new(&valid).read_record().unwrap().is_some());
+
+            let wrong_type = if expected_type == NO_DATA {
+                INT16
+            } else {
+                NO_DATA
+            };
+            let invalid = record_bytes(record_type, wrong_type, &[]);
+            assert!(matches!(
+                GdsReader::new(&invalid).read_record(),
+                Err(GdsError::InvalidRecord { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_odd_record_lengths_and_no_data_payloads() {
+        let odd_length = [0, 5, HEADER, INT16, 0];
+        assert!(matches!(
+            GdsReader::new(&odd_length).read_record(),
+            Err(GdsError::InvalidRecord { .. })
+        ));
+
+        let no_data_payload = [0, 6, ENDLIB, NO_DATA, 0, 0];
+        assert!(matches!(
+            GdsReader::new(&no_data_payload).read_record(),
+            Err(GdsError::InvalidRecord { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_wrong_header_and_timestamp_lengths() {
+        for (record_type, data_type, data) in [
+            (HEADER, INT16, vec![]),
+            (HEADER, INT16, vec![0; 4]),
+            (BGNLIB, INT16, vec![0; 22]),
+            (BGNLIB, INT16, vec![0; 26]),
+            (BGNSTR, INT16, vec![0; 22]),
+            (BGNSTR, INT16, vec![0; 26]),
+        ] {
+            let bytes = record_bytes(record_type, data_type, &data);
+            assert!(matches!(
+                GdsReader::new(&bytes).read_record(),
+                Err(GdsError::InvalidRecord { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_known_records_at_library_scope_but_skips_unknown_extensions() {
+        for record_type in [BOUNDARY, ENDEL, ENDSTR, STRNAME] {
+            let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+            let data = valid_record_data(record_type);
+            insert_record_before(
+                &mut bytes,
+                BGNSTR,
+                record_type,
+                expected_data_type(record_type).unwrap(),
+                &data,
+            );
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidRecord { .. })
+            ));
+        }
+
+        let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+        insert_record_before(&mut bytes, BGNSTR, 0x7F, NO_DATA, &[]);
+        assert!(read_bytes(&bytes).is_ok());
+    }
+
+    #[test]
+    fn rejects_nested_structure_records_instead_of_merging_them() {
+        for record_type in [BGNSTR, STRNAME, BGNLIB, ENDLIB, ENDEL, HEADER, LIBNAME] {
+            let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+            let data = if matches!(record_type, STRNAME | LIBNAME) {
+                b"NESTED".to_vec()
+            } else {
+                valid_record_data(record_type)
+            };
+            insert_record_before(
+                &mut bytes,
+                ENDSTR,
+                record_type,
+                expected_data_type(record_type).unwrap(),
+                &data,
+            );
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidRecord { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_records_that_cross_an_element_boundary() {
+        for record_type in [
+            BOUNDARY, PATH, SREF, AREF, TEXT, NODE, BOX, BGNSTR, ENDSTR, ENDLIB,
+        ] {
+            let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+            let data = valid_record_data(record_type);
+            insert_record_before(
+                &mut bytes,
+                ENDEL,
+                record_type,
+                expected_data_type(record_type).unwrap(),
+                &data,
+            );
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidRecord { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_missing_required_element_records() {
+        let boundary = super::super::writer::write_bytes(&polygon_library()).unwrap();
+        for (record_type, record) in [(LAYER, "LAYER"), (DATATYPE, "DATATYPE"), (XY, "XY")] {
+            assert_missing_required_record(boundary.clone(), record_type, "BOUNDARY", record);
+        }
+
+        let mut cell = Cell::new("TOP");
+        cell.add_path_simple(
+            vec![Point::origin(), Point::new(1.0, 0.0)],
+            0.5,
+            Layer::new(1, 2),
+        );
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let path = super::super::writer::write_bytes(&library).unwrap();
+        for (record_type, record) in [(LAYER, "LAYER"), (DATATYPE, "DATATYPE"), (XY, "XY")] {
+            assert_missing_required_record(path.clone(), record_type, "PATH", record);
+        }
+
+        let mut cell = Cell::new("TOP");
+        cell.add_ref(CellRef::new("TARGET"));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let sref = super::super::writer::write_bytes(&library).unwrap();
+        for (record_type, record) in [(SNAME, "SNAME"), (XY, "XY")] {
+            assert_missing_required_record(sref.clone(), record_type, "SREF", record);
+        }
+
+        let mut cell = Cell::new("TOP");
+        cell.add_ref(CellRef::new("TARGET").array(2, 2, 1.0, 1.0));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let aref = super::super::writer::write_bytes(&library).unwrap();
+        for (record_type, record) in [(SNAME, "SNAME"), (COLROW, "COLROW"), (XY, "XY")] {
+            assert_missing_required_record(aref.clone(), record_type, "AREF", record);
+        }
+
+        let mut cell = Cell::new("TOP");
+        cell.add_text("label", Point::origin(), Layer::new(1, 2));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let text = super::super::writer::write_bytes(&library).unwrap();
+        for (record_type, record) in [
+            (LAYER, "LAYER"),
+            (TEXTTYPE, "TEXTTYPE"),
+            (XY, "XY"),
+            (STRING, "STRING"),
+        ] {
+            assert_missing_required_record(text.clone(), record_type, "TEXT", record);
+        }
+    }
+
+    #[test]
+    fn rejects_omitted_path_width_as_unrepresentable_zero_width() {
+        let mut cell = Cell::new("TOP");
+        cell.add_path_simple(
+            vec![Point::origin(), Point::new(1.0, 0.0)],
+            0.5,
+            Layer::new(1, 0),
+        );
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+        remove_record(&mut bytes, WIDTH);
+
+        assert!(matches!(
+            read_bytes(&bytes),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::ZeroPathWidth,
+                ..
+            })
+        ));
+    }
 
     #[test]
     fn test_gds_real_to_f64_zero() {
@@ -737,6 +1536,331 @@ mod tests {
     }
 
     #[test]
+    fn rejects_one_and_two_point_boundaries_without_panicking() {
+        for points in [&[(0, 0)][..], &[(0, 0), (1000, 0)][..]] {
+            let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+            replace_record_data(&mut bytes, XY, &xy_data(points));
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidElement {
+                    reason: GdsElementError::BoundaryPointCount { .. },
+                    ..
+                })
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_short_paths_and_empty_reference_targets() {
+        let mut cell = Cell::new("TOP");
+        cell.add_path_simple(
+            vec![Point::origin(), Point::new(1.0, 0.0)],
+            0.5,
+            Layer::new(1, 0),
+        );
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+        replace_record_data(&mut bytes, XY, &xy_data(&[(0, 0)]));
+        assert!(matches!(
+            read_bytes(&bytes),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::PathPointCount { count: 1 },
+                ..
+            })
+        ));
+
+        let mut cell = Cell::new("TOP");
+        cell.add_ref(CellRef::new("TARGET"));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+        replace_record_data(&mut bytes, SNAME, &[]);
+        assert!(matches!(
+            read_bytes(&bytes),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::EmptyReferenceTarget,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn rejects_zero_and_oversized_colrow_values() {
+        let mut cell = Cell::new("TOP");
+        cell.add_ref(CellRef::new("TARGET").array(2, 2, 1.0, 1.0));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+
+        for colrow in [[0, 0, 0, 2], [0x80, 0, 0, 2]] {
+            let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+            replace_record_data(&mut bytes, COLROW, &colrow);
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidElement {
+                    reason: GdsElementError::RepetitionDimensions { .. },
+                    ..
+                })
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_units_and_singular_reference_magnification() {
+        let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+        replace_record_data(&mut bytes, UNITS, &[0; 16]);
+        assert!(matches!(
+            read_bytes(&bytes),
+            Err(GdsError::InvalidUnits { .. })
+        ));
+
+        let mut cell = Cell::new("TOP");
+        cell.add_ref(CellRef::new("TARGET").scale(2.0));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+        replace_record_data(&mut bytes, MAG, &[0; 8]);
+        assert!(matches!(
+            read_bytes(&bytes),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::InvalidMagnification,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn imports_database_units_at_their_physical_micrometer_scale() {
+        let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+        let mut units = Vec::with_capacity(16);
+        units.extend_from_slice(&super::super::writer::f64_to_gds_real(0.25));
+        units.extend_from_slice(&super::super::writer::f64_to_gds_real(2e-9));
+        replace_record_data(&mut bytes, UNITS, &units);
+
+        let imported = read_bytes(&bytes).unwrap();
+        let (polygon, _) = imported.cell("TOP").unwrap().polygons().next().unwrap();
+        let bbox = polygon.bbox();
+        assert!((bbox.width() - 2.0).abs() < 1e-12);
+        assert!((bbox.height() - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rejects_absolute_strans_flags_on_references() {
+        for is_array in [false, true] {
+            for (flag, expected) in [
+                (
+                    STRANS_ABSOLUTE_MAGNIFICATION,
+                    GdsTransformError::AbsoluteMagnification,
+                ),
+                (STRANS_ABSOLUTE_ANGLE, GdsTransformError::AbsoluteAngle),
+            ] {
+                let cell_ref = if is_array {
+                    CellRef::new("TARGET").scale(2.0).array(2, 2, 1.0, 1.0)
+                } else {
+                    CellRef::new("TARGET").scale(2.0)
+                };
+                let mut cell = Cell::new("TOP");
+                cell.add_ref(cell_ref);
+                let mut library = Library::new("test");
+                library.add_cell(cell).unwrap();
+                let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+                replace_record_data(&mut bytes, STRANS, &flag.to_be_bytes());
+
+                assert!(matches!(
+                    read_bytes(&bytes),
+                    Err(GdsError::InvalidElement {
+                        reason: GdsElementError::UnsupportedTransform(reason),
+                        ..
+                    }) if reason == expected
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_reserved_strans_flags() {
+        let reserved: u16 = 0x4000;
+
+        for cell_ref in [
+            CellRef::new("TARGET").scale(2.0),
+            CellRef::new("TARGET").scale(2.0).array(2, 2, 1.0, 1.0),
+        ] {
+            let mut cell = Cell::new("TOP");
+            cell.add_ref(cell_ref);
+            let mut library = Library::new("test");
+            library.add_cell(cell).unwrap();
+            let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+            replace_record_data(&mut bytes, STRANS, &reserved.to_be_bytes());
+
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidElement {
+                    reason: GdsElementError::UnsupportedTransform(GdsTransformError::ReservedBits(
+                        0x4000
+                    )),
+                    ..
+                })
+            ));
+        }
+
+        let mut cell = Cell::new("TOP");
+        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 2.0);
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+        replace_record_data(&mut bytes, STRANS, &reserved.to_be_bytes());
+        assert!(matches!(
+            read_bytes(&bytes),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::UnsupportedTransform(GdsTransformError::ReservedBits(
+                    0x4000
+                )),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn retains_negative_nonzero_path_widths() {
+        let mut cell = Cell::new("TOP");
+        cell.add_path_simple(
+            vec![Point::origin(), Point::new(1.0, 0.0)],
+            0.5,
+            Layer::new(1, 0),
+        );
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+        replace_record_data(&mut bytes, WIDTH, &(-500_i32).to_be_bytes());
+
+        let imported = read_bytes(&bytes).unwrap();
+        let (_, width, _, _) = imported.cell("TOP").unwrap().paths().next().unwrap();
+        assert!((width + 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn accepts_default_text_pathtype_and_width() {
+        let mut cell = Cell::new("TOP");
+        cell.add_text("label", Point::origin(), Layer::new(1, 0));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+        insert_record_before(&mut bytes, XY, PATHTYPE, INT16, &0_i16.to_be_bytes());
+        insert_record_before(&mut bytes, XY, WIDTH, INT32, &0_i32.to_be_bytes());
+        insert_record_before(
+            &mut bytes,
+            XY,
+            PRESENTATION,
+            BIT_ARRAY,
+            &0_u16.to_be_bytes(),
+        );
+
+        let imported = read_bytes(&bytes).unwrap();
+        assert_eq!(imported.cell("TOP").unwrap().text_count(), 1);
+    }
+
+    #[test]
+    fn rejects_nonzero_text_presentation_records_as_unsupported() {
+        for (record_type, data_type, data, record, value) in [
+            (PATHTYPE, INT16, 1_i16.to_be_bytes().to_vec(), "PATHTYPE", 1),
+            (WIDTH, INT32, 1_i32.to_be_bytes().to_vec(), "WIDTH", 1),
+            (
+                PRESENTATION,
+                BIT_ARRAY,
+                1_u16.to_be_bytes().to_vec(),
+                "PRESENTATION",
+                1,
+            ),
+        ] {
+            let mut cell = Cell::new("TOP");
+            cell.add_text("label", Point::origin(), Layer::new(1, 0));
+            let mut library = Library::new("test");
+            library.add_cell(cell).unwrap();
+            let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+            insert_record_before(&mut bytes, XY, record_type, data_type, &data);
+
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidElement {
+                    reason: GdsElementError::UnsupportedTextPresentation {
+                        record: actual_record,
+                        value: actual_value,
+                    },
+                    ..
+                }) if actual_record == record && actual_value == value
+            ));
+        }
+    }
+
+    #[test]
+    fn validates_optional_text_presentation_record_lengths() {
+        for (record_type, data_type, data) in [
+            (PATHTYPE, INT16, vec![]),
+            (WIDTH, INT32, vec![0, 0]),
+            (PRESENTATION, BIT_ARRAY, vec![]),
+        ] {
+            let mut cell = Cell::new("TOP");
+            cell.add_text("label", Point::origin(), Layer::new(1, 0));
+            let mut library = Library::new("test");
+            library.add_cell(cell).unwrap();
+            let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+            insert_record_before(&mut bytes, XY, record_type, data_type, &data);
+
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidRecord { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_unrepresentable_text_transforms() {
+        for (flag, expected) in [
+            (STRANS_REFLECTION, GdsTransformError::TextReflection),
+            (
+                STRANS_ABSOLUTE_MAGNIFICATION,
+                GdsTransformError::AbsoluteMagnification,
+            ),
+            (STRANS_ABSOLUTE_ANGLE, GdsTransformError::AbsoluteAngle),
+        ] {
+            let mut cell = Cell::new("TOP");
+            cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 2.0);
+            let mut library = Library::new("test");
+            library.add_cell(cell).unwrap();
+            let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+            replace_record_data(&mut bytes, STRANS, &flag.to_be_bytes());
+
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidElement {
+                    reason: GdsElementError::UnsupportedTransform(reason),
+                    ..
+                }) if reason == expected
+            ));
+        }
+
+        let mut cell = Cell::new("TOP");
+        cell.add_text("label", Point::origin(), Layer::new(1, 0));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut bytes = super::super::writer::write_bytes(&library).unwrap();
+        insert_record_before(
+            &mut bytes,
+            XY,
+            ANGLE,
+            REAL64,
+            &super::super::writer::f64_to_gds_real(45.0),
+        );
+        assert!(matches!(
+            read_bytes(&bytes),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::UnsupportedTransform(GdsTransformError::TextRotation),
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn test_roundtrip_simple_polygon() {
         let mut cell = Cell::new("TOP");
         cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
@@ -789,7 +1913,7 @@ mod tests {
     #[test]
     fn test_roundtrip_text() {
         let mut cell = Cell::new("TOP");
-        cell.add_text_with_height("Hello", Point::new(5.0, 10.0), Layer::new(10, 0), 2.5);
+        cell.add_text_with_height("Hello", Point::new(5.0, 10.0), Layer::new(10, 7), 2.5);
 
         let mut lib = Library::new("test");
         lib.add_cell(cell).unwrap();
@@ -803,6 +1927,7 @@ mod tests {
         assert!((pos.x - 5.0).abs() < 0.01);
         assert!((pos.y - 10.0).abs() < 0.01);
         assert_eq!(layer.number, 10);
+        assert_eq!(layer.datatype, 7);
         assert!((height - 2.5).abs() < 0.01);
     }
 
@@ -898,6 +2023,23 @@ mod tests {
         assert!(result.cell("LEAF").is_some());
         assert!(result.cell("MID").is_some());
         assert!(result.cell("TOP").is_some());
+    }
+
+    #[test]
+    fn test_roundtrip_preserves_cycles_and_missing_references() {
+        let mut cell_a = Cell::new("A");
+        cell_a.add_ref(CellRef::new("B"));
+        let mut cell_b = Cell::new("B");
+        cell_b.add_ref(CellRef::new("A"));
+        cell_b.add_ref(CellRef::new("MISSING"));
+
+        let mut library = Library::new("test");
+        library.add_cell(cell_a).unwrap();
+        library.add_cell(cell_b).unwrap();
+
+        let result = roundtrip(&library);
+        assert_eq!(result.cell("A").unwrap().cell_refs().count(), 1);
+        assert_eq!(result.cell("B").unwrap().cell_refs().count(), 2);
     }
 
     #[test]

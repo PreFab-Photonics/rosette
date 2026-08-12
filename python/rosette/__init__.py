@@ -119,16 +119,33 @@ def _apply_repetition(
     )
 
 
-def _validate_array_dims(columns: int, rows: int) -> None:
+def _validate_array_dims(columns: object, rows: object) -> None:
     """Validate array `columns` and `rows` against the GDS COLROW INT16 limit.
 
     Raises:
         ValueError: If either value is outside the inclusive range [1, 32767].
     """
-    if not (1 <= columns <= _GDS_ARRAY_MAX) or not (1 <= rows <= _GDS_ARRAY_MAX):
+    if (
+        not isinstance(columns, int)
+        or isinstance(columns, bool)
+        or not isinstance(rows, int)
+        or isinstance(rows, bool)
+        or not (1 <= columns <= _GDS_ARRAY_MAX)
+        or not (1 <= rows <= _GDS_ARRAY_MAX)
+    ):
         raise ValueError(
             f"columns and rows must be in [1, {_GDS_ARRAY_MAX}], got columns={columns}, rows={rows}"
         )
+
+
+def _validate_finite_values(context: str, *values: float) -> None:
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError(f"{context} must be finite")
+
+
+def _validate_instance_transform(transform: Transform, context: str = "Instance transform") -> None:
+    if not transform._is_finite_invertible():
+        raise ValueError(f"{context} must be finite and invertible")
 
 
 def _require_array_index(value: object) -> int:
@@ -149,7 +166,7 @@ def _transform_port(original_port: Port, transform: Transform) -> Port:
     dir_pt = transform.apply(Point(original_port.direction.x, original_port.direction.y))
     dx = dir_pt.x - origin.x
     dy = dir_pt.y - origin.y
-    length = math.sqrt(dx * dx + dy * dy)
+    length = math.hypot(dx, dy)
     if length > 0:
         direction = Vector2(dx / length, dy / length)
     else:
@@ -248,8 +265,8 @@ class Instance:
                 arbitrary (possibly skewed/hex) grid, in local
                 (pre-transform) coordinates, in um.
         """
-        self._cell = cell
-        self._transform = transform if transform is not None else Transform.identity()
+        resolved_transform = transform if transform is not None else Transform.identity()
+        _validate_instance_transform(resolved_transform)
         # Normalize to the internal 6-tuple form
         # (columns, rows, col_x, col_y, row_x, row_y).
         if repetition is not None:
@@ -259,6 +276,22 @@ class Instance:
             elif len(repetition) != 6:
                 raise ValueError("repetition must contain 4 or 6 values")
             _validate_array_dims(repetition[0], repetition[1])
+            _validate_finite_values("repetition vectors", *repetition[2:])
+            columns, rows, *_ = repetition
+            for col, row in (
+                (0, 0),
+                (columns - 1, 0),
+                (0, rows - 1),
+                (columns - 1, rows - 1),
+            ):
+                dx, dy = _repetition_copy_offset(repetition, col, row)
+                _validate_finite_values("Instance array copy offset", dx, dy)
+                _validate_instance_transform(
+                    resolved_transform.then(Transform.translate(dx, dy)),
+                    "Instance array copy transform",
+                )
+        self._cell = cell
+        self._transform = resolved_transform
         self._repetition = repetition
 
     @property
@@ -286,6 +319,7 @@ class Instance:
         Returns:
             A new Instance with updated transform
         """
+        _validate_finite_values("Instance position", x, y)
         new_transform = Transform.translate(x, y).then(self._transform)
         return Instance(self._cell, new_transform, self._repetition)
 
@@ -298,6 +332,7 @@ class Instance:
         Returns:
             A new Instance with updated transform
         """
+        _validate_finite_values("Instance rotation angle", angle_deg)
         new_transform = Transform.rotate(angle_deg).then(self._transform)
         return Instance(self._cell, new_transform, self._repetition)
 
@@ -328,6 +363,9 @@ class Instance:
         Returns:
             A new Instance with updated transform
         """
+        _validate_finite_values("Instance scale", s)
+        if s == 0.0:
+            raise ValueError("Instance scale must be nonzero")
         new_transform = Transform.scale_uniform(s).then(self._transform)
         return Instance(self._cell, new_transform, self._repetition)
 
@@ -370,6 +408,7 @@ class Instance:
             top.add_ref(arr)  # Single AREF, not 50 individual refs
         """
         _validate_array_dims(columns, rows)
+        _validate_finite_values("array spacing", col_spacing, row_spacing)
         return Instance(
             self._cell,
             self._transform,
@@ -415,6 +454,13 @@ class Instance:
             top.add_ref(arr)
         """
         _validate_array_dims(columns, rows)
+        _validate_finite_values(
+            "array vectors",
+            col_vector.x,
+            col_vector.y,
+            row_vector.x,
+            row_vector.y,
+        )
         return Instance(
             self._cell,
             self._transform,
@@ -496,7 +542,9 @@ class Instance:
         # left. This matches AREF semantics: the array is laid out in
         # local space, and the whole lattice is rotated/translated by
         # the outer transform.
-        return self._transform.then(Transform.translate(dx, dy))
+        transform = self._transform.then(Transform.translate(dx, dy))
+        _validate_instance_transform(transform, "Instance array copy transform")
+        return transform
 
     def copies(self) -> Iterator[ArrayCopy]:
         """Iterate over the individual copies in this instance's array.
@@ -985,6 +1033,7 @@ class Cell:
             # Array of identical cells (single AREF, selected as one unit):
             top.add_ref(unit_cell.at(0, 0).array(10, 10, pitch, pitch))
         """
+        _validate_finite_values("Instance position", x, y)
         return Instance(self, Transform.translate(x, y))
 
     def add_ref(self, ref: Cell | Instance) -> None:
@@ -1011,9 +1060,9 @@ class Cell:
         """
         instance = self._coerce_instance(ref)
         inner_ref = instance._to_inner_ref()
+        self._inner.add_ref(inner_ref)
         self._child_cells.add(instance.cell)
         self._child_cells.update(instance.cell._child_cells)
-        self._inner.add_ref(inner_ref)
 
     @staticmethod
     def _coerce_instance(ref: object) -> Instance:

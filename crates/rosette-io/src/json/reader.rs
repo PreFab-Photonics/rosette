@@ -20,7 +20,7 @@ pub fn read(path: impl AsRef<Path>) -> Result<Library, JsonError> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let library: Library = serde_json::from_reader(reader)?;
-    library.validate_identities()?;
+    library.validate()?;
     Ok(library)
 }
 
@@ -36,7 +36,7 @@ pub fn read(path: impl AsRef<Path>) -> Result<Library, JsonError> {
 /// Returns an error if the JSON is invalid or doesn't match the expected structure.
 pub fn from_string(json: &str) -> Result<Library, JsonError> {
     let library: Library = serde_json::from_str(json)?;
-    library.validate_identities()?;
+    library.validate()?;
     Ok(library)
 }
 
@@ -145,7 +145,10 @@ mod tests {
         assert!(matches!(
             from_string(&serde_json::to_string(&empty).unwrap()),
             Err(JsonError::InvalidLibrary(
-                rosette_core::LibraryError::EmptyCellName
+                rosette_core::LibraryError::InvalidCell {
+                    source: rosette_core::CellValidationError::EmptyCellName,
+                    ..
+                }
             ))
         ));
 
@@ -159,6 +162,30 @@ mod tests {
             from_string(&serde_json::to_string(&duplicate).unwrap()),
             Err(JsonError::InvalidLibrary(
                 rosette_core::LibraryError::AlreadyExists { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn rejects_locally_invalid_cell_contents_after_deserialization() {
+        let mut cell = Cell::new("cell");
+        cell.add_path_simple(
+            vec![Point::origin(), Point::new(1.0, 0.0)],
+            0.5,
+            Layer::new(1, 0),
+        );
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut value = serde_json::to_value(library).unwrap();
+        value["cells"][0]["elements"][0]["Path"]["points"] = serde_json::json!([]);
+
+        assert!(matches!(
+            from_string(&serde_json::to_string(&value).unwrap()),
+            Err(JsonError::InvalidLibrary(
+                rosette_core::LibraryError::InvalidCell {
+                    source: rosette_core::CellValidationError::InvalidPath { .. },
+                    ..
+                }
             ))
         ));
     }

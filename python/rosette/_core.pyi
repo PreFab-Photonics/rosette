@@ -46,6 +46,12 @@ class Vector2:
     def __neg__(self) -> Vector2: ...
 
 class Polygon:
+    """A polygon with at least three finite vertices.
+
+    Repeated vertices, zero-area rings, and self-intersections are allowed.
+    Transformations reject non-finite results with ``ValueError``.
+    """
+
     def __init__(self, vertices: list[Point]) -> None: ...
     @staticmethod
     def rect(origin: Point, width: float, height: float) -> Polygon: ...
@@ -54,7 +60,9 @@ class Polygon:
     @staticmethod
     def regular(center: Point, radius: float, sides: int) -> Polygon: ...
     def vertices(self, /) -> list[Point]: ...
-    def area(self, /) -> float: ...
+    def area(self, /) -> float:
+        """Return the absolute area, independent of vertex winding."""
+        ...
     def centroid(self, /) -> Point: ...
     def bbox(self, /) -> BBox: ...
     def translate(self, /, v: Vector2) -> Polygon: ...
@@ -84,6 +92,7 @@ class Transform:
     def scale(sx: float, sy: float) -> Transform: ...
     def apply(self, /, p: Point) -> Point: ...
     def then(self, /, other: Transform) -> Transform: ...
+    def _is_finite_invertible(self, /) -> bool: ...
 
 class BBox:
     def __init__(self, min: Point, max: Point) -> None: ...
@@ -112,6 +121,12 @@ class Layer:
     def __hash__(self) -> int: ...
 
 class Port:
+    """A port with a nonempty name and validated geometry.
+
+    Position and direction must be finite, direction must be nonzero, and an
+    optional width must be positive and finite. Direction is normalized.
+    """
+
     def __init__(
         self,
         name: str,
@@ -131,6 +146,12 @@ class Port:
     def can_connect_to(self, /, other: Port, tolerance: float = 0.001) -> bool: ...
 
 class CellRef:
+    """A native hierarchy reference with a finite, invertible transform.
+
+    Scale must be finite and nonzero. Repetition dimensions are restricted to
+    1 through 32767 in Python, with finite spacing vectors.
+    """
+
     def __init__(self, cell_or_name: Cell | str) -> None: ...
     @staticmethod
     def _from_transform(cell_name: str, transform: Transform) -> CellRef: ...
@@ -155,6 +176,13 @@ class CellRef:
     def port(self, /, name: str, cell: Cell) -> Port: ...
 
 class Cell:
+    """A cell whose Python mutations validate before committing.
+
+    Invalid polygon, path, text, port, or reference inputs raise
+    ``ValueError`` and leave the cell unchanged. Port names are unique within
+    the cell.
+    """
+
     def __init__(self, name: str, *, drc_skip: bool = False) -> None: ...
     @property
     def name(self) -> str: ...
@@ -182,7 +210,12 @@ class Cell:
         width: float,
         layer: Layer | int | tuple[int, int],
         end_type: PathEndType | None = None,
-    ) -> None: ...
+    ) -> None:
+        """Add a path with at least two finite points and finite nonzero width.
+
+        Negative widths are valid and retain absolute GDS width semantics.
+        """
+        ...
     def add_text(
         self,
         /,
@@ -190,9 +223,15 @@ class Cell:
         position: Point,
         layer: Layer | int | tuple[int, int],
         height: float | None = None,
-    ) -> None: ...
-    def add_port(self, /, port: Port) -> None: ...
-    def add_ref(self, /, cell_ref: CellRef) -> None: ...
+    ) -> None:
+        """Add text at a finite position with a positive finite height."""
+        ...
+    def add_port(self, /, port: Port) -> None:
+        """Add a valid port with a name unique within this cell."""
+        ...
+    def add_ref(self, /, cell_ref: CellRef) -> None:
+        """Add a validated reference without partial mutation on failure."""
+        ...
     def add_bend(
         self, /, radius: float, x: float, y: float, requested_radius: float | None = None
     ) -> None: ...
@@ -213,6 +252,8 @@ class Cell:
     ) -> CellRef: ...
 
 class Library:
+    """A library that validates local cell state on insertion."""
+
     def __init__(self, name: str) -> None: ...
     @property
     def name(self) -> str: ...

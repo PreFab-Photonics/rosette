@@ -237,7 +237,7 @@ fn polygon_intersects(poly: &FlatPolygon, bbox: &BBox) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::{Cell, Layer, Library, Point as CorePoint, Polygon};
+    use rosette_core::{Cell, CellRef, Layer, Library, Point as CorePoint, Polygon};
 
     fn is_png(bytes: &[u8]) -> bool {
         bytes.starts_with(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -309,6 +309,31 @@ mod tests {
             render_png(&lib, &opts),
             Err(RenderError::EmptyDesign)
         ));
+    }
+
+    #[test]
+    fn render_skips_overflowed_hierarchy_geometry() {
+        let mut leaf = Cell::new("leaf");
+        leaf.add_polygon(
+            Polygon::rect(CorePoint::new(2.0, 0.0), 1.0, 1.0),
+            Layer::new(2, 0),
+        );
+        let mut middle = Cell::new("middle");
+        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
+        let mut top = Cell::new("top");
+        top.add_polygon(
+            Polygon::rect(CorePoint::origin(), 1.0, 1.0),
+            Layer::new(1, 0),
+        );
+        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        let mut library = Library::new("test");
+        library.add_cell(leaf).unwrap();
+        library.add_cell(middle).unwrap();
+        library.add_cell(top).unwrap();
+
+        let result = render_png(&library, &RenderOptions::default()).unwrap();
+        assert!(is_png(&result.png));
+        assert_eq!(result.layers_rendered, vec![(1, 0)]);
     }
 
     #[test]

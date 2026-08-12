@@ -1,11 +1,11 @@
 //! Cell management: create/rename/remove cells, active cell,
 //! visibility, origins, and image bounds.
 
-use super::{ElementRef, WasmLibrary};
+use super::WasmLibrary;
+use rosette_core::cell::Element;
 use rosette_core::{Cell, Library, Point};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -118,50 +118,44 @@ impl WasmLibrary {
         if !self.library.contains(name) {
             return 0;
         }
-        let mut removed_count = 0u32;
 
-        // Collect which cells had CellRefs removed (need index rebuild)
-        let mut affected_cells: Vec<String> = Vec::new();
+        let removed_indices: HashMap<String, Vec<usize>> = self
+            .library
+            .cells()
+            .iter()
+            .filter_map(|cell| {
+                let indices: Vec<_> = cell
+                    .elements()
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, element)| match element {
+                        Element::CellRef(cell_ref) if cell_ref.cell_name == name => Some(index),
+                        _ => None,
+                    })
+                    .collect();
+                (!indices.is_empty()).then(|| (cell.name().to_string(), indices))
+            })
+            .collect();
 
-        self.library.edit_cells(|cell| {
-            let before = cell.elements().len();
-            cell.remove_refs_by_name(name);
-            let after = cell.elements().len();
-            if before > after {
-                removed_count += (before - after) as u32;
-                affected_cells.push(cell.name().to_string());
+        let removed_count = self.library.remove_cell_cascade(name) as u32;
+
+        self.element_refs.retain(|_, element_ref| {
+            if element_ref.cell_name == name {
+                return false;
             }
+            removed_indices
+                .get(&element_ref.cell_name)
+                .is_none_or(|indices| !indices.contains(&element_ref.element_index))
         });
-
-        // Remove element_refs that belong to the deleted cell
-        self.element_refs.retain(|_, r| r.cell_name != name);
-
-        // Rebuild element_refs for affected cells (indices shifted)
-        for cell_name in &affected_cells {
-            if cell_name == name {
-                continue;
-            }
-            // Remove old refs for this cell
-            self.element_refs.retain(|_, r| r.cell_name != *cell_name);
-            // Rebuild with correct indices
-            if let Some(cell) = self.library.cell(cell_name) {
-                for i in 0..cell.elements().len() {
-                    let uuid = Uuid::new_v4().to_string();
-                    self.element_refs.insert(
-                        uuid,
-                        ElementRef {
-                            cell_name: cell_name.clone(),
-                            element_index: i,
-                        },
-                    );
-                }
+        for element_ref in self.element_refs.values_mut() {
+            if let Some(indices) = removed_indices.get(&element_ref.cell_name) {
+                element_ref.element_index -= indices
+                    .iter()
+                    .filter(|&&index| index < element_ref.element_index)
+                    .count();
             }
         }
 
-        // Now remove the cell itself
-        self.library
-            .remove_cell(name)
-            .expect("all incoming references were removed before the cell");
         self.cell_origins.remove(name);
         self.hidden_cells.remove(name);
         self.cell_image_bounds.remove(name);
@@ -240,11 +234,17 @@ impl WasmLibrary {
     /// Pass `null` or an empty array to clear the image bounds for a cell.
     pub fn set_cell_image_bounds(&mut self, cell_name: &str, bounds: Option<Vec<f64>>) {
         match bounds {
-            Some(b) if b.len() >= 4 => {
+            Some(b)
+                if b.len() >= 4
+                    && b[..4].iter().all(|value| value.is_finite())
+                    && b[0] <= b[2]
+                    && b[1] <= b[3] =>
+            {
                 self.cell_image_bounds
                     .insert(cell_name.to_string(), [b[0], b[1], b[2], b[3]]);
                 self.mark_dirty();
             }
+            Some(b) if b.len() >= 4 => {}
             _ => {
                 if self.cell_image_bounds.remove(cell_name).is_some() {
                     self.mark_dirty();
@@ -284,6 +284,9 @@ impl WasmLibrary {
     ///
     /// Returns false if no active cell exists.
     pub fn set_cell_origin(&mut self, x: f64, y: f64) -> bool {
+        if !x.is_finite() || !y.is_finite() {
+            return false;
+        }
         let cell_name = match self.active_cell.as_deref() {
             Some(name) => name.to_string(),
             None => return false,
@@ -313,15 +316,13 @@ impl WasmLibrary {
 
     /// Clear all elements from the active cell.
     pub fn clear_active_cell(&mut self) {
-        if let Some(cell_name) = &self.active_cell {
-            // Remove refs for this cell
-            self.element_refs.retain(|_, r| r.cell_name != *cell_name);
-
-            // Replace cell with empty one
-            self.library.edit_cell(cell_name, |cell| {
-                *cell = Cell::new(cell_name.clone());
-            });
-
+        if let Some(cell_name) = self.active_cell.clone()
+            && self
+                .library
+                .edit_cell(&cell_name, |cell| cell.clear_elements())
+                .is_ok()
+        {
+            self.element_refs.retain(|_, r| r.cell_name != cell_name);
             self.mark_dirty();
         }
     }
@@ -330,6 +331,7 @@ impl WasmLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rosette_core::{BBox, Port, Transform, Vector2};
 
     #[test]
     fn origin_state_follows_cell_lifecycle() {
@@ -346,5 +348,82 @@ mod tests {
         );
         assert!(library.remove_cell("renamed"));
         assert!(library.get_cell_origin_by_name("renamed").is_none());
+    }
+
+    #[test]
+    fn clearing_active_cell_preserves_non_element_state() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("cell").unwrap();
+        assert!(library.set_cell_origin(12.0, -4.0));
+        library
+            .library
+            .edit_cell("cell", |cell| {
+                cell.add_port(Port::new("input", Point::new(1.0, 2.0), Vector2::unit_x()));
+                cell.set_path_length(42.0);
+                cell.set_drc_skip(true);
+                cell.add_drc_waive_region(BBox::new(Point::origin(), Point::new(3.0, 4.0)));
+            })
+            .unwrap();
+        library
+            .add_polygon(&[0.0, 0.0, 2.0, 0.0, 2.0, 2.0], 1, 0)
+            .unwrap();
+
+        library.clear_active_cell();
+
+        let cell = library.library.cell("cell").unwrap();
+        assert!(cell.is_empty());
+        assert_eq!(cell.ports().len(), 1);
+        assert_eq!(cell.path_length(), Some(42.0));
+        assert!(cell.drc_skip());
+        assert_eq!(cell.drc_waive_regions().len(), 1);
+        assert_eq!(library.get_cell_origin(), Some(vec![12.0, -4.0]));
+        assert!(library.element_refs.is_empty());
+    }
+
+    #[test]
+    fn cascade_removal_preserves_surviving_ids_and_adjusts_indices() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("child").unwrap();
+        library.add_cell("other").unwrap();
+        library.add_cell("parent").unwrap();
+        assert!(library.set_active_cell("parent"));
+
+        let polygon_id = library
+            .add_polygon(&[0.0, 0.0, 1.0, 0.0, 1.0, 1.0], 1, 0)
+            .unwrap();
+        let removed_ref_id = library.add_cell_ref("child", 0.0, 0.0).unwrap();
+        let text_id = library.add_text("label", 2.0, 3.0, 1.0, 2, 0).unwrap();
+        let removed_ref_id_2 = library
+            .add_cell_ref_with_transform("child", vec![1.0, 0.0, 0.0, 1.0, 4.0, 5.0])
+            .unwrap();
+        let other_ref_id = library
+            .add_cell_ref_with_transform("other", vec![1.0, 0.0, 0.0, 1.0, 6.0, 7.0])
+            .unwrap();
+
+        assert_eq!(library.remove_cell_cascade("child"), 2);
+        assert_eq!(library.get_element_index(&polygon_id), 0);
+        assert_eq!(library.get_element_index(&text_id), 1);
+        assert_eq!(library.get_element_index(&other_ref_id), 2);
+        assert_eq!(library.get_element_index(&removed_ref_id), -1);
+        assert_eq!(library.get_element_index(&removed_ref_id_2), -1);
+        assert_eq!(
+            library
+                .get_cell_ref_info(&other_ref_id)
+                .unwrap()
+                .transform(),
+            vec![1.0, 0.0, 0.0, 1.0, 6.0, 7.0]
+        );
+        assert_eq!(library.library.cell("parent").unwrap().elements().len(), 3);
+        assert_eq!(
+            library
+                .library
+                .cell("parent")
+                .unwrap()
+                .cell_refs()
+                .next()
+                .unwrap()
+                .transform,
+            Transform::translate(6.0, 7.0)
+        );
     }
 }

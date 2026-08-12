@@ -2,11 +2,112 @@
 
 use crate::extract_layer;
 use crate::geometry::{PyBBox, PyPoint, PyPolygon, PyTransform, PyVector2};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rosette_core::cell::PathEndType;
 use rosette_core::component::connect_transform;
-use rosette_core::{BendInfo, Cell, CellRef, DuplicatePolicy, Layer, Library, Point, Port};
+use rosette_core::{
+    BendInfo, Cell, CellRef, DuplicatePolicy, Layer, Library, Point, Port, Transform, Vector2,
+};
 use std::f64::consts::PI;
+
+const GDS_ARRAY_MAX: i64 = 32_767;
+
+fn validate_port_parts(
+    name: &str,
+    position: Point,
+    direction: Vector2,
+    width: Option<f64>,
+) -> PyResult<()> {
+    if name.is_empty() {
+        return Err(PyValueError::new_err("Port name cannot be empty"));
+    }
+    if !position.is_finite() {
+        return Err(PyValueError::new_err("Port position must be finite"));
+    }
+    if !direction.is_finite() {
+        return Err(PyValueError::new_err("Port direction must be finite"));
+    }
+    let direction_length = direction.length();
+    if direction.is_zero() || direction_length == 0.0 {
+        return Err(PyValueError::new_err("Port direction cannot be zero"));
+    }
+    if !direction_length.is_finite() {
+        return Err(PyValueError::new_err(
+            "Port direction must have finite length",
+        ));
+    }
+    if let Some(width) = width {
+        if !width.is_finite() {
+            return Err(PyValueError::new_err("Port width must be finite"));
+        }
+        if width <= 0.0 {
+            return Err(PyValueError::new_err("Port width must be positive"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_cell_ref_transform(transform: &Transform) -> PyResult<()> {
+    if !transform.is_finite() {
+        return Err(PyValueError::new_err("CellRef transform must be finite"));
+    }
+    if !transform.is_invertible() {
+        return Err(PyValueError::new_err(
+            "CellRef transform must be invertible",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_cell_ref(cell_ref: &CellRef) -> PyResult<()> {
+    if cell_ref.cell_name.is_empty() {
+        return Err(PyValueError::new_err(
+            "CellRef target cell name cannot be empty",
+        ));
+    }
+    validate_cell_ref_transform(&cell_ref.transform)?;
+    if let Some(repetition) = cell_ref.repetition {
+        if repetition.columns == 0
+            || repetition.rows == 0
+            || repetition.columns > GDS_ARRAY_MAX as u16
+            || repetition.rows > GDS_ARRAY_MAX as u16
+        {
+            return Err(PyValueError::new_err(format!(
+                "CellRef array columns and rows must be in [1, {GDS_ARRAY_MAX}]"
+            )));
+        }
+        if !repetition.col_vector.is_finite() {
+            return Err(PyValueError::new_err(
+                "CellRef array column vector must be finite",
+            ));
+        }
+        if !repetition.row_vector.is_finite() {
+            return Err(PyValueError::new_err(
+                "CellRef array row vector must be finite",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn extract_array_dimensions(
+    columns: &Bound<'_, PyAny>,
+    rows: &Bound<'_, PyAny>,
+) -> PyResult<(u16, u16)> {
+    let columns = columns.extract::<i64>().ok();
+    let rows = rows.extract::<i64>().ok();
+    match (columns, rows) {
+        (Some(columns), Some(rows))
+            if (1..=GDS_ARRAY_MAX).contains(&columns) && (1..=GDS_ARRAY_MAX).contains(&rows) =>
+        {
+            Ok((columns as u16, rows as u16))
+        }
+        _ => Err(PyValueError::new_err(format!(
+            "columns and rows must be in [1, {GDS_ARRAY_MAX}]"
+        ))),
+    }
+}
 
 /// GDS path end type.
 #[pyclass(name = "PathEndType", from_py_object)]
@@ -96,12 +197,18 @@ impl PyPort {
     /// Create a new port.
     #[new]
     #[pyo3(signature = (name, position, direction, width=None))]
-    fn new(name: String, position: &PyPoint, direction: &PyVector2, width: Option<f64>) -> Self {
+    fn new(
+        name: String,
+        position: &PyPoint,
+        direction: &PyVector2,
+        width: Option<f64>,
+    ) -> PyResult<Self> {
+        validate_port_parts(&name, position.0, direction.0, width)?;
         let port = match width {
             Some(w) => Port::with_width(name, position.0, direction.0, w),
             None => Port::new(name, position.0, direction.0),
         };
-        PyPort(port)
+        Ok(PyPort(port))
     }
 
     /// Port name.
@@ -178,17 +285,27 @@ impl PyCellRef {
     ///     ref2 = CellRef(waveguide_cell) # From Cell object
     ///     ```
     #[new]
-    fn new(cell_or_name: CellOrName) -> Self {
+    fn new(cell_or_name: CellOrName) -> PyResult<Self> {
         let name = match cell_or_name {
             CellOrName::Cell(cell) => cell.0.name().to_string(),
             CellOrName::Name(name) => name,
         };
-        PyCellRef(CellRef::new(name))
+        if name.is_empty() {
+            return Err(PyValueError::new_err(
+                "CellRef target cell name cannot be empty",
+            ));
+        }
+        Ok(PyCellRef(CellRef::new(name)))
     }
 
     /// Lower a resolved facade Instance without reconstructing its transform.
     #[staticmethod]
     fn _from_transform(cell_name: String, transform: &PyTransform) -> PyResult<Self> {
+        if cell_name.is_empty() {
+            return Err(PyValueError::new_err(
+                "CellRef target cell name cannot be empty",
+            ));
+        }
         let transform = transform.0;
         let values = [
             transform.a,
@@ -206,6 +323,7 @@ impl PyCellRef {
         let min_gds_magnification = 16.0_f64.powi(-65);
         let max_gds_magnification = 16.0_f64.powi(63);
         if !values.iter().all(|value| value.is_finite())
+            || !transform.is_invertible()
             || !scale_x.is_finite()
             || !scale_y.is_finite()
             || !scale_error.is_finite()
@@ -217,7 +335,7 @@ impl PyCellRef {
             || scale_error > 1e-12
             || normalized_dot.abs() > 1e-12
         {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            return Err(PyValueError::new_err(
                 "Instance transform must contain only translation, rotation, reflection, and uniform non-zero scale representable in GDS REAL8",
             ));
         }
@@ -225,13 +343,24 @@ impl PyCellRef {
     }
 
     /// Set the position.
-    fn at(&self, x: f64, y: f64) -> Self {
-        PyCellRef(self.0.clone().at(x, y))
+    fn at(&self, x: f64, y: f64) -> PyResult<Self> {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(PyValueError::new_err("CellRef position must be finite"));
+        }
+        let transform = Transform::translate(x, y).then(&self.0.transform);
+        validate_cell_ref_transform(&transform)?;
+        Ok(PyCellRef(self.0.clone().at(x, y)))
     }
 
     /// Rotate by angle (in degrees).
-    fn rotate(&self, angle_deg: f64) -> Self {
-        PyCellRef(self.0.clone().rotate(angle_deg * PI / 180.0))
+    fn rotate(&self, angle_deg: f64) -> PyResult<Self> {
+        let angle = angle_deg * PI / 180.0;
+        if !angle.is_finite() {
+            return Err(PyValueError::new_err("CellRef rotation must be finite"));
+        }
+        let transform = Transform::rotate(angle).then(&self.0.transform);
+        validate_cell_ref_transform(&transform)?;
+        Ok(PyCellRef(self.0.clone().rotate(angle)))
     }
 
     /// Mirror across X axis.
@@ -245,8 +374,15 @@ impl PyCellRef {
     }
 
     /// Scale uniformly.
-    fn scale(&self, s: f64) -> Self {
-        PyCellRef(self.0.clone().scale(s))
+    fn scale(&self, s: f64) -> PyResult<Self> {
+        if !s.is_finite() || s == 0.0 {
+            return Err(PyValueError::new_err(
+                "CellRef scale must be finite and nonzero",
+            ));
+        }
+        let transform = Transform::scale_uniform(s).then(&self.0.transform);
+        validate_cell_ref_transform(&transform)?;
+        Ok(PyCellRef(self.0.clone().scale(s)))
     }
 
     /// Set array repetition (columns × rows rectangular grid with given pitch).
@@ -276,12 +412,25 @@ impl PyCellRef {
     ///     ```python
     ///     ref = CellRef("unit").at(0, 0).array(10, 5, 20.0, 15.0)
     ///     ```
-    fn array(&self, columns: u16, rows: u16, col_spacing: f64, row_spacing: f64) -> Self {
-        PyCellRef(
-            self.0
-                .clone()
-                .array(columns, rows, col_spacing, row_spacing),
-        )
+    fn array(
+        &self,
+        columns: &Bound<'_, PyAny>,
+        rows: &Bound<'_, PyAny>,
+        col_spacing: f64,
+        row_spacing: f64,
+    ) -> PyResult<Self> {
+        let (columns, rows) = extract_array_dimensions(columns, rows)?;
+        if !col_spacing.is_finite() || !row_spacing.is_finite() {
+            return Err(PyValueError::new_err(
+                "CellRef array spacing must be finite",
+            ));
+        }
+        Ok(PyCellRef(self.0.clone().array(
+            columns,
+            rows,
+            col_spacing,
+            row_spacing,
+        )))
     }
 
     /// Set array repetition from arbitrary column and row displacement vectors.
@@ -315,16 +464,28 @@ impl PyCellRef {
     ///     ```
     fn array_vectors(
         &self,
-        columns: u16,
-        rows: u16,
+        columns: &Bound<'_, PyAny>,
+        rows: &Bound<'_, PyAny>,
         col_vector: &PyVector2,
         row_vector: &PyVector2,
-    ) -> Self {
-        PyCellRef(
-            self.0
-                .clone()
-                .array_vectors(columns, rows, col_vector.0, row_vector.0),
-        )
+    ) -> PyResult<Self> {
+        let (columns, rows) = extract_array_dimensions(columns, rows)?;
+        if !col_vector.0.is_finite() {
+            return Err(PyValueError::new_err(
+                "CellRef array column vector must be finite",
+            ));
+        }
+        if !row_vector.0.is_finite() {
+            return Err(PyValueError::new_err(
+                "CellRef array row vector must be finite",
+            ));
+        }
+        Ok(PyCellRef(self.0.clone().array_vectors(
+            columns,
+            rows,
+            col_vector.0,
+            row_vector.0,
+        )))
     }
 
     /// Cell name being referenced.
@@ -347,6 +508,7 @@ impl PyCellRef {
     ///
     /// Raises:
     ///     KeyError: If the port is not found in the cell
+    ///     ValueError: If the transformed port is not representable
     ///
     /// Example:
     ///     ```python
@@ -363,8 +525,12 @@ impl PyCellRef {
         let original_port = cell.0.port(name).ok_or_else(|| {
             pyo3::exceptions::PyKeyError::new_err(format!("Port '{}' not found", name))
         })?;
-        let transformed_port = original_port.transform(&self.0.transform);
-        Ok(PyPort(transformed_port))
+        original_port
+            .try_transform(&self.0.transform)
+            .map(PyPort)
+            .ok_or_else(|| {
+                PyValueError::new_err("CellRef port transform produced invalid finite geometry")
+            })
     }
 
     fn __repr__(&self) -> String {
@@ -418,14 +584,26 @@ impl PyCell {
     ///     layer: Layer number or Layer object
     #[pyo3(signature = (polygon, layer))]
     fn add_polygon(&mut self, polygon: &PyPolygon, layer: &Bound<'_, PyAny>) -> PyResult<()> {
+        if let Some(index) = polygon
+            .0
+            .vertices()
+            .iter()
+            .position(|point| !point.is_finite())
+        {
+            return Err(PyValueError::new_err(format!(
+                "Polygon contains a non-finite point at index {index}"
+            )));
+        }
         let layer = extract_layer(layer)?;
         self.0.add_polygon(polygon.0.clone(), layer);
         Ok(())
     }
 
     /// Add a cell reference.
-    fn add_ref(&mut self, cell_ref: &PyCellRef) {
+    fn add_ref(&mut self, cell_ref: &PyCellRef) -> PyResult<()> {
+        validate_cell_ref(&cell_ref.0)?;
         self.0.add_ref(cell_ref.0.clone());
+        Ok(())
     }
 
     /// Add a path (centerline with width) to the cell.
@@ -457,6 +635,22 @@ impl PyCell {
         layer: &Bound<'_, PyAny>,
         end_type: Option<PyPathEndType>,
     ) -> PyResult<()> {
+        if points.len() < 2 {
+            return Err(PyValueError::new_err(
+                "Cell path requires at least 2 points",
+            ));
+        }
+        if let Some(index) = points.iter().position(|point| !point.0.is_finite()) {
+            return Err(PyValueError::new_err(format!(
+                "Cell path point {index} must be finite"
+            )));
+        }
+        if !width.is_finite() {
+            return Err(PyValueError::new_err("Cell path width must be finite"));
+        }
+        if width == 0.0 {
+            return Err(PyValueError::new_err("Cell path width cannot be zero"));
+        }
         let layer = extract_layer(layer)?;
         let points: Vec<_> = points.into_iter().map(|p| p.0).collect();
         let end_type = end_type.map(|e| e.0).unwrap_or(PathEndType::Flush);
@@ -488,15 +682,37 @@ impl PyCell {
         layer: &Bound<'_, PyAny>,
         height: Option<f64>,
     ) -> PyResult<()> {
-        let layer = extract_layer(layer)?;
         let height = height.unwrap_or(1.0);
+        if !position.0.is_finite() {
+            return Err(PyValueError::new_err("Cell text position must be finite"));
+        }
+        if !height.is_finite() {
+            return Err(PyValueError::new_err("Cell text height must be finite"));
+        }
+        if height <= 0.0 {
+            return Err(PyValueError::new_err("Cell text height must be positive"));
+        }
+        let layer = extract_layer(layer)?;
         self.0.add_text_with_height(text, position.0, layer, height);
         Ok(())
     }
 
     /// Add a port.
-    fn add_port(&mut self, port: &PyPort) {
+    fn add_port(&mut self, port: &PyPort) -> PyResult<()> {
+        validate_port_parts(
+            &port.0.name,
+            port.0.position,
+            port.0.direction,
+            port.0.width,
+        )?;
+        if self.0.port(&port.0.name).is_some() {
+            return Err(PyValueError::new_err(format!(
+                "Cell already contains a port named {:?}",
+                port.0.name
+            )));
+        }
         self.0.add_port(port.0.clone());
+        Ok(())
     }
 
     /// Get a port by name. Raises KeyError if not found.
@@ -571,8 +787,12 @@ impl PyCell {
 
     /// Set path length metadata.
     #[setter]
-    fn set_path_length(&mut self, length: f64) {
+    fn set_path_length(&mut self, length: f64) -> PyResult<()> {
+        if !length.is_finite() {
+            return Err(PyValueError::new_err("Cell path length must be finite"));
+        }
         self.0.set_path_length(length);
+        Ok(())
     }
 
     /// Whether this cell is marked as trusted for DRC.
@@ -613,9 +833,17 @@ impl PyCell {
 
     /// Replace all DRC region waivers on this cell.
     #[setter]
-    fn set_drc_waive_regions(&mut self, regions: Vec<PyBBox>) {
+    fn set_drc_waive_regions(&mut self, regions: Vec<PyBBox>) -> PyResult<()> {
+        for (index, region) in regions.iter().enumerate() {
+            if !region.0.is_valid() {
+                return Err(PyValueError::new_err(format!(
+                    "DRC waiver region {index} must have finite, ordered corners"
+                )));
+            }
+        }
         self.0
             .set_drc_waive_regions(regions.into_iter().map(|b| b.0).collect());
+        Ok(())
     }
 
     /// Add a DRC region waiver in this cell's local coordinate frame.
@@ -626,8 +854,14 @@ impl PyCell {
     ///
     /// Args:
     ///     region: Waiver bounding box in this cell's local coordinates.
-    fn add_drc_waive_region(&mut self, region: &PyBBox) {
+    fn add_drc_waive_region(&mut self, region: &PyBBox) -> PyResult<()> {
+        if !region.0.is_valid() {
+            return Err(PyValueError::new_err(
+                "DRC waiver region must have finite, ordered corners",
+            ));
+        }
         self.0.add_drc_waive_region(region.0);
+        Ok(())
     }
 
     /// Remove all DRC region waivers from this cell.
@@ -643,13 +877,31 @@ impl PyCell {
     ///     y: Y coordinate of bend location
     ///     requested_radius: Original requested radius if auto-reduced (optional)
     #[pyo3(signature = (radius, x, y, requested_radius=None))]
-    fn add_bend(&mut self, radius: f64, x: f64, y: f64, requested_radius: Option<f64>) {
+    fn add_bend(
+        &mut self,
+        radius: f64,
+        x: f64,
+        y: f64,
+        requested_radius: Option<f64>,
+    ) -> PyResult<()> {
+        if !radius.is_finite() {
+            return Err(PyValueError::new_err("Bend radius must be finite"));
+        }
+        if !x.is_finite() || !y.is_finite() {
+            return Err(PyValueError::new_err("Bend position must be finite"));
+        }
+        if requested_radius.is_some_and(|value| !value.is_finite()) {
+            return Err(PyValueError::new_err(
+                "Requested bend radius must be finite",
+            ));
+        }
         let bend = if let Some(req) = requested_radius {
             BendInfo::auto_reduced(radius, Point::new(x, y), req)
         } else {
             BendInfo::new(radius, Point::new(x, y))
         };
         self.0.add_bend(bend);
+        Ok(())
     }
 
     /// Get bend info entries as list of dicts.
@@ -709,13 +961,15 @@ impl PyCell {
         cell_ref: &PyCellRef,
         cell_port: &PyPort,
         target_port: &PyPort,
-    ) -> PyCellRef {
+    ) -> PyResult<PyCellRef> {
         let transform = connect_transform(&cell_port.0, &target_port.0);
+        let transform = transform.then(&cell_ref.0.transform);
+        validate_cell_ref_transform(&transform)?;
         // Create a new CellRef with the combined transform
-        PyCellRef(CellRef::with_transform(
+        Ok(PyCellRef(CellRef::with_transform(
             cell_ref.0.cell_name.clone(),
-            transform.then(&cell_ref.0.transform),
-        ))
+            transform,
+        )))
     }
 
     fn __repr__(&self) -> String {

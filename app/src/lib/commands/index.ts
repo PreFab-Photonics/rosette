@@ -18,7 +18,12 @@ export type {
   BooleanOpType,
 } from "./types";
 
-export { snapshotElements, syncCellTree } from "./helpers";
+export {
+  snapshotElements,
+  syncCellTree,
+  translationTargetCount,
+  translateElementsOrThrow,
+} from "./helpers";
 
 export {
   CreateRectangleCommand,

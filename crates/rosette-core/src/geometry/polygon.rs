@@ -15,12 +15,30 @@ pub struct Polygon {
 }
 
 impl Polygon {
+    /// Try to create a polygon from finite vertices.
+    ///
+    /// Returns `None` if fewer than three vertices are provided or any vertex
+    /// is non-finite.
+    pub fn try_new(vertices: Vec<Point>) -> Option<Self> {
+        (vertices.len() >= 3 && vertices.iter().all(|vertex| vertex.is_finite()))
+            .then_some(Self { vertices })
+    }
+
     /// Create a polygon from vertices.
     ///
     /// # Panics
-    /// Panics if fewer than 3 vertices are provided.
+    /// Panics if fewer than 3 vertices are provided or any vertex is non-finite.
     pub fn new(vertices: Vec<Point>) -> Self {
         assert!(vertices.len() >= 3, "Polygon requires at least 3 vertices");
+        assert!(
+            vertices.iter().all(|vertex| vertex.is_finite()),
+            "Polygon vertices must be finite"
+        );
+        Self { vertices }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_unchecked(vertices: Vec<Point>) -> Self {
         Self { vertices }
     }
 
@@ -69,11 +87,6 @@ impl Polygon {
     /// Get the vertices.
     pub fn vertices(&self) -> &[Point] {
         &self.vertices
-    }
-
-    /// Get mutable vertices.
-    pub fn vertices_mut(&mut self) -> &mut Vec<Point> {
-        &mut self.vertices
     }
 
     /// Number of vertices.
@@ -133,55 +146,50 @@ impl Polygon {
 
     /// Apply a transformation to all vertices.
     pub fn transform(&self, t: &Transform) -> Self {
-        Self {
-            vertices: self.vertices.iter().map(|p| t.apply(*p)).collect(),
-        }
+        self.try_transform(t)
+            .expect("Polygon transformation must produce finite vertices")
+    }
+
+    /// Try to apply a transformation to all vertices.
+    ///
+    /// Returns `None` if applying the transform produces a non-finite vertex.
+    pub fn try_transform(&self, t: &Transform) -> Option<Self> {
+        Self::try_new(self.vertices.iter().map(|p| t.apply(*p)).collect())
     }
 
     /// Translate by a vector.
     pub fn translate(&self, v: Vector2) -> Self {
-        Self {
-            vertices: self.vertices.iter().map(|p| p.translate(v)).collect(),
-        }
+        Self::new(self.vertices.iter().map(|p| p.translate(v)).collect())
     }
 
     /// Rotate around the origin.
     pub fn rotate(&self, angle: f64) -> Self {
-        Self {
-            vertices: self.vertices.iter().map(|p| p.rotate(angle)).collect(),
-        }
+        Self::new(self.vertices.iter().map(|p| p.rotate(angle)).collect())
     }
 
     /// Rotate around a point.
     pub fn rotate_around(&self, center: Point, angle: f64) -> Self {
-        Self {
-            vertices: self
-                .vertices
+        Self::new(
+            self.vertices
                 .iter()
                 .map(|p| p.rotate_around(center, angle))
                 .collect(),
-        }
+        )
     }
 
     /// Scale relative to the origin.
     pub fn scale(&self, sx: f64, sy: f64) -> Self {
-        Self {
-            vertices: self.vertices.iter().map(|p| p.scale(sx, sy)).collect(),
-        }
+        Self::new(self.vertices.iter().map(|p| p.scale(sx, sy)).collect())
     }
 
     /// Mirror across the X axis.
     pub fn mirror_x(&self) -> Self {
-        Self {
-            vertices: self.vertices.iter().map(|p| p.mirror_x()).collect(),
-        }
+        Self::new(self.vertices.iter().map(|p| p.mirror_x()).collect())
     }
 
     /// Mirror across the Y axis.
     pub fn mirror_y(&self) -> Self {
-        Self {
-            vertices: self.vertices.iter().map(|p| p.mirror_y()).collect(),
-        }
+        Self::new(self.vertices.iter().map(|p| p.mirror_y()).collect())
     }
 
     /// Check if a point is inside the polygon using ray casting algorithm.
@@ -263,6 +271,40 @@ mod tests {
     #[should_panic]
     fn test_too_few_vertices() {
         Polygon::new(vec![Point::origin(), Point::new(1.0, 0.0)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Polygon vertices must be finite")]
+    fn nonfinite_vertices_are_rejected() {
+        Polygon::new(vec![
+            Point::origin(),
+            Point::new(1.0, 0.0),
+            Point::new(f64::NAN, 1.0),
+        ]);
+    }
+
+    #[test]
+    fn transformations_revalidate_the_result() {
+        let polygon = Polygon::rect(Point::origin(), 1.0, 1.0);
+        assert!(
+            polygon
+                .transform(&Transform::translate(2.0, 3.0))
+                .vertices()
+                .iter()
+                .all(|p| p.is_finite())
+        );
+        assert!(
+            std::panic::catch_unwind(|| {
+                polygon.transform(&Transform::translate(f64::INFINITY, 0.0));
+            })
+            .is_err()
+        );
+        let extreme = Polygon::new(vec![
+            Point::new(f64::MAX, 0.0),
+            Point::new(f64::MAX, 1.0),
+            Point::new(f64::MAX / 2.0, 0.0),
+        ]);
+        assert!(extreme.try_transform(&Transform::scale(2.0, 1.0)).is_none());
     }
 
     #[test]

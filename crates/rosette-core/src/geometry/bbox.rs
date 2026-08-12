@@ -24,6 +24,21 @@ impl BBox {
         Self { min: p, max: p }
     }
 
+    /// Whether both corners are finite and ordered on both axes.
+    pub fn is_valid(&self) -> bool {
+        self.is_finite() && self.has_ordered_corners()
+    }
+
+    /// Whether both corners are finite.
+    pub fn is_finite(&self) -> bool {
+        self.min.is_finite() && self.max.is_finite()
+    }
+
+    /// Whether the minimum corner is component-wise at or below the maximum.
+    pub fn has_ordered_corners(&self) -> bool {
+        self.min.x <= self.max.x && self.min.y <= self.max.y
+    }
+
     /// Create a bounding box from a slice of points.
     ///
     /// # Panics
@@ -152,13 +167,24 @@ impl BBox {
     /// called after `Polygon::transform()` and is the standard AABB result
     /// under affine transforms.
     pub fn transform(&self, transform: &Transform) -> Self {
+        self.try_transform(transform)
+            .expect("BBox transformation must produce finite corners")
+    }
+
+    /// Try to transform this box and return its axis-aligned bounds.
+    ///
+    /// Returns `None` if transforming any corner produces a non-finite point.
+    pub fn try_transform(&self, transform: &Transform) -> Option<Self> {
         let corners = [
             transform.apply(self.min),
             transform.apply(Point::new(self.max.x, self.min.y)),
             transform.apply(self.max),
             transform.apply(Point::new(self.min.x, self.max.y)),
         ];
-        Self::from_points(&corners)
+        corners
+            .iter()
+            .all(|corner| corner.is_finite())
+            .then(|| Self::from_points(&corners))
     }
 }
 
@@ -192,6 +218,13 @@ mod tests {
         assert!(approx_eq(bbox.width(), 10.0));
         assert!(approx_eq(bbox.height(), 5.0));
         assert!(approx_eq(bbox.area(), 50.0));
+    }
+
+    #[test]
+    fn validity_requires_finite_ordered_corners() {
+        assert!(BBox::new(Point::origin(), Point::new(1.0, 1.0)).is_valid());
+        assert!(!BBox::new(Point::new(2.0, 0.0), Point::new(1.0, 1.0)).is_valid());
+        assert!(!BBox::new(Point::origin(), Point::new(f64::NAN, 1.0)).is_valid());
     }
 
     #[test]
@@ -268,6 +301,15 @@ mod tests {
         let diag = std::f64::consts::SQRT_2;
         assert!(approx_eq(out.width(), diag));
         assert!(approx_eq(out.height(), diag));
+    }
+
+    #[test]
+    fn try_transform_rejects_overflowed_corners() {
+        let bbox = BBox::new(Point::new(1.0, 0.0), Point::new(2.0, 1.0));
+        assert!(
+            bbox.try_transform(&Transform::scale(f64::MAX, 1.0))
+                .is_none()
+        );
     }
 
     #[test]

@@ -533,8 +533,8 @@ impl WasmRenderer {
 
     /// Append bounding box outline segments for any instance ref UUIDs found in `ids`.
     ///
-    /// Parses each ID for the "ref:" prefix, extracts the CellRef element index,
-    /// looks up the cached bbox, and generates 4 screen-space outline segments.
+    /// Matches canonical tokenized CellRef IDs to cached bboxes and generates
+    /// four screen-space outline segments.
     fn append_instance_bbox_outlines(
         &self,
         ids: &[String],
@@ -543,29 +543,18 @@ impl WasmRenderer {
         offset_y: f64,
         segments: &mut Vec<OutlineSegment>,
     ) {
-        // Collect unique CellRef element indices from the IDs
-        let mut seen_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
-
-        for id in ids {
-            if let Some(rest) = id.strip_prefix("ref:")
-                && let Some(idx_str) = rest.split(':').next()
-                && let Ok(elem_idx) = idx_str.parse::<usize>()
-            {
-                seen_indices.insert(elem_idx);
-            }
-        }
-
-        if seen_indices.is_empty() {
+        let ids: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+        if ids.is_empty() {
             return;
         }
 
         // For each matched instance, generate 4 bbox outline segments
-        for &(elem_idx, bbox) in &self.instance_bboxes {
-            if !seen_indices.contains(&elem_idx) {
+        for (id, bbox) in &self.instance_bboxes {
+            if !ids.contains(id.as_str()) {
                 continue;
             }
 
-            let [min_x, min_y, max_x, max_y] = bbox;
+            let [min_x, min_y, max_x, max_y] = *bbox;
 
             // Convert world corners to screen coordinates
             let sx0 = (min_x * zoom + offset_x) as f32;

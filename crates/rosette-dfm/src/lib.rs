@@ -265,7 +265,7 @@ pub fn run_dfm(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::{Cell, Layer, Point, Polygon};
+    use rosette_core::{Cell, CellRef, Layer, Library, Point, Polygon};
 
     #[test]
     fn test_run_dfm_simple() {
@@ -318,6 +318,40 @@ mod tests {
         assert!(result.layers[0].predicted_polygons.is_empty());
         assert!(result.layers[0].metrics.is_none());
         assert!(result.passed());
+    }
+
+    #[test]
+    fn run_dfm_skips_overflowed_hierarchy_geometry() {
+        let kept_layer = Layer::new(1, 0);
+        let skipped_layer = Layer::new(2, 0);
+        let mut leaf = Cell::new("leaf");
+        leaf.add_polygon(Polygon::rect(Point::new(2.0, 0.0), 1.0, 1.0), skipped_layer);
+        let mut middle = Cell::new("middle");
+        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
+        let mut top = Cell::new("top");
+        top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), kept_layer);
+        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        let mut library = Library::new("test");
+        library.add_cell(leaf).unwrap();
+        library.add_cell(middle).unwrap();
+        library.add_cell(top).unwrap();
+        let config = DfmConfig {
+            raster: RasterConfig {
+                resolution: 0.25,
+                padding: 0.25,
+            },
+            ..Default::default()
+        };
+
+        let result = run_dfm(
+            library.cell("top").unwrap(),
+            Some(&library),
+            &[kept_layer, skipped_layer],
+            &GaussianModel::new(0.0),
+            &config,
+        );
+        assert_eq!(result.layers[0].input_polygon_count, 1);
+        assert_eq!(result.layers[1].input_polygon_count, 0);
     }
 
     #[test]

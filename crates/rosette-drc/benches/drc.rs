@@ -397,7 +397,7 @@ fn bench_incremental(c: &mut Criterion) {
                 // whole-design short-circuit.
                 toggle = !toggle;
                 let dy = if toggle { 0.5 } else { 0.0 };
-                lib.edit_cell(&leaf_name, |leaf| {
+                let _ = lib.edit_cell(&leaf_name, |leaf| {
                     *leaf = {
                         let mut c = rosette_core::Cell::new(&leaf_name);
                         for p in 0..polys_per_cell {

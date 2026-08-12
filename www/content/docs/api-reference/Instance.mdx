@@ -8,6 +8,13 @@ A cell placed at a specific location with optional transformations.
 the cell definition and transform together, supports direct transformed-port
 queries, and can represent either one placement or a compact GDS array.
 
+Placement transforms must be finite and invertible, and uniform scale factors
+must be finite and nonzero. Array dimensions are restricted to `[1, 32767]` in
+Python and GDS; spacing values and displacement vectors must be finite. Zero
+and negative finite spacings remain valid. Invalid builder inputs raise
+`ValueError`; because instances are immutable, the original instance is left
+unchanged.
+
 ```python
 gc_in = gc_cell.at(0, 0)  # Returns Instance
 port = gc_in.port("opt")  # Port transformed into world space
@@ -80,12 +87,15 @@ The cell definition.
 </PyParameter>
 <PyParameter name={"transform"} type={"Transform | None"} value={"None"}>
 
-Optional transform. Defaults to identity.
+Optional transform. Defaults to identity. Before insertion into a parent cell,
+the transform is validated as finite, invertible, and representable as a GDS
+translation, rotation, reflection, and uniform nonzero scale.
 
 </PyParameter>
 <PyParameter name={"repetition"} type={"tuple[int, int, float, float] | tuple[int, int, float, float, float, float] | None"} value={"None"}>
 
-Optional AREF lattice. Prefer `array()` or `array_vectors()` for normal use.
+Optional AREF lattice. Dimensions must be in `[1, 32767]` and all spacing/vector
+components must be finite. Prefer `array()` or `array_vectors()` for normal use.
 
 </PyParameter>
 
@@ -105,12 +115,12 @@ Returns a new Instance. Instances are immutable.
 
 <PyParameter name={"x"} type={"float"}>
 
-X coordinate.
+Finite X coordinate.
 
 </PyParameter>
 <PyParameter name={"y"} type={"float"}>
 
-Y coordinate.
+Finite Y coordinate.
 
 </PyParameter>
 
@@ -178,7 +188,7 @@ Scale uniformly.
 
 <PyParameter name={"s"} type={"float"}>
 
-Scale factor.
+Finite, nonzero scale factor. Negative scale is valid.
 
 </PyParameter>
 
@@ -217,24 +227,26 @@ top.add_ref(arr)
 
 <PyParameter name={"columns"} type={"int"}>
 
-Number of columns (>= 1).
+Number of columns (1 to 32767).
 
 </PyParameter>
 <PyParameter name={"rows"} type={"int"}>
 
-Number of rows (>= 1).
+Number of rows (1 to 32767).
 
 </PyParameter>
 <PyParameter name={"col_spacing"} type={"float"}>
 
 Column pitch: center-to-center distance between adjacent copies
-along local +X, in µm. Negative values place copies along local −X.
+along local +X, in µm. Must be finite; negative values place copies along
+local −X, and zero is valid.
 
 </PyParameter>
 <PyParameter name={"row_spacing"} type={"float"}>
 
 Row pitch: center-to-center distance between adjacent copies
-along local +Y, in µm. Negative values place copies along local −Y.
+along local +Y, in µm. Must be finite; negative values place copies along
+local −Y, and zero is valid.
 
 </PyParameter>
 
@@ -290,13 +302,13 @@ Number of rows (1 to 32767).
 <PyParameter name={"col_vector"} type={"Vector2"}>
 
 Column displacement: the offset between copy `(c, r)` and
-`(c+1, r)`, in µm.
+`(c+1, r)`, in µm. Both components must be finite.
 
 </PyParameter>
 <PyParameter name={"row_vector"} type={"Vector2"}>
 
 Row displacement: the offset between copy `(c, r)` and
-`(c, r+1)`, in µm.
+`(c, r+1)`, in µm. Both components must be finite.
 
 </PyParameter>
 

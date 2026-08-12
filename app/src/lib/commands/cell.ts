@@ -4,7 +4,7 @@ import { type ClipboardSnapshot } from "@/stores/clipboard";
 import { usePathStore } from "@/stores/path";
 import { type ImageEntry, useImageStore } from "@/stores/image";
 import type { Command, CommandContext } from "./types";
-import { snapshotElements, restoreSnapshots, syncCellTree } from "./helpers";
+import { canonicalElementId, snapshotElements, restoreSnapshots, syncCellTree } from "./helpers";
 
 /**
  * Command to add a new cell.
@@ -89,6 +89,7 @@ export class DeleteCellCommand implements Command {
   private cellOrigin: [number, number] = [0, 0];
   private parentRefs: Array<{
     parent: string;
+    elementIndex: number;
     transform: Float64Array;
     repetition?: Float64Array;
   }> = [];
@@ -117,11 +118,19 @@ export class DeleteCellCommand implements Command {
       if (Array.isArray(parents)) {
         this.parentRefs = parents
           .filter((p: { parent: string }) => p.parent !== this.cellName)
-          .map((p: { parent: string; transform: number[]; repetition?: number[] | null }) => ({
-            parent: p.parent,
-            transform: new Float64Array(p.transform),
-            repetition: p.repetition ? new Float64Array(p.repetition) : undefined,
-          }));
+          .map(
+            (p: {
+              parent: string;
+              elementIndex: number;
+              transform: number[];
+              repetition?: number[] | null;
+            }) => ({
+              parent: p.parent,
+              elementIndex: p.elementIndex,
+              transform: new Float64Array(p.transform),
+              repetition: p.repetition ? new Float64Array(p.repetition) : undefined,
+            }),
+          );
       }
 
       this.imageSnapshots = [...useImageStore.getState().images.values()].filter(
@@ -158,7 +167,9 @@ export class DeleteCellCommand implements Command {
     // Restore origin
     const prevActive = ctx.library.active_cell_name();
     ctx.library.set_active_cell(this.cellName);
-    ctx.library.set_cell_origin(this.cellOrigin[0], this.cellOrigin[1]);
+    if (!ctx.library.set_cell_origin(this.cellOrigin[0], this.cellOrigin[1])) {
+      throw new Error(`Could not restore origin for "${this.cellName}"`);
+    }
 
     // Restore elements
     if (this.elementSnapshots.length > 0) {
@@ -172,12 +183,17 @@ export class DeleteCellCommand implements Command {
 
     // Restore parent CellRefs
     for (const ref of this.parentRefs) {
-      ctx.library.restore_cell_ref_to_with_transform(
-        ref.parent,
-        this.cellName,
-        ref.transform,
-        ref.repetition,
-      );
+      if (
+        !ctx.library.restore_cell_ref_to_with_transform_at(
+          ref.parent,
+          this.cellName,
+          ref.transform,
+          ref.repetition,
+          ref.elementIndex,
+        )
+      ) {
+        throw new Error(`Could not restore instance of "${this.cellName}" in "${ref.parent}"`);
+      }
     }
 
     if (this.wasHidden) {
@@ -284,7 +300,9 @@ export class FlattenCellCommand implements Command {
     ctx.library.clear_active_cell();
 
     // Restore origin
-    ctx.library.set_cell_origin(this.originalOrigin[0], this.originalOrigin[1]);
+    if (!ctx.library.set_cell_origin(this.originalOrigin[0], this.originalOrigin[1])) {
+      throw new Error(`Could not restore origin for "${this.cellName}"`);
+    }
 
     // Restore original elements (polygons, paths, CellRefs, text)
     // restoreSnapshots handles path metadata restoration automatically
@@ -324,13 +342,17 @@ export class SetCellOriginCommand implements Command {
   ) {}
 
   execute(ctx: CommandContext): void {
-    ctx.library.set_cell_origin(this.newX, this.newY);
+    if (!ctx.library.set_cell_origin(this.newX, this.newY)) {
+      throw new Error("Could not set cell origin");
+    }
     ctx.renderer.set_crosshair_origin(this.newX, this.newY);
     ctx.renderer.mark_dirty();
   }
 
   undo(ctx: CommandContext): void {
-    ctx.library.set_cell_origin(this.oldX, this.oldY);
+    if (!ctx.library.set_cell_origin(this.oldX, this.oldY)) {
+      throw new Error("Could not restore cell origin");
+    }
     ctx.renderer.set_crosshair_origin(this.oldX, this.oldY);
     ctx.renderer.mark_dirty();
   }
@@ -410,26 +432,21 @@ export class AddCellRefCommand implements Command {
       ctx.renderer.sync_from_library(ctx.library);
       ctx.renderer.mark_dirty();
 
-      // Auto-select the newly placed instance.
-      // Selection uses synthetic ref UUIDs ("ref:{elementIndex}:0").
-      const elemIdx = ctx.library.get_element_index(id);
-      if (elemIdx >= 0) {
-        useSelectionStore.getState().select(`ref:${elemIdx}:0`);
-      }
+      const syntheticId = canonicalElementId(ctx.library, id);
+      if (syntheticId) useSelectionStore.getState().select(syntheticId);
     }
   }
 
   undo(ctx: CommandContext): void {
     if (this.elementId) {
+      const selectionId = canonicalElementId(ctx.library, this.elementId);
       ctx.library.remove_element(this.elementId);
       syncCellTree(ctx.library);
       ctx.renderer.sync_from_library(ctx.library);
       ctx.renderer.mark_dirty();
 
       const { selectedIds, removeFromSelection } = useSelectionStore.getState();
-      if (selectedIds.has(this.elementId)) {
-        removeFromSelection(this.elementId);
-      }
+      if (selectionId && selectedIds.has(selectionId)) removeFromSelection(selectionId);
     }
   }
 }

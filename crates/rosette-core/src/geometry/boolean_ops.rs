@@ -47,7 +47,7 @@ fn polygon_from_geo(geo_poly: &GeoPolygon<f64>) -> Option<Polygon> {
 
     if geo_poly.interiors().is_empty() {
         // Simple case: no holes.
-        Some(Polygon::new(exterior))
+        Polygon::try_new(exterior)
     } else {
         // Keyhole all interior rings into the exterior.
         let holes: Vec<Vec<Point>> = geo_poly
@@ -60,11 +60,11 @@ fn polygon_from_geo(geo_poly: &GeoPolygon<f64>) -> Option<Polygon> {
             .collect();
 
         if holes.is_empty() {
-            Some(Polygon::new(exterior))
+            Polygon::try_new(exterior)
         } else {
             let keyholed = keyhole(exterior, &holes);
             if keyholed.len() >= 3 {
-                Some(Polygon::new(keyholed))
+                Polygon::try_new(keyholed)
             } else {
                 None
             }

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
  * Instance label data from the WASM library.
  */
 interface InstanceLabel {
+  id: string;
   name: string;
   elementIndex: number;
   minX: number;
@@ -17,34 +18,6 @@ interface InstanceLabel {
   maxY: number;
   columns?: number;
   rows?: number;
-}
-
-/** Ref UUID prefix used by the WASM library for CellRef-resolved polygons. */
-const REF_PREFIX = "ref:";
-
-/**
- * Extract the CellRef element index from a synthetic ref UUID.
- * Format: "ref:{elem_idx}:{poly_idx}" → returns elem_idx.
- */
-function parseRefElementIndex(id: string): number | null {
-  if (!id.startsWith(REF_PREFIX)) return null;
-  const rest = id.slice(REF_PREFIX.length);
-  const colonIdx = rest.indexOf(":");
-  if (colonIdx === -1) return null;
-  const n = Number.parseInt(rest.slice(0, colonIdx), 10);
-  return Number.isNaN(n) ? null : n;
-}
-
-/**
- * Collect unique CellRef element indices from a set of IDs.
- */
-function collectRefIndices(ids: Iterable<string>): Set<number> {
-  const result = new Set<number>();
-  for (const id of ids) {
-    const idx = parseRefElementIndex(id);
-    if (idx !== null) result.add(idx);
-  }
-  return result;
 }
 
 /** Size of the origin cross arms in CSS pixels. */
@@ -58,14 +31,12 @@ const CROSS_ARM = 9;
  */
 function getInstanceOriginScreen(
   library: ReturnType<typeof useWasmContextStore.getState>["library"],
-  elementIndex: number,
+  refId: string,
   zoom: number,
   offset: { x: number; y: number },
 ): { x: number; y: number } | null {
   if (!library) return null;
 
-  // Construct a synthetic ref UUID to query the CellRef transform
-  const refId = `ref:${elementIndex}:0`;
   const refInfo = library.get_cell_ref_info(refId);
   if (!refInfo) return null;
 
@@ -110,14 +81,9 @@ export function InstanceLabels() {
   const selectedIds = useSelectionStore((s) => s.selectedIds);
   const hoveredId = useSelectionStore((s) => s.hoveredId);
 
-  // Determine which instance element indices are active (hovered or selected)
-  const activeIndices = collectRefIndices(selectedIds);
-  if (hoveredId) {
-    const idx = parseRefElementIndex(hoveredId);
-    if (idx !== null) activeIndices.add(idx);
-  }
-
-  if (activeIndices.size === 0) return null;
+  const activeIds = new Set(selectedIds);
+  if (hoveredId) activeIds.add(hoveredId);
+  if (activeIds.size === 0) return null;
 
   // Fetch label data
   let allLabels: InstanceLabel[] = [];
@@ -133,7 +99,7 @@ export function InstanceLabels() {
   }
 
   // Filter to only active instances
-  const visibleLabels = allLabels.filter((l) => activeIndices.has(l.elementIndex));
+  const visibleLabels = allLabels.filter((label) => activeIds.has(label.id));
   if (visibleLabels.length === 0) return null;
 
   const crossColor = isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)";
@@ -146,7 +112,7 @@ export function InstanceLabels() {
         const screenY = label.minY * zoom + offset.y;
 
         // Compute the origin cross position for this instance
-        const originPos = getInstanceOriginScreen(library, label.elementIndex, zoom, offset);
+        const originPos = getInstanceOriginScreen(library, label.id, zoom, offset);
 
         return (
           <div key={`inst-${label.elementIndex}`}>

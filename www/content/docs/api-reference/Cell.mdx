@@ -9,6 +9,10 @@ name and holds polygons, paths, text labels, ports, and references to other
 cells. Use `cell.at(x, y)` to create positioned instances for ergonomic
 placement and port queries.
 
+Python cell mutations validate their complete input before committing. Invalid
+geometry, references, text, or ports raise `ValueError` and leave the cell
+unchanged.
+
 ```python
 cell = Cell("my_design")
 cell.add_polygon(Polygon.rect(Point.origin(), 10, 5), Layer(1, 0))
@@ -183,12 +187,13 @@ cell.add_path(
 
 <PyParameter name={"points"} type={"list[Point]"}>
 
-List of Point objects along the path centerline.
+At least two finite Point objects along the path centerline.
 
 </PyParameter>
 <PyParameter name={"width"} type={"float"}>
 
-Width of the path.
+Finite, nonzero width of the path. Negative widths are valid and preserve GDS
+absolute-width semantics: they are not scaled with a reference magnification.
 
 </PyParameter>
 <PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
@@ -205,6 +210,9 @@ Path end type. Defaults to `PathEndType.FLUSH`.
 </div>
 
 <PyFunctionReturn type={"None"} />
+
+Raises `ValueError` without modifying the cell if the centerline or width is
+invalid.
 
 </PyFunction>
 
@@ -233,7 +241,7 @@ The text string.
 </PyParameter>
 <PyParameter name={"position"} type={"Point"}>
 
-Position of the text.
+Finite position of the text.
 
 </PyParameter>
 <PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
@@ -243,7 +251,7 @@ Target layer.
 </PyParameter>
 <PyParameter name={"height"} type={"float"} value={"1.0"}>
 
-Text height in user units.
+Positive finite text height in user units.
 
 </PyParameter>
 
@@ -251,13 +259,16 @@ Text height in user units.
 
 <PyFunctionReturn type={"None"} />
 
+Raises `ValueError` without modifying the cell if the position or height is
+invalid.
+
 </PyFunction>
 
 ### Ports
 
 <PyFunction name={"add_port"} type={"(port) -> None"}>
 
-Add a port to the cell.
+Add a validated port to the cell. Port names must be unique within a cell.
 
 <div>
 
@@ -270,6 +281,9 @@ The port to add.
 </div>
 
 <PyFunctionReturn type={"None"} />
+
+Raises `ValueError` without modifying the cell if the port is invalid or its
+name is already present.
 
 </PyFunction>
 
@@ -411,12 +425,12 @@ port_out = gc_out.port("opt")
 
 <PyParameter name={"x"} type={"float"}>
 
-X coordinate.
+Finite X coordinate.
 
 </PyParameter>
 <PyParameter name={"y"} type={"float"}>
 
-Y coordinate.
+Finite Y coordinate.
 
 </PyParameter>
 
@@ -439,6 +453,11 @@ A `Cell` is placed at the origin. Use `cell.at(x, y)` to create an
 automatically tracked so that `write_gds()` can collect the full hierarchy
 without a manual cell list.
 
+The reference transform must be finite, invertible, and representable as a
+GDS placement (translation, rotation, reflection, and uniform nonzero scale).
+Validation happens before the parent reference list or tracked child set is
+updated.
+
 <Callout title={"Example"} type={"example"}>
 
 ```python
@@ -459,6 +478,8 @@ A `Cell` to place at the origin or an `Instance` to place with its transform.
 </div>
 
 <PyFunctionReturn type={"None"} />
+
+Raises `ValueError` without modifying the parent if the placement is invalid.
 
 </PyFunction>
 

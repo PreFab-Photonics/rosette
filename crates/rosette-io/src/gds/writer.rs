@@ -13,23 +13,21 @@ use rosette_core::cell::{CellRef, Element, PathEndType};
 use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform};
 
 use super::constants::*;
-use super::error::GdsError;
+use super::error::{GdsElementError, GdsError, GdsTransformError};
 use super::naming::validate_structure_name;
 
 /// Write a single cell to a GDS file.
 ///
 /// The cell becomes the only structure in the library.
 pub fn write(path: impl AsRef<Path>, cell: &Cell) -> Result<(), GdsError> {
-    validate_structure_name(cell.name())?;
     let mut lib = Library::new("library");
-    lib.add_cell(cell.clone())
-        .expect("validated cell has a non-empty unique identity");
+    lib.add_cell(cell.clone())?;
     write_library(path, &lib)
 }
 
 /// Write a library to a GDS file.
 pub fn write_library(path: impl AsRef<Path>, library: &Library) -> Result<(), GdsError> {
-    validate_library_names(library)?;
+    preflight_library(library)?;
     let file = File::create(path)?;
     let mut writer = GdsWriter::new(BufWriter::new(file));
     writer.write_library(library)
@@ -40,7 +38,7 @@ pub fn write_library(path: impl AsRef<Path>, library: &Library) -> Result<(), Gd
 /// This is the symmetric counterpart to [`super::read_bytes`] and is useful
 /// when a file path is not available (e.g. WASM environments).
 pub fn write_bytes(library: &Library) -> Result<Vec<u8>, GdsError> {
-    validate_library_names(library)?;
+    preflight_library(library)?;
     let mut output = Vec::new();
     let mut writer = GdsWriter::new(&mut output);
     writer.write_library(library)?;
@@ -64,7 +62,7 @@ impl<W: Write> GdsWriter<W> {
     }
 
     pub(crate) fn write_library(&mut self, library: &Library) -> Result<(), GdsError> {
-        validate_library_names(library)?;
+        preflight_library(library)?;
         self.write_header()?;
         self.write_bgnlib()?;
         self.write_libname(library.name())?;
@@ -77,6 +75,7 @@ impl<W: Write> GdsWriter<W> {
         }
 
         self.write_endlib()?;
+        self.writer.flush()?;
         Ok(())
     }
 
@@ -229,7 +228,7 @@ impl<W: Write> GdsWriter<W> {
         if has_reflection || angle.abs() > 1e-10 || (mag - 1.0).abs() > 1e-10 {
             let mut strans: u16 = 0;
             if has_reflection {
-                strans |= 0x8000; // Bit 0 (MSB) = reflection about X axis
+                strans |= STRANS_REFLECTION;
             }
             self.write_record(STRANS, BIT_ARRAY, &strans.to_be_bytes())?;
 
@@ -278,7 +277,7 @@ impl<W: Write> GdsWriter<W> {
         if has_reflection || angle.abs() > 1e-10 || (mag - 1.0).abs() > 1e-10 {
             let mut strans: u16 = 0;
             if has_reflection {
-                strans |= 0x8000;
+                strans |= STRANS_REFLECTION;
             }
             self.write_record(STRANS, BIT_ARRAY, &strans.to_be_bytes())?;
 
@@ -406,8 +405,8 @@ impl<W: Write> GdsWriter<W> {
         // LAYER
         self.write_record(LAYER, INT16, &layer.number.to_be_bytes())?;
 
-        // TEXTTYPE (use 0)
-        self.write_record(TEXTTYPE, INT16, &0i16.to_be_bytes())?;
+        // TEXTTYPE
+        self.write_record(TEXTTYPE, INT16, &layer.datatype.to_be_bytes())?;
 
         // STRANS and MAG for text height (if not default 1.0)
         if (height - 1.0).abs() > 1e-10 {
@@ -504,6 +503,188 @@ fn validate_library_names(library: &Library) -> Result<(), GdsError> {
     Ok(())
 }
 
+fn preflight_library(library: &Library) -> Result<(), GdsError> {
+    library.validate()?;
+    validate_library_names(library)?;
+
+    let library_name_len = library.name().len();
+    if library_name_len + library_name_len % 2 > u16::MAX as usize - 4 {
+        return Err(GdsError::RecordTooLong {
+            record: "LIBNAME",
+            byte_count: library_name_len,
+        });
+    }
+
+    for cell in library.cells() {
+        for (element_index, element) in cell.elements().iter().enumerate() {
+            preflight_element(cell.name(), element_index, element)?;
+        }
+    }
+    Ok(())
+}
+
+fn preflight_element(cell: &str, element_index: usize, element: &Element) -> Result<(), GdsError> {
+    let invalid = |reason| GdsError::InvalidElement {
+        cell: cell.to_string(),
+        element_index,
+        reason,
+    };
+
+    match element {
+        Element::Polygon { polygon, layer } => {
+            if !(3..=8190).contains(&polygon.len()) {
+                return Err(invalid(GdsElementError::BoundaryPointCount {
+                    count: polygon.len(),
+                }));
+            }
+            validate_layer(layer, &invalid)?;
+            for vertex in polygon.vertices() {
+                validate_db_value(vertex.x, "polygon vertex x").map_err(&invalid)?;
+                validate_db_value(vertex.y, "polygon vertex y").map_err(&invalid)?;
+            }
+        }
+        Element::Path {
+            points,
+            width,
+            layer,
+            ..
+        } => {
+            if !(2..=8191).contains(&points.len()) {
+                return Err(invalid(GdsElementError::PathPointCount {
+                    count: points.len(),
+                }));
+            }
+            validate_layer(layer, &invalid)?;
+            for point in points {
+                validate_db_value(point.x, "path point x").map_err(&invalid)?;
+                validate_db_value(point.y, "path point y").map_err(&invalid)?;
+            }
+            let width_db = validate_db_value(*width, "path width").map_err(&invalid)?;
+            if width_db == 0 {
+                return Err(invalid(GdsElementError::ZeroPathWidth));
+            }
+        }
+        Element::CellRef(cell_ref) => {
+            validate_transform(&cell_ref.transform)
+                .map_err(|reason| invalid(GdsElementError::UnsupportedTransform(reason)))?;
+            validate_db_value(cell_ref.transform.tx, "reference origin x").map_err(&invalid)?;
+            validate_db_value(cell_ref.transform.ty, "reference origin y").map_err(&invalid)?;
+
+            if let Some(repetition) = cell_ref.repetition {
+                if repetition.columns > i16::MAX as u16 || repetition.rows > i16::MAX as u16 {
+                    return Err(invalid(GdsElementError::RepetitionDimensions {
+                        columns: repetition.columns,
+                        rows: repetition.rows,
+                    }));
+                }
+                if !repetition.is_single() {
+                    let columns = repetition.columns as f64;
+                    let rows = repetition.rows as f64;
+                    let transform = cell_ref.transform;
+                    let col_end_x = transform.tx
+                        + (transform.a * repetition.col_vector.x
+                            + transform.b * repetition.col_vector.y)
+                            * columns;
+                    let col_end_y = transform.ty
+                        + (transform.c * repetition.col_vector.x
+                            + transform.d * repetition.col_vector.y)
+                            * columns;
+                    let row_end_x = transform.tx
+                        + (transform.a * repetition.row_vector.x
+                            + transform.b * repetition.row_vector.y)
+                            * rows;
+                    let row_end_y = transform.ty
+                        + (transform.c * repetition.row_vector.x
+                            + transform.d * repetition.row_vector.y)
+                            * rows;
+                    validate_db_value(col_end_x, "array column endpoint x").map_err(&invalid)?;
+                    validate_db_value(col_end_y, "array column endpoint y").map_err(&invalid)?;
+                    validate_db_value(row_end_x, "array row endpoint x").map_err(&invalid)?;
+                    validate_db_value(row_end_y, "array row endpoint y").map_err(&invalid)?;
+                }
+            }
+        }
+        Element::Text {
+            text,
+            position,
+            layer,
+            height,
+        } => {
+            let count = text.chars().count();
+            if count > 512 {
+                return Err(invalid(GdsElementError::TextTooLong { count }));
+            }
+            validate_layer(layer, &invalid)?;
+            validate_db_value(position.x, "text position x").map_err(&invalid)?;
+            validate_db_value(position.y, "text position y").map_err(&invalid)?;
+            if !gds_real_is_representable(*height) {
+                return Err(invalid(GdsElementError::InvalidMagnification));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_layer(
+    layer: &Layer,
+    invalid: &impl Fn(GdsElementError) -> GdsError,
+) -> Result<(), GdsError> {
+    if layer.number > i16::MAX as u16 {
+        return Err(invalid(GdsElementError::RecordValueOutOfRange {
+            field: "layer",
+        }));
+    }
+    if layer.datatype > i16::MAX as u16 {
+        return Err(invalid(GdsElementError::RecordValueOutOfRange {
+            field: "datatype",
+        }));
+    }
+    Ok(())
+}
+
+fn validate_db_value(value: f64, field: &'static str) -> Result<i32, GdsElementError> {
+    if !value.is_finite() {
+        return Err(GdsElementError::NonFiniteValue { field });
+    }
+    let db_value = (value * UNITS_PER_UM).round();
+    if !db_value.is_finite() || db_value < i32::MIN as f64 || db_value > i32::MAX as f64 {
+        return Err(GdsElementError::DatabaseUnitOutOfRange { field });
+    }
+    Ok(db_value as i32)
+}
+
+fn validate_transform(transform: &Transform) -> Result<(), GdsTransformError> {
+    if !transform.is_finite() {
+        return Err(GdsTransformError::NonFinite);
+    }
+    if !transform.is_invertible() {
+        return Err(GdsTransformError::Singular);
+    }
+
+    let first_norm = transform.a.hypot(transform.c);
+    let second_norm = transform.b.hypot(transform.d);
+    let norm_scale = first_norm.max(second_norm);
+    let dot = transform.a * transform.b + transform.c * transform.d;
+    let tolerance = 1e-10;
+    if (first_norm - second_norm).abs() > tolerance * norm_scale
+        || dot.abs() > tolerance * first_norm * second_norm
+    {
+        return Err(GdsTransformError::NonConformal);
+    }
+    if !gds_real_is_representable(first_norm) {
+        return Err(GdsTransformError::MagnitudeOutOfRange);
+    }
+    Ok(())
+}
+
+fn gds_real_is_representable(value: f64) -> bool {
+    if !value.is_finite() || value <= 0.0 {
+        return false;
+    }
+    let value = value.abs();
+    value >= 16.0_f64.powi(-65) && value < 16.0_f64.powi(63)
+}
+
 /// Convert f64 to GDS REAL8 format.
 ///
 /// GDS uses an unusual 8-byte floating point format:
@@ -561,6 +742,34 @@ pub(crate) fn f64_to_gds_real(value: f64) -> [u8; 8] {
 mod tests {
     use super::*;
     use rosette_core::cell::CellRef;
+    use std::fs;
+
+    struct FlushFailWriter;
+
+    impl Write for FlushFailWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("flush failed"))
+        }
+    }
+
+    fn malformed_path_library(points: serde_json::Value) -> Library {
+        let mut cell = Cell::new("TEST");
+        cell.add_path(
+            vec![Point::origin(), Point::new(1.0, 0.0)],
+            0.5,
+            Layer::new(1, 0),
+            PathEndType::Flush,
+        );
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let mut value = serde_json::to_value(library).unwrap();
+        value["cells"][0]["elements"][0]["Path"]["points"] = points;
+        serde_json::from_value(value).unwrap()
+    }
 
     #[test]
     fn test_to_db_units() {
@@ -602,6 +811,15 @@ mod tests {
         assert_eq!(output[0..2], [0x00, 0x06]); // Length 6
         assert_eq!(output[2], HEADER); // Record type
         assert_eq!(output[3], INT16); // Data type
+    }
+
+    #[test]
+    fn propagates_flush_failures() {
+        let library = Library::new("test");
+        assert!(matches!(
+            GdsWriter::new(FlushFailWriter).write_library(&library),
+            Err(GdsError::Io(_))
+        ));
     }
 
     // ============================================
@@ -667,7 +885,13 @@ mod tests {
         lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
-        assert!(matches!(result, Err(GdsError::TooManyVertices(_))));
+        assert!(matches!(
+            result,
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::BoundaryPointCount { .. },
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -1204,40 +1428,33 @@ mod tests {
         lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
-        assert!(matches!(result, Err(GdsError::TooManyPathPoints(_))));
+        assert!(matches!(
+            result,
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::PathPointCount { .. },
+                ..
+            })
+        ));
     }
 
     #[test]
     fn test_path_too_few_points_empty() {
-        let mut cell = Cell::new("TEST");
-        cell.add_path(vec![], 0.5, Layer::new(1, 0), PathEndType::Flush);
-
+        let lib = malformed_path_library(serde_json::json!([]));
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
-        let mut lib = Library::new("test");
-        lib.add_cell(cell).unwrap();
-
         let result = writer.write_library(&lib);
-        assert!(matches!(result, Err(GdsError::TooFewPathPoints(0))));
+        assert!(matches!(result, Err(GdsError::InvalidLibrary(_))));
+        assert!(output.is_empty());
     }
 
     #[test]
     fn test_path_too_few_points_single() {
-        let mut cell = Cell::new("TEST");
-        cell.add_path(
-            vec![Point::new(0.0, 0.0)],
-            0.5,
-            Layer::new(1, 0),
-            PathEndType::Flush,
-        );
-
+        let lib = malformed_path_library(serde_json::json!([{ "x": 0.0, "y": 0.0 }]));
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
-        let mut lib = Library::new("test");
-        lib.add_cell(cell).unwrap();
-
         let result = writer.write_library(&lib);
-        assert!(matches!(result, Err(GdsError::TooFewPathPoints(1))));
+        assert!(matches!(result, Err(GdsError::InvalidLibrary(_))));
+        assert!(output.is_empty());
     }
 
     #[test]
@@ -1303,7 +1520,13 @@ mod tests {
         lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
-        assert!(matches!(result, Err(GdsError::TextTooLong(_))));
+        assert!(matches!(
+            result,
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::TextTooLong { .. },
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -1359,7 +1582,13 @@ mod tests {
         lib.add_cell(cell).unwrap();
 
         let result = writer.write_library(&lib);
-        assert!(matches!(result, Err(GdsError::TextTooLong(513))));
+        assert!(matches!(
+            result,
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::TextTooLong { count: 513 },
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -1414,5 +1643,145 @@ mod tests {
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_and_oversized_repetitions() {
+        let mut cell = Cell::new("TOP");
+        cell.add_ref(CellRef::new("UNIT").array(2, 2, 1.0, 1.0));
+        let mut valid = Library::new("test");
+        valid.add_cell(cell).unwrap();
+        let mut value = serde_json::to_value(&valid).unwrap();
+        value["cells"][0]["elements"][0]["CellRef"]["repetition"]["columns"] = serde_json::json!(0);
+        let zero: Library = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            write_bytes(&zero),
+            Err(GdsError::InvalidLibrary(_))
+        ));
+
+        let mut cell = Cell::new("TOP");
+        cell.add_ref(CellRef::new("UNIT").array(32768, 1, 1.0, 1.0));
+        let mut oversized = Library::new("test");
+        oversized.add_cell(cell).unwrap();
+        assert!(matches!(
+            write_bytes(&oversized),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::RepetitionDimensions { .. },
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn rejects_out_of_range_coordinates() {
+        let polygon = Polygon::new(vec![
+            Point::new(3_000_000.0, 0.0),
+            Point::new(3_000_001.0, 0.0),
+            Point::new(3_000_000.0, 1.0),
+        ]);
+        let mut cell = Cell::new("TOP");
+        cell.add_polygon(polygon, Layer::new(1, 0));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+
+        assert!(matches!(
+            write_bytes(&library),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::DatabaseUnitOutOfRange { .. },
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn rejects_nonfinite_coordinates_during_element_preflight() {
+        let element = Element::Path {
+            points: vec![Point::origin(), Point::new(f64::NAN, 0.0)],
+            width: 0.5,
+            layer: Layer::new(1, 0),
+            end_type: PathEndType::Flush,
+        };
+
+        assert!(matches!(
+            preflight_element("TOP", 0, &element),
+            Err(GdsError::InvalidElement {
+                reason: GdsElementError::NonFiniteValue { .. },
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn rejects_nonconformal_and_singular_transforms() {
+        for transform in [
+            Transform::new(1.0, 0.25, 0.0, 1.0, 0.0, 0.0),
+            Transform::new(2.0, 0.0, 0.0, 1.0, 0.0, 0.0),
+        ] {
+            let mut cell = Cell::new("TOP");
+            cell.add_ref(CellRef::with_transform("UNIT", transform));
+            let mut library = Library::new("test");
+            library.add_cell(cell).unwrap();
+            assert!(matches!(
+                write_bytes(&library),
+                Err(GdsError::InvalidElement {
+                    reason: GdsElementError::UnsupportedTransform(GdsTransformError::NonConformal),
+                    ..
+                })
+            ));
+        }
+
+        let mut cell = Cell::new("TOP");
+        cell.add_ref(CellRef::new("UNIT"));
+        let mut valid = Library::new("test");
+        valid.add_cell(cell).unwrap();
+        let mut value = serde_json::to_value(valid).unwrap();
+        let transform = &mut value["cells"][0]["elements"][0]["CellRef"]["transform"];
+        transform["a"] = serde_json::json!(0.0);
+        transform["b"] = serde_json::json!(0.0);
+        transform["c"] = serde_json::json!(0.0);
+        transform["d"] = serde_json::json!(0.0);
+        let singular: Library = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            write_bytes(&singular),
+            Err(GdsError::InvalidLibrary(_))
+        ));
+    }
+
+    #[test]
+    fn preserves_negative_path_widths() {
+        let mut cell = Cell::new("TOP");
+        cell.add_path(
+            vec![Point::origin(), Point::new(10.0, 0.0)],
+            -0.5,
+            Layer::new(1, 0),
+            PathEndType::Flush,
+        );
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+
+        let restored = super::super::reader::read_bytes(&write_bytes(&library).unwrap()).unwrap();
+        let width = restored.cell("TOP").unwrap().paths().next().unwrap().1;
+        assert!((width + 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn preflight_failure_does_not_truncate_existing_file() {
+        let mut cell = Cell::new("TOP");
+        cell.add_ref(CellRef::with_transform(
+            "UNIT",
+            Transform::new(1.0, 0.5, 0.0, 1.0, 0.0, 0.0),
+        ));
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let path =
+            std::env::temp_dir().join(format!("rosette-gds-validation-{}.gds", std::process::id()));
+        fs::write(&path, b"existing").unwrap();
+
+        assert!(matches!(
+            write_library(&path, &library),
+            Err(GdsError::InvalidElement { .. })
+        ));
+        assert_eq!(fs::read(&path).unwrap(), b"existing");
+        fs::remove_file(path).unwrap();
     }
 }

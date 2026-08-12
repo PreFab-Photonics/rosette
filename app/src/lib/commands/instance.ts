@@ -7,7 +7,7 @@ import { syncCellTree } from "./helpers";
  * Command to set the full affine transform on a CellRef instance.
  *
  * Used for changing rotation, scale, or mirror on an instance.
- * The `refId` must be a synthetic ref UUID (e.g. "ref:3:0").
+ * The `refId` must be a tokenized synthetic ref UUID.
  */
 export class SetInstanceTransformCommand implements Command {
   readonly type = "set-instance-transform";
@@ -23,13 +23,17 @@ export class SetInstanceTransformCommand implements Command {
   }
 
   execute(ctx: CommandContext): void {
-    ctx.library.set_cell_ref_transform(this.refId, this.newTransform);
+    if (!ctx.library.set_cell_ref_transform(this.refId, this.newTransform)) {
+      throw new Error("Could not set instance transform");
+    }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
 
   undo(ctx: CommandContext): void {
-    ctx.library.set_cell_ref_transform(this.refId, this.oldTransform);
+    if (!ctx.library.set_cell_ref_transform(this.refId, this.oldTransform)) {
+      throw new Error("Could not restore instance transform");
+    }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
   }
@@ -38,7 +42,7 @@ export class SetInstanceTransformCommand implements Command {
 /**
  * Command to set the array repetition on a CellRef instance.
  *
- * The `refId` must be a synthetic ref UUID (e.g. "ref:3:0"). Always writes
+ * The `refId` must be a tokenized synthetic ref UUID. Always writes
  * through `set_cell_ref_array_vectors` so skewed/hex lattices round-trip
  * faithfully — the scalar shim collapses off-axis components and is only
  * kept for display in status-bar-style summaries.
@@ -64,8 +68,9 @@ export class SetInstanceArrayCommand implements Command {
   }
 
   private applyParams(ctx: CommandContext, params: ArrayParams | null): void {
+    let updated: boolean;
     if (params && (params.columns > 1 || params.rows > 1)) {
-      ctx.library.set_cell_ref_array_vectors(
+      updated = ctx.library.set_cell_ref_array_vectors(
         this.refId,
         params.columns,
         params.rows,
@@ -76,7 +81,10 @@ export class SetInstanceArrayCommand implements Command {
       );
     } else {
       // Revert to single instance
-      ctx.library.set_cell_ref_array_vectors(this.refId, 1, 1, 0, 0, 0, 0);
+      updated = ctx.library.set_cell_ref_array_vectors(this.refId, 1, 1, 0, 0, 0, 0);
+    }
+    if (!updated) {
+      throw new Error("Could not set instance array");
     }
     ctx.renderer.sync_from_library(ctx.library);
     ctx.renderer.mark_dirty();
@@ -257,15 +265,20 @@ export class FlattenArrayCommand implements Command {
     for (const snap of this.snapshots) {
       const id = ctx.library.add_cell_ref_with_transform(snap.cellName, snap.transform);
       if (id) {
-        ctx.library.set_cell_ref_array_vectors(
-          id,
-          snap.columns,
-          snap.rows,
-          snap.colVector.x,
-          snap.colVector.y,
-          snap.rowVector.x,
-          snap.rowVector.y,
-        );
+        if (
+          !ctx.library.set_cell_ref_array_vectors(
+            id,
+            snap.columns,
+            snap.rows,
+            snap.colVector.x,
+            snap.colVector.y,
+            snap.rowVector.x,
+            snap.rowVector.y,
+          )
+        ) {
+          ctx.library.remove_element(id);
+          throw new Error("Could not restore flattened array");
+        }
         restoredIds.push(id);
       }
     }

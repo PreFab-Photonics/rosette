@@ -88,6 +88,14 @@ class TestRenderPng:
         with pytest.raises(ValueError, match="no geometry"):
             render_png(Library("empty"), width=128)
 
+    def test_skips_geometry_from_overflowed_transform(self, transform_overflow_hierarchy):
+        _, library = transform_overflow_hierarchy
+
+        result = render_png(library, width=64)
+
+        assert result.png.startswith(PNG_MAGIC)
+        assert result.layers_rendered == [(1, 0)]
+
     def test_multi_root_library_renders_all_roots_or_explicit_top(self):
         root_a = Cell("root_a")
         root_a.add_polygon(Polygon.rect(Point.origin(), 10.0, 10.0), Layer(1, 0))

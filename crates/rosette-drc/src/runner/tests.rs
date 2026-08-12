@@ -26,6 +26,39 @@ fn test_cycle_is_bounded_and_valid_geometry_is_checked_once() {
 }
 
 #[test]
+fn transform_overflow_skips_unrepresentable_drc_geometry() {
+    let kept_layer = Layer::new(1, 0);
+    let skipped_layer = Layer::new(2, 0);
+    let mut leaf = Cell::new("leaf");
+    leaf.add_polygon(Polygon::rect(Point::new(2.0, 0.0), 0.1, 0.1), skipped_layer);
+    let mut middle = Cell::new("middle");
+    middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
+    let mut top = Cell::new("top");
+    top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), kept_layer);
+    top.add_ref(CellRef::new("middle").scale(f64::MAX));
+    let mut library = Library::new("test");
+    library.add_cell(leaf).unwrap();
+    library.add_cell(middle).unwrap();
+    library.add_cell(top).unwrap();
+    let rules = DrcRules::new()
+        .min_area(skipped_layer, 1.0, None)
+        .snap_to_grid(kept_layer, 0.5, None);
+
+    let result = run_drc(library.cell("top").unwrap(), &rules, Some(&library));
+    assert!(result.passed());
+    assert_eq!(result.stats.polygons_checked, 1);
+
+    let per_polygon_only = DrcRules::new().min_area(skipped_layer, 1.0, None);
+    let result = run_drc(
+        library.cell("top").unwrap(),
+        &per_polygon_only,
+        Some(&library),
+    );
+    assert!(result.passed());
+    assert_eq!(result.stats.polygons_checked, 1);
+}
+
+#[test]
 fn test_min_area_pass() {
     let mut cell = Cell::new("test");
     cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), Layer::new(1, 0));
@@ -680,7 +713,7 @@ fn test_spacing_skip_touching_at_ports() {
 #[test]
 fn test_non_rigid_transform_catches_width_violation() {
     // A child cell has a polygon with width 0.5 (passes min_width=0.15).
-    // When scaled 0.1x in X direction, the actual width becomes 0.05 (fails).
+    // When scaled 0.1x in Y, the actual width becomes 0.05 (fails).
     // The hierarchy-aware DRC must detect this despite the cell being reused.
     let mut child = Cell::new("narrow");
     // 0.5 wide, 10 long rectangle
@@ -693,10 +726,10 @@ fn test_non_rigid_transform_catches_width_violation() {
     let mut top = Cell::new("top");
     // Rigid instance at origin — width is 0.5, passes min_width=0.15
     top.add_ref(CellRef::new("narrow"));
-    // Non-uniform scale: 0.1x in X — polygon becomes 1.0 x 0.05, width = 0.05
+    // Non-uniform scale: 0.1x in Y — polygon becomes 10.0 x 0.05, width = 0.05
     top.add_ref(CellRef::with_transform(
         "narrow",
-        Transform::scale(0.1, 0.1),
+        Transform::scale(1.0, 0.1),
     ));
 
     let mut lib = Library::new("test_lib");

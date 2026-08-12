@@ -6,23 +6,50 @@ import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { usePathStore } from "@/stores/path";
 import { useImageStore, imageKeyToId, imageIdToKey, type ImageEntry } from "@/stores/image";
 import { computeActualCornerRadius, checkBendRadiusReductions } from "@/lib/path";
+import { parseSyntheticRefId } from "@/lib/element-id";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { useLayerStore, hexToRgba, FILL_PATTERN_IDS } from "@/stores/layer";
 import type { CommandContext } from "./types";
+
+export function canonicalElementId(library: WasmLibrary, id: string): string | undefined {
+  return library.get_canonical_element_id(id);
+}
 
 /**
  * Snapshot selected elements for clipboard/undo operations.
  *
  * Handles both regular polygon UUIDs and synthetic ref UUIDs (from CellRef instances).
- * Deduplicates synthetic ref UUIDs so each CellRef instance is snapshotted once.
+ * Deduplicates aliases and orders WASM elements by their original element index.
  */
 export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): ClipboardSnapshot[] {
   const snapshots: ClipboardSnapshot[] = [];
-  // Track which CellRef element indices we've already snapshotted
-  // (multiple synthetic ref UUIDs map to the same CellRef)
-  const snapshotRefIndices = new Set<string>();
+  const targets = new Map<string, { id: string; originalIndex?: number }>();
 
   for (const id of ids) {
+    if (id.startsWith("img:")) {
+      targets.set(id, { id });
+      continue;
+    }
+    const canonicalId = canonicalElementId(library, id) ?? id;
+    if (targets.has(canonicalId)) continue;
+    const synthetic = parseSyntheticRefId(canonicalId);
+    const index = synthetic?.elementIndex ?? library.get_element_index(canonicalId);
+    targets.set(canonicalId, {
+      id: canonicalId,
+      ...(index >= 0 ? { originalIndex: index } : {}),
+    });
+  }
+
+  const orderedTargets = [...targets.values()].sort((a, b) => {
+    if (a.originalIndex != null && b.originalIndex != null) {
+      return a.originalIndex - b.originalIndex || a.id.localeCompare(b.id);
+    }
+    if (a.originalIndex != null) return -1;
+    if (b.originalIndex != null) return 1;
+    return a.id.localeCompare(b.id);
+  });
+
+  for (const { id, originalIndex } of orderedTargets) {
     // Check if this is an image overlay
     if (id.startsWith("img:")) {
       const imgKey = imageIdToKey(id);
@@ -44,32 +71,12 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
       continue;
     }
 
-    // Check if this is a synthetic ref UUID (CellRef instance)
-    if (id.startsWith("ref:")) {
-      const elemIdx = id.split(":")[1];
-      if (snapshotRefIndices.has(elemIdx)) continue;
-      snapshotRefIndices.add(elemIdx);
-
-      const refInfo = library.get_cell_ref_info(id);
-      if (refInfo) {
-        const arrayVectors = library.get_cell_ref_array_vectors(id);
-        snapshots.push({
-          type: "cell-ref",
-          cellName: refInfo.cell_name,
-          transform: new Float64Array(refInfo.transform),
-          repetition: arrayVectors ? new Float64Array(arrayVectors) : null,
-        });
-        refInfo.free();
-      }
-      continue;
-    }
-
-    // Regular UUID - check if it's actually a CellRef with a real UUID
     const refInfo = library.get_cell_ref_info(id);
     if (refInfo) {
       const arrayVectors = library.get_cell_ref_array_vectors(id);
       snapshots.push({
         type: "cell-ref",
+        originalIndex,
         cellName: refInfo.cell_name,
         transform: new Float64Array(refInfo.transform),
         repetition: arrayVectors ? new Float64Array(arrayVectors) : null,
@@ -92,6 +99,7 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
     if (textInfo) {
       snapshots.push({
         type: "text",
+        originalIndex,
         text: textInfo.text,
         x: textInfo.x,
         y: textInfo.y,
@@ -108,6 +116,7 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
     if (pathMeta) {
       snapshots.push({
         type: "path",
+        originalIndex,
         waypoints: pathMeta.waypoints.map((wp) => ({ ...wp })),
         width: pathMeta.width,
         cornerRadius: pathMeta.cornerRadius,
@@ -118,11 +127,27 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
       continue;
     }
 
+    const nativePath = library.get_native_path_info(id);
+    if (nativePath) {
+      snapshots.push({
+        type: "native-path",
+        originalIndex,
+        centerline: new Float64Array(nativePath.centerline),
+        width: nativePath.width,
+        endType: nativePath.end_type,
+        layer: nativePath.layer,
+        datatype: nativePath.datatype,
+      });
+      nativePath.free();
+      continue;
+    }
+
     // Polygon element
     const info = library.get_element_info(id);
     if (info) {
       snapshots.push({
         type: "polygon",
+        originalIndex,
         vertices: new Float64Array(info.vertices),
         layer: info.layer,
         datatype: info.datatype,
@@ -143,10 +168,36 @@ export function restoreSnapshots(
   library: WasmLibrary,
   snapshots: ClipboardSnapshot[],
   allowImportedCycles = false,
+  restoreOriginalPositions = false,
 ): string[] {
   const newIds: string[] = [];
+  const orderedSnapshots = restoreOriginalPositions
+    ? snapshots
+        .map((snapshot, order) => ({ snapshot, order }))
+        .sort((a, b) => {
+          const aIndex = a.snapshot.originalIndex;
+          const bIndex = b.snapshot.originalIndex;
+          if (aIndex != null && bIndex != null) return aIndex - bIndex || a.order - b.order;
+          if (aIndex != null) return -1;
+          if (bIndex != null) return 1;
+          return a.order - b.order;
+        })
+        .map(({ snapshot }) => snapshot)
+    : snapshots;
 
-  for (const snapshot of snapshots) {
+  const recordRestored = (id: string, snapshot: ClipboardSnapshot): void => {
+    if (
+      restoreOriginalPositions &&
+      snapshot.type !== "image" &&
+      snapshot.originalIndex != null &&
+      !library.move_element_to_index(id, snapshot.originalIndex)
+    ) {
+      throw new Error(`Could not restore element at index ${snapshot.originalIndex}`);
+    }
+    newIds.push(id);
+  };
+
+  for (const snapshot of orderedSnapshots) {
     if (snapshot.type === "cell-ref") {
       const id = allowImportedCycles
         ? library.restore_cell_ref_with_transform(
@@ -159,17 +210,22 @@ export function restoreSnapshots(
         // Restore AREF repetition if the original was an array reference.
         // The 6-element vector payload covers rectangular and skewed lattices.
         if (!allowImportedCycles && snapshot.repetition && snapshot.repetition.length === 6) {
-          library.set_cell_ref_array_vectors(
-            id,
-            snapshot.repetition[0], // columns
-            snapshot.repetition[1], // rows
-            snapshot.repetition[2], // col_x
-            snapshot.repetition[3], // col_y
-            snapshot.repetition[4], // row_x
-            snapshot.repetition[5], // row_y
-          );
+          if (
+            !library.set_cell_ref_array_vectors(
+              id,
+              snapshot.repetition[0], // columns
+              snapshot.repetition[1], // rows
+              snapshot.repetition[2], // col_x
+              snapshot.repetition[3], // col_y
+              snapshot.repetition[4], // row_x
+              snapshot.repetition[5], // row_y
+            )
+          ) {
+            library.remove_element(id);
+            throw new Error("Could not restore instance array");
+          }
         }
-        newIds.push(id);
+        recordRestored(id, snapshot);
       }
     } else if (snapshot.type === "text") {
       const id = library.add_text(
@@ -181,7 +237,7 @@ export function restoreSnapshots(
         snapshot.datatype,
       );
       if (id) {
-        newIds.push(id);
+        recordRestored(id, snapshot);
       }
     } else if (snapshot.type === "path") {
       // Recreate path using create_path_rounded and restore path metadata
@@ -199,7 +255,7 @@ export function restoreSnapshots(
         snapshot.datatype,
       );
       if (id) {
-        newIds.push(id);
+        recordRestored(id, snapshot);
         // Store path metadata so the element is recognized as a path
         const waypoints = snapshot.waypoints.map((wp) => ({ ...wp }));
         usePathStore.getState().setPathMetadata(id, {
@@ -212,6 +268,15 @@ export function restoreSnapshots(
           datatype: snapshot.datatype,
         });
       }
+    } else if (snapshot.type === "native-path") {
+      const id = library.restore_native_path(
+        snapshot.centerline,
+        snapshot.width,
+        snapshot.endType,
+        snapshot.layer,
+        snapshot.datatype,
+      );
+      if (id) recordRestored(id, snapshot);
     } else if (snapshot.type === "image") {
       // Create a new image entry with a fresh ID, scoped to the active cell
       const newId = crypto.randomUUID();
@@ -229,11 +294,11 @@ export function restoreSnapshots(
         cellName: useExplorerStore.getState().activeCell ?? "",
       };
       useImageStore.getState().addImage(entry);
-      newIds.push(imageKeyToId(newId));
+      recordRestored(imageKeyToId(newId), snapshot);
     } else {
       const id = library.add_polygon(snapshot.vertices, snapshot.layer, snapshot.datatype);
       if (id) {
-        newIds.push(id);
+        recordRestored(id, snapshot);
       }
     }
   }
@@ -255,11 +320,18 @@ export function offsetSnapshot(
       verts[i] = snapshot.vertices[i] + dx;
       verts[i + 1] = snapshot.vertices[i + 1] + dy;
     }
-    return { type: "polygon", vertices: verts, layer: snapshot.layer, datatype: snapshot.datatype };
+    return {
+      type: "polygon",
+      originalIndex: snapshot.originalIndex,
+      vertices: verts,
+      layer: snapshot.layer,
+      datatype: snapshot.datatype,
+    };
   }
   if (snapshot.type === "path") {
     return {
       type: "path",
+      originalIndex: snapshot.originalIndex,
       waypoints: snapshot.waypoints.map((wp) => ({ x: wp.x + dx, y: wp.y + dy })),
       width: snapshot.width,
       cornerRadius: snapshot.cornerRadius,
@@ -268,12 +340,21 @@ export function offsetSnapshot(
       datatype: snapshot.datatype,
     };
   }
+  if (snapshot.type === "native-path") {
+    const centerline = new Float64Array(snapshot.centerline);
+    for (let i = 0; i < centerline.length; i += 2) {
+      centerline[i] += dx;
+      centerline[i + 1] += dy;
+    }
+    return { ...snapshot, centerline };
+  }
   if (snapshot.type === "cell-ref") {
     const t = new Float64Array(snapshot.transform);
     t[4] += dx; // tx
     t[5] += dy; // ty
     return {
       type: "cell-ref",
+      originalIndex: snapshot.originalIndex,
       cellName: snapshot.cellName,
       transform: t,
       repetition: snapshot.repetition ? new Float64Array(snapshot.repetition) : null,
@@ -285,6 +366,7 @@ export function offsetSnapshot(
   // text
   return {
     type: "text",
+    originalIndex: snapshot.originalIndex,
     text: snapshot.text,
     x: snapshot.x + dx,
     y: snapshot.y + dy,
@@ -352,6 +434,27 @@ export function syncCellTree(library: WasmLibrary): void {
   const tree = library.get_cell_tree();
   if (tree) {
     useExplorerStore.getState().setCellTree(tree);
+  }
+}
+
+export function translationTargetCount(library: WasmLibrary, ids: Iterable<string>): number {
+  const targets = new Set<string>();
+  for (const id of ids) {
+    targets.add(canonicalElementId(library, id) ?? id);
+  }
+  return targets.size;
+}
+
+export function translateElementsOrThrow(
+  library: WasmLibrary,
+  ids: string[],
+  dx: number,
+  dy: number,
+): void {
+  const expected = translationTargetCount(library, ids);
+  const translated = library.translate_elements(ids, dx, dy);
+  if (translated !== expected) {
+    throw new Error(`Could not translate all elements (${translated}/${expected})`);
   }
 }
 

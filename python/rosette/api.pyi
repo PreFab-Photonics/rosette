@@ -56,6 +56,13 @@ class Vector2:
     def __repr__(self) -> str: ...
 
 class Polygon:
+    """A polygon with at least three finite vertices.
+
+    Repeated vertices, zero-area rings, and self-intersections remain
+    representable. Transformations raise ``ValueError`` rather than returning
+    a polygon with non-finite coordinates.
+    """
+
     def __init__(self, vertices: list[Point]) -> None: ...
     @staticmethod
     def rect(origin: Point, width: float, height: float) -> Polygon: ...
@@ -65,7 +72,9 @@ class Polygon:
     def regular(center: Point, radius: float, sides: int) -> Polygon: ...
     def vertices(self) -> list[Point]: ...
     def __len__(self) -> int: ...
-    def area(self) -> float: ...
+    def area(self) -> float:
+        """Return the absolute area, independent of vertex winding."""
+        ...
     def centroid(self) -> Point: ...
     def bbox(self) -> BBox: ...
     def translate(self, v: Vector2) -> Polygon: ...
@@ -181,6 +190,11 @@ class Instance:
     places the *transformed origin*, not the visual center or corner.
     To align transformed instances with other geometry, account for the
     new bounds when choosing placement coordinates.
+
+    Placement and per-copy array transforms must remain finite and invertible;
+    uniform scale factors must also be nonzero. Array dimensions are limited
+    to 1 through 32767, and array spacings/vectors must be finite. Invalid
+    builder inputs raise ``ValueError`` without modifying the existing Instance.
 
     Example:
         input_instance = unit_cell.at(0, 0)
@@ -484,6 +498,13 @@ class Layer:
     def __eq__(self, other: object) -> bool: ...
 
 class Port:
+    """A validated named connection point.
+
+    Names are nonempty, positions are finite, directions are finite and
+    nonzero, and optional widths are positive and finite. Directions are
+    normalized during construction. Port names must be unique within a Cell.
+    """
+
     name: str
     position: Point
     direction: Vector2
@@ -506,6 +527,12 @@ class Port:
     def __repr__(self) -> str: ...
 
 class Cell:
+    """A cell whose mutations validate before committing.
+
+    Invalid geometry, reference, text, or port inputs raise ``ValueError`` and
+    leave both cell contents and tracked hierarchy state unchanged.
+    """
+
     name: str
     path_length: float | None
     bends: list[dict[str, float]]
@@ -579,8 +606,9 @@ class Cell:
         more compact than storing the full polygon outline.
 
         Args:
-            points: List of Point objects along the path centerline
-            width: Width of the path
+            points: At least two finite Point objects along the path centerline
+            width: Finite, nonzero width. Negative values preserve GDS
+                absolute-width semantics.
             layer: Layer number or Layer object
             end_type: Path end type (default: PathEndType.FLUSH)
 
@@ -591,6 +619,10 @@ class Cell:
                 layer=1,
                 end_type=PathEndType.ROUND
             )
+
+        Raises:
+            ValueError: If the points or width are invalid. The cell is left
+                unchanged.
         """
         ...
     def add_text(
@@ -607,16 +639,26 @@ class Cell:
 
         Args:
             text: The text string
-            position: Position of the text
+            position: Finite position of the text
             layer: Layer number or Layer object
-            height: Text height in user units (default: 1.0)
+            height: Positive finite text height in user units (default: 1.0)
 
         Example:
             cell.add_text("Input", Point(0, 5), layer=10)
             cell.add_text("Big Label", Point(0, 10), layer=10, height=5.0)
+
+        Raises:
+            ValueError: If the position or height is invalid. The cell is left
+                unchanged.
         """
         ...
-    def add_port(self, port: Port) -> None: ...
+    def add_port(self, port: Port) -> None:
+        """Add a validated port whose name is not already used by this cell.
+
+        Raises ``ValueError`` without changing the cell for an invalid or
+        duplicate port.
+        """
+        ...
     def add_bend(
         self,
         radius: float,
@@ -710,6 +752,10 @@ class Cell:
         Example:
             top.add_ref(unit_cell.at(0, 0))      # Instance at position
             top.add_ref(route.to_cell("wg"))     # Cell at origin
+
+        Raises:
+            ValueError: If the placement is invalid. The parent reference list
+                and tracked child set are left unchanged.
         """
         ...
     def __repr__(self) -> str: ...

@@ -69,6 +69,15 @@ class TestRunDrc:
         assert len(result.violations) == 0
         assert result.polygons_checked == 0
 
+    def test_skips_geometry_from_overflowed_transform(self, transform_overflow_hierarchy):
+        top, library = transform_overflow_hierarchy
+        rules = DrcRules().min_area(Layer(2, 0), 1.0).snap_to_grid(Layer(1, 0), 0.5)
+
+        result = run_drc(top, rules, library=library)
+
+        assert result.passed
+        assert result.polygons_checked == 1
+
     def test_min_area_pass(self):
         """Polygon meeting min area requirement passes."""
         cell = Cell("test")

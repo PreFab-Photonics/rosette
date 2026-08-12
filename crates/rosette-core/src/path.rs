@@ -108,7 +108,7 @@ pub fn stroke_path(centerline: &[Point], width: f64, end_type: PathEndType) -> O
         append_round_cap(&mut vertices, start_center, -normals[0], half_width);
     }
 
-    Some(Polygon::new(vertices))
+    Polygon::try_new(vertices)
 }
 
 /// Stroke a path with an accumulated hierarchy transform applied.
@@ -148,7 +148,8 @@ pub fn stroke_path_transformed_with_scale(
             end_type,
         )
     } else {
-        stroke_path(centerline, width, end_type).map(|polygon| polygon.transform(transform))
+        stroke_path(centerline, width, end_type)
+            .and_then(|polygon| polygon.try_transform(transform))
     }
 }
 
@@ -250,6 +251,22 @@ mod tests {
         );
         assert!(
             stroke_path(
+                &[Point::origin(), Point::new(f64::MAX, 0.0)],
+                f64::MAX,
+                PathEndType::HalfWidthExtension,
+            )
+            .is_none()
+        );
+        assert!(
+            stroke_path(
+                &[Point::new(f64::MAX, 0.0), Point::new(-f64::MAX, 0.0),],
+                1.0,
+                PathEndType::Flush,
+            )
+            .is_none()
+        );
+        assert!(
+            stroke_path(
                 &[Point::origin(), Point::new(f64::NAN, 0.0)],
                 1.0,
                 PathEndType::Flush
@@ -297,5 +314,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(bounds(&polygon), (-1000.0, -1000.0, 11000.0, 1000.0));
+    }
+
+    #[test]
+    fn transformed_stroke_rejects_affine_overflow() {
+        assert!(
+            stroke_path_transformed(
+                &[Point::new(1.0, 0.0), Point::new(2.0, 0.0)],
+                1.0,
+                PathEndType::Flush,
+                &Transform::scale_uniform(f64::MAX),
+            )
+            .is_none()
+        );
+        assert!(
+            stroke_path_transformed(
+                &[Point::new(1.0, 0.0), Point::new(2.0, 0.0)],
+                -1.0,
+                PathEndType::Flush,
+                &Transform::scale_uniform(f64::MAX),
+            )
+            .is_none()
+        );
     }
 }

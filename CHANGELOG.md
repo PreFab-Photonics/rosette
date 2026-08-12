@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A hole-preserving core `Region` and DRC-owned `DrcPolicy` side table.
 - Graph-derived library roots, explicit runtime top-cell selection, and duplicate
   insertion policies.
+- Rust local-model validation with structured cell, element, port, repetition,
+  and library errors, plus transactional `Cell::edit_element` and
+  `Cell::edit_elements` APIs.
 
 ### Changed
 
@@ -49,6 +52,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Recursive library insertion validates the complete reachable hierarchy and reports
   missing references, cycles, ambiguous candidates, and duplicate-policy conflicts
   atomically instead of silently dropping them.
+- **Rust behavior tightening:** core constructors and mutators now enforce local
+  polygon, port, path, text, reference, repetition, metadata, and transform
+  invariants before mutation. Finite degenerate polygons and negative absolute
+  GDS path widths remain valid.
+- **Rust breaking:** `Library::edit_cell` and `Library::edit_cells` now return
+  `Result`, validate candidate cells, and roll back the full edit on validation
+  failure or panic. Library insertion also rejects locally invalid cells atomically.
+- **Python behavior tightening:** polygon, port, path, text, instance, and native
+  `CellRef` inputs now reject invalid cardinalities and non-finite, zero, or
+  non-positive values as appropriate with `ValueError` before mutating model state.
+  Port directions are normalized, port names are unique per cell, and array counts
+  are limited to the GDS range of 1 through 32767.
+- **Wire-neutral validation:** JSON and GDS import/export now validate local model
+  invariants and preflight writes before touching output files. Their serialized
+  shapes are unchanged; finite repeated, zero-area, and self-intersecting polygons
+  remain representable, as do negative absolute GDS path widths.
+- GDS reads now enforce record structure, physical database units, representable
+  transform semantics, array limits, and required element fields. Text datatypes
+  round-trip instead of being reset to zero.
 
 ### Fixed
 
@@ -56,6 +78,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   native hierarchy records and GDS.
 - Repeated ports, bend checks, and DFM geometry now include every AREF copy;
   imported hierarchy cycles terminate safely across flattening and consumers.
+- WASM instance IDs are stable-token validated so stale selections cannot retarget
+  another reference. Cell and element delete/undo preserve element order, native
+  path records, transforms, arrays, and surviving editor UUIDs.
 
 ### Removed
 
@@ -79,6 +104,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `DuplicatePolicy`.
 - Removed raw Rust `Library::cell_mut` and `cells_mut` access. Controlled `edit_cell`
   and `edit_cells` updates preserve cell identities.
+- **Rust breaking:** removed raw `Polygon::vertices_mut` and `Cell::elements_mut`
+  access. Rebuild polygons through validated constructors and use transactional
+  `Cell::edit_element` or `Cell::edit_elements` for element updates.
 
 ## [0.4.2] - 2026-06-26
 

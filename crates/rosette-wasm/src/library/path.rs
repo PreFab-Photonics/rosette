@@ -5,10 +5,35 @@
 use rosette_core::path::stroke_path;
 use rosette_core::{PathEndType, Point, Polygon};
 
+fn stroke_inputs_are_safe(centerline: &[Point], width: f64) -> bool {
+    if !width.is_finite() || width == 0.0 || centerline.iter().any(|point| !point.is_finite()) {
+        return false;
+    }
+
+    // Core miter joins are capped at four half-widths. Reject coordinates
+    // whose largest possible offset could overflow before Polygon validation.
+    let max_offset = width.abs() * 2.0;
+    max_offset.is_finite()
+        && centerline.iter().all(|point| {
+            (point.x + max_offset).is_finite()
+                && (point.x - max_offset).is_finite()
+                && (point.y + max_offset).is_finite()
+                && (point.y - max_offset).is_finite()
+        })
+}
+
+fn validated_stroke(centerline: &[Point], width: f64) -> Option<Polygon> {
+    if !stroke_inputs_are_safe(centerline, width) {
+        return None;
+    }
+    stroke_path(centerline, width, PathEndType::Flush)
+        .filter(|polygon| polygon.vertices().iter().all(|vertex| vertex.is_finite()))
+}
+
 /// Generate a constant-width ribbon polygon from a centerline.
 ///
 pub(super) fn constant_width_path(centerline: &[Point], width: f64) -> Option<Polygon> {
-    stroke_path(centerline, width, PathEndType::Flush)
+    validated_stroke(centerline, width)
 }
 
 /// Densify a centerline by replacing sharp interior corners with circular arc points.
@@ -192,7 +217,7 @@ pub(super) fn constant_width_path_rounded(
         return constant_width_path(&normalized, width);
     }
     let smooth = densify_centerline_with_arcs(&normalized, corner_radius, num_arc_points);
-    constant_width_path(&smooth, width)
+    validated_stroke(&smooth, width)
 }
 
 #[cfg(test)]
@@ -281,6 +306,31 @@ mod tests {
         assert_eq!(
             constant_width_path_rounded(&duplicated, 2.0, 3.0, 64),
             constant_width_path_rounded(&clean, 2.0, 3.0, 64)
+        );
+    }
+
+    #[test]
+    fn extreme_finite_path_arithmetic_returns_none() {
+        assert!(
+            constant_width_path(
+                &[Point::new(f64::MAX, 0.0), Point::new(f64::MAX, 1.0)],
+                f64::MAX / 2.0,
+            )
+            .is_none()
+        );
+        assert!(constant_width_path(&[Point::origin(), Point::new(1.0, 0.0)], f64::MAX).is_none());
+        assert!(
+            constant_width_path_rounded(
+                &[
+                    Point::new(f64::MAX, 0.0),
+                    Point::new(f64::MAX, 1.0),
+                    Point::new(f64::MAX, 2.0),
+                ],
+                f64::MAX / 2.0,
+                1.0,
+                64,
+            )
+            .is_none()
         );
     }
 }

@@ -1,6 +1,7 @@
 """Tests for the Route API."""
 
 import math
+import sys
 
 import pytest
 
@@ -185,6 +186,64 @@ class TestRouteWidthTransition:
     def test_removed_taper_controls_are_rejected(self, keyword, value):
         with pytest.raises(TypeError):
             Route(Layer(1, 0), **{keyword: value})
+
+
+class TestRouteValidation:
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_constructor_rejects_nonfinite_width_and_radius(self, value: float):
+        with pytest.raises(ValueError, match="positive and finite"):
+            Route(Layer(1, 0), width=value)
+        with pytest.raises(ValueError, match="positive and finite"):
+            Route(Layer(1, 0), bend_radius=value)
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_mutators_reject_nonfinite_values_without_mutation(self, value: float):
+        route = Route(Layer(1, 0))
+        route.start_at(0, 0)
+
+        with pytest.raises(ValueError, match="finite"):
+            route.to(value, 0)
+        with pytest.raises(ValueError, match="finite"):
+            route.to(1, 0, width=value)
+        with pytest.raises(ValueError, match="finite"):
+            route.to(1, 0, bend_radius=value)
+        with pytest.raises(ValueError, match="finite"):
+            route.end_at(1, 0, angle=value)
+
+        route.end_at(1, 0)
+        assert route.to_cell("still_valid").polygon_count() == 1
+
+    @pytest.mark.parametrize(
+        "waypoints",
+        [
+            (Point(float("nan"), 0), Point(1, 0)),
+            ((0, 0, float("inf")), (1, 0)),
+            ((0, 0), (float("inf"), 0)),
+        ],
+    )
+    def test_through_rejects_nonfinite_waypoints(self, waypoints):
+        with pytest.raises(ValueError, match="finite"):
+            Route.through(*waypoints, layer=Layer(1, 0))
+
+    def test_mutator_maps_finite_arithmetic_overflow_to_value_error(self):
+        maximum = sys.float_info.max
+        route = Route(Layer(1, 0))
+        route.start_at(0, 0)
+
+        with pytest.raises(ValueError, match="finite"):
+            route.end_at(maximum, 0)
+
+        route.end_at(1, 0)
+        assert route.to_cell("still_valid").polygon_count() == 1
+
+    def test_through_maps_finite_arithmetic_overflow_to_value_error(self):
+        maximum = sys.float_info.max
+        with pytest.raises(ValueError, match="finite"):
+            Route.through(
+                (maximum, 0),
+                (-maximum, 0),
+                layer=Layer(1, 0),
+            )
 
 
 def _euler_setback_ratio(turn_angle: float) -> float:

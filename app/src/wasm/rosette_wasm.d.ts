@@ -44,6 +44,35 @@ export class ElementInfo {
 }
 
 /**
+ * Native layout path information returned by get_native_path_info.
+ */
+export class NativePathInfo {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Get the centerline as [x0, y0, x1, y1, ...].
+     */
+    readonly centerline: Float64Array;
+    /**
+     * Get the datatype number.
+     */
+    readonly datatype: number;
+    /**
+     * Get the GDS path end type (0=flush, 1=round, 2=half-width extension).
+     */
+    readonly end_type: number;
+    /**
+     * Get the layer number.
+     */
+    readonly layer: number;
+    /**
+     * Get the signed path width.
+     */
+    readonly width: number;
+}
+
+/**
  * WASM-compatible library wrapper.
  *
  * Wraps a `rosette_core::Library` and provides methods for creating
@@ -253,7 +282,7 @@ export class WasmLibrary {
      *
      * Returns a vector of UUIDs for all elements in the active cell. CellRef
      * instances (including AREFs) contribute a single canonical ID
-     * `ref:{elem_idx}:0` each — array copies are NOT enumerated individually.
+     * `ref:{elem_idx}:0:{uuid}` each — array copies are NOT enumerated individually.
      * This keeps "Select All" (Cmd+A) cheap on designs with large arrays.
      */
     get_all_ids(): string[];
@@ -287,6 +316,13 @@ export class WasmLibrary {
      * Handles both regular UUIDs and synthetic ref UUIDs.
      */
     get_bounds_for_ids(ids: string[]): Float64Array | undefined;
+    /**
+     * Resolve an element ID to its canonical logical target in the active cell.
+     *
+     * Real CellRef UUIDs and their synthetic aliases resolve to the same
+     * tokenized representative ID. Stale or invalid synthetic IDs fail.
+     */
+    get_canonical_element_id(id: string): string | undefined;
     /**
      * Get the bounding box of a cell's geometry (for drag preview).
      *
@@ -328,7 +364,7 @@ export class WasmLibrary {
      * Get the array repetition parameters for a CellRef instance
      * as scalar column/row pitches.
      *
-     * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+     * `id` can be a tokenized synthetic ref UUID or a real element UUID.
      * Returns `[columns, rows, col_spacing, row_spacing]` or None if not
      * arrayed. For non-axis-aligned (skewed/hex) AREFs this collapses each
      * lattice vector to its magnitude — callers that care about skew should
@@ -339,7 +375,7 @@ export class WasmLibrary {
      * Get the full array repetition parameters for a CellRef instance,
      * including skewed/non-orthogonal column and row displacement vectors.
      *
-     * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+     * `id` can be a tokenized synthetic ref UUID or a real element UUID.
      * Returns `[columns, rows, col_x, col_y, row_x, row_y]` where
      * `(col_x, col_y)` is the column displacement vector and
      * `(row_x, row_y)` is the row displacement vector, both in the
@@ -356,7 +392,7 @@ export class WasmLibrary {
     /**
      * Get all parent cells that reference a given cell, with their transforms.
      *
-     * Returns a JS array of `{parent, transform, repetition}` records.
+     * Returns a JS array of `{parent, elementIndex, transform, repetition}` records.
      * `repetition` is `[columns, rows, col_x, col_y, row_x, row_y]` or null.
      */
     get_cell_ref_parents(name: string): any;
@@ -378,8 +414,7 @@ export class WasmLibrary {
      * Get the element index for a UUID.
      *
      * Returns the element's position in the parent cell's elements list,
-     * or -1 if the UUID is not found. Useful for constructing synthetic
-     * ref UUIDs (e.g. `ref:{index}:0`) for selection after placing an instance.
+     * or -1 if the UUID is not found.
      */
     get_element_index(uuid: string): number;
     /**
@@ -407,7 +442,7 @@ export class WasmLibrary {
      *
      * CellRef instances (including arrayed refs) are selected as a single entity,
      * so ref UUIDs always return a one-element vec containing the canonical
-     * representative `ref:{elem_idx}:0`. This keeps selection sets small (O(1))
+     * representative `ref:{elem_idx}:0:{uuid}`. This keeps selection sets small (O(1))
      * regardless of array size, which is critical for pan/move/marquee performance
      * on large AREFs (e.g. a 100×100 array would otherwise balloon to 10,000 IDs).
      *
@@ -445,6 +480,10 @@ export class WasmLibrary {
      * - `columns`, `rows` (optional): array repetition dimensions, present only for AREFs
      */
     get_instance_label_data(): any;
+    /**
+     * Get an imported/native path without lowering it to a ribbon polygon.
+     */
+    get_native_path_info(id: string): NativePathInfo | undefined;
     /**
      * Get all polygons for rendering.
      *
@@ -493,7 +532,7 @@ export class WasmLibrary {
      * the given rectangle (specified in world coordinates).
      *
      * For CellRef instances, returns a single representative UUID
-     * (`ref:N:0`) per instance rather than all synthetic UUIDs.
+     * (`ref:N:0:UUID`) per instance rather than all synthetic UUIDs.
      * The caller should expand to the full group via `get_group_ids`.
      */
     hit_test_rect(min_x: number, min_y: number, max_x: number, max_y: number): string[];
@@ -513,6 +552,13 @@ export class WasmLibrary {
      * Mark the library as clean (after syncing to renderer).
      */
     mark_clean(): void;
+    /**
+     * Move an element identified by its real UUID to an exact index.
+     *
+     * This preserves every UUID and updates all index mappings in the owning
+     * cell. Synthetic CellRef IDs and out-of-range target indices are rejected.
+     */
+    move_element_to_index(uuid: string, target_index: number): boolean;
     /**
      * Create a new library with the given name.
      */
@@ -576,11 +622,23 @@ export class WasmLibrary {
      */
     restore_cell_ref_to_with_transform(parent_cell: string, ref_cell_name: string, transform: Float64Array, repetition?: Float64Array | null): string | undefined;
     /**
+     * Restore a CellRef at its original element index without rejecting
+     * imported cycles or dangling targets.
+     */
+    restore_cell_ref_to_with_transform_at(parent_cell: string, ref_cell_name: string, transform: Float64Array, repetition: Float64Array | null | undefined, element_index: number): string | undefined;
+    /**
      * Restore a CellRef in the active cell without rejecting imported cycles.
      *
      * This is reserved for undo of previously accepted hierarchy data.
      */
     restore_cell_ref_with_transform(ref_cell_name: string, transform: Float64Array, repetition?: Float64Array | null): string | undefined;
+    /**
+     * Restore an imported/native path as a centerline record.
+     *
+     * Unlike `create_path`, this preserves the path element kind, signed
+     * width, and GDS end type instead of lowering it to a polygon.
+     */
+    restore_native_path(points: Float64Array, width: number, end_type: number, layer: number, datatype: number): string | undefined;
     /**
      * Set the active cell by name.
      *
@@ -607,7 +665,7 @@ export class WasmLibrary {
      * Set the array repetition parameters on a CellRef instance as an
      * axis-aligned rectangular grid.
      *
-     * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+     * `id` can be a tokenized synthetic ref UUID or a real element UUID.
      * If columns and rows are both 1, removes the array (reverts to single instance).
      *
      * # Skew preservation
@@ -628,7 +686,7 @@ export class WasmLibrary {
      * Set the array repetition parameters on a CellRef instance from full
      * column and row displacement vectors (supports skewed/hex lattices).
      *
-     * `id` can be a synthetic ref UUID (e.g. "ref:3:0") or a real element UUID.
+     * `id` can be a tokenized synthetic ref UUID or a real element UUID.
      * `(col_x, col_y)` is the column displacement vector, `(row_x, row_y)`
      * is the row displacement vector, both in the CellRef's local
      * (pre-transform) coordinate space. If columns and rows are both 1,
@@ -640,7 +698,7 @@ export class WasmLibrary {
     /**
      * Set the full affine transform on a CellRef instance.
      *
-     * `id` must be a synthetic ref UUID (e.g. "ref:3:0").
+     * `id` may be a tokenized synthetic ref UUID or a real CellRef UUID.
      * `transform` must be `[a, b, c, d, tx, ty]` (6 elements).
      *
      * Returns true if the transform was set, false otherwise.
@@ -1049,12 +1107,108 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_cellrefinfo_free: (a: number, b: number) => void;
     readonly __wbg_elementinfo_free: (a: number, b: number) => void;
+    readonly __wbg_nativepathinfo_free: (a: number, b: number) => void;
     readonly __wbg_wasmlibrary_free: (a: number, b: number) => void;
     readonly cellrefinfo_cell_name: (a: number) => [number, number];
     readonly cellrefinfo_transform: (a: number) => [number, number];
     readonly elementinfo_datatype: (a: number) => number;
     readonly elementinfo_layer: (a: number) => number;
     readonly elementinfo_vertices: (a: number) => [number, number];
+    readonly nativepathinfo_centerline: (a: number) => [number, number];
+    readonly nativepathinfo_datatype: (a: number) => number;
+    readonly nativepathinfo_end_type: (a: number) => number;
+    readonly nativepathinfo_layer: (a: number) => number;
+    readonly nativepathinfo_width: (a: number) => number;
+    readonly wasmlibrary_add_cell_ref: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_add_cell_ref_to: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_add_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
+    readonly wasmlibrary_add_cell_ref_with_transform: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_can_instance_cell: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_get_cell_bounds: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_preview_polygons: (a: number, b: number, c: number, d: number, e: number) => any;
+    readonly wasmlibrary_get_cell_ref_array: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_ref_array_vectors: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_ref_info: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_get_cell_ref_parents: (a: number, b: number, c: number) => any;
+    readonly wasmlibrary_get_cell_tree: (a: number) => any;
+    readonly wasmlibrary_get_instance_cell_contexts: (a: number) => any;
+    readonly wasmlibrary_get_instance_label_data: (a: number) => any;
+    readonly wasmlibrary_restore_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
+    readonly wasmlibrary_restore_cell_ref_to_with_transform_at: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
+    readonly wasmlibrary_restore_cell_ref_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_set_cell_ref_array: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly wasmlibrary_set_cell_ref_array_vectors: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
+    readonly wasmlibrary_set_cell_ref_transform: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_active_cell_name: (a: number) => [number, number];
+    readonly wasmlibrary_add_cell: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_cell_count: (a: number) => number;
+    readonly wasmlibrary_clear_active_cell: (a: number) => void;
+    readonly wasmlibrary_element_count: (a: number) => number;
+    readonly wasmlibrary_flatten_active_cell: (a: number) => number;
+    readonly wasmlibrary_from_gds_bytes: (a: number, b: number) => [number, number, number];
+    readonly wasmlibrary_from_json: (a: number, b: number) => [number, number, number];
+    readonly wasmlibrary_from_library_json: (a: number, b: number) => [number, number, number];
+    readonly wasmlibrary_get_area_by_layer: (a: number) => [number, number];
+    readonly wasmlibrary_get_canonical_element_id: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_names: (a: number) => [number, number];
+    readonly wasmlibrary_get_cell_origin: (a: number) => [number, number];
+    readonly wasmlibrary_get_cell_origin_by_name: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_path_length: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_element_index: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_get_elements_on_layer: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_hidden_cells: (a: number) => [number, number];
+    readonly wasmlibrary_get_render_polygons: (a: number) => [number, number, number];
+    readonly wasmlibrary_get_used_layers: (a: number) => [number, number];
+    readonly wasmlibrary_is_cell_visible: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_is_dirty: (a: number) => number;
+    readonly wasmlibrary_mark_clean: (a: number) => void;
+    readonly wasmlibrary_move_element_to_index: (a: number, b: number, c: number, d: number) => number;
+    readonly wasmlibrary_new: (a: number, b: number) => number;
+    readonly wasmlibrary_remove_cell: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_cell_cascade: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_element: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_elements: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_elements_on_layer: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_layer_color: (a: number, b: number, c: number) => void;
+    readonly wasmlibrary_rename_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly wasmlibrary_set_active_cell: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_set_cell_image_bounds: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmlibrary_set_cell_origin: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_set_cell_visibility: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmlibrary_set_hierarchy_depth_limit: (a: number, b: number) => void;
+    readonly wasmlibrary_set_layer_color: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly wasmlibrary_set_layer_fill_pattern: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmlibrary_to_gds: (a: number) => [number, number, number, number];
+    readonly wasmlibrary_to_json: (a: number) => [number, number, number, number];
+    readonly wasmlibrary_to_library_json: (a: number) => [number, number, number, number];
+    readonly wasmlibrary_translate_element: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_translate_elements: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_get_all_bounds: (a: number) => [number, number];
+    readonly wasmlibrary_get_all_ids: (a: number) => [number, number];
+    readonly wasmlibrary_get_all_vertices: (a: number) => [number, number];
+    readonly wasmlibrary_get_bounds_for_ids: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_element_info: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_get_element_vertices: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_group_ids: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_native_path_info: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_hit_test: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_hit_test_rect: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_get_group_representative_ids: (a: number) => [number, number];
+    readonly wasmlibrary_add_text: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
+    readonly wasmlibrary_get_text_element_info: (a: number, b: number, c: number) => any;
+    readonly wasmlibrary_get_text_labels: (a: number) => any;
+    readonly wasmlibrary_is_text_element: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_set_text_height: (a: number, b: number, c: number, d: number) => number;
+    readonly wasmlibrary_set_text_position: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_text_to_polygons: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_update_text: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_add_polygon: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_add_rectangle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_boolean_operation: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_create_path: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly wasmlibrary_create_path_rounded: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
+    readonly wasmlibrary_path_preview: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly wasmlibrary_restore_native_path: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly __wbg_wasmrenderer_free: (a: number, b: number) => void;
     readonly wasmrenderer_add_shape: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasmrenderer_add_to_selection: (a: number, b: number, c: number) => void;
@@ -1095,91 +1249,6 @@ export interface InitOutput {
     readonly wasmrenderer_sync_from_library: (a: number, b: number) => void;
     readonly wasmrenderer_toggle_selection: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_update_shape: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly wasmlibrary_add_cell_ref: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmlibrary_add_cell_ref_to: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_add_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
-    readonly wasmlibrary_add_cell_ref_with_transform: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmlibrary_add_text: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
-    readonly wasmlibrary_can_instance_cell: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_get_cell_bounds: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_preview_polygons: (a: number, b: number, c: number, d: number, e: number) => any;
-    readonly wasmlibrary_get_cell_ref_array: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_ref_array_vectors: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_ref_info: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_get_cell_ref_parents: (a: number, b: number, c: number) => any;
-    readonly wasmlibrary_get_cell_tree: (a: number) => any;
-    readonly wasmlibrary_get_instance_cell_contexts: (a: number) => any;
-    readonly wasmlibrary_get_instance_label_data: (a: number) => any;
-    readonly wasmlibrary_get_text_element_info: (a: number, b: number, c: number) => any;
-    readonly wasmlibrary_get_text_labels: (a: number) => any;
-    readonly wasmlibrary_is_text_element: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_restore_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
-    readonly wasmlibrary_restore_cell_ref_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_set_cell_ref_array: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
-    readonly wasmlibrary_set_cell_ref_array_vectors: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
-    readonly wasmlibrary_set_cell_ref_transform: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_set_text_height: (a: number, b: number, c: number, d: number) => number;
-    readonly wasmlibrary_set_text_position: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_text_to_polygons: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_update_text: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_get_area_by_layer: (a: number) => [number, number];
-    readonly wasmlibrary_get_cell_path_length: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_elements_on_layer: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_used_layers: (a: number) => [number, number];
-    readonly wasmlibrary_remove_elements_on_layer: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_layer_color: (a: number, b: number, c: number) => void;
-    readonly wasmlibrary_set_layer_color: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly wasmlibrary_set_layer_fill_pattern: (a: number, b: number, c: number, d: number) => void;
-    readonly wasmlibrary_active_cell_name: (a: number) => [number, number];
-    readonly wasmlibrary_add_cell: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_cell_count: (a: number) => number;
-    readonly wasmlibrary_clear_active_cell: (a: number) => void;
-    readonly wasmlibrary_from_gds_bytes: (a: number, b: number) => [number, number, number];
-    readonly wasmlibrary_from_json: (a: number, b: number) => [number, number, number];
-    readonly wasmlibrary_from_library_json: (a: number, b: number) => [number, number, number];
-    readonly wasmlibrary_get_cell_names: (a: number) => [number, number];
-    readonly wasmlibrary_get_cell_origin: (a: number) => [number, number];
-    readonly wasmlibrary_get_cell_origin_by_name: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_hidden_cells: (a: number) => [number, number];
-    readonly wasmlibrary_is_cell_visible: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_new: (a: number, b: number) => number;
-    readonly wasmlibrary_remove_cell: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_cell_cascade: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_rename_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
-    readonly wasmlibrary_set_active_cell: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_set_cell_image_bounds: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly wasmlibrary_set_cell_origin: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_set_cell_visibility: (a: number, b: number, c: number, d: number) => void;
-    readonly wasmlibrary_set_hierarchy_depth_limit: (a: number, b: number) => void;
-    readonly wasmlibrary_to_gds: (a: number) => [number, number, number, number];
-    readonly wasmlibrary_to_json: (a: number) => [number, number, number, number];
-    readonly wasmlibrary_to_library_json: (a: number) => [number, number, number, number];
-    readonly wasmlibrary_add_polygon: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmlibrary_add_rectangle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_boolean_operation: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_create_path: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
-    readonly wasmlibrary_create_path_rounded: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
-    readonly wasmlibrary_path_preview: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
-    readonly wasmlibrary_element_count: (a: number) => number;
-    readonly wasmlibrary_flatten_active_cell: (a: number) => number;
-    readonly wasmlibrary_get_element_index: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_get_render_polygons: (a: number) => [number, number, number];
-    readonly wasmlibrary_is_dirty: (a: number) => number;
-    readonly wasmlibrary_mark_clean: (a: number) => void;
-    readonly wasmlibrary_remove_element: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_elements: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_translate_element: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_translate_elements: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_get_all_bounds: (a: number) => [number, number];
-    readonly wasmlibrary_get_all_ids: (a: number) => [number, number];
-    readonly wasmlibrary_get_all_vertices: (a: number) => [number, number];
-    readonly wasmlibrary_get_bounds_for_ids: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_element_info: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_get_element_vertices: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_group_ids: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_group_representative_ids: (a: number) => [number, number];
-    readonly wasmlibrary_hit_test: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_hit_test_rect: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly init: () => void;
     readonly wasm_bindgen__closure__destroy__h200b07e2cd2d62ec: (a: number, b: number) => void;
     readonly wasm_bindgen__closure__destroy__h2d6fab434757b308: (a: number, b: number) => void;

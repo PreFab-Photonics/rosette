@@ -79,6 +79,7 @@ impl Default for FlatGeometry {
 /// - Converts path elements to polygon ribbons
 /// - Applies the given scale factor to all coordinates
 /// - Skips text elements
+/// - Skips placements whose accumulated transform produces non-finite geometry
 ///
 /// # Arguments
 /// * `library` - The library to flatten
@@ -187,8 +188,9 @@ fn flatten_placed_cell(
             .and_then(|step| groups.get(&step.element_index).copied());
         match placed.element {
             Element::Polygon { polygon, layer } => {
-                let transformed = polygon.transform(&placed.placement.transform);
-                result.add_polygon(&transformed, layer, group);
+                if let Some(transformed) = polygon.try_transform(&placed.placement.transform) {
+                    result.add_polygon(&transformed, layer, group);
+                }
             }
             Element::Path {
                 points,
@@ -245,6 +247,28 @@ mod tests {
         assert_eq!(flat.polygons[0].datatype, 0);
         // Rectangle has 4 vertices = 8 coordinates
         assert_eq!(flat.polygons[0].vertices.len(), 8);
+    }
+
+    #[test]
+    fn flatten_skips_polygon_transform_overflow() {
+        let mut leaf = Cell::new("leaf");
+        leaf.add_polygon(
+            Polygon::rect(Point::new(2.0, 0.0), 1.0, 1.0),
+            Layer::new(2, 0),
+        );
+        let mut middle = Cell::new("middle");
+        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
+        let mut top = Cell::new("top");
+        top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
+        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        let mut library = Library::new("test");
+        library.add_cell(leaf).unwrap();
+        library.add_cell(middle).unwrap();
+        library.add_cell(top).unwrap();
+
+        let flat = flatten_library(&library, 1.0);
+        assert_eq!(flat.polygons.len(), 1);
+        assert_eq!(flat.polygons[0].layer, 1);
     }
 
     #[test]

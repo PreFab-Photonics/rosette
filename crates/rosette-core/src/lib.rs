@@ -38,7 +38,7 @@ pub mod port;
 // Re-export primary types at crate root for convenience
 pub use cell::{BendInfo, Cell, CellRef, DuplicatePolicy, Library, PathEndType, Repetition};
 pub use component::connect_transform;
-pub use error::LibraryError;
+pub use error::{CellValidationError, LibraryError};
 pub use geometry::{
     BBox,
     Point,
