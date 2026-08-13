@@ -17,4 +17,4 @@ rosette-drc.workspace = true
 rosette-io.workspace = true
 rosette-raster.workspace = true
 rosette-route.workspace = true
-pyo3 = { workspace = true, features = ["extension-module"] }
+pyo3.workspace = true
