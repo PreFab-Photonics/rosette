@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 
 const navLinks = [
   { label: "Docs", href: "/docs", external: false },
-  { label: "Blog", href: "/blog", external: false },
+  { label: "Writing", href: "/blog", external: false },
 ] as const;
 
 export function Header({ trailing }: { trailing?: ReactNode }) {

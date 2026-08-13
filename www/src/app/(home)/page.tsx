@@ -533,7 +533,7 @@ function RecentPosts() {
         </span>
       </div>
       <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
-        From the blog
+        Latest writing
       </h2>
 
       <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

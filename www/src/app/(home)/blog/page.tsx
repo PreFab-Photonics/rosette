@@ -3,7 +3,7 @@ import Link from "next/link";
 import { blog } from "@/lib/source";
 
 export const metadata: Metadata = {
-  title: "Blog",
+  title: "Writing",
   description: "Updates, guides, and news from the Rosette team.",
 };
 
@@ -19,21 +19,11 @@ export default function BlogIndex() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-16 sm:py-24">
-      {/* Header */}
-      <div className="text-center">
-        <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground uppercase sm:text-5xl">
-          From the Blog
-        </h1>
-        <p className="mt-3 text-fd-muted-foreground">
-          Updates, guides, and news from the Rosette team.
-        </p>
-      </div>
-
       {/* Featured latest post */}
       {featured && (
         <Link
           href={featured.url}
-          className="group mt-14 block rounded-xl border border-fd-border p-6 shadow-sm transition-colors hover:border-fd-foreground/30 dark:shadow-elevation sm:p-8"
+          className="group block rounded-xl border border-fd-border p-6 shadow-sm transition-colors hover:border-fd-foreground/30 dark:shadow-elevation sm:p-8"
         >
           <div className="flex items-center gap-3">
             <time className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
@@ -57,7 +47,7 @@ export default function BlogIndex() {
             </p>
           )}
           <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-fd-foreground transition-colors">
-            Read post
+            Read article
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="14"

@@ -37,7 +37,7 @@ export default async function BlogPost(props: Props) {
         >
           <path d="m15 18-6-6 6-6" />
         </svg>
-        Back to blog
+        Back to writing
       </Link>
 
       <article className="mt-8">
