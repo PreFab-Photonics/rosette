@@ -16,7 +16,6 @@ from rosette import (
 )
 from rosette._core import Cell as NativeCell
 from rosette._core import CellRef as NativeCellRef
-from rosette.geometry import offset_polygon, offset_polygon_varying
 
 NONFINITE = [float("nan"), float("inf"), float("-inf")]
 
@@ -110,28 +109,6 @@ class TestPortValidation:
     def test_rejects_invalid_width(self, width: float):
         with pytest.raises(ValueError, match="width must be"):
             Port("p", Point.origin(), Vector2.unit_x(), width)
-
-
-class TestOffsetPolygonValidation:
-    @pytest.mark.parametrize("value", NONFINITE)
-    def test_rejects_nonfinite_centerlines_and_widths(self, value: float):
-        with pytest.raises(ValueError, match="finite"):
-            offset_polygon([Point.origin(), Point(value, 0)], 1.0)
-        with pytest.raises(ValueError, match="finite"):
-            offset_polygon([Point.origin(), Point(1, 0)], value)
-        with pytest.raises(ValueError, match="finite"):
-            offset_polygon_varying(
-                [Point.origin(), Point(1, 0)],
-                [1.0, value],
-            )
-
-    def test_rejects_finite_geometry_that_overflows(self):
-        maximum = sys.float_info.max
-        centerline = [Point(0, maximum), Point(1, maximum)]
-        with pytest.raises(ValueError, match="invalid geometry"):
-            offset_polygon(centerline, maximum)
-        with pytest.raises(ValueError, match="valid geometry"):
-            offset_polygon_varying(centerline, [maximum, maximum])
 
 
 class TestNativeCellRefValidation:
@@ -330,7 +307,7 @@ class TestFacadeAtomicity:
             parent.add_ref(invalid)
 
         assert parent.ref_count() == 0
-        assert parent.get_child_cells() == set()
+        assert parent.cell_ref_names() == []
 
     @pytest.mark.parametrize(
         "transform",

@@ -177,10 +177,9 @@ but every other API is built on top of them.
   (translate + rotate + scale + mirror). Instance transforms are composed
   from these under the hood.
 
-If you need a tapered ribbon along a centerline, skip manual polygon
-construction and reach for
-[`offset_polygon`](/docs/api-reference#offset_polygon) or
-[`offset_polygon_varying`](/docs/api-reference#offset_polygon_varying).
+Use [`Cell.add_path()`](/docs/api-reference/Cell#add_path) for a constant-width
+layout path. Use [`Route.to(..., width=...)`](/docs/api-reference/Route#to) when
+a routed segment should transition to a different width.
 
 ## Routing
 

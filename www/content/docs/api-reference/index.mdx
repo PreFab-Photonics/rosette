@@ -592,8 +592,7 @@ DfmResult with per-layer predictions and statistics.
 
 ### Geometry Utilities
 
-Import `arc_points`, `offset_polygon`, and `offset_polygon_varying` from
-`rosette.geometry`.
+Import `arc_points` from `rosette.geometry`.
 
 <PyFunction name={"arc_points"} type={"(center, radius, start_angle, end_angle, num_points=64) -> list[Point]"}>
 
@@ -632,66 +631,6 @@ Number of points to generate.
 <PyFunctionReturn type={"list[Point]"}>
 
 List of points along the arc.
-
-</PyFunctionReturn>
-
-</PyFunction>
-
-<PyFunction name={"offset_polygon"} type={"(centerline, width) -> Polygon"}>
-
-Create a polygon from a centerline and uniform width.
-
-The polygon is created by offsetting the centerline perpendicular to the
-path direction at each point, forming a "ribbon" shape.
-
-<div>
-
-<PyParameter name={"centerline"} type={"list[Point]"}>
-
-List of points defining the centerline path (minimum 2 points).
-
-</PyParameter>
-<PyParameter name={"width"} type={"float"}>
-
-Width of the polygon.
-
-</PyParameter>
-
-</div>
-
-<PyFunctionReturn type={"Polygon"}>
-
-A closed polygon.
-
-</PyFunctionReturn>
-
-</PyFunction>
-
-<PyFunction name={"offset_polygon_varying"} type={"(centerline, widths) -> Polygon"}>
-
-Create a polygon from a centerline with varying width.
-
-Similar to `offset_polygon`, but allows specifying a different width at each
-centerline point for tapered or variable-width shapes.
-
-<div>
-
-<PyParameter name={"centerline"} type={"list[Point]"}>
-
-List of points defining the centerline path.
-
-</PyParameter>
-<PyParameter name={"widths"} type={"list[float]"}>
-
-Width at each centerline point (must have same length as centerline).
-
-</PyParameter>
-
-</div>
-
-<PyFunctionReturn type={"Polygon"}>
-
-A closed polygon.
 
 </PyFunctionReturn>
 

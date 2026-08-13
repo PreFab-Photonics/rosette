@@ -302,7 +302,7 @@ class TestInstance:
         instance = cell.at(10.0, 20.0)
         assert isinstance(instance, Instance)
         assert instance.cell is cell
-        assert instance.cell_name == "test"
+        assert instance.cell.name == "test"
 
     def test_instance_port_without_cell_argument(self):
         """Instance.port() doesn't require passing the cell again."""
@@ -346,16 +346,15 @@ class TestInstance:
 
         assert parent.ref_count() == 1
 
-    def test_auto_child_tracking(self):
-        """Adding Instance automatically tracks child cells."""
+    def test_add_ref_records_direct_child_name(self):
+        """Adding Instance records the direct hierarchy edge."""
         child = Cell("child")
         child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
 
         parent = Cell("parent")
         parent.add_ref(child.at(0.0, 0.0))
 
-        # Child should be tracked
-        assert child in parent.get_child_cells()
+        assert parent.cell_ref_names() == ["child"]
 
     def test_auto_child_tracking_recursive(self):
         """Child tracking is recursive through nested cells."""
@@ -368,10 +367,8 @@ class TestInstance:
         parent = Cell("parent")
         parent.add_ref(child.at(10, 0))
 
-        # Both child and grandchild should be tracked
-        children = parent.get_child_cells()
-        assert child in children
-        assert grandchild in children
+        assert parent.cell_ref_names() == ["child"]
+        assert child.cell_ref_names() == ["grandchild"]
 
     def test_write_gds_auto_collects_cells(self):
         """write_gds() auto-collects child cells from Instance tracking."""
@@ -460,7 +457,7 @@ class TestInstance:
             parent.add_ref(instance)
 
         assert parent.ref_count() == 0
-        assert parent.get_child_cells() == set()
+        assert parent.cell_ref_names() == []
 
     def test_instance_rejects_nearly_uniform_nonuniform_scale(self):
         child = Cell("child")
@@ -477,7 +474,7 @@ class TestInstance:
         parent.add_ref(instance)
 
         assert parent.ref_count() == 1
-        assert child in parent.get_child_cells()
+        assert parent.cell_ref_names() == ["child"]
 
     @pytest.mark.parametrize("scale", [1e-100, 1e200])
     def test_instance_rejects_scale_outside_gds_real_range(self, scale: float):
@@ -488,7 +485,7 @@ class TestInstance:
             parent.add_ref(child.at(0, 0).scale(scale))
 
         assert parent.ref_count() == 0
-        assert parent.get_child_cells() == set()
+        assert parent.cell_ref_names() == []
 
     def test_instance_constructor_validates_repetition(self):
         child = Cell("child")
@@ -527,7 +524,7 @@ class TestInstance:
             parent.add_ref(child)
 
         assert parent.ref_count() == 1
-        assert child in parent.get_child_cells()
+        assert parent.cell_ref_names() == ["child"]
 
     def test_instance_rotate_180_port_direction(self):
         """180-degree rotation correctly flips port direction.
@@ -760,7 +757,7 @@ class TestInstanceArray:
         """Instance.array() accepts 32767 (the exact GDS INT16 upper bound)."""
         child = Cell("unit")
         inst = child.at(0, 0).array(32767, 32767, 1.0, 1.0)
-        assert inst.cell_name == "unit"
+        assert inst.cell.name == "unit"
 
     def test_instance_array_above_u16_max_raises_value_error(self):
         """Values > 65535 still raise ValueError (not PyO3's OverflowError).
@@ -780,7 +777,7 @@ class TestInstanceArray:
         child = Cell("unit")
         inst = child.at(0, 0).array(3, 2, 10.0, 20.0)
         assert isinstance(inst, Instance)
-        assert inst.cell_name == "unit"
+        assert inst.cell.name == "unit"
 
     def test_instance_array_gds_roundtrip(self):
         """Instance with array writes as AREF and round-trips through GDS."""
@@ -1207,7 +1204,7 @@ class TestSkewedArefs:
 
 
 class TestArrayCopies:
-    """Tests for Instance.copies(), iteration, and per-copy port access (ROS-510).
+    """Tests for Instance.copies() and per-copy port access (ROS-510).
 
     Arrayed instances store a single GDS AREF. These APIs let callers
     enumerate the individual copies and query their transformed ports
@@ -1227,25 +1224,24 @@ class TestArrayCopies:
         """array_shape is (1, 1) on a plain instance."""
         inst = self._unit_cell(False).at(10, 20)
         assert inst.array_shape == (1, 1)
-        assert len(inst) == 1
 
     def test_array_shape_arrayed(self):
         """array_shape reports (columns, rows)."""
         inst = self._unit_cell(False).at(0, 0).array(4, 3, 15.0, 25.0)
         assert inst.array_shape == (4, 3)
-        assert len(inst) == 12
+
+    def test_instance_is_not_a_collection(self):
+        inst = self._unit_cell(False).at(0, 0).array(4, 3, 15.0, 25.0)
+
+        with pytest.raises(TypeError):
+            iter(inst)
+        with pytest.raises(TypeError):
+            len(inst)
 
     def test_copies_length_matches_grid(self):
         """list(inst.copies()) has length columns * rows."""
         inst = self._unit_cell(False).at(0, 0).array(4, 3, 15.0, 25.0)
         assert len(list(inst.copies())) == 12
-
-    def test_iter_equivalent_to_copies(self):
-        """for copy in inst works the same as for copy in inst.copies()."""
-        inst = self._unit_cell(False).at(0, 0).array(3, 2, 10.0, 20.0)
-        via_iter = [(c.col, c.row) for c in inst]
-        via_copies = [(c.col, c.row) for c in inst.copies()]
-        assert via_iter == via_copies
 
     def test_copies_non_arrayed_yields_single(self):
         """A non-arrayed instance yields exactly one copy at (0, 0)."""
@@ -1264,7 +1260,8 @@ class TestArrayCopies:
             assert not isinstance(copy, Instance)
 
     def test_array_copy_coordinates_are_read_only(self):
-        copy = next(iter(self._unit_cell(False).at(0, 0).array(2, 2, 10.0, 10.0)))
+        instance = self._unit_cell(False).at(0, 0).array(2, 2, 10.0, 10.0)
+        copy = next(instance.copies())
 
         with pytest.raises(AttributeError):
             copy.col = 1  # type: ignore[misc]
@@ -1274,13 +1271,13 @@ class TestArrayCopies:
     def test_copies_column_major_order(self):
         """Copies are yielded in column-major order: col varies fastest."""
         inst = self._unit_cell(False).at(0, 0).array(3, 2, 10.0, 20.0)
-        order = [(c.col, c.row) for c in inst]
+        order = [(c.col, c.row) for c in inst.copies()]
         assert order == [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]
 
     def test_copies_positions_rectangular(self):
         """Per-copy positions follow the rectangular lattice."""
         inst = self._unit_cell(False).at(0, 0).array(3, 2, 10.0, 20.0)
-        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst}
+        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst.copies()}
         assert positions[(0, 0)] == (0.0, 0.0)
         assert positions[(2, 0)] == (20.0, 0.0)
         assert positions[(0, 1)] == (0.0, 20.0)
@@ -1289,7 +1286,7 @@ class TestArrayCopies:
     def test_copies_positions_with_translation(self):
         """Outer translation shifts every copy uniformly."""
         inst = self._unit_cell(False).at(100, 50).array(2, 2, 10.0, 10.0)
-        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst}
+        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst.copies()}
         assert positions[(0, 0)] == (100.0, 50.0)
         assert positions[(1, 0)] == (110.0, 50.0)
         assert positions[(0, 1)] == (100.0, 60.0)
@@ -1303,7 +1300,7 @@ class TestArrayCopies:
         at (0,0), (0,10), (0,20).
         """
         inst = self._unit_cell(False).at(0, 0).array(3, 1, 10.0, 0.0).rotate(90)
-        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst}
+        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst.copies()}
         tol = 1e-9
         assert abs(positions[(0, 0)][0] - 0.0) < tol
         assert abs(positions[(0, 0)][1] - 0.0) < tol
@@ -1327,7 +1324,7 @@ class TestArrayCopies:
                 Vector2(pitch / 2.0, pitch * math.sqrt(3.0) / 2.0),
             )
         )
-        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst}
+        positions = {(c.col, c.row): (c.position.x, c.position.y) for c in inst.copies()}
         tol = 1e-9
         assert abs(positions[(0, 1)][0] - pitch / 2.0) < tol
         assert abs(positions[(0, 1)][1] - pitch * math.sqrt(3.0) / 2.0) < tol
@@ -1350,7 +1347,7 @@ class TestArrayCopies:
         """Port direction is rotated by the outer transform, untouched by copy offset."""
         inst = self._unit_cell().at(0, 0).array(3, 1, 10.0, 0.0).rotate(90)
         # Local direction (-1, 0) rotated 90° CCW -> (0, -1).
-        for copy in inst:
+        for copy in inst.copies():
             p = copy.port("in")
             assert abs(p.direction.x - 0.0) < 1e-9
             assert abs(p.direction.y - (-1.0)) < 1e-9
@@ -1361,9 +1358,9 @@ class TestArrayCopies:
         # Non-arrayed: should be identical to the single-copy transform.
         inst = c.at(100, 50).rotate(30)
         p_default = inst.port("in")
-        p_iter = next(iter(inst)).port("in")
-        assert p_default.position.x == p_iter.position.x
-        assert p_default.position.y == p_iter.position.y
+        p_copy = next(inst.copies()).port("in")
+        assert p_default.position.x == p_copy.position.x
+        assert p_default.position.y == p_copy.position.y
 
     def test_instance_port_arrayed_default_is_anchor(self):
         """inst.port(name) on an arrayed instance returns the (0, 0) copy."""
@@ -1398,7 +1395,7 @@ class TestArrayCopies:
     def test_copy_transform_round_trip_with_point(self):
         """copy.transform applied to local origin gives copy.position."""
         inst = self._unit_cell(False).at(10, 20).rotate(45).array(2, 2, 5.0, 8.0)
-        for copy in inst:
+        for copy in inst.copies():
             via_transform = copy.transform.apply(Point.origin())
             assert abs(via_transform.x - copy.position.x) < 1e-9
             assert abs(via_transform.y - copy.position.y) < 1e-9

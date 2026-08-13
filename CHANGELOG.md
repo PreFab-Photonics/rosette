@@ -96,6 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Removed
 
+- Removed obsolete `offset_polygon` helpers, public child-cell tracking,
+  derived `cell_name` and `LayerInfo` aliases, `LayerMap` viewer serialization,
+  and the duplicate `Instance` iteration and length protocols. Use `Cell.add_path()`,
+  `cell_ref_names()`, `.cell.name`, `.layer`, and `Instance.copies()` respectively.
 - Removed the top-level Python exports `DEFAULT_LAYERS`, `DrcCache`,
   `add_dfm_predictions`, `fresnel_c`, `fresnel_s`, and the free
   `path_length()` helper. Internal CLI, viewer, and component support retains

@@ -8,7 +8,6 @@
 //!
 //! And utility functions for component authoring:
 //! - [`arc_points`]: Generate points along a circular arc
-//! - [`offset_polygon`]: Create a polygon from a centerline and width
 //! - [`path_length`]: Calculate the length of a polyline path
 //! - [`fresnel_c`], [`fresnel_s`]: Fresnel integrals for Euler bends
 //!
@@ -27,6 +26,4 @@ pub use boolean_ops::Region;
 pub use point::{Point, Vector2};
 pub use polygon::Polygon;
 pub use transform::Transform;
-pub use utils::{
-    arc_points, fresnel_c, fresnel_s, offset_polygon, offset_polygon_varying, path_length,
-};
+pub use utils::{arc_points, fresnel_c, fresnel_s, path_length};

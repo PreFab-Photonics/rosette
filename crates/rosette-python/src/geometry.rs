@@ -3,9 +3,7 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rosette_core::{BBox, Point, Polygon, Transform, Vector2};
-use rosette_core::{
-    arc_points, fresnel_c, fresnel_s, offset_polygon, offset_polygon_varying, path_length,
-};
+use rosette_core::{arc_points, fresnel_c, fresnel_s, path_length};
 use std::f64::consts::PI;
 
 /// A 2D point representing a position in space.
@@ -636,61 +634,6 @@ pub fn py_arc_points(
         .into_iter()
         .map(PyPoint)
         .collect()
-}
-
-/// Create a polygon from a centerline and uniform width.
-///
-/// The polygon is created by offsetting the centerline perpendicular to the
-/// path direction at each point, forming a "ribbon" shape.
-///
-/// Args:
-///     centerline: List of points defining the centerline path (minimum 2 points)
-///     width: Width of the polygon
-///
-/// Returns:
-///     A closed polygon, or raises ValueError if centerline has fewer than 2 points
-#[pyfunction]
-#[pyo3(name = "offset_polygon")]
-pub fn py_offset_polygon(centerline: Vec<PyPoint>, width: f64) -> PyResult<PyPolygon> {
-    let points: Vec<Point> = centerline.into_iter().map(|p| p.0).collect();
-    validate_polygon_points(&points, "Centerline")?;
-    if !width.is_finite() {
-        return Err(PyValueError::new_err("Width must be finite"));
-    }
-    offset_polygon(&points, width)
-        .map(PyPolygon)
-        .ok_or_else(|| PyValueError::new_err("Centerline or width produced invalid geometry"))
-}
-
-/// Create a polygon from a centerline with varying width.
-///
-/// Similar to offset_polygon, but allows specifying a different width at each
-/// centerline point for tapered or variable-width shapes.
-///
-/// Args:
-///     centerline: List of points defining the centerline path
-///     widths: Width at each centerline point (must have same length as centerline)
-///
-/// Returns:
-///     A closed polygon, or raises ValueError if inputs are invalid
-#[pyfunction]
-#[pyo3(name = "offset_polygon_varying")]
-pub fn py_offset_polygon_varying(
-    centerline: Vec<PyPoint>,
-    widths: Vec<f64>,
-) -> PyResult<PyPolygon> {
-    let points: Vec<Point> = centerline.into_iter().map(|p| p.0).collect();
-    validate_polygon_points(&points, "Centerline")?;
-    if let Some(index) = widths.iter().position(|width| !width.is_finite()) {
-        return Err(PyValueError::new_err(format!(
-            "Width at index {index} must be finite"
-        )));
-    }
-    offset_polygon_varying(&points, &widths)
-        .map(PyPolygon)
-        .ok_or_else(|| {
-            PyValueError::new_err("Centerline and widths must match and produce valid geometry")
-        })
 }
 
 /// Calculate the total length of a polyline path.

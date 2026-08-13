@@ -23,7 +23,7 @@ cell.add_polygon(poly, layers.silicon.layer)
 
 # Iterate over all layers
 for info in layers:
-    print(f"{info.name}: Layer({info.number}, {info.datatype})")
+    print(f"{info.name}: {info.layer}")
 
 # Check if a layer exists
 if "silicon" in layers:
@@ -75,17 +75,6 @@ Layer name to look up.
 Get all layer names.
 
 <PyFunctionReturn type={"list[str]"} />
-
-</PyFunction>
-
-<PyFunction name={"to_dict_list"} type={"() -> list[dict]"}>
-
-Export as a list of dicts for serialization.
-
-Returns a list suitable for JSON serialization, matching
-the viewer's layer interface.
-
-<PyFunctionReturn type={"list[dict]"} />
 
 </PyFunction>
 

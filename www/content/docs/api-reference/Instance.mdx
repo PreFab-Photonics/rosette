@@ -56,12 +56,6 @@ The current transform applied to this instance.
 
 </PyAttribute>
 
-<PyAttribute name={"cell_name"} type={"str"}>
-
-Name of the underlying cell.
-
-</PyAttribute>
-
 <PyAttribute name={"array_shape"} type={"tuple[int, int]"}>
 
 Grid dimensions `(columns, rows)` of this instance. Returns
@@ -396,8 +390,6 @@ does not mutate this instance or add any extra GDS references.
 For a non-arrayed instance this yields exactly one copy at
 `(col=0, row=0)`, so code written against `copies()` works
 uniformly regardless of whether `array()` was called.
-
-Equivalent to `iter(instance)`.
 
 <Callout title={"Example"} type={"example"}>
 

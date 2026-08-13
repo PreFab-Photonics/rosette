@@ -50,8 +50,6 @@ pub use geometry::{
     arc_points,
     fresnel_c,
     fresnel_s,
-    offset_polygon,
-    offset_polygon_varying,
     path_length,
 };
 pub use layer::Layer;

@@ -266,7 +266,7 @@ class RosetteServer:
             json_str: JSON string of the serialized library, or None for an
                 empty canvas (no design loaded).
             cells: Optional cell hierarchy tree: {name, children}
-            layers: Optional layer definitions from rosette.toml (LayerMap.to_dict_list())
+            layers: Optional viewer layer definitions derived from rosette.toml
             filename: Optional source filename (e.g., "layout.py" or "mmi.gds")
             drc: Optional DRC result dict (violations + counts), or None when DRC
                 is not configured.

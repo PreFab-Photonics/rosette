@@ -17,7 +17,7 @@ Canonical imports::
     from rosette.checks import ChecksConfig, ChecksResult, run_checks
     from rosette.dfm import DfmConfig, DfmResult, run_dfm
     from rosette.drc import DrcResult, DrcRules, run_drc
-    from rosette.geometry import arc_points, offset_polygon, offset_polygon_varying
+    from rosette.geometry import arc_points
     from rosette.io import read_gds, write_gds
     from rosette.layout import ArrayCopy
     from rosette.project import LayerInfo, LayerMap, load_layer_map
@@ -249,10 +249,6 @@ class Instance:
     def transform(self) -> Transform:
         """The current transform applied to this instance."""
         ...
-    @property
-    def cell_name(self) -> str:
-        """Name of the referenced cell."""
-        ...
     def at(self, x: float, y: float) -> Instance:
         """Set the position (translation).
 
@@ -416,19 +412,12 @@ class Instance:
         ``(col=0, row=0)``.
         """
         ...
-    def __iter__(self) -> Iterator[ArrayCopy]:
-        """Alias for :meth:`copies`."""
-        ...
-    def __len__(self) -> int:
-        """Number of copies (``columns * rows``; 1 for non-arrayed)."""
-        ...
     def __repr__(self) -> str: ...
 
 class ArrayCopy:
     """A single copy in an arrayed :class:`Instance`.
 
-    Produced by :meth:`Instance.copies` (and iteration over an
-    ``Instance``). Exposes the copy's grid position, its world-space
+    Produced by :meth:`Instance.copies`. Exposes the copy's grid position, its world-space
     transform, and a :meth:`port` helper for retrieving the
     transformed port of this specific copy.
 
@@ -448,8 +437,7 @@ class ArrayCopy:
     def __init__(self, instance: Instance, col: int, row: int) -> None:
         """Create an ArrayCopy view.
 
-        Typically not called directly — use :meth:`Instance.copies`
-        or iterate over the parent instance instead.
+        Typically not called directly — use :meth:`Instance.copies`.
         """
         ...
 
@@ -468,10 +456,6 @@ class ArrayCopy:
     @property
     def cell(self) -> Cell:
         """The underlying cell definition (shared with the parent Instance)."""
-        ...
-    @property
-    def cell_name(self) -> str:
-        """Name of the referenced cell."""
         ...
     def port(self, name: str) -> Port:
         """Get the transformed port of this specific copy.
@@ -716,9 +700,6 @@ class Cell:
         Returns:
             Sorted list of unique cell names that this cell references (direct children only).
         """
-        ...
-    def get_child_cells(self) -> set[Cell]:
-        """Get child cells tracked through Instance placement."""
         ...
     def bbox(self) -> BBox | None: ...
     def at(self, x: float, y: float) -> Instance:
@@ -1157,8 +1138,6 @@ class LayerInfo:
     Attributes:
         layer: The underlying Layer(number, datatype)
         name: Semantic name (e.g., "silicon", "text")
-        number: GDS layer number (shortcut for layer.number)
-        datatype: GDS datatype (shortcut for layer.datatype)
         color: Hex color string (e.g., "#ff69b4")
         fill: Fill pattern ("solid", "hatched", "crosshatched", "dotted")
         opacity: Fill opacity 0.0-1.0
@@ -1167,8 +1146,6 @@ class LayerInfo:
 
     layer: Layer
     name: str
-    number: int
-    datatype: int
     color: str
     fill: str
     opacity: float
@@ -1201,9 +1178,6 @@ class LayerMap:
         ...
     def names(self) -> list[str]:
         """Get all layer names."""
-        ...
-    def to_dict_list(self) -> list[dict[str, object]]:
-        """Export layer definitions for serialization and viewer use."""
         ...
     def __contains__(self, name: str) -> bool: ...
     def __iter__(self) -> Iterator[LayerInfo]: ...
@@ -1264,42 +1238,6 @@ def arc_points(
 
     Returns:
         List of points along the arc
-    """
-    ...
-
-def offset_polygon(centerline: list[Point], width: float) -> Polygon:
-    """Create a polygon from a centerline and uniform width.
-
-    The polygon is created by offsetting the centerline perpendicular to the
-    path direction at each point, forming a "ribbon" shape.
-
-    Args:
-        centerline: List of points defining the centerline path (minimum 2 points)
-        width: Width of the polygon
-
-    Returns:
-        A closed polygon
-
-    Raises:
-        ValueError: If centerline has fewer than 2 points
-    """
-    ...
-
-def offset_polygon_varying(centerline: list[Point], widths: list[float]) -> Polygon:
-    """Create a polygon from a centerline with varying width.
-
-    Similar to offset_polygon, but allows specifying a different width at each
-    centerline point for tapered or variable-width shapes.
-
-    Args:
-        centerline: List of points defining the centerline path
-        widths: Width at each centerline point (must have same length as centerline)
-
-    Returns:
-        A closed polygon
-
-    Raises:
-        ValueError: If inputs are invalid
     """
     ...
 

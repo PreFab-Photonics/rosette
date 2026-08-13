@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from rosette._core import DrcCache
     from rosette._core import Library as _CoreLibrary
     from rosette.drc import DrcRules
+    from rosette.project import LayerMap
 
 _LAYOUT_FORMAT = "rosette-layout"
 _LAYOUT_SCHEMA = 1
@@ -58,7 +59,7 @@ def _build_cell_tree(cell: Cell, child_cells_list: list[Cell] | None) -> dict[st
         visited = visited | {c.name}
 
         # Get direct child cell names from Rust CellRef elements
-        direct_refs = c._inner.cell_ref_names()
+        direct_refs = c.cell_ref_names()
         children: list[dict[str, object]] = []
         for ref_name in sorted(set(direct_refs)):
             child = cell_map.get(ref_name)
@@ -196,6 +197,22 @@ def _start_server(port: int):
     return server, f"http://localhost:{actual_port}"
 
 
+def _layer_map_to_viewer_layers(layer_map: LayerMap) -> list[dict[str, object]]:
+    return [
+        {
+            "id": i,
+            "layerNumber": info.layer.number,
+            "datatype": info.layer.datatype,
+            "name": info.name,
+            "color": info.color,
+            "visible": True,
+            "fillPattern": info.fill,
+            "opacity": info.opacity,
+        }
+        for i, info in enumerate(layer_map, start=1)
+    ]
+
+
 def _load_layer_map_safe() -> list[dict[str, object]] | None:
     """Try to load layer map from rosette.toml, fall back to defaults."""
     try:
@@ -203,13 +220,13 @@ def _load_layer_map_safe() -> list[dict[str, object]] | None:
 
         layer_map = load_layer_map()
         if len(layer_map) > 0:
-            return layer_map.to_dict_list()
+            return _layer_map_to_viewer_layers(layer_map)
     except (FileNotFoundError, ValueError):
         pass
     # Fall back to built-in defaults so the app always has layers
     from rosette._api import _default_layer_map
 
-    return _default_layer_map().to_dict_list()
+    return _layer_map_to_viewer_layers(_default_layer_map())
 
 
 def _load_drc_rules_safe():

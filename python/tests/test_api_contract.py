@@ -169,11 +169,7 @@ TARGET_FEATURE_EXPORTS = {
         "load_drc_rules",
         "run_drc",
     ),
-    "rosette.geometry": (
-        "arc_points",
-        "offset_polygon",
-        "offset_polygon_varying",
-    ),
+    "rosette.geometry": ("arc_points",),
     "rosette.io": ("read_gds", "write_gds"),
     "rosette.layout": ("ArrayCopy",),
     "rosette.project": ("LayerInfo", "LayerMap", "load_layer_map"),
@@ -187,6 +183,8 @@ TARGET_REMOVED_EXPORTS = {
     "add_dfm_predictions",
     "fresnel_c",
     "fresnel_s",
+    "offset_polygon",
+    "offset_polygon_varying",
     "path_length",
 }
 
@@ -221,8 +219,6 @@ EXTENSION_EXPORTS = {
     "connect_transform",
     "fresnel_c",
     "fresnel_s",
-    "offset_polygon",
-    "offset_polygon_varying",
     "path_length",
     "read_gds",
     "render_png",

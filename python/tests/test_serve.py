@@ -156,17 +156,35 @@ class TestLoadLayerMapSafe:
         """A project rosette.toml's [layers] are surfaced, not the defaults."""
         (tmp_path / "rosette.toml").write_text(
             '[project]\nname = "x"\n\n'
-            '[layers.metal]\nnumber = 42\ndatatype = 3\ncolor = "#abcdef"\n'
+            '[layers.metal]\nnumber = 42\ndatatype = 3\ncolor = "#abcdef"\n\n'
+            '[layers.text]\nnumber = 10\ncolor = "#123456"\nfill = "dotted"\nopacity = 0.5\n'
         )
         monkeypatch.chdir(tmp_path)
 
         layers = _load_layer_map_safe()
 
-        assert layers is not None
-        by_name = {ly["name"]: ly for ly in layers}
-        assert "metal" in by_name
-        assert by_name["metal"]["layerNumber"] == 42
-        assert by_name["metal"]["datatype"] == 3
+        assert layers == [
+            {
+                "id": 1,
+                "layerNumber": 42,
+                "datatype": 3,
+                "name": "metal",
+                "color": "#abcdef",
+                "visible": True,
+                "fillPattern": "solid",
+                "opacity": 0.7,
+            },
+            {
+                "id": 2,
+                "layerNumber": 10,
+                "datatype": 0,
+                "name": "text",
+                "color": "#123456",
+                "visible": True,
+                "fillPattern": "dotted",
+                "opacity": 0.5,
+            },
+        ]
 
     def test_falls_back_to_defaults_without_config(self, tmp_path: Path, monkeypatch):
         """No rosette.toml => built-in default layers (silicon, text)."""

@@ -105,7 +105,7 @@ no matter how many copies you stamp out.
 ### Iterating over array copies
 
 If you need per-copy labels, per-copy routing endpoints, or a netlist,
-iterate over the instance. Each yielded
+call `instance.copies()`. Each yielded
 [`ArrayCopy`](/docs/api-reference/ArrayCopy) is a read-only observational
 view, not another placeable object. Add the parent `Instance` once, then use
 its copies for queries. Iteration does **not** add extra GDS references, so
@@ -115,7 +115,7 @@ the hierarchy stays compact.
 bank = unit.at(0, 0).array(4, 3, 20.0, 20.0)
 grid.add_ref(bank)                   # one AREF
 
-for copy in bank:                    # or bank.copies()
+for copy in bank.copies():
     grid.add_text(
         f"{copy.col},{copy.row}",
         copy.position,
@@ -213,7 +213,7 @@ top = Cell("top")
 arr = unit.at(0, 0).array(2, 2, 20.0, 20.0)
 top.add_ref(arr)
 
-for copy in arr:
+for copy in arr.copies():
     top.add_text(
         f"{copy.col},{copy.row}",
         copy.position,

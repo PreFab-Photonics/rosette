@@ -6,8 +6,7 @@ A read-only view of one copy in an arrayed [`Instance`](./Instance).
 
 Import with `from rosette.layout import ArrayCopy`.
 
-Produced by [`Instance.copies()`](./Instance#copies) and iteration over
-an `Instance`. Exposes the copy's grid position, its world-space
+Produced by [`Instance.copies()`](./Instance#copies). Exposes the copy's grid position, its world-space
 transform, and a `port(name)` helper for retrieving the transformed
 port of this specific copy.
 
@@ -67,12 +66,6 @@ Equivalent to `copy.transform.apply(Point.origin())`.
 <PyAttribute name={"cell"} type={"Cell"}>
 
 The underlying cell definition (shared with the parent `Instance`).
-
-</PyAttribute>
-
-<PyAttribute name={"cell_name"} type={"str"}>
-
-Name of the referenced cell.
 
 </PyAttribute>
 

@@ -199,14 +199,9 @@ class Instance:
         gc = gc_cell.at(100, 50)
         top.add_ref(gc)
 
-    **Arrayed instances are iterable.** After :meth:`array` or
-    :meth:`array_vectors` is applied, ``len(instance)`` returns the
-    total copy count (``columns * rows``) and ``for copy in instance``
-    walks the individual copies -- yielding :class:`ArrayCopy` views
-    with per-copy ports and transforms. A non-arrayed instance behaves
-    as a 1x1 grid: ``len(inst) == 1`` and iteration yields one copy at
-    ``(col=0, row=0)``. Because ``__len__`` is always >= 1, ``bool(inst)``
-    is always ``True``.
+    Use :meth:`copies` to inspect individual positions in an arrayed
+    instance. It yields :class:`ArrayCopy` views with per-copy ports and
+    transforms without turning the placement itself into a collection.
 
     **Transform chaining order:** Each chained call wraps the *outside* of
     the accumulated transform. This means the *first* call in the chain is
@@ -291,11 +286,6 @@ class Instance:
     def transform(self) -> Transform:
         """The current transform applied to this instance."""
         return self._transform
-
-    @property
-    def cell_name(self) -> str:
-        """Name of the referenced cell."""
-        return self._cell.name
 
     def at(self, x: float, y: float) -> Instance:
         """Set the position (translation).
@@ -564,22 +554,6 @@ class Instance:
             for c in range(columns):
                 yield ArrayCopy(self, c, r)
 
-    def __iter__(self) -> Iterator[ArrayCopy]:
-        """Alias for :meth:`copies`.
-
-        Lets ``for copy in instance:`` work on any instance, arrayed
-        or not.
-        """
-        return self.copies()
-
-    def __len__(self) -> int:
-        """Number of copies in the array (``columns * rows``).
-
-        Returns 1 for non-arrayed instances.
-        """
-        columns, rows = self.array_shape
-        return columns * rows
-
     def _to_inner_ref(self) -> _CellRef:
         """Lower this resolved placement to the native hierarchy record."""
         ref = _CellRef._from_transform(self._cell.name, self._transform)
@@ -600,8 +574,7 @@ class Instance:
 class ArrayCopy:
     """A single copy in an arrayed :class:`Instance`.
 
-    Produced by :meth:`Instance.copies` (and iteration over an
-    ``Instance``). Exposes the copy's grid position, its world-space
+    Produced by :meth:`Instance.copies`. Exposes the copy's grid position, its world-space
     transform, and a :meth:`port` helper for retrieving the
     transformed port of this specific copy.
 
@@ -632,8 +605,7 @@ class ArrayCopy:
     def __init__(self, instance: Instance, col: int, row: int) -> None:
         """Create an ArrayCopy view.
 
-        Typically you don't call this directly — use
-        :meth:`Instance.copies` or iterate over the parent instance.
+        Typically you don't call this directly; use :meth:`Instance.copies`.
 
         Args:
             instance: The parent arrayed (or single) Instance.
@@ -678,11 +650,6 @@ class ArrayCopy:
         """The underlying cell definition (shared with the parent Instance)."""
         return self._instance._cell
 
-    @property
-    def cell_name(self) -> str:
-        """Name of the referenced cell."""
-        return self._instance._cell.name
-
     def port(self, name: str) -> Port:
         """Get the transformed port of this specific copy.
 
@@ -704,7 +671,7 @@ class ArrayCopy:
     def __repr__(self) -> str:
         pos = self.position
         return (
-            f"ArrayCopy('{self.cell_name}', col={self.col}, row={self.row}, "
+            f"ArrayCopy('{self.cell.name}', col={self.col}, row={self.row}, "
             f"at=({pos.x:.2f}, {pos.y:.2f}))"
         )
 
@@ -1059,14 +1026,6 @@ class Cell:
         if isinstance(ref, Instance):
             return ref
         raise TypeError("ref must be a Cell or Instance")
-
-    def get_child_cells(self) -> set[Cell]:
-        """Get all tracked child cells (for write_gds auto-collection).
-
-        Returns:
-            Set of child cells that have been added via add_ref(Instance)
-        """
-        return self._child_cells.copy()
 
     def __repr__(self) -> str:
         return f"Cell('{self.name}', {self.polygon_count()} polygons, {self.ref_count()} refs)"
@@ -2367,7 +2326,7 @@ def render_png(
         # is best-effort and shouldn't fail on config issues.
         try:
             layer_map = load_layer_map()
-            palette = {info.number: info.color for info in layer_map}
+            palette = {info.layer.number: info.color for info in layer_map}
         except (FileNotFoundError, ValueError):
             palette = None
 
@@ -2487,19 +2446,10 @@ class LayerInfo:
         self.opacity = opacity
         self.description = description
 
-    @property
-    def number(self) -> int:
-        """GDS layer number."""
-        return self.layer.number
-
-    @property
-    def datatype(self) -> int:
-        """GDS datatype."""
-        return self.layer.datatype
-
     def __repr__(self) -> str:
         return (
-            f"LayerInfo('{self.name}', Layer({self.number}, {self.datatype}), color='{self.color}')"
+            f"LayerInfo('{self.name}', Layer({self.layer.number}, "
+            f"{self.layer.datatype}), color='{self.color}')"
         )
 
 
@@ -2523,10 +2473,7 @@ class LayerMap:
 
         # Iterate over all layers
         for info in layers:
-            print(f"{info.name}: Layer({info.number}, {info.datatype})")
-
-        # Export as list of dicts (for app/viewer consumption)
-        layers.to_dict_list()
+            print(f"{info.name}: {info.layer}")
     """
 
     def __init__(self, layer_infos: list[LayerInfo] | None = None) -> None:
@@ -2569,28 +2516,6 @@ class LayerMap:
         """Get all layer names."""
         return list(self._layers.keys())
 
-    def to_dict_list(self) -> list[dict[str, object]]:
-        """Export as a list of dicts for serialization.
-
-        Returns a list suitable for JSON serialization, with keys matching
-        the app's Layer interface.
-        """
-        result = []
-        for i, info in enumerate(self._layers.values(), start=1):
-            result.append(
-                {
-                    "id": i,
-                    "layerNumber": info.number,
-                    "datatype": info.datatype,
-                    "name": info.name,
-                    "color": info.color,
-                    "visible": True,
-                    "fillPattern": info.fill,
-                    "opacity": info.opacity,
-                }
-            )
-        return result
-
     def __repr__(self) -> str:
         names = ", ".join(self._layers.keys())
         return f"LayerMap([{names}])"
@@ -2627,7 +2552,7 @@ def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
             layers = load_layer_map()
             layers.silicon.layer   # Layer(1, 0)
             layers.silicon.color   # "#ff69b4"
-            layers.text.number     # 10
+            layers.text.layer.number  # 10
     """
     # Find config file
     if config_path is not None:

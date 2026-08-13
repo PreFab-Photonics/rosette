@@ -24,7 +24,7 @@ use dfm::{
 use drc::{PyDrcCache, PyDrcResult, PyDrcRules, PyDrcViolation, py_run_drc};
 use geometry::{
     PyBBox, PyPoint, PyPolygon, PyTransform, PyVector2, py_arc_points, py_fresnel_c, py_fresnel_s,
-    py_offset_polygon, py_offset_polygon_varying, py_path_length,
+    py_path_length,
 };
 use layout::{PyCell, PyCellRef, PyLayer, PyLibrary, PyPathEndType, PyPort, py_connect_transform};
 use render::{PyRenderResult, py_render_png};
@@ -112,8 +112,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Geometry utility functions
     m.add_function(wrap_pyfunction!(py_arc_points, m)?)?;
-    m.add_function(wrap_pyfunction!(py_offset_polygon, m)?)?;
-    m.add_function(wrap_pyfunction!(py_offset_polygon_varying, m)?)?;
     m.add_function(wrap_pyfunction!(py_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(py_fresnel_c, m)?)?;
     m.add_function(wrap_pyfunction!(py_fresnel_s, m)?)?;

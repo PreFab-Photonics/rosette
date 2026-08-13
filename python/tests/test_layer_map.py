@@ -17,8 +17,8 @@ class TestLayerInfo:
         """Create a LayerInfo with all defaults."""
         info = LayerInfo("silicon", Layer(1, 0))
         assert info.name == "silicon"
-        assert info.number == 1
-        assert info.datatype == 0
+        assert info.layer.number == 1
+        assert info.layer.datatype == 0
         assert info.color == "#808080"
         assert info.fill == "solid"
         assert info.opacity == pytest.approx(0.7)
@@ -35,8 +35,8 @@ class TestLayerInfo:
             description="Metal routing layer",
         )
         assert info.name == "metal"
-        assert info.number == 10
-        assert info.datatype == 2
+        assert info.layer.number == 10
+        assert info.layer.datatype == 2
         assert info.color == "#ffeb3b"
         assert info.fill == "hatched"
         assert info.opacity == pytest.approx(0.5)
@@ -72,8 +72,8 @@ class TestLayerMap:
                 LayerInfo("metal", Layer(10, 0), color="#00ff00"),
             ]
         )
-        assert lm.silicon.number == 1
-        assert lm.metal.number == 10
+        assert lm.silicon.layer.number == 1
+        assert lm.metal.layer.number == 10
         assert lm.silicon.color == "#ff0000"
 
     def test_missing_attribute_raises(self):
@@ -112,7 +112,7 @@ class TestLayerMap:
         """LayerMap.get returns LayerInfo or None."""
         lm = LayerMap([LayerInfo("silicon", Layer(1, 0))])
         assert lm.get("silicon") is not None
-        assert lm.get("silicon").number == 1
+        assert lm.get("silicon").layer.number == 1
         assert lm.get("heater") is None
 
     def test_names(self):
@@ -124,30 +124,6 @@ class TestLayerMap:
             ]
         )
         assert lm.names() == ["silicon", "metal"]
-
-    def test_to_dict_list(self):
-        """to_dict_list exports in app-compatible format."""
-        lm = LayerMap(
-            [
-                LayerInfo("silicon", Layer(1, 0), color="#ff0000", fill="solid", opacity=0.7),
-                LayerInfo("metal", Layer(10, 0), color="#00ff00", fill="hatched", opacity=0.5),
-            ]
-        )
-        dicts = lm.to_dict_list()
-        assert len(dicts) == 2
-
-        assert dicts[0]["id"] == 1
-        assert dicts[0]["layerNumber"] == 1
-        assert dicts[0]["datatype"] == 0
-        assert dicts[0]["name"] == "silicon"
-        assert dicts[0]["color"] == "#ff0000"
-        assert dicts[0]["fillPattern"] == "solid"
-        assert dicts[0]["opacity"] == pytest.approx(0.7)
-        assert dicts[0]["visible"] is True
-
-        assert dicts[1]["id"] == 2
-        assert dicts[1]["layerNumber"] == 10
-        assert dicts[1]["fillPattern"] == "hatched"
 
     def test_repr(self):
         """LayerMap repr shows layer names."""
@@ -190,12 +166,12 @@ color = "#ffeb3b"
             lm = load_layer_map(path)
 
         assert len(lm) == 2
-        assert lm.silicon.number == 1
-        assert lm.silicon.datatype == 0
+        assert lm.silicon.layer.number == 1
+        assert lm.silicon.layer.datatype == 0
         assert lm.silicon.color == "#ff69b4"
         assert lm.silicon.description == "Silicon waveguides"
-        assert lm.metal.number == 10
-        assert lm.metal.datatype == 0  # default
+        assert lm.metal.layer.number == 10
+        assert lm.metal.layer.datatype == 0  # default
         assert lm.metal.color == "#ffeb3b"
 
     def test_all_display_properties(self):
@@ -215,8 +191,8 @@ description = "Metal routing"
             )
             lm = load_layer_map(path)
 
-        assert lm.metal.number == 10
-        assert lm.metal.datatype == 2
+        assert lm.metal.layer.number == 10
+        assert lm.metal.layer.datatype == 2
         assert lm.metal.color == "#ffeb3b"
         assert lm.metal.fill == "crosshatched"
         assert lm.metal.opacity == pytest.approx(0.5)
@@ -362,7 +338,7 @@ min_width = 0.12
             lm = load_layer_map(path)
 
         assert len(lm) == 1
-        assert lm.silicon.number == 1
+        assert lm.silicon.layer.number == 1
 
     def test_defaults_applied(self):
         """Missing optional fields get sensible defaults."""
@@ -376,7 +352,7 @@ number = 1
             )
             lm = load_layer_map(path)
 
-        assert lm.silicon.datatype == 0
+        assert lm.silicon.layer.datatype == 0
         assert lm.silicon.color == "#808080"
         assert lm.silicon.fill == "solid"
         assert lm.silicon.opacity == pytest.approx(0.7)
@@ -401,16 +377,7 @@ class TestDefaultLayers:
         """_default_layer_map returns a valid LayerMap from defaults."""
         lm = _default_layer_map()
         assert len(lm) == 2
-        assert lm.silicon.number == 1
+        assert lm.silicon.layer.number == 1
         assert lm.silicon.color == "#ff69b4"
-        assert lm.text.number == 10
+        assert lm.text.layer.number == 10
         assert lm.text.fill == "dotted"
-
-    def test_default_layer_map_to_dict_list(self):
-        """_default_layer_map().to_dict_list() produces valid dicts."""
-        dicts = _default_layer_map().to_dict_list()
-        assert len(dicts) == 2
-        assert dicts[0]["name"] == "silicon"
-        assert dicts[0]["layerNumber"] == 1
-        assert dicts[1]["name"] == "text"
-        assert dicts[1]["layerNumber"] == 10
