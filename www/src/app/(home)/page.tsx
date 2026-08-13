@@ -312,6 +312,196 @@ function WhatsInside() {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Open source                                                               */
+/* -------------------------------------------------------------------------- */
+
+const projectFiles = [
+  { name: "rosette.toml", purpose: "layer stack + design rules" },
+  { name: "components/", purpose: "editable device library" },
+  { name: "AGENTS.md", purpose: "agent instructions + rules" },
+  { name: ".agents/skills/", purpose: "reusable agent workflows" },
+];
+
+const sourceAreas = [
+  { name: "crates/", purpose: "geometry + layout engine" },
+  { name: "python/", purpose: "API + CLI" },
+  { name: "app/", purpose: "WebGPU editor" },
+];
+
+function OpenSource() {
+  return (
+    <section className="relative mx-auto max-w-6xl px-6 py-16">
+      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
+
+      <div className="flex items-center gap-3 mb-3">
+        <span
+          aria-hidden="true"
+          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
+        >
+          {"<>"}
+        </span>
+        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
+          Open source
+        </span>
+      </div>
+      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
+        Fit Rosette to your process
+      </h2>
+      <p className="mt-3 max-w-2xl text-sm leading-relaxed text-fd-muted-foreground">
+        Adapt a project without maintaining a fork. If your workflow needs
+        deeper changes, the full Rust, Python, and WebGPU stack is MIT licensed
+        and forkable too.
+      </p>
+
+      <div className="mt-10 overflow-hidden rounded-xl border border-fd-border shadow-sm dark:shadow-elevation lg:grid lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="border-fd-border border-b bg-fd-muted/25 p-5 sm:p-7 lg:border-r lg:border-b-0">
+          <div className="flex items-center justify-between font-[family-name:var(--font-geist-mono)] text-[10px] tracking-widest uppercase sm:text-[11px]">
+            <span className="font-medium text-fd-foreground">
+              Project level
+            </span>
+            <span className="text-emerald-600 dark:text-emerald-400">
+              no fork required
+            </span>
+          </div>
+
+          <h3 className="mt-6 text-lg font-semibold tracking-tight text-fd-foreground">
+            Shape each project.
+          </h3>
+          <p className="mt-3 text-sm leading-relaxed text-fd-muted-foreground">
+            Keep process-specific decisions beside the design, where your team
+            and agents can read and change them.
+          </p>
+
+          <div className="mt-5 divide-y divide-fd-border border-y border-fd-border font-[family-name:var(--font-geist-mono)]">
+            {projectFiles.map((file) => (
+              <div
+                key={file.name}
+                className="grid grid-cols-[minmax(0,1fr)] py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center sm:gap-x-3"
+              >
+                <code className="text-xs text-fd-foreground sm:text-sm">
+                  {file.name}
+                </code>
+                <span className="mt-0.5 text-[10px] text-fd-muted-foreground sm:mt-0 sm:text-right sm:text-[11px]">
+                  {file.purpose}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-4 font-[family-name:var(--font-geist-mono)] text-[10px] leading-relaxed text-fd-muted-foreground sm:text-[11px]">
+            Plain files. Git tracked. Readable by you and your agent.
+          </p>
+
+          <Link
+            href="/docs/getting-started/installation#project-structure"
+            className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-fd-foreground transition-colors hover:text-fd-muted-foreground"
+          >
+            Explore project structure
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M5 12h14" />
+              <path d="m12 5 7 7-7 7" />
+            </svg>
+          </Link>
+        </div>
+
+        <div className="flex flex-col p-5 sm:p-7">
+          <div className="flex items-center justify-between font-[family-name:var(--font-geist-mono)] text-[10px] tracking-widest uppercase sm:text-[11px]">
+            <span className="font-medium text-fd-foreground">Tool level</span>
+            <span className="text-fd-muted-foreground">MIT licensed</span>
+          </div>
+
+          <h3 className="mt-6 text-lg font-semibold tracking-tight text-fd-foreground">
+            Change Rosette itself.
+          </h3>
+          <p className="mt-3 text-sm leading-relaxed text-fd-muted-foreground">
+            The engine, bindings, CLI, and editor live in one public repository.
+            Change a subsystem or carry the whole stack in your own direction.
+          </p>
+
+          <div className="mt-5 divide-y divide-fd-border border-y border-fd-border font-[family-name:var(--font-geist-mono)]">
+            {sourceAreas.map((area) => (
+              <div
+                key={area.name}
+                className="grid grid-cols-[minmax(0,1fr)] py-3 sm:grid-cols-[8rem_minmax(0,1fr)] sm:items-center sm:gap-x-3"
+              >
+                <code className="text-xs text-fd-foreground sm:text-sm">
+                  {area.name}
+                </code>
+                <span className="mt-0.5 text-[10px] text-fd-muted-foreground sm:mt-0 sm:text-right sm:text-[11px]">
+                  {area.purpose}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-auto flex flex-wrap items-center gap-x-6 gap-y-3 pt-7">
+            <a
+              href="https://github.com/PreFab-Photonics/rosette"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-fd-foreground transition-colors hover:text-fd-muted-foreground"
+            >
+              Browse source
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M15 3h6v6" />
+                <path d="M10 14 21 3" />
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              </svg>
+            </a>
+            <a
+              href="https://github.com/PreFab-Photonics/rosette/fork"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-fd-muted-foreground transition-colors hover:text-fd-foreground"
+            >
+              Fork Rosette
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M15 3h6v6" />
+                <path d="M10 14 21 3" />
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Recent Blog Posts                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -478,6 +668,7 @@ export default function HomePage() {
       <WhyRosette />
       <EditorPreview />
       <WhatsInside />
+      <OpenSource />
       <RecentPosts />
       <ClosingCTA />
     </>
