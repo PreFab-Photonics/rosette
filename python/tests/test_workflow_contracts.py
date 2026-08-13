@@ -110,7 +110,15 @@ def test_generated_project_build_check_shot_update_workflow(
         assert "Preserve this." in agents_path.read_text()
         assert (project_dir / "CLAUDE.md").exists()
         manifest = json.loads((project_dir / ".rosette" / "manifest.json").read_text())
-        assert set(manifest["references"]) == {"api.pyi", "cli.json"}
+        assert set(manifest["references"]) == {
+            "index.md",
+            "api.pyi",
+            "cli.json",
+            "contracts/layout.pyi",
+            "contracts/routing.pyi",
+            "contracts/verification.pyi",
+            "contracts/component-authoring.pyi",
+        }
     finally:
         _clear_local_components()
         while str(project_dir) in sys.path:

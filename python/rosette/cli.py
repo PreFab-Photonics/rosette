@@ -48,9 +48,10 @@ OUTPUT_DIR = "output"  # default location for built GDS (created on first build)
 #
 #   Managed reference (regenerated wholesale by `rosette init`/`update`, pinned
 #   to the installed librosette build):
-#     .rosette/api.pyi   -- public Python API reference
-#     .rosette/cli.json  -- CLI manifest (regenerated from the argparse parser;
-#                           stamps `package_version` for staleness detection)
+#     .rosette/index.md  -- compact task-to-context router
+#     .rosette/contracts/ -- task-specific API contracts derived from api.pyi
+#     .rosette/api.pyi   -- complete public Python API fallback
+#     .rosette/cli.json  -- complete CLI fallback (regenerated from argparse)
 #     .rosette/manifest.json -- provenance for all managed references
 #
 #   Runtime output (created on demand, never touched by init/update, pruned by
@@ -65,6 +66,7 @@ ROSETTE_DIR = ".rosette"  # framework-managed reference + runtime output dir
 # Marker comments for framework-managed sections in agent files
 _MARKER_BEGIN = "<!-- BEGIN:rosette-agent-rules -->"
 _MARKER_END = "<!-- END:rosette-agent-rules -->"
+_SKILL_PROVENANCE = ".rosette-managed"
 
 # Harness adapters: map each supported AI tool family to where its files live.
 # The instruction body (templates/<t>/agent-rules.md.template) and skills
@@ -253,18 +255,21 @@ def _render_agent_rules(template_dir: Path, name: str) -> str | None:
 def _install_skills(template_dir: Path, skills_dest: Path):
     """Copy the template's harness-neutral skills into ``skills_dest``.
 
-    Each ``skills/<skill>/`` directory is copied verbatim. No-op if the
-    template ships no skills.
+    Existing Rosette-managed skills are refreshed. A colliding user-owned skill
+    without Rosette provenance is left untouched.
     """
     skills_src = template_dir / "skills"
     if not skills_src.is_dir():
         return
     for skill_dir in sorted(skills_src.iterdir()):
-        if not skill_dir.is_dir():
+        if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").is_file():
+            continue
+        destination = skills_dest / skill_dir.name
+        if destination.exists() and not (destination / _SKILL_PROVENANCE).is_file():
             continue
         shutil.copytree(
             skill_dir,
-            skills_dest / skill_dir.name,
+            destination,
             dirs_exist_ok=True,
             ignore=_COMPONENT_COPY_IGNORE,
         )
@@ -362,7 +367,142 @@ _MINIMAL_COMPONENT_FILES = ("__init__.py", "_utils.py", "_curves.py", "_tapers.p
 _COMPONENT_COPY_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
 _COMPONENT_PROVENANCE = ".rosette-provenance.json"
 _PROVENANCE_SCHEMA = 1
-_REFERENCE_SCHEMA = 1
+_REFERENCE_SCHEMA = 2
+
+# Task contracts are slices of api.pyi, not separately maintained signatures.
+# Keep each set focused on the declarations an agent uses in that workflow.
+_TASK_CONTRACTS: dict[str, tuple[str, ...]] = {
+    "layout": (
+        "Point",
+        "Vector2",
+        "Polygon",
+        "Transform",
+        "BBox",
+        "Instance",
+        "ArrayCopy",
+        "PathEndType",
+        "Layer",
+        "Port",
+        "Cell",
+        "Library",
+        "read_gds",
+        "write_gds",
+        "LayerInfo",
+        "LayerMap",
+        "load_layer_map",
+        "connect_transform",
+        "arc_points",
+    ),
+    "routing": (
+        "Point",
+        "Vector2",
+        "Layer",
+        "Port",
+        "Route",
+    ),
+    "verification": (
+        "Layer",
+        "DrcRules",
+        "DrcViolation",
+        "DrcResult",
+        "load_drc_rules",
+        "run_drc",
+        "DfmConfig",
+        "GaussianModel",
+        "LayerMetrics",
+        "DfmViolation",
+        "LayerPrediction",
+        "DfmResult",
+        "load_dfm_config",
+        "run_dfm",
+        "ChecksConfig",
+        "CheckViolation",
+        "ChecksResult",
+        "load_checks_config",
+        "run_checks",
+        "RenderResult",
+        "render_png",
+    ),
+    "component-authoring": (
+        "Point",
+        "Vector2",
+        "Polygon",
+        "PathEndType",
+        "Layer",
+        "Port",
+        "Cell",
+        "arc_points",
+    ),
+}
+
+_TASK_IMPORTS = {
+    "layout": """\
+    from rosette import BBox, Cell, Instance, Layer, Library, PathEndType, Point, Polygon, Port, Transform, Vector2, connect_transform
+    from rosette.geometry import arc_points
+    from rosette.io import read_gds, write_gds
+    from rosette.layout import ArrayCopy
+    from rosette.project import LayerInfo, LayerMap, load_layer_map""",
+    "routing": """\
+    from rosette import Layer, Point, Port, Vector2
+    from rosette.routing import Route""",
+    "verification": """\
+    from rosette import Layer
+    from rosette.checks import CheckViolation, ChecksConfig, ChecksResult, load_checks_config, run_checks
+    from rosette.dfm import DfmConfig, DfmResult, DfmViolation, GaussianModel, LayerMetrics, LayerPrediction, load_dfm_config, run_dfm
+    from rosette.drc import DrcResult, DrcRules, DrcViolation, load_drc_rules, run_drc
+    from rosette.render import RenderResult, render_png""",
+    "component-authoring": """\
+    from rosette import Cell, Layer, PathEndType, Point, Polygon, Port, Vector2
+    from rosette.geometry import arc_points""",
+}
+
+_TASK_DEPENDENCY_IMPORTS = {
+    "layout": "",
+    "routing": "from rosette import Cell",
+    "verification": "from rosette import BBox, Cell, Library, Polygon",
+    "component-authoring": "from rosette import BBox, Instance",
+}
+
+_AGENT_INDEX = """\
+# Rosette Agent Context
+
+Load context for the task at hand instead of reading every reference.
+
+## Task map
+
+| Task | Read | Skill |
+| --- | --- | --- |
+| Compose or edit a layout | `contracts/layout.pyi`, `rosette.toml`, relevant `components/*.py` | none |
+| Route between ports | `contracts/routing.pyi`, relevant component source | `routing` |
+| Build, inspect, or verify a design | `rosette.toml` | `verification` |
+| Write programmatic DRC, DFM, checks, or rendering code | `contracts/verification.pyi`, `rosette.toml` | `verification` |
+| Explicitly create or modify a reusable project component | `contracts/component-authoring.pyi`, `components/__init__.py`, relevant helpers | `component-authoring` |
+
+Use more than one row when a task spans workflows. Before presenting any layout
+change, load the `verification` skill and complete its build-check loop.
+
+## Fallbacks
+
+- `api.pyi` is the complete public Python API contract. Read it only when a task
+  contract does not contain the required symbol.
+- `cli.json` is the complete machine-readable command contract. Read only the
+  command entry needed when the verification skill does not cover an invocation.
+- `manifest.json` contains hashes and package provenance. It is not working context.
+
+## Project boundaries
+
+- `rosette.toml` owns layer names and process constraints; never guess GDS layers.
+- `components/` is editable project-local source and the authority for component APIs.
+- Keep composition-oriented designs thin, but allow one-off exploratory or test
+  geometry to remain in its design file. Extract into `components/` only when the
+  user requests a component or the device is meaningfully reusable across designs.
+- Run Rosette commands through `uv run rosette`; do not mix the project environment
+  with a global `rosette` or `ro` executable.
+- If a canonical import from a task contract fails, do not add a compatibility
+  fallback. Run `uv run rosette update`, then align the installed package with the
+  generated contract before continuing.
+- `.rosette/` is generated. Run `uv run rosette update` if references are absent.
+"""
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -763,7 +903,7 @@ def _find_gds_files() -> list[Path]:
 
 
 # Commands that need a design .py file
-_NEEDS_DESIGN = {"build", "check", "dfm", "drc"}
+_NEEDS_DESIGN = {"build", "check", "dfm", "drc", "shot"}
 # Commands that need a .gds file
 _NEEDS_GDS = {"run"}
 # Commands that take no file argument
@@ -784,7 +924,7 @@ def _select_command_interactive() -> tuple[str, str | None]:
         ("dfm", "dfm", "Run DFM prediction only"),
         ("run", "run", "View a GDS file"),
         ("init", "init", "Initialize rosette in current project"),
-        ("update", "update", "Update agent files to latest template"),
+        ("update", "update", "Update generated project context"),
     ]
 
     try:
@@ -932,7 +1072,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # update command - updates template files
-    subparsers.add_parser("update", help="Update AGENTS.md to latest template")
+    subparsers.add_parser("update", help="Update generated project context")
 
     # cli-manifest command - print the machine-readable command manifest
     subparsers.add_parser(
@@ -1684,42 +1824,99 @@ def init_project(
             print(f"  # reads {harness.instructions} ({harness.description})")
 
 
-def _copy_api_stub(rosette_dir: Path):
-    """Copy the public Python API contract to .rosette/ for agents to read."""
-    package_dir = Path(__file__).parent
+def _render_task_contract(task: str, symbols: tuple[str, ...]) -> bytes:
+    """Render a deterministic task-specific slice of the full API contract."""
+    api_path = Path(__file__).parent / "api.pyi"
+    source = api_path.read_text()
+    lines = source.splitlines()
+    declarations = {
+        node.name: node
+        for node in ast.parse(source).body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+    }
+    missing = set(symbols) - declarations.keys()
+    if missing:
+        raise RuntimeError(
+            f"Unknown symbols in {task} agent contract: {', '.join(sorted(missing))}"
+        )
 
-    pyi_file = package_dir / "api.pyi"
-    if pyi_file.exists():
-        rosette_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(pyi_file, rosette_dir / "api.pyi")
+    selected = [declarations[name] for name in symbols]
+    selected.sort(key=lambda node: node.lineno)
+    definitions = "\n\n".join(
+        "\n".join(lines[node.lineno - 1 : node.end_lineno]) for node in selected
+    )
+    contract = f'''"""Rosette {task} task contract.
+
+Generated from the authoritative ``api.pyi``. Read ``../api.pyi`` only when
+this focused contract does not contain a required public symbol.
+
+Canonical imports::
+
+{_TASK_IMPORTS[task]}
+"""
+
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Literal
+{_TASK_DEPENDENCY_IMPORTS[task]}
+
+{definitions}
+'''
+    ast.parse(contract)
+    return contract.encode()
 
 
-def _write_reference_manifest(project_dir: Path) -> None:
-    """Stamp managed references with package and contract provenance."""
+def _managed_reference_payloads() -> dict[str, bytes]:
+    """Build every generated reference before replacing project files."""
+    api_path = Path(__file__).parent / "api.pyi"
+    payloads = {
+        "index.md": _AGENT_INDEX.encode(),
+        "api.pyi": api_path.read_bytes(),
+        "cli.json": (json.dumps(_cli_manifest(), indent=2) + "\n").encode(),
+    }
+    payloads.update(
+        {
+            f"contracts/{task}.pyi": _render_task_contract(task, symbols)
+            for task, symbols in _TASK_CONTRACTS.items()
+        }
+    )
+    return payloads
+
+
+def _write_reference_manifest(project_dir: Path, payloads: dict[str, bytes]) -> None:
+    """Stamp all managed references with package and contract provenance."""
     from rosette import __version__
 
     rosette_dir = project_dir / ROSETTE_DIR
-    references = {
-        "api.pyi": _sha256_path(rosette_dir / "api.pyi"),
-        "cli.json": _sha256_path(rosette_dir / "cli.json"),
-    }
     manifest = {
         "schema": _REFERENCE_SCHEMA,
         "package_version": __version__,
         "api_contract_sha256": _contract_digest(Path(__file__).parent / "api.pyi"),
-        "references": references,
+        "references": {
+            relative: _sha256_bytes(content) for relative, content in sorted(payloads.items())
+        },
     }
     (rosette_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 def _write_managed_references(project_dir: Path) -> None:
-    """Regenerate core agent references and prune legacy component topics."""
-    legacy_components = project_dir / ROSETTE_DIR / "components"
-    if legacy_components.exists():
-        shutil.rmtree(legacy_components)
-    _copy_api_stub(project_dir / ROSETTE_DIR)
-    _write_cli_manifest(project_dir / ROSETTE_DIR)
-    _write_reference_manifest(project_dir)
+    """Regenerate framework-owned references while preserving runtime snapshots."""
+    payloads = _managed_reference_payloads()
+    rosette_dir = project_dir / ROSETTE_DIR
+    rosette_dir.mkdir(parents=True, exist_ok=True)
+    for path in rosette_dir.iterdir():
+        if path.name == "snapshots":
+            continue
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+    for relative, content in payloads.items():
+        destination = rosette_dir / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
+    _write_reference_manifest(project_dir, payloads)
 
 
 def _update_agent_file(dest: Path, new_content: str):
@@ -1727,7 +1924,7 @@ def _update_agent_file(dest: Path, new_content: str):
 
     If the existing file contains BEGIN/END markers, only the content between
     markers is replaced. Any user content before or after the markers is kept.
-    If no markers are found (legacy file), the entire file is overwritten.
+    Markerless files are user-owned and left unchanged.
     """
     if not dest.exists():
         dest.write_text(new_content)
@@ -1735,49 +1932,70 @@ def _update_agent_file(dest: Path, new_content: str):
 
     existing = dest.read_text()
 
-    # If the existing file has markers, do a surgical replacement
     begin_idx = existing.find(_MARKER_BEGIN)
     end_idx = existing.find(_MARKER_END)
+    if begin_idx == -1 or end_idx == -1 or begin_idx >= end_idx:
+        return
 
-    if begin_idx != -1 and end_idx != -1 and begin_idx < end_idx:
-        end_idx += len(_MARKER_END)
-        # Consume trailing newline after end marker if present
-        if end_idx < len(existing) and existing[end_idx] == "\n":
-            end_idx += 1
+    end_idx += len(_MARKER_END)
+    if end_idx < len(existing) and existing[end_idx] == "\n":
+        end_idx += 1
 
-        # Extract the managed section from new content
-        new_begin = new_content.find(_MARKER_BEGIN)
-        new_end = new_content.find(_MARKER_END)
-        if new_begin != -1 and new_end != -1:
-            new_end += len(_MARKER_END)
-            if new_end < len(new_content) and new_content[new_end] == "\n":
-                new_end += 1
-            managed_section = new_content[new_begin:new_end]
-        else:
-            managed_section = new_content
-
-        updated = existing[:begin_idx] + managed_section + existing[end_idx:]
-        dest.write_text(updated)
+    new_begin = new_content.find(_MARKER_BEGIN)
+    new_end = new_content.find(_MARKER_END)
+    if new_begin != -1 and new_end != -1:
+        new_end += len(_MARKER_END)
+        if new_end < len(new_content) and new_content[new_end] == "\n":
+            new_end += 1
+        managed_section = new_content[new_begin:new_end]
     else:
-        # Legacy file without markers -- overwrite entirely
-        dest.write_text(new_content)
+        managed_section = new_content
+
+    dest.write_text(existing[:begin_idx] + managed_section + existing[end_idx:])
+
+
+def _configured_harnesses(template_dir: Path, project_dir: Path) -> list[str]:
+    """Return harnesses with managed instructions or managed installed skills."""
+    configured = []
+    for key, harness in HARNESSES.items():
+        instructions = project_dir / harness.instructions
+        if instructions.exists():
+            try:
+                content = instructions.read_text()
+            except OSError:
+                continue
+            if _MARKER_BEGIN in content and _MARKER_END in content:
+                configured.append(key)
+                continue
+
+        skills_src = template_dir / "skills"
+        if not skills_src.is_dir():
+            continue
+        skills_dest = project_dir / harness.skills_dir
+        if any(
+            (skills_dest / source.name / _SKILL_PROVENANCE).is_file()
+            for source in skills_src.iterdir()
+            if source.is_dir() and (source / "SKILL.md").is_file()
+        ):
+            configured.append(key)
+    return configured
 
 
 def update_project():
-    """Update agent instruction files to latest templates.
+    """Update generated agent context to the installed Rosette version.
 
     Convention:
     - Instruction files (AGENTS.md, CLAUDE.md, ...): only the section between
       BEGIN/END markers is replaced, preserving any user content outside the
       markers. The body is stored once per template and projected to each
       configured harness via the HARNESSES adapter.
-    - Skills: each configured harness's skills dir (.agents/skills,
-      .claude/skills, ...) is refreshed from the template's canonical skills/
+    - Skills: Rosette-managed skills in each configured harness are refreshed
+      from the template; colliding user-owned skills are preserved.
     - .rosette/ managed reference is fully regenerated, pinned to the installed
       librosette build (see the ROSETTE_DIR comment for the full layout):
-      - .rosette/api.pyi: fully replaced with latest agent API reference
-      - .rosette/cli.json: regenerated CLI manifest (command contract; stamps
-        the installed version for staleness detection)
+      - .rosette/index.md: compact task-to-context router
+      - .rosette/contracts/: focused contracts derived from the full API
+      - .rosette/api.pyi and cli.json: complete API and CLI fallbacks
       - .rosette/manifest.json: reference hashes and package provenance
     - Only updates files for tools that are already configured
     - User-owned files and runtime output are never touched:
@@ -1818,14 +2036,9 @@ def update_project():
         print(f"Error: Template '{template_name}' not found")
         sys.exit(1)
 
-    # Detect which harnesses are configured. A harness counts as configured if
-    # either its instruction file or its skills dir is present, so a deleted
-    # instruction file (or skills dir) is restored rather than silently dropped.
-    tools = [
-        t
-        for t, h in HARNESSES.items()
-        if (project_dir / h.instructions).exists() or (project_dir / h.skills_dir).is_dir()
-    ]
+    # Only refresh demonstrably Rosette-managed harness files. If an instruction
+    # file was deleted, a surviving managed skill still identifies the harness.
+    tools = _configured_harnesses(template_dir, project_dir)
 
     # Refresh non-harness template files (e.g. rosette.toml is user-owned and
     # skipped). The instruction body and skills are handled per-harness below.
@@ -1839,8 +2052,8 @@ def update_project():
         (project_dir / output_name).write_text(content)
 
     # Refresh each configured harness: instruction file (marker-based, preserving
-    # user content) + skills (each shipped skill dir is restored/overwritten from
-    # the template; skills removed upstream are not pruned from the project).
+    # user content) + skills (managed skill dirs are restored/refreshed; colliding
+    # user-owned skills and skills removed upstream are not pruned).
     rules = _render_agent_rules(template_dir, name)
     for tool in tools:
         harness = HARNESSES[tool]
@@ -2039,22 +2252,13 @@ def _cli_manifest() -> dict[str, object]:
     }
 
 
-def _write_cli_manifest(rosette_dir: Path) -> None:
-    """Write the CLI manifest to ``<rosette_dir>/cli.json`` for agent reference.
-
-    Mirrors ``_copy_api_stub``: the manifest is regenerated (not copied) so it
-    always matches the installed CLI. ``.rosette/`` is gitignored.
-    """
-    rosette_dir.mkdir(parents=True, exist_ok=True)
-    (rosette_dir / "cli.json").write_text(json.dumps(_cli_manifest(), indent=2) + "\n")
-
-
 def _check_reference_staleness() -> None:
     """Nudge when the project's ``.rosette/`` reference is stale.
 
-    Managed files under ``.rosette/`` are version-pinned to the ``librosette``
-    build that last ran ``rosette init``/``update``. Upgrading the package
-    without re-running ``update`` leaves them describing the old API.
+    Managed files under ``.rosette/`` are pinned to the version and structural
+    API contract of the ``librosette`` build that last ran ``init``/``update``.
+    Upgrading or switching builds without re-running ``update`` leaves them
+    describing a different API.
 
     ``manifest.json`` is authoritative. Older projects stamped the version only
     in ``cli.json``, which remains a fallback until ``rosette update`` creates
@@ -2101,6 +2305,22 @@ def _check_reference_staleness() -> None:
                 _yellow(
                     "Warning: .rosette/ managed references are missing or modified "
                     f"({', '.join(sorted(changed))}). Run `rosette update` to refresh them."
+                ),
+                file=sys.stderr,
+            )
+            return
+    stamped_contract = manifest.get("api_contract_sha256")
+    if isinstance(stamped_contract, str):
+        try:
+            installed_contract = _contract_digest(Path(__file__).parent / "api.pyi")
+        except (OSError, SyntaxError):
+            installed_contract = None
+        if installed_contract is not None and stamped_contract != installed_contract:
+            print(
+                _yellow(
+                    "Warning: .rosette/ describes a different Rosette API contract "
+                    "than the installed package. Run `uv run rosette update` from "
+                    "the project environment before continuing."
                 ),
                 file=sys.stderr,
             )

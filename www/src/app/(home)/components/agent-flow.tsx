@@ -25,8 +25,9 @@ import { CopyButton } from "./copy-button";
  * - The `edit` row says `route extent 15 → 25 µm` rather than naming the script's
  *   `mid_x` variable, which means nothing to someone who hasn't read the file,
  *   and omits the filename already established by the `write` row above.
- * - `.rosette/cli.json` is left out of the `read` row and the build's bbox
- *   summary out of the `ok` row; both are real, neither earns the space.
+ * - Focused contracts and skills are reached through `.rosette/index.md`, so the
+ *   complete API/CLI fallbacks are left out of the `read` row. The build's bbox
+ *   summary is also omitted; both details are real, neither earns the space.
  * - The `checks` row says `4 ports connected` rather than echoing the CLI's
  *   `4 ports, 1 connections`. All four ports are matched with no unconnected-port
  *   violations, so this is accurate, and it avoids a count that reads as wrong:
@@ -74,7 +75,7 @@ const lines: FlowLine[] = [
   {
     id: "read",
     label: "read",
-    text: "AGENTS.md · rosette.toml · .rosette/api.pyi · components/",
+    text: "AGENTS.md · .rosette/index.md · rosette.toml · components/",
     tone: "muted",
   },
   { id: "write", label: "write", text: "designs/loopback.py", tone: "muted" },

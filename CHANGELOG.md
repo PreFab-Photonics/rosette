@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   coordinate conventions, typed element records, annotations, and top-cell selection.
 - Direct `Instance.copy(col, row)` access to the same validated `ArrayCopy` views
   yielded by `Instance.copies()`.
+- Task-oriented generated agent context with a compact `.rosette/index.md`, derived
+  layout, routing, verification, and component-authoring contracts, and focused
+  routing, verification, and component-authoring skills for every template.
 
 ### Changed
 
@@ -45,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Python placement now distinguishes initial `Cell.at(x, y)` placement from relative
   parent-frame `Instance.translate(dx, dy)` transforms, and `Cell.add_ref()` requires
   an explicitly resolved `Instance`.
+- Generated agent instructions now load context by task instead of eagerly reading the
+  complete Python API, CLI manifest, and provenance metadata. `rosette update`
+  regenerates all managed references while preserving runtime snapshots and user files.
+  Runtime staleness checks compare the structural API contract as well as the package
+  version, and generated guidance rejects mixed global/project CLI environments.
 - Bbox, DRC, checks, DFM, raster, GDS dependency ordering, WASM, and build summaries
   now use shared hierarchy and repetition mechanisms.
 - Layout paths are stroked before affine transformation, preserve absolute negative
@@ -109,6 +117,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   public repetition tuples in `Instance(...)`, and indexed `Instance.port()` access.
   Use `child.at(0, 0)`, `instance.translate()`, `instance.array()` or
   `array_vectors()`, and `instance.copy(col, row).port(name)` respectively.
+- Removed the placeholder `layout-design` skill; task-specific skills now carry
+  actionable routing, verification, and component-authoring workflows.
 - Removed the top-level Python exports `DEFAULT_LAYERS`, `DrcCache`,
   `add_dfm_predictions`, `fresnel_c`, `fresnel_s`, and the free
   `path_length()` helper. Internal CLI, viewer, and component support retains

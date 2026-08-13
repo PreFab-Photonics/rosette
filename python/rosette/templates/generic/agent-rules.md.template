@@ -4,37 +4,32 @@
 
 Rosette photonic design project. Python scripts in `designs/` produce GDSII layout files.
 
-## ALWAYS read the reference files before coding
+## Load context by task
 
-Before writing or modifying any Rosette code, read these files:
+Before writing or modifying Rosette code:
 
-- `.rosette/api.pyi` -- public Python API reference for agents
-- `.rosette/cli.json` -- complete CLI contract (every command, its flags, exit codes, and `--json` schema), discoverable without prose. Equivalent to `rosette cli-manifest`.
-- `.rosette/manifest.json` -- installed package version and managed-reference provenance
-- `rosette.toml` -- project config, layer definitions (named layers), DRC rules, DFM config
-- `components/__init__.py` and relevant `components/*.py` modules -- the template-specific component catalog, source, signatures, and documentation
+1. Read `.rosette/index.md` and `rosette.toml`.
+2. Follow the index to load only the contract and skill for the task.
+3. Read `components/__init__.py` and the relevant `components/*.py` source before using project-local components.
 
-Your training data may be outdated -- `.rosette/` matches the installed core package, while `components/` is the authoritative project-local component API.
+Do not preload `.rosette/api.pyi`, `.rosette/cli.json`, or `.rosette/manifest.json`. They are complete fallbacks and provenance, not default context. Your training data may be outdated -- task contracts match the installed core package, while `components/` is the authoritative project-local component API.
 
 `.rosette/` is gitignored and may be absent after a fresh clone. If a reference is missing, run `uv run rosette update`; do not rerun `rosette init` in an existing project.
 
-## ALWAYS build then check
+## Keep designs compositional
 
-A design is not complete until it passes checks. After every build, run checks and fix any violations before presenting the result:
+Keep composition-oriented files in `designs/` thin: instantiate project-local components, place them, route them, and export `design`. One-off exploratory or test geometry may remain in its design file. Extract into `components/` only when the user requests a component or the device is meaningfully reusable across designs.
 
-```
-uv run rosette build designs/foo.py
-uv run rosette check designs/foo.py --json
-```
+Before presenting any layout change, load the `verification` skill and complete its build-check loop. A passing build alone does not establish that a design is correct.
 
-Always pass `--json`: checks then emit a single JSON object on stdout — read `passed` directly and use each violation's `bbox` (in microns) to locate the problem, instead of parsing prose that may reword. A passing build only means the GDS was written -- it does NOT mean the design is correct. `rosette check` catches DRC violations (min width, spacing, overlap), unconnected ports, width mismatches, and bend radius violations. Run `rosette drc`/`rosette dfm` (both support `--json`) to check those in isolation; `rosette dfm` predicts as-manufactured geometry and is also folded into `rosette check --include-dfm`.
-
-## Key conventions
+## Conventions
 
 - Designs must export a `design` variable (a `Cell` instance)
 - Use explicit imports (`from rosette import Cell, Layer`; `from rosette.project import load_layer_map`; `from components import mmi`) rather than star imports
 - Use `load_layer_map()` from `rosette.project` to get layers from rosette.toml -- never hardcode layer numbers
 - The package is `librosette` (installed via `uv add librosette`, imported as `rosette`)
-- To inspect a design visually, `uv run rosette shot designs/foo.py` renders a PNG (plus a sidecar JSON with the world<->pixel transform) to `.rosette/snapshots/`
+- Run every Rosette command through `uv run rosette`; do not mix in a global `rosette` or `ro` executable
+- If a canonical contract import fails, do not add a compatibility fallback; update references and align the installed package first
+- Use the `routing` skill for routed connections. Use `component-authoring` only for explicit or clearly reusable project components
 
 <!-- END:rosette-agent-rules -->

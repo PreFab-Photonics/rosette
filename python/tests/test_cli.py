@@ -20,6 +20,15 @@ from rosette.cli import (
     update_project,
 )
 
+TASK_CONTEXTS = {"layout", "routing", "verification", "component-authoring"}
+FOCUSED_SKILLS = {"routing", "verification", "component-authoring"}
+MANAGED_REFERENCES = {
+    "index.md",
+    "api.pyi",
+    "cli.json",
+    *(f"contracts/{task}.pyi" for task in TASK_CONTEXTS),
+}
+
 
 def _make_uv_project(project_dir: Path):
     """Create a minimal uv-style project (pyproject.toml + .gitignore)."""
@@ -150,11 +159,12 @@ class TestRosetteInit:
         assert set(parsed) == {"project"}
         assert set(parsed["project"]) == {"name", "template"}
 
-        # AGENTS.md content: has markers and directive
+        # AGENTS.md content: has markers and task-oriented context directive
         agents_content = (project_dir / "AGENTS.md").read_text()
         assert "<!-- BEGIN:rosette-agent-rules -->" in agents_content
         assert "<!-- END:rosette-agent-rules -->" in agents_content
-        assert "ALWAYS read the reference files" in agents_content
+        assert "Load context by task" in agents_content
+        assert "Do not preload" in agents_content
 
         # .gitignore appends rosette entries to existing content
         gitignore = (project_dir / ".gitignore").read_text()
@@ -181,6 +191,56 @@ class TestRosetteInit:
 
         assert (project_dir / ".rosette" / "manifest.json").exists()
         assert not (project_dir / ".rosette" / "components").exists()
+
+        index = (project_dir / ".rosette" / "index.md").read_text()
+        for task in TASK_CONTEXTS:
+            assert f"contracts/{task}.pyi" in index
+        for skill in FOCUSED_SKILLS:
+            assert f"`{skill}`" in index
+        assert "`api.pyi` is the complete" in index
+        assert "`cli.json` is the complete" in index
+        assert "do not add a compatibility" in index
+        assert "uv run rosette" in index
+        assert "one-off exploratory" in index
+
+        import ast
+        import hashlib
+        import json
+
+        full_names = {
+            node.name
+            for node in ast.parse(packaged_stub.read_text()).body
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+        }
+        for task in TASK_CONTEXTS:
+            contract = project_dir / ".rosette" / "contracts" / f"{task}.pyi"
+            tree = ast.parse(contract.read_text())
+            task_names = {
+                node.name for node in tree.body if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+            }
+            assert task_names
+            assert task_names < full_names
+            imported_names = {
+                alias.asname or alias.name
+                for node in tree.body
+                if isinstance(node, ast.ImportFrom)
+                for alias in node.names
+            }
+            required_names = {
+                child.id
+                for node in tree.body
+                if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+                for child in ast.walk(node)
+                if isinstance(child, ast.Name) and child.id in full_names
+            }
+            assert required_names <= task_names | imported_names
+
+        manifest = json.loads((project_dir / ".rosette" / "manifest.json").read_text())
+        assert manifest["schema"] == 2
+        assert set(manifest["references"]) == MANAGED_REFERENCES
+        for relative, digest in manifest["references"].items():
+            content = (project_dir / ".rosette" / relative).read_bytes()
+            assert hashlib.sha256(content).hexdigest() == digest
 
         # Rust source files are NOT bundled (agents work in Python only)
         src_dir = project_dir / ".rosette" / "src"
@@ -523,7 +583,7 @@ class TestRosetteInit:
         # AGENTS.md has markers and directive
         agents_content = (project_dir / "AGENTS.md").read_text()
         assert "<!-- BEGIN:rosette-agent-rules -->" in agents_content
-        assert "ALWAYS read the reference files" in agents_content
+        assert "Load context by task" in agents_content
 
         # Generic template includes components
         components_dir = project_dir / "components"
@@ -768,7 +828,7 @@ class TestRosetteInit:
         # CLAUDE.md contains full instructions with markers
         claude_content = (project_dir / "CLAUDE.md").read_text()
         assert "<!-- BEGIN:rosette-agent-rules -->" in claude_content
-        assert "ALWAYS read the reference files" in claude_content
+        assert "Load context by task" in claude_content
 
     def test_init_opencode_skills_location(self, tmp_path: Path, monkeypatch):
         """Generic template skills land in .agents/skills for OpenCode."""
@@ -778,9 +838,9 @@ class TestRosetteInit:
 
         init_project("generic", tool="opencode")
 
-        skill = project_dir / ".agents" / "skills" / "layout-design" / "SKILL.md"
-        assert skill.exists()
-        assert "name: layout-design" in skill.read_text()
+        skill_root = project_dir / ".agents" / "skills"
+        assert {path.name for path in skill_root.iterdir()} == FOCUSED_SKILLS
+        assert "name: routing" in (skill_root / "routing" / "SKILL.md").read_text()
         # Not placed in the Claude location.
         assert not (project_dir / ".claude").exists()
 
@@ -796,21 +856,34 @@ class TestRosetteInit:
 
         init_project("generic", tool="claude")
 
-        skill = project_dir / ".claude" / "skills" / "layout-design" / "SKILL.md"
-        assert skill.exists()
+        skill_root = project_dir / ".claude" / "skills"
+        assert {path.name for path in skill_root.iterdir()} == FOCUSED_SKILLS
         # OpenCode location is not created for a Claude-only project.
         assert not (project_dir / ".agents").exists()
 
-    def test_init_blank_ships_no_skills(self, tmp_path: Path, monkeypatch):
-        """Blank template has no skills, so no skills dir is created."""
+    def test_init_blank_ships_focused_skills(self, tmp_path: Path, monkeypatch):
+        """Task skills are available even when the component catalog is blank."""
         project_dir = tmp_path / "my_project"
         _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
 
         init_project("blank", tool="opencode")
 
-        assert not (project_dir / ".agents").exists()
+        skill_root = project_dir / ".agents" / "skills"
+        assert {path.name for path in skill_root.iterdir()} == FOCUSED_SKILLS
+        authoring = (skill_root / "component-authoring" / "SKILL.md").read_text()
+        assert "not for one-off design geometry" in authoring
+        assert "leave\n  it unset rather than assigning a synthetic zero" in authoring
         assert not (project_dir / ".claude").exists()
+
+    def test_template_skills_share_one_contract(self):
+        templates = Path(__file__).parents[1] / "rosette" / "templates"
+        for skill in FOCUSED_SKILLS:
+            blank = templates / "blank" / "skills" / skill / "SKILL.md"
+            generic = templates / "generic" / "skills" / skill / "SKILL.md"
+            assert blank.read_bytes() == generic.read_bytes()
+            assert (blank.parent / ".rosette-managed").exists()
+            assert (generic.parent / ".rosette-managed").exists()
 
     def test_init_agents_baseline(self, tmp_path: Path, monkeypatch):
         """tool='agents' writes the AGENTS.md standard files."""
@@ -834,7 +907,7 @@ class TestRosetteInit:
 
             # All aliases produce identical AGENTS.md + .agents/skills output.
             assert (project_dir / "AGENTS.md").exists()
-            assert (project_dir / ".agents" / "skills" / "layout-design" / "SKILL.md").exists()
+            assert (project_dir / ".agents" / "skills" / "routing" / "SKILL.md").exists()
             assert not (project_dir / "CLAUDE.md").exists()
             assert not (project_dir / ".cursor").exists()
             assert not (project_dir / ".codex").exists()
@@ -850,8 +923,8 @@ class TestRosetteInit:
         # Both instruction files and both skills dirs are present.
         assert (project_dir / "AGENTS.md").exists()
         assert (project_dir / "CLAUDE.md").exists()
-        assert (project_dir / ".agents" / "skills" / "layout-design" / "SKILL.md").exists()
-        assert (project_dir / ".claude" / "skills" / "layout-design" / "SKILL.md").exists()
+        assert (project_dir / ".agents" / "skills" / "routing" / "SKILL.md").exists()
+        assert (project_dir / ".claude" / "skills" / "routing" / "SKILL.md").exists()
 
     def test_init_dedupes_alias_and_canonical(self, tmp_path: Path, monkeypatch):
         """opencode + codex + agents all collapse to one 'agents' harness."""
@@ -1185,29 +1258,28 @@ class TestRosetteUpdate:
         captured = capsys.readouterr()
         assert "not" in captured.out.lower()
 
-    def test_update_refreshes_files(self, tmp_path: Path, monkeypatch):
-        """rosette update refreshes AGENTS.md managed section and .rosette/ files."""
+    def test_update_preserves_markerless_agent_file(self, tmp_path: Path, monkeypatch):
+        """Markerless instruction files are not assumed to be Rosette-owned."""
         project_dir = tmp_path / "test"
         _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
 
         init_project("blank", tool="opencode")
 
-        # Completely replace AGENTS.md (no markers -- legacy behavior)
         agents_md = project_dir / "AGENTS.md"
         agents_md.write_text("modified content without markers")
+        managed_skill = project_dir / ".agents" / "skills" / "verification" / "SKILL.md"
+        managed_skill.write_text("stale managed skill\n")
 
         # Delete a managed file from .rosette/
         api_stub = project_dir / ".rosette" / "api.pyi"
         assert api_stub.exists()
         api_stub.unlink()
 
-        # Update should restore everything (legacy overwrite since no markers)
         update_project()
 
-        restored = agents_md.read_text()
-        assert "<!-- BEGIN:rosette-agent-rules -->" in restored
-        assert "ALWAYS read the reference files" in restored
+        assert agents_md.read_text() == "modified content without markers"
+        assert "name: verification" in managed_skill.read_text()
         assert api_stub.exists()
         packaged_stub = Path(__file__).parents[1] / "rosette" / "api.pyi"
         assert api_stub.read_bytes() == packaged_stub.read_bytes()
@@ -1245,7 +1317,7 @@ class TestRosetteUpdate:
         assert manifest["commands"]
         reference_manifest = json.loads((rosette_dir / "manifest.json").read_text())
         assert reference_manifest["package_version"]
-        assert set(reference_manifest["references"]) == {"api.pyi", "cli.json"}
+        assert set(reference_manifest["references"]) == MANAGED_REFERENCES
         assert not (rosette_dir / "components").exists()
         assert "Keep this." in agents_md.read_text()
         assert (project_dir / "rosette.toml").read_bytes() == config_before
@@ -1320,19 +1392,24 @@ class TestRosetteUpdate:
 
         assert "component provenance is malformed" in capsys.readouterr().err
 
-    def test_update_removes_legacy_component_references(self, tmp_path: Path, monkeypatch):
+    def test_update_replaces_managed_references_and_preserves_snapshots(
+        self, tmp_path: Path, monkeypatch
+    ):
         project_dir = tmp_path / "test"
         _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
         init_project("blank", tool="opencode")
-        legacy = project_dir / ".rosette" / "components"
-        legacy.mkdir()
-        (legacy / "index.json").write_text("{}")
-        (legacy / "mmi.pyi").write_text("def mmi(): ...\n")
+        obsolete = project_dir / ".rosette" / "obsolete"
+        obsolete.mkdir()
+        (obsolete / "old-reference.txt").write_text("old")
+        snapshots = project_dir / ".rosette" / "snapshots"
+        snapshots.mkdir()
+        (snapshots / "keep.png").write_bytes(b"snapshot")
 
         update_project()
 
-        assert not legacy.exists()
+        assert not obsolete.exists()
+        assert (snapshots / "keep.png").read_bytes() == b"snapshot"
 
     def test_update_preserves_user_content(self, tmp_path: Path, monkeypatch):
         """rosette update preserves user content outside markers in AGENTS.md."""
@@ -1353,7 +1430,7 @@ class TestRosetteUpdate:
 
         updated = agents_md.read_text()
         assert "<!-- BEGIN:rosette-agent-rules -->" in updated
-        assert "ALWAYS read the reference files" in updated
+        assert "Load context by task" in updated
         assert "My custom rules" in updated
         assert "Always use Layer(1, 0) for waveguides" in updated
 
@@ -1365,9 +1442,12 @@ class TestRosetteUpdate:
 
         init_project("generic", tool="opencode")
 
-        # Modify AGENTS.md (no markers -- triggers legacy overwrite)
         agents_md = project_dir / "AGENTS.md"
-        agents_md.write_text("modified content")
+        agents_md.write_text(
+            agents_md.read_text().replace(
+                "the relevant `components/*.py` source", "stale component guidance"
+            )
+        )
 
         # Update should use generic template (from rosette.toml)
         update_project()
@@ -1376,9 +1456,11 @@ class TestRosetteUpdate:
         toml_content = (project_dir / "rosette.toml").read_text()
         assert 'template = "generic"' in toml_content
 
-        # AGENTS.md should be restored with markers
+        # The generic template's managed rules are restored.
         agents_content = agents_md.read_text()
         assert "<!-- BEGIN:rosette-agent-rules -->" in agents_content
+        assert "the relevant `components/*.py` source" in agents_content
+        assert "stale component guidance" not in agents_content
 
     def test_update_refreshes_skills(self, tmp_path: Path, monkeypatch):
         """rosette update restores a deleted skill into the harness skills dir."""
@@ -1388,14 +1470,35 @@ class TestRosetteUpdate:
 
         init_project("generic", tool="claude")
 
-        skill = project_dir / ".claude" / "skills" / "layout-design" / "SKILL.md"
+        skill = project_dir / ".claude" / "skills" / "routing" / "SKILL.md"
         assert skill.exists()
         skill.unlink()
 
         update_project()
 
         assert skill.exists()
-        assert "name: layout-design" in skill.read_text()
+        assert "name: routing" in skill.read_text()
+
+    def test_update_preserves_user_owned_skills(self, tmp_path: Path, monkeypatch):
+        import shutil
+
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project("blank", tool="agents")
+        user_skill = project_dir / ".agents" / "skills" / "my-process" / "SKILL.md"
+        user_skill.parent.mkdir()
+        user_skill.write_text("# My process\n")
+        colliding_skill = project_dir / ".agents" / "skills" / "routing"
+        shutil.rmtree(colliding_skill)
+        colliding_skill.mkdir()
+        (colliding_skill / "SKILL.md").write_text("# My routing process\n")
+
+        update_project()
+
+        assert user_skill.read_text() == "# My process\n"
+        assert (colliding_skill / "SKILL.md").read_text() == "# My routing process\n"
+        assert not (colliding_skill / ".rosette-managed").exists()
 
     def test_update_restores_deleted_instruction_via_skills_dir(self, tmp_path: Path, monkeypatch):
         """A harness stays configured (and its instruction file is restored) as
@@ -1418,20 +1521,26 @@ class TestRosetteUpdate:
         assert "<!-- BEGIN:rosette-agent-rules -->" in restored.read_text()
 
     def test_update_no_tool_does_not_create_agents(self, tmp_path: Path, monkeypatch):
-        """rosette update on a tool=none project does not create AGENTS.md."""
+        """Unmanaged agent files do not activate a harness on a tool=none project."""
         project_dir = tmp_path / "test"
         _make_uv_project(project_dir)
         monkeypatch.chdir(project_dir)
 
         init_project("blank", tool="none")
 
-        assert not (project_dir / "AGENTS.md").exists()
+        agents = project_dir / "AGENTS.md"
+        agents.write_text("# User-owned agent rules\n")
+        user_skill = project_dir / ".agents" / "skills" / "routing" / "SKILL.md"
+        user_skill.parent.mkdir(parents=True)
+        user_skill.write_text("# User-owned routing\n")
         assert not (project_dir / "CLAUDE.md").exists()
 
         # Update should not create tool files
         update_project()
 
-        assert not (project_dir / "AGENTS.md").exists()
+        assert agents.read_text() == "# User-owned agent rules\n"
+        assert user_skill.read_text() == "# User-owned routing\n"
+        assert not (project_dir / ".agents" / "skills" / "verification").exists()
         assert not (project_dir / "CLAUDE.md").exists()
 
 
@@ -1503,6 +1612,7 @@ class TestCliManifest:
         # (called out in ROS-619 as unevenly documented).
         for name in ("build", "check", "drc", "dfm", "shot", "serve", "run", "init", "update"):
             assert name in commands, f"{name} missing from manifest"
+        assert commands["shot"]["needs"] == "design"
 
     def test_manifest_documents_check_family_contract(self):
         """drc/check/dfm document the --json schema and exit codes in their epilog."""
@@ -1639,6 +1749,27 @@ class TestReferenceStaleness:
         err = capsys.readouterr().err
         assert "api.pyi" in err
         assert "rosette update" in err
+
+    def test_warns_when_api_contract_differs_at_same_version(
+        self, tmp_path: Path, monkeypatch, capsys
+    ):
+        import json
+
+        project_dir = tmp_path / "proj"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project("blank", tool="none")
+        manifest_path = project_dir / ".rosette" / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["api_contract_sha256"] = "different-contract"
+        manifest_path.write_text(json.dumps(manifest))
+        capsys.readouterr()
+
+        _check_reference_staleness()
+
+        err = capsys.readouterr().err
+        assert "different Rosette API contract" in err
+        assert "uv run rosette update" in err
 
     def test_component_edits_do_not_affect_core_reference_staleness(
         self, tmp_path: Path, monkeypatch, capsys

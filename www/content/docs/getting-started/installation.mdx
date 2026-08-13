@@ -197,9 +197,12 @@ my-chip/
 │   ├── .rosette-provenance.json # Copy baselines for upgrade checks
 │   └── ...
 ├── .rosette/
-│   ├── api.pyi           # Public Python API reference
-│   ├── cli.json          # Machine-readable CLI contract
+│   ├── index.md          # Task-to-context router for agents
+│   ├── contracts/        # Focused layout, routing, verification, and authoring APIs
+│   ├── api.pyi           # Complete Python API fallback
+│   ├── cli.json          # Complete machine-readable CLI fallback
 │   └── manifest.json     # Managed-reference provenance
+├── .agents/skills/       # Focused agent skills (or .claude/skills/)
 └── AGENTS.md             # AI agent instructions (if selected)
 ```
 
@@ -216,9 +219,15 @@ my-chip/
   template-specific: the generic template copies the standard photonic building
   blocks, while the blank template starts with only an empty scaffold and shared
   authoring utilities. Everything here is yours to read and modify.
-- **`.rosette/api.pyi`**: the public Python API reference for agents.
-- **`.rosette/cli.json`**: the complete machine-readable CLI contract, including
-  commands, flags, exit codes, and JSON output schemas.
+- **`.rosette/index.md`**: the compact starting point for agents. It routes layout,
+  routing, verification, and component-authoring tasks to focused contracts and skills.
+- **`.rosette/contracts/`**: task-specific API slices generated from the authoritative
+  public contract. They reduce default context without duplicating signatures.
+- **`.rosette/api.pyi`**: the complete public Python API fallback for operations not
+  covered by a focused contract.
+- **`.rosette/cli.json`**: the complete machine-readable CLI fallback, including
+  commands, flags, exit codes, and JSON output schemas. Agents read only the command
+  entry they need.
 - **`.rosette/manifest.json`**: package and contract provenance for the managed core
   references. Component provenance remains separate in
   `components/.rosette-provenance.json`, beside the component source, so upgrade
@@ -226,7 +235,9 @@ my-chip/
 
 The `.rosette/` directory is gitignored because these references are tied to the
 installed Rosette version. After a fresh clone, restore the managed references with
-`uv run rosette update`. Do not rerun `rosette init` in an existing project.
+`uv run rosette update`. The command regenerates managed context while preserving
+runtime snapshots and user-owned project files. Do not rerun `rosette init` in an
+existing project.
 
 ## Run the dev server
 

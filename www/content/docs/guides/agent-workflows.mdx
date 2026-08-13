@@ -25,22 +25,30 @@ my-chip/
 ├── components/          # editable component library
 ├── designs/             # your design scripts
 ├── output/              # GDS build artifacts
+├── .agents/skills/      # focused skills (or .claude/skills/)
 └── .rosette/
-    ├── api.pyi          # core API reference for agents
-    └── cli.json         # complete machine-readable CLI contract
+    ├── index.md         # compact task-to-context router
+    ├── contracts/       # focused API contracts by task
+    ├── api.pyi          # complete API fallback
+    ├── cli.json         # complete CLI fallback
+    └── manifest.json    # generated reference provenance
 ```
 
 Each piece plays a specific role:
 
 - **`AGENTS.md` / `CLAUDE.md`**: short instruction file the agent reads
-  on startup. Tells it to read the reference files first, build then
-  check after every change, and never hardcode layer numbers.
-- **`.rosette/api.pyi`**: core API reference for the installed version
-  of Rosette. It uses compact stub syntax for agent context, but is not
-  an editor type stub. Component APIs live in the editable `components/`
-  source instead.
-- **`.rosette/cli.json`**: complete CLI contract for the installed version,
-  including commands, flags, exit codes, and JSON output schemas.
+  on startup. It sends the agent to the compact index, requires semantic
+  project layers, keeps composition-oriented designs thin, and allows one-off
+  exploratory geometry to remain local to a design.
+- **`.rosette/index.md`**: tells the agent which focused contract, skill,
+  project configuration, and local source apply to its current task.
+- **`.rosette/contracts/`**: task-specific API slices for layout composition,
+  routing, verification, and component authoring. They are generated from the
+  complete contract, so signatures have one source of truth.
+- **`.rosette/api.pyi`**: complete API fallback for uncommon operations not in
+  a focused contract. It is not loaded by default.
+- **`.rosette/cli.json`**: complete CLI fallback for exact commands, flags,
+  exit behavior, and JSON output schemas. Agents read only the relevant command.
 - **`rosette.toml`**: layer definitions, DRC rules, DFM config. The
   physical constraints of your design, machine-readable. Agents pick
   semantic layer names from `[layers]` instead of guessing GDS numbers.
@@ -49,21 +57,29 @@ Each piece plays a specific role:
   the docstrings and signatures, then composes them. The generic template
   includes the full catalog; the blank template starts with shared helpers
   for components you add later.
+- **Focused skills**: routing strategy, the build-check-inspect loop, and
+  component-authoring conventions. Skills are installed for both templates.
 
 <Callout title={"Restore references after cloning"} type={"info"}>
 `.rosette/` is gitignored because its references match the installed Rosette
 version. After a fresh clone, run `uv run rosette update` to recreate
-`.rosette/api.pyi` and `.rosette/cli.json`. Do not rerun `rosette init` in an
-existing project.
+the index, task contracts, and complete fallbacks. Do not rerun `rosette init`
+in an existing project.
 </Callout>
 
 <Callout title={"Pick a tool when you init"} type={"info"}>
-`rosette init` accepts `--tool opencode` or `--tool claude` if you want
-to skip the interactive prompt. Pass `--tool none` to skip the agent
-file entirely. The choice only controls which file is generated
-(`AGENTS.md` vs `CLAUDE.md`); the contents are nearly identical, and
-nothing else differs. You can also point most agents at either file
-manually.
+`rosette init` accepts `--tool agents` (also `opencode`, `codex`, or `cursor`)
+or `--tool claude` if you want to skip the interactive prompt. Pass
+`--tool agents,claude` for both harnesses or `--tool none` to skip agent files.
+The same instruction body and skills are projected to `AGENTS.md` plus
+`.agents/skills/`, or `CLAUDE.md` plus `.claude/skills/`.
+</Callout>
+
+<Callout title={"Keep contracts and runtime aligned"} type={"warn"}>
+Run project commands through `uv run rosette`, not a global `rosette` or `ro`
+executable. If a canonical import from a generated contract fails, do not add a
+compatibility shim. Run `uv run rosette update` and align the installed package
+before continuing. Rosette checks both package version and structural API identity.
 </Callout>
 
 ## The loop
@@ -73,7 +89,8 @@ agent writes the script, and then it iterates against the build and
 check commands until they pass.
 
 ```txt
-prompt -> agent reads .rosette/api.pyi, rosette.toml, components/
+prompt -> agent reads .rosette/index.md and rosette.toml
+       -> agent loads the task contract, skill, and relevant components/
        -> agent writes designs/<name>.py
        -> rosette build designs/<name>.py
        -> rosette check designs/<name>.py
@@ -229,10 +246,12 @@ couplers on both ends of the bus" gives the agent the constraints it
 needs to make the right decisions. The more constraints you state up
 front, the fewer iterations you'll need.
 
-**Let the agent read first.** A good agent reads `.rosette/api.pyi`,
-`rosette.toml`, and the relevant `components/*.py` before writing code.
+**Let the agent read first.** A good agent reads `.rosette/index.md`,
+`rosette.toml`, the selected task contract, and relevant `components/*.py`
+before writing code.
 If your agent has a habit of jumping straight to writing, prepend
-something like "Read the API stub and components first" to your prompt.
+something like "Read the Rosette index and relevant component source first"
+to your prompt.
 
 **Ask for the check loop explicitly.** If the agent stops at "the build
 passed," ask it to run `rosette check` and resolve any violations.
@@ -252,9 +271,8 @@ example, "use Euler bends" or "place the array as a single AREF").
 
 ## Picking an agent tool
 
-Rosette is tool-neutral. The same `AGENTS.md` instructions, API stub,
-and verify commands work with any agent that can read files and run
-shell commands.
+Rosette is tool-neutral. The same instructions, task contracts, skills, and
+verify commands work with any agent that can read files and run shell commands.
 
 - **[OpenCode](https://opencode.ai)** reads `AGENTS.md`. Run
   `rosette init --tool opencode`.
@@ -263,8 +281,8 @@ shell commands.
 - **[Cursor](https://cursor.com)** and other editor-integrated agents
   generally read either file or can be pointed at one manually.
 
-If you switch tools later, you can rename or symlink the file. The
-content is the same.
+The harness adapter writes both the instruction file and the matching skill
+directory. Run `rosette update` after changing harness files or upgrading Rosette.
 
 ## Common pitfalls
 
@@ -285,8 +303,9 @@ Always end the loop on `rosette check`, not on `rosette build`.
 <Callout title={"Stale API assumptions"} type={"warn"}>
 Agents trained months or years ago will confidently write APIs that
 don't exist or have moved. The agent file points them at
-`.rosette/api.pyi`; if you see hallucinated method names in generated
-code, prompt the agent to re-read the stub.
+`.rosette/index.md` and focused contracts; if you see hallucinated method names,
+prompt the agent to reload the relevant contract. The complete `api.pyi` remains
+available as a fallback.
 </Callout>
 
 <Callout title={"Skipping `components/`"} type={"warn"}>

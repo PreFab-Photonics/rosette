@@ -47,10 +47,10 @@ All components follow these conventions:
 * **Gap parameters** -- Where a component has a ``gap`` parameter (ring,
   directional coupler), it means the **edge-to-edge** distance between
   the nearest physical surfaces of the two waveguides.
-* **Path length** -- Every component sets ``cell.path_length`` (float,
-  microns) to the optical path length through the component. This is
-  the physical arc/centerline length of the waveguide, useful for phase
-  calculations and delay tracking.
+* **Path length** -- Optical components with a meaningful propagation path
+  set ``cell.path_length`` (float, microns) to the physical centerline
+  length, useful for phase calculations and delay tracking. Non-optical
+  geometry leaves it unset rather than assigning a synthetic zero.
 * **Cell names** -- Auto-generated from component parameters and
   truncated to 32 characters (the GDS-II limit) via ``safe_cell_name``.
 
@@ -134,7 +134,7 @@ Follow this skeleton when creating new components::
         cell.add_port(Port("in", Point(0, 0), -Vector2.unit_x(), waveguide_width))
         cell.add_port(Port("out", Point(length, 0), Vector2.unit_x(), waveguide_width))
 
-        cell.path_length = length  # Always set optical path length
+        cell.path_length = length  # Set when the component has an optical path
         return cell
 
 Internal modules available to component authors:

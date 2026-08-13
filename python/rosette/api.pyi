@@ -866,26 +866,16 @@ class Library:
 class Route:
     """Waypoint-based waveguide route.
 
-    Route connects an ordered sequence of waypoints with straight segments,
-    inserting circular bends at corners and interpolating width across segments.
-    It is **not** an auto-router — you must supply intermediate waypoints
-    to create the path shape you want.
+    Connects an ordered sequence of waypoints with straight segments, inserts
+    bends at corners, and interpolates width across segments. Route is not an
+    autorouter: callers provide every intermediate waypoint. Two endpoint ports
+    alone produce a straight line, so port-to-port routes need approach and
+    departure waypoints along the port axes.
 
-    Important: When connecting two ports, always add intermediate (x, y)
-    waypoints so the route departs and arrives along each port's axis.
-    Two ports alone produce a straight diagonal line between them,
-    ignoring port directions.
+    Routing strategy, bend-clearance guidance, and multi-route channel planning
+    live in the generated project's ``routing`` skill.
 
-    Example — connecting two ports with an S-bend::
-
-        route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
-        route.start_at_port(port_a)                    # departs along port_a's axis
-        route.to(mid_x, port_a.position.y)             # horizontal segment out
-        route.to(mid_x, port_b.position.y)             # vertical transition
-        route.end_at_port(port_b)                      # arrives along port_b's axis
-        cell = route.to_cell("my_route")
-
-    Example — manual waypoints::
+    Example::
 
         route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
         route.start_at(0, 0, angle=0)
@@ -893,94 +883,6 @@ class Route:
         route.to(50, 30)
         route.end_at(100, 30, angle=0)
         cell = route.to_cell("my_route")
-
-    Bend radius constraints
-    -----------------------
-    Quick reference for S-bend sizing (R = ``bend_radius``):
-
-    * **Vertical segment**: ``dy >= 2 * R + 2`` (minimum, including margin)
-    * **Each horizontal leg**: ``dx >= R``
-    * **Fan-out pitch**: ``pitch >= 4 * R + port_spacing + 2``
-
-    Example: R=10, port_spacing=2 -> pitch >= 44, each horizontal >= 10.
-
-    Detailed explanation: each 90-degree corner consumes R of clearance
-    on both adjacent segments (the "setback").  If the segment between
-    two consecutive corners is shorter than the sum of their setbacks
-    the bend radius is **auto-reduced** to fit, producing a build warning.
-
-    For an S-bend (horizontal -> vertical -> horizontal):
-
-    * **Vertical**: ``dy > 2 * R``.  Two quarter-circle bends stacked
-      vertically each consume R of the vertical segment.  Use a margin
-      of at least 1-2 um beyond the ``2R`` minimum -- the router
-      auto-reduces at exactly ``2R`` due to internal tolerances.
-    * **Horizontal**: each horizontal leg must be ``>= R``.
-
-    When fanning out from closely-spaced ports to a wider pitch, the
-    vertical offset per route is
-    ``dy = (pitch - port_spacing) / 2``.  For ``dy > 2R``:
-    ``pitch >= 4 * R + port_spacing + 2``.
-
-    Fan-out / fan-in nesting order
-    ------------------------------
-    When routing from a cluster of closely-spaced ports to a set of
-    widely-spread targets, each route uses a turning-column x-position
-    for its vertical segment.  Assigning columns in sequential order
-    causes outer routes' vertical segments to cross inner routes'
-    horizontal segments.
-
-    Fix: assign turning columns **outside-in** -- outermost
-    source-destination pairs get the leftmost columns, inner pairs get
-    progressively rightward columns.  For N sources the non-crossing
-    order is ``[0, N-1, 1, N-2, ...]``, alternating from each end
-    toward the center.  Space columns ``>= 2 * R`` apart so bend arcs
-    do not overlap.
-
-    For symmetric layouts with upper and lower port groups, apply outside-in
-    ordering **within each group independently**. Do not interleave columns
-    across groups that route to opposite sides of the layout.
-
-    Avoiding overlaps (``no_overlap`` DRC rule)
-    --------------------------------------------
-    Each Route generates waveguide polygons on its layer. If two routes
-    share the same horizontal or vertical corridor, their polygons
-    physically overlap and ``rosette check`` reports ``no_overlap``
-    violations. This is the **most common** cause of overlap errors —
-    not port-to-component overlap at connection points.
-
-    The problem arises when multiple routes converge to ports that sit
-    on the same y-coordinate (or x-coordinate). A naive S-bend to each
-    port creates a horizontal segment at that shared y-level, and those
-    segments overlap in the x-range where they coincide.
-
-    Fix: **give each route its own routing channel** — a unique y-level
-    for horizontal segments and a unique x-level for vertical segments,
-    with at least ``min_spacing`` between them.
-
-    Example — 3 ports at the same y, routed without overlap::
-
-        #  port_a, port_b, port_c all at y = 0, spread along x.
-        #  Source ports are at x = 0 with different y coordinates.
-        #  pairs = [(source_a, port_a), (source_b, port_b), ...]
-        #
-        #  Bad:  all 3 routes share a horizontal segment at y = 0
-        #  Good: each route uses a unique horizontal channel
-        vert_x = 50.0      # x for the shared vertical region
-        ch_spacing = 5.0   # um between channels (>= min_spacing)
-        for i, (source_port, target_port) in enumerate(pairs):
-            ch_y = target_port.position.y - 30.0 - i * ch_spacing
-            approach_x = target_port.position.x - 35.0
-            route = Route(layer, width=0.5, bend_radius=10.0)
-            route.start_at_port(source_port)
-            route.to(vert_x, source_port.position.y)
-            route.to(vert_x, ch_y)                  # unique horiz channel
-            route.to(approach_x, ch_y)               # across to target
-            route.to(approach_x, target_port.position.y)
-            route.end_at_port(target_port)
-
-    Cells that place multiple ports on one line need this channel-routing
-    approach when more than one route must reach those ports.
     """
 
     def __init__(
