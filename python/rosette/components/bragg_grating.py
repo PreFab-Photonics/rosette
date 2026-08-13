@@ -174,7 +174,7 @@ def bragg_grating(
         The grating body is centered on ``y = 0`` and extends from
         ``x = 0`` to ``x = length``. To place a Bragg grating on a
         **vertical** waveguide segment, rotate by 90 degrees **then**
-        translate. Use ``.at(0, 0).rotate(90).at(x, y)``::
+        translate. Use ``.at(0, 0).rotate(90).translate(x, y)``::
 
             "in"  -> (x, y)          facing **-Y**
             "out" -> (x, y + length) facing **+Y**
@@ -182,7 +182,7 @@ def bragg_grating(
         **Transform order matters.**  ``.at(x, y).rotate(deg)`` translates
         first then rotates the *entire coordinate frame* around the origin,
         which moves the component to an unexpected position.  Always
-        rotate first, then translate: ``.at(0, 0).rotate(deg).at(x, y)``.
+        rotate first, then translate: ``.at(0, 0).rotate(deg).translate(x, y)``.
 
         Unlike the ring (which composes with a bus along a route), the
         Bragg grating sits *inline* in a waveguide: route into ``"in"``,
@@ -229,9 +229,9 @@ def bragg_grating(
             gc = grating_coupler(layer)
             bg = bragg_grating(layer, num_periods=200)
 
-            gc_in  = gc.at(0, 0).rotate(180).at(-50, 0)
+            gc_in  = gc.at(0, 0).rotate(180).translate(-50, 0)
             bg_in  = bg.at(0, 0)
-            gc_out = gc.at(0, 0).rotate(0).at(bg.path_length + 50, 0)
+            gc_out = gc.at(0, 0).rotate(0).translate(bg.path_length + 50, 0)
 
             r_in = Route.through(
                 gc_in.port("opt"),

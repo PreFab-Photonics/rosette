@@ -134,7 +134,7 @@ def directional_coupler(
         convention. Route *into* the input ports from the left.
 
         To rotate the coupler (e.g. 90 deg so inputs face **-Y**), rotate
-        **before** translating: ``.at(0, 0).rotate(90).at(x, y)``.
+        **before** translating: ``.at(0, 0).rotate(90).translate(x, y)``.
 
         **Transform order matters.** ``.at(x, y).rotate(deg)`` translates
         first then rotates the *entire coordinate frame* around the origin,
@@ -186,7 +186,7 @@ def directional_coupler(
             # hundred nm longer than the x-extent).
             total_x = 2 * bend_length + coupling_length
             dc_in  = dc.at(0, 0)
-            dc_out = dc.at(0, 0).at(total_x + 100, 0)
+            dc_out = dc.at(0, 0).translate(total_x + 100, 0)
 
             upper = Route.through(
                 dc_in.port("out1"), dc_out.port("in1"),
@@ -200,8 +200,8 @@ def directional_coupler(
             design = Cell("mzi_skeleton")
             design.add_ref(dc_in)
             design.add_ref(dc_out)
-            design.add_ref(upper.to_cell("upper"))
-            design.add_ref(lower.to_cell("lower"))
+            design.add_ref(upper.to_cell("upper").at(0, 0))
+            design.add_ref(lower.to_cell("lower").at(0, 0))
             write_gds("output/mzi_skeleton.gds", design)
     """
     if coupling_length <= 0:

@@ -197,13 +197,14 @@ class Instance:
     accumulated transform, so the *first* call is applied first to
     geometry.  ``.at(x, y).rotate(deg)`` translates first then rotates
     around the origin -- moving the component to an unexpected position.
-    To rotate then place: ``.at(0, 0).rotate(deg).at(x, y)``.
+    To rotate then place: ``.at(0, 0).rotate(deg).translate(x, y)``.
 
     Bounding-box shift after transform: even with the correct ordering,
     transforms change where geometry sits relative to the anchor point.
     For example, an 8x5 rect at (0,0)-(8,5) rotated 45° becomes a
-    diamond whose extents are completely different. The final ``.at(x, y)``
-    places the *transformed origin*, not the visual center or corner.
+    diamond whose extents are completely different. The final
+    ``.translate(dx, dy)`` moves the *transformed origin*, not the visual
+    center or corner.
     To align transformed instances with other geometry, account for the
     new bounds when choosing placement coordinates.
 
@@ -225,21 +226,18 @@ class Instance:
         top.add_ref(output_instance)
 
         # Rotate then place at a specific position:
-        rotated = some_cell.at(0, 0).rotate(90).at(50, 100)
+        rotated = some_cell.at(0, 0).rotate(90).translate(50, 100)
 
         # Caution: rotation shifts the bounding box relative to the
         # anchor. A 45° rotation moves the geometry's visual center,
-        # so you may need to adjust the final .at() offset:
-        rotated45 = block.at(0, 0).rotate(45).at(x + 4, y - 2)
+        # so you may need to adjust the final translate() offset:
+        rotated45 = block.at(0, 0).rotate(45).translate(x + 4, y - 2)
     """
 
     def __init__(
         self,
         cell: Cell,
         transform: Transform | None = None,
-        repetition: tuple[int, int, float, float]
-        | tuple[int, int, float, float, float, float]
-        | None = None,
     ) -> None: ...
     @property
     def cell(self) -> Cell:
@@ -249,12 +247,12 @@ class Instance:
     def transform(self) -> Transform:
         """The current transform applied to this instance."""
         ...
-    def at(self, x: float, y: float) -> Instance:
-        """Set the position (translation).
+    def translate(self, dx: float, dy: float) -> Instance:
+        """Translate this instance in its parent's coordinate frame.
 
         Args:
-            x: X coordinate
-            y: Y coordinate
+            dx: X offset
+            dy: Y offset
 
         Returns:
             A new Instance with updated transform
@@ -349,46 +347,39 @@ class Instance:
             ValueError: If columns or rows is outside the range [1, 32767].
         """
         ...
-    def port(self, name: str, col: int = 0, row: int = 0) -> Port:
+    def port(self, name: str) -> Port:
         """Get a transformed port from this instance.
 
         The Instance already knows its cell definition, so only the port name
-        and optional array coordinates are needed.
+        is needed.
 
         Both position and direction are fully transformed (translation,
         rotation, mirroring). For example, a port facing +X will face -X
         after a 180-degree rotation.
 
-        For arrayed instances (see :meth:`array` / :meth:`array_vectors`),
-        pass ``col`` and ``row`` to address a specific copy in the
-        lattice. The default ``(0, 0)`` returns the port of the anchor
-        copy, matching the behaviour of non-arrayed instances.
+        For arrayed instances, this returns the anchor copy's port. Use
+        :meth:`copy` or :meth:`copies` for per-copy ports.
 
         Args:
             name: Name of the port to retrieve
-            col: Grid column of the copy to query (0-indexed). Only
-                meaningful on arrayed instances.
-            row: Grid row of the copy to query (0-indexed). Only
-                meaningful on arrayed instances.
 
         Returns:
             The port with position and direction transformed
 
         Raises:
             KeyError: If the port is not found in the cell
-            IndexError: If ``col`` or ``row`` is outside the array bounds
 
         Example:
             placed = unit_cell.at(100, 50)
             io_port = placed.port("io")  # Transformed position and direction
 
             # 180-degree rotation flips both position and direction:
-            flipped = unit_cell.at(0, 0).rotate(180).at(50, 0)
+            flipped = unit_cell.at(0, 0).rotate(180).translate(50, 0)
             p = flipped.port("io")   # direction is now (-1, 0)
 
-            # Arrayed: address a specific copy.
+            # Arrayed: address a specific copy through ArrayCopy.
             bank = unit_cell.at(0, 0).array(8, 1, 30.0, 0.0)
-            p = bank.port("in", col=3)
+            p = bank.copy(3, 0).port("in")
         """
         ...
     @property
@@ -396,6 +387,17 @@ class Instance:
         """Grid dimensions ``(columns, rows)`` of this instance.
 
         Returns ``(1, 1)`` for non-arrayed instances.
+        """
+        ...
+    def copy(self, col: int, row: int) -> ArrayCopy:
+        """Return the validated array copy at ``(col, row)``.
+
+        Use the returned :class:`ArrayCopy` for per-copy transforms,
+        positions, and ports.
+
+        Raises:
+            TypeError: If either index is not an integer.
+            IndexError: If either index is outside the array bounds.
         """
         ...
     def copies(self) -> Iterator[ArrayCopy]:
@@ -417,9 +419,9 @@ class Instance:
 class ArrayCopy:
     """A single copy in an arrayed :class:`Instance`.
 
-    Produced by :meth:`Instance.copies`. Exposes the copy's grid position, its world-space
-    transform, and a :meth:`port` helper for retrieving the
-    transformed port of this specific copy.
+    Produced by :meth:`Instance.copy` and :meth:`Instance.copies`. Exposes the
+    copy's grid position, its world-space transform, and a :meth:`port` helper
+    for retrieving the transformed port of this specific copy.
 
     ``ArrayCopy`` is a lightweight view over the parent instance — it
     does **not** add geometry or a GDS reference when constructed.
@@ -437,7 +439,8 @@ class ArrayCopy:
     def __init__(self, instance: Instance, col: int, row: int) -> None:
         """Create an ArrayCopy view.
 
-        Typically not called directly — use :meth:`Instance.copies`.
+        Typically not called directly — use :meth:`Instance.copy` or
+        :meth:`Instance.copies`.
         """
         ...
 
@@ -459,8 +462,6 @@ class ArrayCopy:
         ...
     def port(self, name: str) -> Port:
         """Get the transformed port of this specific copy.
-
-        Equivalent to ``parent.port(name, col=self.col, row=self.row)``.
 
         Args:
             name: Name of the port to retrieve.
@@ -728,11 +729,11 @@ class Cell:
             top.add_ref(unit_cell.at(0, 0).array(10, 10, pitch, pitch))
         """
         ...
-    def add_ref(self, ref: Cell | Instance) -> None:
-        """Add a cell or resolved instance.
+    def add_ref(self, ref: Instance) -> None:
+        """Add a resolved instance.
 
-        When adding a Cell or Instance, the child cell is automatically
-        tracked for write_gds().
+        The child cell is automatically tracked for write_gds(). Use
+        ``child.at(0, 0)`` to place a child explicitly at the origin.
 
         For uniform grids of identical copies at a fixed pitch, call
         ``.array()`` on the instance before passing it to ``add_ref``
@@ -744,13 +745,14 @@ class Cell:
             top.add_ref(unit.at(0, 0).array(cols, rows, pitch_x, pitch_y))
 
         Args:
-            ref: A Cell (placed at origin) or Instance to add
+            ref: A resolved Instance to add
 
         Example:
             top.add_ref(unit_cell.at(0, 0))      # Instance at position
-            top.add_ref(route.to_cell("wg"))     # Cell at origin
+            top.add_ref(route.to_cell("wg").at(0, 0))
 
         Raises:
+            TypeError: If ``ref`` is not an Instance.
             ValueError: If the placement is invalid. The parent reference list
                 and tracked child set are left unchanged.
         """

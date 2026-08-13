@@ -30,7 +30,7 @@ route.to(60, dst.position.y)   # vertical jog
 route.end_at_port(dst)         # arrive along dst's axis
 
 top = Cell("top")
-top.add_ref(route.to_cell("wg"))
+top.add_ref(route.to_cell("wg").at(0, 0))
 write_gds("output.gds", top)
 ```
 

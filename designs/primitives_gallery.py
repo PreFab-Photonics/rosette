@@ -137,8 +137,8 @@ design.add_ref(hexagon_cell.at(95, 5))
 # the transform first and place last -- otherwise the placement offset gets
 # mirrored/rotated too and the geometry flies off somewhere unexpected.
 design.add_ref(triangle_cell.at(0, 40))  # original orientation
-design.add_ref(triangle_cell.at(0, 0).mirror_x().at(50, 65))  # mirror, then place
-design.add_ref(triangle_cell.at(0, 0).rotate(180).at(135, 65))  # rotate, then place
+design.add_ref(triangle_cell.at(0, 0).mirror_x().translate(50, 65))  # mirror, then place
+design.add_ref(triangle_cell.at(0, 0).rotate(180).translate(135, 65))  # rotate, then place
 
 # --- Band 3: a path instance (y = 90), in its own clear row ---
 design.add_ref(path_cell.at(0, 90))
@@ -153,9 +153,7 @@ design.add_ref(xor_cell.at(160, 130))
 # A grid of small rectangles instanced from a single source cell.
 dot_cell = Cell("dot")
 dot_cell.add_polygon(Polygon.rect(Point(0, 0), 3, 3), silicon)
-design.add_ref(
-    dot_cell.at(0, 195).array(columns=8, rows=3, col_spacing=8.0, row_spacing=8.0)
-)
+design.add_ref(dot_cell.at(0, 195).array(columns=8, rows=3, col_spacing=8.0, row_spacing=8.0))
 
 # =============================================================================
 # 5. Labels

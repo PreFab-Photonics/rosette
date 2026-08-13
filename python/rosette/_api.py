@@ -137,7 +137,7 @@ def _validate_instance_transform(transform: Transform, context: str = "Instance 
 
 
 def _require_array_index(value: object) -> int:
-    if not isinstance(value, int):
+    if not isinstance(value, int) or isinstance(value, bool):
         raise TypeError("col and row must be integers")
     return value
 
@@ -212,18 +212,18 @@ class Instance:
 
         # To rotate a component then place it at a specific position,
         # rotate first, then translate:
-        inst = cell.at(0, 0).rotate(90).at(25, 50)  # rotate, then move to (25,50)
+        inst = cell.at(0, 0).rotate(90).translate(25, 50)
 
     **Bounding-box shift after transform:** Even with the correct ordering,
     transforms change where geometry sits relative to the anchor point.
     For example, an 8x5 rect at (0,0)-(8,5) rotated 45° becomes a diamond
-    whose extents are completely different. The final ``.at(x, y)`` places
-    the *transformed origin*, not the visual center or corner. To align
+    whose extents are completely different. The final ``.translate(dx, dy)``
+    moves the *transformed origin*, not the visual center or corner. To align
     transformed instances with other geometry, account for the new bounds
-    when choosing placement coordinates::
+    when choosing placement offsets::
 
         # 45° rotation shifts the bbox — adjust the final offset:
-        rotated45 = block.at(0, 0).rotate(45).at(x + 4, y - 2)
+        rotated45 = block.at(0, 0).rotate(45).translate(x + 4, y - 2)
     """
 
     __slots__ = ("_cell", "_repetition", "_transform")
@@ -232,32 +232,29 @@ class Instance:
         self,
         cell: Cell,
         transform: Transform | None = None,
-        repetition: tuple[int, int, float, float]
-        | tuple[int, int, float, float, float, float]
-        | None = None,
     ) -> None:
         """Create an Instance from a Cell and optional transform.
 
         Args:
             cell: The cell definition
             transform: Optional transform (defaults to identity)
-            repetition: Optional AREF lattice, either
-                ``(columns, rows, col_spacing, row_spacing)`` for an
-                axis-aligned rectangular grid, or
-                ``(columns, rows, col_x, col_y, row_x, row_y)`` for an
-                arbitrary (possibly skewed/hex) grid, in local
-                (pre-transform) coordinates, in um.
         """
         resolved_transform = transform if transform is not None else Transform.identity()
         _validate_instance_transform(resolved_transform)
-        # Normalize to the internal 6-tuple form
-        # (columns, rows, col_x, col_y, row_x, row_y).
+        self._cell = cell
+        self._transform = resolved_transform
+        self._repetition: tuple[int, int, float, float, float, float] | None = None
+
+    @classmethod
+    def _from_parts(
+        cls,
+        cell: Cell,
+        transform: Transform,
+        repetition: tuple[int, int, float, float, float, float] | None,
+    ) -> Instance:
+        """Build an instance while preserving its private repetition state."""
+        instance = cls(cell, transform)
         if repetition is not None:
-            if len(repetition) == 4:
-                cols, rws, cs, rs = repetition
-                repetition = (cols, rws, cs, 0.0, 0.0, rs)
-            elif len(repetition) != 6:
-                raise ValueError("repetition must contain 4 or 6 values")
             _validate_array_dims(repetition[0], repetition[1])
             _validate_finite_values("repetition vectors", *repetition[2:])
             columns, rows, *_ = repetition
@@ -270,12 +267,11 @@ class Instance:
                 dx, dy = _repetition_copy_offset(repetition, col, row)
                 _validate_finite_values("Instance array copy offset", dx, dy)
                 _validate_instance_transform(
-                    resolved_transform.then(Transform.translate(dx, dy)),
+                    transform.then(Transform.translate(dx, dy)),
                     "Instance array copy transform",
                 )
-        self._cell = cell
-        self._transform = resolved_transform
-        self._repetition = repetition
+        instance._repetition = repetition
+        return instance
 
     @property
     def cell(self) -> Cell:
@@ -287,19 +283,19 @@ class Instance:
         """The current transform applied to this instance."""
         return self._transform
 
-    def at(self, x: float, y: float) -> Instance:
-        """Set the position (translation).
+    def translate(self, dx: float, dy: float) -> Instance:
+        """Translate this instance in its parent's coordinate frame.
 
         Args:
-            x: X coordinate
-            y: Y coordinate
+            dx: X offset
+            dy: Y offset
 
         Returns:
             A new Instance with updated transform
         """
-        _validate_finite_values("Instance position", x, y)
-        new_transform = Transform.translate(x, y).then(self._transform)
-        return Instance(self._cell, new_transform, self._repetition)
+        _validate_finite_values("Instance translation", dx, dy)
+        new_transform = Transform.translate(dx, dy).then(self._transform)
+        return Instance._from_parts(self._cell, new_transform, self._repetition)
 
     def rotate(self, angle_deg: float) -> Instance:
         """Rotate by angle (in degrees).
@@ -312,7 +308,7 @@ class Instance:
         """
         _validate_finite_values("Instance rotation angle", angle_deg)
         new_transform = Transform.rotate(angle_deg).then(self._transform)
-        return Instance(self._cell, new_transform, self._repetition)
+        return Instance._from_parts(self._cell, new_transform, self._repetition)
 
     def mirror_x(self) -> Instance:
         """Mirror across X axis.
@@ -321,7 +317,7 @@ class Instance:
             A new Instance with updated transform
         """
         new_transform = Transform.scale(1.0, -1.0).then(self._transform)
-        return Instance(self._cell, new_transform, self._repetition)
+        return Instance._from_parts(self._cell, new_transform, self._repetition)
 
     def mirror_y(self) -> Instance:
         """Mirror across Y axis.
@@ -330,7 +326,7 @@ class Instance:
             A new Instance with updated transform
         """
         new_transform = Transform.scale(-1.0, 1.0).then(self._transform)
-        return Instance(self._cell, new_transform, self._repetition)
+        return Instance._from_parts(self._cell, new_transform, self._repetition)
 
     def scale(self, s: float) -> Instance:
         """Scale uniformly.
@@ -345,7 +341,7 @@ class Instance:
         if s == 0.0:
             raise ValueError("Instance scale must be nonzero")
         new_transform = Transform.scale_uniform(s).then(self._transform)
-        return Instance(self._cell, new_transform, self._repetition)
+        return Instance._from_parts(self._cell, new_transform, self._repetition)
 
     def array(
         self,
@@ -387,7 +383,7 @@ class Instance:
         """
         _validate_array_dims(columns, rows)
         _validate_finite_values("array spacing", col_spacing, row_spacing)
-        return Instance(
+        return Instance._from_parts(
             self._cell,
             self._transform,
             (columns, rows, col_spacing, 0.0, 0.0, row_spacing),
@@ -439,50 +435,39 @@ class Instance:
             row_vector.x,
             row_vector.y,
         )
-        return Instance(
+        return Instance._from_parts(
             self._cell,
             self._transform,
             (columns, rows, col_vector.x, col_vector.y, row_vector.x, row_vector.y),
         )
 
-    def port(self, name: str, col: int = 0, row: int = 0) -> Port:
+    def port(self, name: str) -> Port:
         """Get a transformed port from this instance.
 
         The Instance already knows its cell definition, so only the port name
-        and optional array coordinates are needed.
-
-        For arrayed instances (see :meth:`array` / :meth:`array_vectors`),
-        pass ``col`` and ``row`` to address a specific copy in the
-        lattice. The default ``(0, 0)`` returns the port of the anchor
-        copy, matching the behaviour of non-arrayed instances.
+        is needed. For an arrayed instance, this returns the anchor copy's
+        port. Use :meth:`copy` or :meth:`copies` for per-copy ports.
 
         Args:
             name: Name of the port to retrieve.
-            col: Grid column of the copy to query (0-indexed). Only
-                meaningful on arrayed instances.
-            row: Grid row of the copy to query (0-indexed). Only
-                meaningful on arrayed instances.
 
         Returns:
             The port with position and direction transformed into
-            world space for the requested copy.
+            world space for the anchor copy.
 
         Raises:
             KeyError: If the port is not found in the cell.
-            IndexError: If ``col`` or ``row`` is outside the array
-                bounds.
 
         Example:
             gc = gc_cell.at(100, 50)
             opt_port = gc.port("opt")  # No need to pass gc_cell!
 
-            # Arrayed: address a specific copy.
+            # Arrayed: address a specific copy through ArrayCopy.
             bank = ring_cell.at(0, 0).array(8, 1, 30.0, 0.0)
-            p = bank.port("in", col=3)
+            p = bank.copy(3, 0).port("in")
         """
         original_port = self._cell.port(name)
-        copy_transform = self._copy_transform(col, row)
-        return _transform_port(original_port, copy_transform)
+        return _transform_port(original_port, self._transform)
 
     @property
     def array_shape(self) -> tuple[int, int]:
@@ -524,6 +509,19 @@ class Instance:
         _validate_instance_transform(transform, "Instance array copy transform")
         return transform
 
+    def copy(self, col: int, row: int) -> ArrayCopy:
+        """Return the array copy at ``(col, row)``.
+
+        Use the returned :class:`ArrayCopy` for per-copy transforms, positions,
+        and ports. Indices are zero-based and validated against
+        :attr:`array_shape`.
+
+        Raises:
+            TypeError: If either index is not an integer.
+            IndexError: If either index is outside the array bounds.
+        """
+        return ArrayCopy(self, col, row)
+
     def copies(self) -> Iterator[ArrayCopy]:
         """Iterate over the individual copies in this instance's array.
 
@@ -552,7 +550,7 @@ class Instance:
         columns, rows = self.array_shape
         for r in range(rows):
             for c in range(columns):
-                yield ArrayCopy(self, c, r)
+                yield self.copy(c, r)
 
     def _to_inner_ref(self) -> _CellRef:
         """Lower this resolved placement to the native hierarchy record."""
@@ -574,9 +572,9 @@ class Instance:
 class ArrayCopy:
     """A single copy in an arrayed :class:`Instance`.
 
-    Produced by :meth:`Instance.copies`. Exposes the copy's grid position, its world-space
-    transform, and a :meth:`port` helper for retrieving the
-    transformed port of this specific copy.
+    Produced by :meth:`Instance.copy` and :meth:`Instance.copies`. Exposes the
+    copy's grid position, its world-space transform, and a :meth:`port` helper
+    for retrieving the transformed port of this specific copy.
 
     ``ArrayCopy`` is deliberately a lightweight view over its parent
     instance — it does **not** add geometry or a GDS reference when
@@ -605,7 +603,8 @@ class ArrayCopy:
     def __init__(self, instance: Instance, col: int, row: int) -> None:
         """Create an ArrayCopy view.
 
-        Typically you don't call this directly; use :meth:`Instance.copies`.
+        Typically you don't call this directly; use :meth:`Instance.copy` or
+        :meth:`Instance.copies`.
 
         Args:
             instance: The parent arrayed (or single) Instance.
@@ -654,8 +653,6 @@ class ArrayCopy:
         """Get the transformed port of this specific copy.
 
         Both position and direction are transformed into world space.
-        Equivalent to ``parent.port(name, col=self.col, row=self.row)``.
-
         Args:
             name: Name of the port to retrieve.
 
@@ -991,11 +988,11 @@ class Cell:
         _validate_finite_values("Instance position", x, y)
         return Instance(self, Transform.translate(x, y))
 
-    def add_ref(self, ref: Cell | Instance) -> None:
-        """Add a cell or resolved instance.
+    def add_ref(self, ref: Instance) -> None:
+        """Add a resolved instance.
 
-        When adding a Cell or Instance, the child cell is automatically
-        tracked for write_gds().
+        The child cell is automatically tracked for write_gds(). Use
+        ``child.at(0, 0)`` to place a child explicitly at the origin.
 
         For uniform grids of identical copies at a fixed pitch, call
         ``.array()`` on the instance before passing it to ``add_ref``
@@ -1007,25 +1004,22 @@ class Cell:
             top.add_ref(unit.at(0, 0).array(cols, rows, pitch_x, pitch_y))
 
         Args:
-            ref: A Cell (placed at origin) or Instance to add
+            ref: A resolved Instance to add
+
+        Raises:
+            TypeError: If ``ref`` is not an Instance.
+            ValueError: If the placement cannot be represented in GDS.
 
         Example:
             top.add_ref(gc_cell.at(0, 0))        # Instance at position
-            top.add_ref(route.to_cell("wg"))     # Cell at origin
+            top.add_ref(route.to_cell("wg").at(0, 0))
         """
-        instance = self._coerce_instance(ref)
-        inner_ref = instance._to_inner_ref()
+        if not isinstance(ref, Instance):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError("ref must be an Instance; use cell.at(0, 0) for origin placement")
+        inner_ref = ref._to_inner_ref()
         self._inner.add_ref(inner_ref)
-        self._child_cells.add(instance.cell)
-        self._child_cells.update(instance.cell._child_cells)
-
-    @staticmethod
-    def _coerce_instance(ref: object) -> Instance:
-        if isinstance(ref, Cell):
-            return ref.at(0, 0)
-        if isinstance(ref, Instance):
-            return ref
-        raise TypeError("ref must be a Cell or Instance")
+        self._child_cells.add(ref.cell)
+        self._child_cells.update(ref.cell._child_cells)
 
     def __repr__(self) -> str:
         return f"Cell('{self.name}', {self.polygon_count()} polygons, {self.ref_count()} refs)"

@@ -123,12 +123,12 @@ def crossing(
 
         To rotate a crossing 45 degrees (e.g. for a crossover laid out
         along diagonals), rotate **before** translating: ``.at(0, 0)
-        .rotate(45).at(x, y)``.
+        .rotate(45).translate(x, y)``.
 
         **Transform order matters.** ``.at(x, y).rotate(deg)`` translates
         first then rotates the *entire coordinate frame* around the origin,
         which moves the component to an unexpected position. Always
-        rotate first, then translate: ``.at(0, 0).rotate(deg).at(x, y)``.
+        rotate first, then translate: ``.at(0, 0).rotate(deg).translate(x, y)``.
 
     Examples:
         Default low-loss elliptical crossing::
@@ -158,7 +158,7 @@ def crossing(
 
             # Place crossing at the intersection of the bus (y=0) and
             # the signal line (x=50).
-            xi = x.at(0, 0).at(50, 0)
+            xi = x.at(0, 0).translate(50, 0)
 
             # Bus runs west-to-east across the crossing (in1 -> out1).
             bus = Route.through(
@@ -179,8 +179,8 @@ def crossing(
 
             design = Cell("crossover")
             design.add_ref(xi)
-            design.add_ref(bus.to_cell("bus"))
-            design.add_ref(signal.to_cell("signal"))
+            design.add_ref(bus.to_cell("bus").at(0, 0))
+            design.add_ref(signal.to_cell("signal").at(0, 0))
             write_gds("output/crossover.gds", design)
     """
     if waveguide_width <= 0:

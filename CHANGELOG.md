@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `Cell::edit_elements`, `Cell::edit_ports`, and `Cell::edit_bends` APIs.
 - A versioned `rosette-layout` JSON document owned by `rosette-io`, with explicit
   coordinate conventions, typed element records, annotations, and top-cell selection.
+- Direct `Instance.copy(col, row)` access to the same validated `ArrayCopy` views
+  yielded by `Instance.copies()`.
 
 ### Changed
 
@@ -40,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   public facade/agent reference, and project guidance uses explicit imports.
 - `Instance` is now the single public cell-placement abstraction. `ArrayCopy`
   remains a read-only view for inspecting individual copies of a compact AREF.
+- Python placement now distinguishes initial `Cell.at(x, y)` placement from relative
+  parent-frame `Instance.translate(dx, dy)` transforms, and `Cell.add_ref()` requires
+  an explicitly resolved `Instance`.
 - Bbox, DRC, checks, DFM, raster, GDS dependency ordering, WASM, and build summaries
   now use shared hierarchy and repetition mechanisms.
 - Layout paths are stroked before affine transformation, preserve absolute negative
@@ -100,6 +105,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   derived `cell_name` and `LayerInfo` aliases, `LayerMap` viewer serialization,
   and the duplicate `Instance` iteration and length protocols. Use `Cell.add_path()`,
   `cell_ref_names()`, `.cell.name`, `.layer`, and `Instance.copies()` respectively.
+- Removed implicit `Cell.add_ref(Cell)` origin placement, relative `Instance.at()`,
+  public repetition tuples in `Instance(...)`, and indexed `Instance.port()` access.
+  Use `child.at(0, 0)`, `instance.translate()`, `instance.array()` or
+  `array_vectors()`, and `instance.copy(col, row).port(name)` respectively.
 - Removed the top-level Python exports `DEFAULT_LAYERS`, `DrcCache`,
   `add_dfm_predictions`, `fresnel_c`, `fresnel_s`, and the free
   `path_length()` helper. Internal CLI, viewer, and component support retains

@@ -202,7 +202,7 @@ route.to(60, dst.position.y)
 route.end_at_port(dst)
 
 top = Cell("top")
-top.add_ref(route.to_cell("wg"))
+top.add_ref(route.to_cell("wg").at(0, 0))
 ```
 
 The full story (Euler vs. circular bends, width transitions, common pitfalls)

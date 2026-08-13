@@ -113,11 +113,11 @@ route.start_at_port(wg2.port("out"))
 route.to(120, 0)
 route.to(120, 30)
 route.end_at(150, 30, angle=0)
-design.add_ref(route.to_cell("s_bend_route"))
+design.add_ref(route.to_cell("s_bend_route").at(0, 0))
 
 # Instance with transforms: rotation, mirroring
-design.add_ref(pad_cell.at(0, 0).rotate(45).at(180, -30))
-design.add_ref(pad_cell.at(0, 0).mirror_x().at(180, 30))
+design.add_ref(pad_cell.at(0, 0).rotate(45).translate(180, -30))
+design.add_ref(pad_cell.at(0, 0).mirror_x().translate(180, 30))
 
 # Alignment marks at corners, hex markers along a diagonal, ...
 for x, y in [(-60, 70), (-60, -70), (240, 70), (240, -70)]:
@@ -175,7 +175,7 @@ route = Route.through(
 design = Cell("loopback")
 design.add_ref(gc_in)
 design.add_ref(gc_out)
-design.add_ref(route.to_cell("route"))
+design.add_ref(route.to_cell("route").at(0, 0))
 ```
 
 On its first attempt, the agent set `mid_x` too small. The build warned that the bend radius was auto-reduced from 10 µm to 4.5 µm. It read the warning, understood the geometry, increased the horizontal extent, and rebuilt clean. Then it ran checks:

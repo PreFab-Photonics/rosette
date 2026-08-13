@@ -446,12 +446,12 @@ An Instance positioned at (x, y).
 
 <PyFunction name={"add_ref"} type={"(ref) -> None"}>
 
-Add a cell or instance to this cell.
+Add a resolved instance to this cell.
 
-A `Cell` is placed at the origin. Use `cell.at(x, y)` to create an
-`Instance` for any other placement. In both cases, the child cell is
-automatically tracked so that `write_gds()` can collect the full hierarchy
-without a manual cell list.
+Use `cell.at(x, y)` to create the required `Instance`, including explicit
+`cell.at(0, 0)` placement at the origin. The child cell is automatically
+tracked so that `write_gds()` can collect the full hierarchy without a manual
+cell list.
 
 The reference transform must be finite, invertible, and representable as a
 GDS placement (translation, rotation, reflection, and uniform nonzero scale).
@@ -462,16 +462,16 @@ updated.
 
 ```python
 top.add_ref(gc_cell.at(0, 0))        # Instance at position
-top.add_ref(route.to_cell("wg"))     # Cell at origin
+top.add_ref(route.to_cell("wg").at(0, 0))
 ```
 
 </Callout>
 
 <div>
 
-<PyParameter name={"ref"} type={"Cell | Instance"}>
+<PyParameter name={"ref"} type={"Instance"}>
 
-A `Cell` to place at the origin or an `Instance` to place with its transform.
+A resolved `Instance` to place with its transform.
 
 </PyParameter>
 
@@ -479,7 +479,8 @@ A `Cell` to place at the origin or an `Instance` to place with its transform.
 
 <PyFunctionReturn type={"None"} />
 
-Raises `ValueError` without modifying the parent if the placement is invalid.
+Raises `TypeError` when `ref` is not an `Instance`, or `ValueError` when the
+placement is invalid, without modifying the parent.
 
 </PyFunction>
 

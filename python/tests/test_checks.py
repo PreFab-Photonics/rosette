@@ -88,7 +88,7 @@ class TestRunChecks:
         wg2 = _make_waveguide("wg2", 10.0, 0.5)
 
         top = Cell("top")
-        top.add_ref(wg1)
+        top.add_ref(wg1.at(0, 0))
         top.add_ref(wg2.at(10.0, 0.0))
         top.add_port(Port("in", Point(0.0, 0.25), -Vector2.unit_x(), width=0.5))
         top.add_port(Port("out", Point(20.0, 0.25), Vector2.unit_x(), width=0.5))
@@ -102,7 +102,7 @@ class TestRunChecks:
         wg = _make_waveguide("wg", 10.0, 0.5)
 
         top = Cell("top")
-        top.add_ref(wg)
+        top.add_ref(wg.at(0, 0))
         top.add_port(Port("in", Point(0.0, 0.25), -Vector2.unit_x(), width=0.5))
 
         result = run_checks(top)
@@ -118,7 +118,7 @@ class TestRunChecks:
         wg2 = _make_waveguide("wg2", 10.0, 0.4)
 
         top = Cell("top")
-        top.add_ref(wg1)
+        top.add_ref(wg1.at(0, 0))
         top.add_ref(wg2.at(10.0, 0.05))
         top.add_port(Port("in", Point(0.0, 0.25), -Vector2.unit_x(), width=0.5))
         top.add_port(Port("out", Point(20.0, 0.25), Vector2.unit_x(), width=0.4))
@@ -135,7 +135,7 @@ class TestRunChecks:
         wg2 = _make_waveguide("wg2", 10.0, 0.4)
 
         top = Cell("top")
-        top.add_ref(wg1)
+        top.add_ref(wg1.at(0, 0))
         top.add_ref(wg2.at(10.0, 0.05))
         top.add_port(Port("in", Point(0.0, 0.25), -Vector2.unit_x(), width=0.5))
         top.add_port(Port("out", Point(20.0, 0.25), Vector2.unit_x(), width=0.4))
@@ -248,7 +248,7 @@ class TestChecksResult:
         """Repr includes FAILED for failing result."""
         wg = _make_waveguide("wg", 10.0, 0.5)
         top = Cell("top")
-        top.add_ref(wg)
+        top.add_ref(wg.at(0, 0))
 
         result = run_checks(top)
         assert "FAILED" in repr(result)
@@ -261,7 +261,7 @@ class TestCheckViolation:
         """Violation exposes all expected properties."""
         wg = _make_waveguide("wg", 10.0, 0.5)
         top = Cell("top")
-        top.add_ref(wg)
+        top.add_ref(wg.at(0, 0))
 
         result = run_checks(top)
         assert len(result.violations) > 0
@@ -362,7 +362,7 @@ def _write_connected_design(tmp_path, *, connected: bool):
             'wg.add_port(Port("in", Point(0.0, 0.25), -Vector2.unit_x(), width=0.5))\n'
             'wg.add_port(Port("out", Point(10.0, 0.25), Vector2.unit_x(), width=0.5))\n'
             'design = Cell("top")\n'
-            "design.add_ref(wg)\n"
+            "design.add_ref(wg.at(0, 0))\n"
         )
 
     config_file = tmp_path / "rosette.toml"

@@ -49,7 +49,7 @@ You can rotate, mirror, and scale instances by chaining:
 
 ```python
 # Rotate the stub 90 degrees, then place it at (50, 0).
-top.add_ref(stub.at(0, 0).rotate(90).at(50, 0))
+top.add_ref(stub.at(0, 0).rotate(90).translate(50, 0))
 ```
 
 <Callout title={"Chaining order matters"} type={"warn"}>
@@ -57,7 +57,7 @@ Each chained call wraps the *outside* of the accumulated transform, so
 the *first* call happens first. `cell.at(10, 0).rotate(90)` translates to
 `(10, 0)` and *then* rotates around the origin, so the cell ends up at
 `(0, 10)`, not `(10, 0)`. To rotate then place, do
-`cell.at(0, 0).rotate(90).at(50, 0)`.
+`cell.at(0, 0).rotate(90).translate(50, 0)`.
 </Callout>
 
 ## Port queries on instances

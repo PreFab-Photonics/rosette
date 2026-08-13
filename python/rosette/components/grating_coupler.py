@@ -24,7 +24,7 @@ then extend **away** from the component::
     # -Y  (south)          | -90
 
     # Example: place GC with opt facing -X (toward a port on the left)
-    gc_inst = gc.at(0, 0).rotate(180).at(x, y)
+    gc_inst = gc.at(0, 0).rotate(180).translate(x, y)
 
 Spacing
 -------
@@ -38,8 +38,8 @@ Use S-bend routes (via intermediate waypoints) to fan out from
 closely-spaced component ports to the wider GC pitch::
 
     # Fan out from MMI outputs (2 um apart) to GC pitch (127 um apart)
-    gc_out1 = gc.at(0, 0).rotate(180).at(x, -63.5)
-    gc_out2 = gc.at(0, 0).rotate(180).at(x, +63.5)
+    gc_out1 = gc.at(0, 0).rotate(180).translate(x, -63.5)
+    gc_out2 = gc.at(0, 0).rotate(180).translate(x, +63.5)
 """
 
 import math

@@ -173,7 +173,7 @@ def sbend(
 
         To place an S-bend on a **vertical** waveguide segment (shifting
         in X instead of Y), rotate by 90 degrees **then** translate. Use
-        ``.at(0, 0).rotate(90).at(x, y)``::
+        ``.at(0, 0).rotate(90).translate(x, y)``::
 
             "in"  -> (x, y)                   facing **-Y**
             "out" -> (x - offset, y + length) facing **+Y**
@@ -181,7 +181,7 @@ def sbend(
         **Transform order matters.** ``.at(x, y).rotate(deg)`` translates
         first then rotates the *entire coordinate frame* around the origin,
         which moves the component to an unexpected position. Always
-        rotate first, then translate: ``.at(0, 0).rotate(deg).at(x, y)``.
+        rotate first, then translate: ``.at(0, 0).rotate(deg).translate(x, y)``.
 
         For most routing jobs between arbitrary ports, prefer ``Route``:
         it inserts S-bend-like transitions automatically and handles

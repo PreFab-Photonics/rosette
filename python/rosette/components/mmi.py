@@ -171,7 +171,7 @@ def mmi(
         the left.
 
         To rotate the MMI (e.g. 90 deg for a vertical fan-out), rotate
-        **before** translating: ``.at(0, 0).rotate(90).at(x, y)``.
+        **before** translating: ``.at(0, 0).rotate(90).translate(x, y)``.
         ``.at(x, y).rotate(deg)`` translates first then rotates the
         entire coordinate frame around the origin, which moves the
         component to an unexpected position.
@@ -215,8 +215,8 @@ def mmi(
 
             sp = splitter.at(0, 0)
             L = splitter.path_length                 # length attribute lives on the Cell
-            gc_lo = gc.at(0, 0).at(L + 80, -63.5)
-            gc_hi = gc.at(0, 0).at(L + 80, +63.5)
+            gc_lo = gc.at(0, 0).translate(L + 80, -63.5)
+            gc_hi = gc.at(0, 0).translate(L + 80, +63.5)
 
             r_lo = Route.through(
                 sp.port("out1"), (L + 20, sp.port("out1").position.y),
@@ -232,8 +232,8 @@ def mmi(
             design = Cell("splitter_gcs")
             for inst in (sp, gc_lo, gc_hi):
                 design.add_ref(inst)
-            design.add_ref(r_lo.to_cell("r_lo"))
-            design.add_ref(r_hi.to_cell("r_hi"))
+            design.add_ref(r_lo.to_cell("r_lo").at(0, 0))
+            design.add_ref(r_hi.to_cell("r_hi").at(0, 0))
             write_gds("output/splitter_gcs.gds", design)
 
         Worked Mach-Zehnder interferometer: two 2x2 MMIs with matched
@@ -250,7 +250,7 @@ def mmi(
 
             # Place input and output MMIs, separated by a 100 um arm region.
             mmi_in  = coupler.at(0, 0)
-            mmi_out = coupler.at(0, 0).at(coupler.path_length + 100, 0)
+            mmi_out = coupler.at(0, 0).translate(coupler.path_length + 100, 0)
 
             # Route the two arms. The upper arm takes a small detour to
             # create a delta-length and set the interferometer bias;
@@ -275,8 +275,8 @@ def mmi(
             design = Cell("mzi")
             design.add_ref(mmi_in)
             design.add_ref(mmi_out)
-            design.add_ref(upper.to_cell("upper"))
-            design.add_ref(lower.to_cell("lower"))
+            design.add_ref(upper.to_cell("upper").at(0, 0))
+            design.add_ref(lower.to_cell("lower").at(0, 0))
             write_gds("output/mzi.gds", design)
 
     Migration from pre-1.0:

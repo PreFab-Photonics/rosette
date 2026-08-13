@@ -100,7 +100,7 @@ def ring(
 
         To place the ring on a **vertical** waveguide segment, rotate by
         90 degrees **then** translate.  Use
-        ``.at(0, 0).rotate(90).at(x, y)``::
+        ``.at(0, 0).rotate(90).translate(x, y)``::
 
             "in"  -> (x, y)     facing **-Y**
             "out" -> (x, y+10)  facing **+Y**     (for default bus_length=10)
@@ -110,7 +110,7 @@ def ring(
         **Transform order matters.**  ``.at(x, y).rotate(deg)`` translates
         first then rotates the *entire coordinate frame* around the origin,
         which moves the component to an unexpected position.  Always
-        rotate first, then translate: ``.at(0, 0).rotate(deg).at(x, y)``.
+        rotate first, then translate: ``.at(0, 0).rotate(deg).translate(x, y)``.
 
     Example -- standalone::
 
@@ -134,7 +134,7 @@ def ring(
         gc_out = gc.at(0, 127)
 
         # Rotate ring 90 deg then place on the vertical segment
-        ring_inst = ring_cell.at(0, 0).rotate(90).at(25, 58.5)
+        ring_inst = ring_cell.at(0, 0).rotate(90).translate(25, 58.5)
 
         ring_in  = ring_inst.port("in")   # (25, 58.5) facing -Y
         ring_out = ring_inst.port("out")  # (25, 68.5) facing +Y
@@ -157,8 +157,8 @@ def ring(
         design.add_ref(gc_in)
         design.add_ref(gc_out)
         design.add_ref(ring_inst)
-        design.add_ref(r1.to_cell("r1"))
-        design.add_ref(r2.to_cell("r2"))
+        design.add_ref(r1.to_cell("r1").at(0, 0))
+        design.add_ref(r2.to_cell("r2").at(0, 0))
         write_gds("output/loopback_ring.gds", design)
     """
     if radius <= 0:

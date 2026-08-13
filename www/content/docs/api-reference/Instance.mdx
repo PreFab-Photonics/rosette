@@ -37,7 +37,7 @@ The *first* call in the chain is applied first to the geometry.
 
 # To rotate a component then place it at a specific position,
 # rotate first, then translate:
-inst = cell.at(0, 0).rotate(90).at(25, 50)  # rotate, then move to (25,50)
+inst = cell.at(0, 0).rotate(90).translate(25, 50)
 ```
 
 </Callout>
@@ -66,7 +66,7 @@ meaningful without checking whether `array()` was called.
 
 ## Methods
 
-<PyFunction name={"__init__"} type={"(cell, transform=None, repetition=None) -> None"}>
+<PyFunction name={"__init__"} type={"(cell, transform=None) -> None"}>
 
 Create an Instance from a Cell and optional transform.
 
@@ -86,35 +86,28 @@ the transform is validated as finite, invertible, and representable as a GDS
 translation, rotation, reflection, and uniform nonzero scale.
 
 </PyParameter>
-<PyParameter name={"repetition"} type={"tuple[int, int, float, float] | tuple[int, int, float, float, float, float] | None"} value={"None"}>
-
-Optional AREF lattice. Dimensions must be in `[1, 32767]` and all spacing/vector
-components must be finite. Prefer `array()` or `array_vectors()` for normal use.
-
-</PyParameter>
-
 </div>
 
 <PyFunctionReturn type={"None"} />
 
 </PyFunction>
 
-<PyFunction name={"at"} type={"(x, y) -> Instance"}>
+<PyFunction name={"translate"} type={"(dx, dy) -> Instance"}>
 
-Set the position (translation).
+Translate this instance in its parent's coordinate frame.
 
 Returns a new Instance. Instances are immutable.
 
 <div>
 
-<PyParameter name={"x"} type={"float"}>
+<PyParameter name={"dx"} type={"float"}>
 
-Finite X coordinate.
+Finite X offset.
 
 </PyParameter>
-<PyParameter name={"y"} type={"float"}>
+<PyParameter name={"dy"} type={"float"}>
 
-Finite Y coordinate.
+Finite Y offset.
 
 </PyParameter>
 
@@ -316,17 +309,15 @@ A new Instance with array repetition set.
 
 </PyFunction>
 
-<PyFunction name={"port"} type={"(name, col=0, row=0) -> Port"}>
+<PyFunction name={"port"} type={"(name) -> Port"}>
 
 Get a transformed port from this instance.
 
 The instance already knows its cell definition. Both position and direction
 are fully transformed (translation, rotation, mirroring).
 
-For arrayed instances (see `array` / `array_vectors`), pass `col`
-and `row` to address a specific copy in the lattice. The default
-`(0, 0)` returns the port of the anchor copy, matching the
-behaviour of non-arrayed instances.
+For arrayed instances, this returns the anchor copy's port. Use `copy()` or
+`copies()` for per-copy ports.
 
 <Callout title={"Example"} type={"example"}>
 
@@ -335,12 +326,12 @@ gc = gc_cell.at(100, 50)
 opt_port = gc.port("opt")  # Transformed port position & direction
 
 # 180-degree rotation flips both position and direction:
-flipped = gc_cell.at(0, 0).rotate(180).at(50, 0)
+flipped = gc_cell.at(0, 0).rotate(180).translate(50, 0)
 p = flipped.port("opt")   # direction is now (-1, 0)
 
-# Arrayed: address a specific copy.
+# Arrayed: address a specific copy through ArrayCopy.
 bank = ring_cell.at(0, 0).array(8, 1, 30.0, 0.0)
-p = bank.port("in", col=3)
+p = bank.copy(3, 0).port("in")
 ```
 
 </Callout>
@@ -352,25 +343,40 @@ p = bank.port("in", col=3)
 Name of the port to retrieve.
 
 </PyParameter>
-<PyParameter name={"col"} type={"int"} value={"0"}>
+</div>
 
-Grid column of the copy to query (0-indexed). Only meaningful on
-arrayed instances.
+<PyFunctionReturn type={"Port"}>
+
+The anchor copy's port with position and direction transformed into world
+space.
+
+</PyFunctionReturn>
+
+</PyFunction>
+
+<PyFunction name={"copy"} type={"(col, row) -> ArrayCopy"}>
+
+Return the array copy at `(col, row)` for direct per-copy queries.
+
+<div>
+
+<PyParameter name={"col"} type={"int"}>
+
+Zero-based grid column.
 
 </PyParameter>
-<PyParameter name={"row"} type={"int"} value={"0"}>
+<PyParameter name={"row"} type={"int"}>
 
-Grid row of the copy to query (0-indexed). Only meaningful on
-arrayed instances.
+Zero-based grid row.
 
 </PyParameter>
 
 </div>
 
-<PyFunctionReturn type={"Port"}>
+<PyFunctionReturn type={"ArrayCopy"}>
 
-The port with position and direction transformed into world space
-for the requested copy.
+A validated [`ArrayCopy`](./ArrayCopy) view. Invalid coordinates raise
+`IndexError`; non-integer coordinates raise `TypeError`.
 
 </PyFunctionReturn>
 

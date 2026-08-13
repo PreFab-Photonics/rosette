@@ -6,9 +6,10 @@ A read-only view of one copy in an arrayed [`Instance`](./Instance).
 
 Import with `from rosette.layout import ArrayCopy`.
 
-Produced by [`Instance.copies()`](./Instance#copies). Exposes the copy's grid position, its world-space
-transform, and a `port(name)` helper for retrieving the transformed
-port of this specific copy.
+Produced by [`Instance.copy()`](./Instance#copy) and
+[`Instance.copies()`](./Instance#copies). Exposes the copy's grid position,
+its world-space transform, and a `port(name)` helper for retrieving the
+transformed port of this specific copy.
 
 `ArrayCopy` is observational, not a competing placement abstraction. It
 cannot be added to a `Cell` or transformed into an independent placement;
@@ -76,7 +77,6 @@ The underlying cell definition (shared with the parent `Instance`).
 Get the transformed port of this specific copy.
 
 Both position and direction are transformed into world space.
-Equivalent to `parent.port(name, col=self.col, row=self.row)`.
 
 <Callout title={"Example"} type={"example"}>
 

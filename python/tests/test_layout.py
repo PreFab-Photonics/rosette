@@ -197,7 +197,7 @@ class TestLibrary:
         """Structural roots are derived from references, not append order."""
         child = Cell("child")
         parent = Cell("parent")
-        parent.add_ref(child)
+        parent.add_ref(child.at(0, 0))
         independent = Cell("independent")
         lib = Library("test_lib")
 
@@ -273,7 +273,7 @@ class TestLibrary:
         """Existing dependencies can be retained or rejected atomically."""
         child = Cell("child")
         parent = Cell("parent")
-        parent.add_ref(child)
+        parent.add_ref(child.at(0, 0))
         lib = Library("test_lib")
         lib.add_cell(child)
 
@@ -390,9 +390,9 @@ class TestInstance:
             assert path.stat().st_size > 0
 
     def test_add_ref_rejects_unresolved_objects(self):
-        """The facade accepts only resolved Cell or Instance placements."""
+        """The facade accepts only resolved Instance placements."""
         cell = Cell("test")
-        with pytest.raises(TypeError, match="Cell or Instance"):
+        with pytest.raises(TypeError, match="must be an Instance"):
             cell.add_ref(object())  # type: ignore[arg-type]
 
     def test_instance_mirror(self):
@@ -428,7 +428,7 @@ class TestInstance:
         child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
 
         parent = Cell("scaled_parent")
-        parent.add_ref(child.at(0, 0).scale(2).at(30, 40))
+        parent.add_ref(child.at(0, 0).scale(2).translate(30, 40))
 
         library = Library("scaled")
         library.add_cell(child)
@@ -469,7 +469,7 @@ class TestInstance:
     def test_instance_accepts_tiny_scale_after_large_translation(self):
         child = Cell("child")
         parent = Cell("parent")
-        instance = child.at(0, 0).scale(1e-10).at(2_000_000, -2_000_000)
+        instance = child.at(0, 0).scale(1e-10).translate(2_000_000, -2_000_000)
 
         parent.add_ref(instance)
 
@@ -487,21 +487,21 @@ class TestInstance:
         assert parent.ref_count() == 0
         assert parent.cell_ref_names() == []
 
-    def test_instance_constructor_validates_repetition(self):
+    def test_instance_constructor_hides_repetition(self):
         child = Cell("child")
 
-        with pytest.raises(ValueError, match="4 or 6 values"):
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
             Instance(child, repetition=(1, 2, 3))  # type: ignore[arg-type]
-        with pytest.raises(ValueError, match=r"\[1, 32767\]"):
-            Instance(child, repetition=(0, 1, 10.0, 10.0))
 
-    def test_instance_port_rejects_fractional_array_indices(self):
+    def test_instance_copy_rejects_non_integer_indices(self):
         child = Cell("child")
         child.add_port(Port("out", Point.origin(), Vector2.unit_x()))
         array = child.at(0, 0).array(2, 2, 10, 10)
 
         with pytest.raises(TypeError, match="must be integers"):
-            array.port("out", col=0.5)  # type: ignore[arg-type]
+            array.copy(0.5, 0)  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="must be integers"):
+            array.copy(True, 0)  # type: ignore[arg-type]
 
     def test_instance_repr(self):
         """Instance has informative repr."""
@@ -512,19 +512,17 @@ class TestInstance:
         assert "my_component" in repr_str
         assert "100.5" in repr_str or "100.50" in repr_str
 
-    def test_add_ref_accepts_cell_directly(self):
-        """add_ref() accepts Cell directly (placed at origin)."""
+    def test_add_ref_rejects_cell_directly(self):
+        """add_ref() requires explicit origin placement."""
         child = Cell("child")
         child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
 
         parent = Cell("parent")
-        # No .at(0, 0) needed - Cell is auto-wrapped
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
+        with pytest.raises(TypeError, match=r"use cell\.at\(0, 0\)"):
             parent.add_ref(child)
 
-        assert parent.ref_count() == 1
-        assert parent.cell_ref_names() == ["child"]
+        assert parent.ref_count() == 0
+        assert parent.cell_ref_names() == []
 
     def test_instance_rotate_180_port_direction(self):
         """180-degree rotation correctly flips port direction.
@@ -607,7 +605,7 @@ class TestInstance:
         child.add_port(Port("tip", Point(20.0, 2.5), Vector2.unit_x()))
 
         # Rotate 180 then place at (50, 0)
-        inst = child.at(0, 0).rotate(180.0).at(50, 0)
+        inst = child.at(0, 0).rotate(180.0).translate(50, 0)
         port = inst.port("tip")
 
         # Port position: (20, 2.5) -> R(180) -> (-20, -2.5) -> T(50,0) -> (30, -2.5)
@@ -647,7 +645,7 @@ class TestInstance:
         child = Cell("mirrored")
         child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
 
-        inst = child.at(0, 0).mirror_x().at(30, 0)
+        inst = child.at(0, 0).mirror_x().translate(30, 0)
 
         parent = Cell("top_mirror")
         parent.add_ref(inst)
@@ -669,10 +667,10 @@ class TestInstance:
     def test_instance_rotate_then_translate_gds_roundtrip(self):
         """Rotated Instance port positions are consistent across both idioms.
 
-        Regression test: Instance.add_ref() used to decompose the transform
+        Regression test: Cell.add_ref(instance) used to decompose the transform
         as .at(pos).rotate(angle), which double-rotates the translation.
-        The fix applies rotation first, then translation:
-        .rotate(angle).at(pos).
+        The fix preserves rotation followed by parent-frame translation:
+        .rotate(angle).translate(pos).
         """
         from rosette.io import read_gds
 
@@ -688,10 +686,10 @@ class TestInstance:
         assert p1.position.x == pytest.approx(-58.5, abs=0.1)
         assert p1.position.y == pytest.approx(35.0, abs=0.1)
 
-        # Idiom 2: .at(0,0).rotate(deg).at(x,y) -- rotate then translate
+        # Idiom 2: .at(0,0).rotate(deg).translate(x,y)
         # Transform: T(25, 58.5) * R(90)
         # Port (10, 0) -> R(90) -> (0, 10) -> T -> (25, 68.5)
-        inst2 = child.at(0, 0).rotate(90.0).at(25.0, 58.5)
+        inst2 = child.at(0, 0).rotate(90.0).translate(25.0, 58.5)
         p2 = inst2.port("out")
         assert p2.position.x == pytest.approx(25.0, abs=0.1)
         assert p2.position.y == pytest.approx(68.5, abs=0.1)
@@ -813,7 +811,11 @@ class TestInstanceArray:
         # array after rotation
         top.add_ref(child.at(10, 20).rotate(45).array(2, 3, 5.0, 8.0))
         # transform after array
-        top.add_ref(child.at(0, 0).array(2, 3, 5.0, 8.0).at(10, 20))
+        translated = child.at(0, 0).array(2, 3, 5.0, 8.0).translate(10, 20)
+        top.add_ref(translated)
+
+        assert translated.copy(0, 0).position == Point(10, 20)
+        assert translated.copy(1, 2).position == Point(15, 36)
 
         assert top.ref_count() == 2
 
@@ -1332,16 +1334,15 @@ class TestArrayCopies:
         assert abs(positions[(1, 1)][0] - (pitch + pitch / 2.0)) < tol
         assert abs(positions[(1, 1)][1] - pitch * math.sqrt(3.0) / 2.0) < tol
 
-    def test_copy_port_matches_instance_port(self):
-        """copy.port(name) == inst.port(name, col, row)."""
+    def test_copy_access_matches_iteration(self):
+        """copy(col, row) returns the same validated view as copies()."""
         inst = self._unit_cell().at(5, 5).array(3, 2, 10.0, 20.0)
         for copy in inst.copies():
-            via_copy = copy.port("in")
-            via_inst = inst.port("in", col=copy.col, row=copy.row)
-            assert via_copy.position.x == via_inst.position.x
-            assert via_copy.position.y == via_inst.position.y
-            assert via_copy.direction.x == via_inst.direction.x
-            assert via_copy.direction.y == via_inst.direction.y
+            direct = inst.copy(copy.col, copy.row)
+            assert direct.position.x == copy.position.x
+            assert direct.position.y == copy.position.y
+            assert direct.port("in").position.x == copy.port("in").position.x
+            assert direct.port("in").position.y == copy.port("in").position.y
 
     def test_copy_port_transforms_direction(self):
         """Port direction is rotated by the outer transform, untouched by copy offset."""
@@ -1366,19 +1367,19 @@ class TestArrayCopies:
         """inst.port(name) on an arrayed instance returns the (0, 0) copy."""
         inst = self._unit_cell().at(100, 50).array(3, 2, 10.0, 20.0)
         p_default = inst.port("in")
-        p_anchor = inst.port("in", col=0, row=0)
+        p_anchor = inst.copy(0, 0).port("in")
         assert p_default.position.x == p_anchor.position.x
         assert p_default.position.y == p_anchor.position.y
 
-    def test_port_col_row_out_of_range_raises(self):
+    def test_copy_col_row_out_of_range_raises(self):
         """Out-of-range col/row raises IndexError."""
         inst = self._unit_cell().at(0, 0).array(3, 2, 10.0, 20.0)
         with pytest.raises(IndexError):
-            inst.port("in", col=3, row=0)
+            inst.copy(3, 0)
         with pytest.raises(IndexError):
-            inst.port("in", col=0, row=2)
+            inst.copy(0, 2)
         with pytest.raises(IndexError):
-            inst.port("in", col=-1, row=0)
+            inst.copy(-1, 0)
 
     def test_copies_does_not_mutate_parent(self):
         """Iterating doesn't change the parent's repetition or ref count."""

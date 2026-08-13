@@ -20,8 +20,8 @@ def test_prepare_design_collects_descendants_added_after_parent_placement():
     leaf = Cell("leaf")
     child = Cell("child")
     top = Cell("top")
-    top.add_ref(child)
-    child.add_ref(leaf)
+    top.add_ref(child.at(0, 0))
+    child.add_ref(leaf.at(0, 0))
 
     design_json, _ = _prepare_design(top)
 

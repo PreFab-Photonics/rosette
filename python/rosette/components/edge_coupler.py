@@ -133,17 +133,17 @@ def edge_coupler(
         each edge of a die::
 
             # West edge: opt faces +X (default), tip points west (-X).
-            ec_west = ec.at(0, 0).at(x_west_edge, y)
+            ec_west = ec.at(0, 0).translate(x_west_edge, y)
 
             # East edge: rotate 180 so opt faces -X (into the chip from
             # the east) and the tip points east.
-            ec_east = ec.at(0, 0).rotate(180).at(x_east_edge, y)
+            ec_east = ec.at(0, 0).rotate(180).translate(x_east_edge, y)
 
         **Transform order matters.** ``.at(x, y).rotate(deg)`` translates
         first and then rotates the *entire coordinate frame* around the
         origin, which moves the component to an unexpected position.
         Always rotate first, then translate:
-        ``.at(0, 0).rotate(deg).at(x, y)``.
+        ``.at(0, 0).rotate(deg).translate(x, y)``.
 
         Fibers for edge coupling typically sit at a 127 um pitch in a
         v-groove array, the same pitch used for grating-coupler arrays.
@@ -179,8 +179,8 @@ def edge_coupler(
             layer = Layer(1, 0)
             ec = edge_coupler(layer)
 
-            west = ec.at(0, 0).at(0.0, 0.0)
-            east = ec.at(0, 0).rotate(180).at(1000.0, 0.0)
+            west = ec.at(0, 0).translate(0.0, 0.0)
+            east = ec.at(0, 0).rotate(180).translate(1000.0, 0.0)
 
             route = Route.through(
                 west.port("opt"),
@@ -192,7 +192,7 @@ def edge_coupler(
             design = Cell("edge_loopback")
             design.add_ref(west)
             design.add_ref(east)
-            design.add_ref(route.to_cell("route"))
+            design.add_ref(route.to_cell("route").at(0, 0))
             write_gds("output/edge_loopback.gds", design)
     """
     if waveguide_width <= 0:

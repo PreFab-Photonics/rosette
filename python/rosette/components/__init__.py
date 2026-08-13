@@ -114,7 +114,7 @@ to GDS::
     design = Cell("loopback")
     design.add_ref(gc_in)
     design.add_ref(gc_out)
-    design.add_ref(route.to_cell("route"))
+    design.add_ref(route.to_cell("route").at(0, 0))
     write_gds("output/loopback.gds", design)
 
 Authoring Custom Components
