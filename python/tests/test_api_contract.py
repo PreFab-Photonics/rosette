@@ -14,6 +14,179 @@ ROOT = Path(__file__).resolve().parents[2]
 NATIVE_STUB_PATH = ROOT / "python" / "rosette" / "_core.pyi"
 FACADE_STUB_PATH = ROOT / "python" / "rosette" / "api.pyi"
 
+CURRENT_FACADE_EXPORTS = (
+    "DEFAULT_LAYERS",
+    "ArrayCopy",
+    "BBox",
+    "Cell",
+    "CheckViolation",
+    "ChecksConfig",
+    "ChecksResult",
+    "DfmConfig",
+    "DfmResult",
+    "DfmViolation",
+    "DrcCache",
+    "DrcResult",
+    "DrcRules",
+    "DrcViolation",
+    "GaussianModel",
+    "Instance",
+    "Layer",
+    "LayerInfo",
+    "LayerMap",
+    "LayerMetrics",
+    "LayerPrediction",
+    "Library",
+    "PathEndType",
+    "Point",
+    "Polygon",
+    "Port",
+    "RenderResult",
+    "Route",
+    "Transform",
+    "Vector2",
+    "add_dfm_predictions",
+    "arc_points",
+    "connect_transform",
+    "fresnel_c",
+    "fresnel_s",
+    "load_checks_config",
+    "load_dfm_config",
+    "load_drc_rules",
+    "load_layer_map",
+    "offset_polygon",
+    "offset_polygon_varying",
+    "path_length",
+    "read_gds",
+    "render_png",
+    "run_checks",
+    "run_dfm",
+    "run_drc",
+    "write_gds",
+)
+
+CURRENT_EXPORTS_BY_KIND = {
+    "core": {
+        "BBox",
+        "Cell",
+        "Instance",
+        "Layer",
+        "Library",
+        "PathEndType",
+        "Point",
+        "Polygon",
+        "Port",
+        "Transform",
+        "Vector2",
+        "connect_transform",
+    },
+    "feature": {
+        "ChecksConfig",
+        "DfmConfig",
+        "DrcRules",
+        "GaussianModel",
+        "Route",
+        "arc_points",
+        "offset_polygon",
+        "offset_polygon_varying",
+        "read_gds",
+        "render_png",
+        "run_checks",
+        "run_dfm",
+        "run_drc",
+        "write_gds",
+    },
+    "project_policy": {
+        "DEFAULT_LAYERS",
+        "LayerInfo",
+        "LayerMap",
+        "load_checks_config",
+        "load_dfm_config",
+        "load_drc_rules",
+        "load_layer_map",
+    },
+    "result_type": {
+        "ArrayCopy",
+        "CheckViolation",
+        "ChecksResult",
+        "DfmResult",
+        "DfmViolation",
+        "DrcResult",
+        "DrcViolation",
+        "LayerMetrics",
+        "LayerPrediction",
+        "RenderResult",
+    },
+    "internal": {
+        "DrcCache",
+        "add_dfm_predictions",
+        "fresnel_c",
+        "fresnel_s",
+        "path_length",
+    },
+}
+
+TARGET_FACADE_EXPORTS = (
+    "BBox",
+    "Cell",
+    "Instance",
+    "Layer",
+    "Library",
+    "PathEndType",
+    "Point",
+    "Polygon",
+    "Port",
+    "Transform",
+    "Vector2",
+    "connect_transform",
+)
+
+TARGET_FEATURE_EXPORTS = {
+    "rosette.checks": (
+        "CheckViolation",
+        "ChecksConfig",
+        "ChecksResult",
+        "load_checks_config",
+        "run_checks",
+    ),
+    "rosette.dfm": (
+        "DfmConfig",
+        "DfmResult",
+        "DfmViolation",
+        "GaussianModel",
+        "LayerMetrics",
+        "LayerPrediction",
+        "load_dfm_config",
+        "run_dfm",
+    ),
+    "rosette.drc": (
+        "DrcResult",
+        "DrcRules",
+        "DrcViolation",
+        "load_drc_rules",
+        "run_drc",
+    ),
+    "rosette.geometry": (
+        "arc_points",
+        "offset_polygon",
+        "offset_polygon_varying",
+    ),
+    "rosette.io": ("read_gds", "write_gds"),
+    "rosette.layout": ("ArrayCopy",),
+    "rosette.project": ("LayerInfo", "LayerMap", "load_layer_map"),
+    "rosette.render": ("RenderResult", "render_png"),
+    "rosette.routing": ("Route",),
+}
+
+TARGET_REMOVED_EXPORTS = {
+    "DEFAULT_LAYERS",
+    "DrcCache",
+    "add_dfm_predictions",
+    "fresnel_c",
+    "fresnel_s",
+    "path_length",
+}
+
 EXTENSION_EXPORTS = {
     "BBox",
     "Cell",
@@ -119,8 +292,33 @@ def test_extension_exports_are_stable():
 
 
 def test_public_facade_exports_exist_and_are_unique():
-    assert len(rosette.__all__) == len(set(rosette.__all__))
+    assert tuple(rosette.__all__) == CURRENT_FACADE_EXPORTS
     assert {name for name in rosette.__all__ if not hasattr(rosette, name)} == set()
+
+
+def test_current_facade_classification_is_complete_and_disjoint():
+    classified = [name for exports in CURRENT_EXPORTS_BY_KIND.values() for name in exports]
+
+    assert set(CURRENT_EXPORTS_BY_KIND) == {
+        "core",
+        "feature",
+        "project_policy",
+        "result_type",
+        "internal",
+    }
+    assert len(classified) == len(set(classified))
+    assert set(classified) == set(CURRENT_FACADE_EXPORTS)
+
+
+def test_target_contract_assigns_every_current_export_once():
+    destinations = [
+        *TARGET_FACADE_EXPORTS,
+        *(name for exports in TARGET_FEATURE_EXPORTS.values() for name in exports),
+        *TARGET_REMOVED_EXPORTS,
+    ]
+
+    assert len(destinations) == len(set(destinations))
+    assert set(destinations) == set(CURRENT_FACADE_EXPORTS)
 
 
 def test_native_stub_exactly_matches_extension_exports():
