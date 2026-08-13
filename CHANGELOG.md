@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-13
+
 ### Added
 
 - `connect_transform` is now an intentional public Python facade function for
@@ -521,7 +523,8 @@ usual given the volume of changes.
 
 - `rosette serve` to use installed Rosette.app on macOS
 
-[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/PreFab-Photonics/rosette/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/PreFab-Photonics/rosette/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/PreFab-Photonics/rosette/compare/v0.3.0...v0.4.0
