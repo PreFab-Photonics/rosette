@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The default Python facade now contains only atomic layout primitives and
+  shared placement mechanisms. Routing, I/O, geometry utilities, project
+  configuration, DRC, design checks, DFM, rendering, and their result types
+  now live in explicit `rosette.*` feature modules.
 - Route width changes are documented as linear interpolation across the full
   segment ending at the width-changing waypoint.
 - Python contracts now separate the native `_core` extension stub from the
@@ -92,6 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Removed
 
+- Removed the top-level Python exports `DEFAULT_LAYERS`, `DrcCache`,
+  `add_dfm_predictions`, `fresnel_c`, `fresnel_s`, and the free
+  `path_length()` helper. Internal CLI, viewer, and component support retains
+  the implementation details it needs without advertising them as user APIs.
 - Removed the inert `Route` `auto_taper` and `taper_length` controls. Waypoint
   spacing now explicitly determines transition length.
 - Removed unused Rust component traits, generic placement, metadata access,

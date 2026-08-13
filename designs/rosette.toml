@@ -13,7 +13,8 @@ version = "0.1.0"
 # =============================================================================
 #
 # Named layers with GDS numbers and display properties.
-# Access in Python: layers = load_layer_map(); layers.silicon.layer
+# Access in Python: from rosette.project import load_layer_map
+#                   layers = load_layer_map(); layers.silicon.layer
 #
 # Per-layer keys:
 #   number       - GDS layer number (required)

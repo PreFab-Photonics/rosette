@@ -8,7 +8,7 @@ Rosette photonic design project. Python scripts in `designs/` produce GDSII layo
 
 Before writing or modifying any Rosette code, read these files:
 
-- `.rosette/api.pyi` -- public `rosette` facade reference for agents
+- `.rosette/api.pyi` -- public Python API reference for agents
 - `.rosette/cli.json` -- complete CLI contract (every command, its flags, exit codes, and `--json` schema), discoverable without prose. Equivalent to `rosette cli-manifest`.
 - `.rosette/manifest.json` -- installed package version and managed-reference provenance
 - `rosette.toml` -- project config, layer definitions (named layers), DRC rules, DFM config
@@ -32,8 +32,8 @@ Always pass `--json`: checks then emit a single JSON object on stdout — read `
 ## Key conventions
 
 - Designs must export a `design` variable (a `Cell` instance)
-- Use explicit imports (`from rosette import Cell, Layer`; `from components import my_component`) rather than star imports
-- Use `load_layer_map()` to get layers from rosette.toml -- never hardcode layer numbers
+- Use explicit imports (`from rosette import Cell, Layer`; `from rosette.project import load_layer_map`; `from components import my_component`) rather than star imports
+- Use `load_layer_map()` from `rosette.project` to get layers from rosette.toml -- never hardcode layer numbers
 - The package is `librosette` (installed via `uv add librosette`, imported as `rosette`)
 - To inspect a design visually, `uv run rosette shot designs/foo.py` renders a PNG (plus a sidecar JSON with the world<->pixel transform) to `.rosette/snapshots/`
 

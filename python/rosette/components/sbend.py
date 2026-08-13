@@ -44,7 +44,7 @@ loss and radiation:
 Relationship to ``Route(bend_profile="euler")``
 -----------------------------------------------
 This is **not the same clothoid** as the one inserted by
-:class:`rosette.Route` when ``bend_profile="euler"``. The two
+:class:`rosette.routing.Route` when ``bend_profile="euler"``. The two
 implementations describe genuinely different shapes:
 
 * ``sbend(bend_type="euler")`` *anisotropically* rescales a clothoid
@@ -210,7 +210,8 @@ def sbend(
         Fan out from two closely-spaced MMI outputs to fiber-array
         pitch (127 um) and land on two grating couplers::
 
-            from rosette import Cell, Layer, write_gds
+            from rosette import Cell, Layer
+            from rosette.io import write_gds
             from rosette.components import grating_coupler, mmi, sbend
 
             layer = Layer(1, 0)

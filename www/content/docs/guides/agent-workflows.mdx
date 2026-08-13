@@ -85,7 +85,9 @@ the convention agents follow:
 
 ```python
 # designs/loopback.py
-from rosette import Cell, Layer, Route, load_layer_map
+from rosette import Cell, Layer
+from rosette.project import load_layer_map
+from rosette.routing import Route
 from components import grating_coupler
 
 layers = load_layer_map()

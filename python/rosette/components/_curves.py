@@ -9,7 +9,7 @@ but end users should use the component functions directly.
 
 import math
 
-from rosette import fresnel_c, fresnel_s
+from rosette._core import fresnel_c, fresnel_s
 
 __all__ = [
     "circular_sbend_point",

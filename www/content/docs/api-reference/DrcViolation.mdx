@@ -4,6 +4,8 @@ title: DrcViolation
 
 A single DRC violation.
 
+Import with `from rosette.drc import DrcViolation`.
+
 Returned as part of a `DrcResult` after running `run_drc()`. Each violation
 describes a specific rule failure, including the rule name, affected layer(s),
 severity, and a bounding box around the offending geometry.

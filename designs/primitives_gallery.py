@@ -32,8 +32,8 @@ from rosette import (
     PathEndType,
     Point,
     Polygon,
-    load_layer_map,
 )
+from rosette.project import load_layer_map
 
 # Load layers from rosette.toml
 layers = load_layer_map()

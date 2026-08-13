@@ -220,7 +220,9 @@ def bragg_grating(
 
         Inline between two grating couplers::
 
-            from rosette import Cell, Layer, Route, write_gds
+            from rosette import Cell, Layer
+            from rosette.io import write_gds
+            from rosette.routing import Route
             from rosette.components import grating_coupler, bragg_grating
 
             layer = Layer(1, 0)

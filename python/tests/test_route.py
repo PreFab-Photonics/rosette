@@ -5,7 +5,10 @@ import sys
 
 import pytest
 
-from rosette import Layer, Point, Port, Route, Vector2, fresnel_c, fresnel_s, write_gds
+from rosette import Layer, Point, Port, Vector2
+from rosette._core import fresnel_c, fresnel_s
+from rosette.io import write_gds
+from rosette.routing import Route
 
 
 class TestRouteBasic:

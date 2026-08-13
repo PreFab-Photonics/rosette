@@ -21,7 +21,8 @@ pieces: a grating coupler is a cell, a ring resonator is a cell, and the
 whole chip is a cell that references the other two.
 
 ```python
-from rosette import Cell, Layer, Point, Polygon, write_gds
+from rosette import Cell, Layer, Point, Polygon
+from rosette.io import write_gds
 
 inner = Cell("ring")
 inner.add_polygon(Polygon.rect(Point(0, 0), 20, 2), Layer(1, 0))
@@ -101,7 +102,8 @@ Then load them in Python with
 [`load_layer_map`](/docs/api-reference#load_layer_map):
 
 ```python
-from rosette import Cell, Point, Polygon, load_layer_map
+from rosette import Cell, Point, Polygon
+from rosette.project import load_layer_map
 
 layers = load_layer_map()                         # reads rosette.toml
 cell = Cell("wg")
@@ -188,7 +190,8 @@ changes across segments. It is **not** an auto-router. You supply the waypoints.
 minimal route between two ports looks like:
 
 ```python
-from rosette import Cell, Layer, Point, Port, Route, Vector2
+from rosette import Cell, Layer, Point, Port, Vector2
+from rosette.routing import Route
 
 src = Port("out", Point(0,   0),  Vector2( 1, 0), width=0.5)
 dst = Port("in",  Point(120, 30), Vector2(-1, 0), width=0.5)

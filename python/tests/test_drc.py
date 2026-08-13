@@ -11,15 +11,13 @@ import pytest
 from rosette import (
     BBox,
     Cell,
-    DrcRules,
     Layer,
     Library,
     Point,
     Polygon,
-    load_drc_rules,
-    run_drc,
 )
 from rosette.cli import _print_drc_result, _run_drc_check, check_design, drc_design
+from rosette.drc import DrcRules, load_drc_rules, run_drc
 
 
 class TestDrcRules:
@@ -1948,7 +1946,7 @@ layers = ["silicon"]
         config_file = tmp_path / "rosette.toml"
         config_file.write_text(toml_content)
 
-        from rosette import load_dfm_config
+        from rosette.dfm import load_dfm_config
 
         _cfg, _model, layers = load_dfm_config(config_file)
         assert len(layers) == 1
@@ -1972,7 +1970,7 @@ sigma = 0.05
         config_file = tmp_path / "rosette.toml"
         config_file.write_text(toml_content)
 
-        from rosette import load_dfm_config
+        from rosette.dfm import load_dfm_config
 
         _cfg, _model, layers = load_dfm_config(config_file)
         assert len(layers) == 1
@@ -1992,7 +1990,7 @@ layers = ["silicon", "2/0"]
         config_file = tmp_path / "rosette.toml"
         config_file.write_text(toml_content)
 
-        from rosette import load_dfm_config
+        from rosette.dfm import load_dfm_config
 
         _cfg, _model, layers = load_dfm_config(config_file)
         assert len(layers) == 2

@@ -1,12 +1,28 @@
-"""Public Rosette facade contract and project agent reference.
+"""Public Rosette API contract and project agent reference.
 
 All coordinates, dimensions, and distances are in microns (um).
 
 This is a reference contract rather than an importable module stub. In
-initialized projects it is copied to ``.rosette/api.pyi``. Project-local
-components are intentionally outside this core facade contract; their source,
-signatures, and documentation live in the template-specific ``components/``
-package.
+initialized projects it is copied to ``.rosette/api.pyi``. Atomic layout types
+are imported from ``rosette``. Feature declarations below are imported from
+their owning modules: ``rosette.layout``, ``rosette.routing``, ``rosette.io``,
+``rosette.geometry``, ``rosette.project``, ``rosette.drc``, ``rosette.checks``,
+``rosette.dfm``, and ``rosette.render``. Project-local components remain outside
+this contract; their source, signatures, and documentation live in the
+template-specific ``components/`` package.
+
+Canonical imports::
+
+    from rosette import Cell, Layer, Point, Polygon, Port
+    from rosette.checks import ChecksConfig, ChecksResult, run_checks
+    from rosette.dfm import DfmConfig, DfmResult, run_dfm
+    from rosette.drc import DrcResult, DrcRules, run_drc
+    from rosette.geometry import arc_points, offset_polygon, offset_polygon_varying
+    from rosette.io import read_gds, write_gds
+    from rosette.layout import ArrayCopy
+    from rosette.project import LayerInfo, LayerMap, load_layer_map
+    from rosette.render import RenderResult, render_png
+    from rosette.routing import Route
 """
 
 from collections.abc import Iterator
@@ -1133,8 +1149,6 @@ def write_gds(
 # Layer Map (project configuration)
 # =============================================================================
 
-DEFAULT_LAYERS: list[dict[str, object]]
-
 class LayerInfo:
     """A single layer definition with metadata.
 
@@ -1286,49 +1300,6 @@ def offset_polygon_varying(centerline: list[Point], widths: list[float]) -> Poly
 
     Raises:
         ValueError: If inputs are invalid
-    """
-    ...
-
-def path_length(points: list[Point]) -> float:
-    """Calculate the total length of a polyline path.
-
-    Args:
-        points: List of points defining the path
-
-    Returns:
-        Sum of distances between consecutive points
-    """
-    ...
-
-def fresnel_c(t: float) -> float:
-    """Fresnel cosine integral C(t).
-
-    The Fresnel cosine integral is defined as:
-    C(t) = integral from 0 to t of cos(pi/2 * u^2) du
-
-    Used for generating Euler (clothoid) spiral bends.
-
-    Args:
-        t: Upper limit of integration
-
-    Returns:
-        The value of C(t)
-    """
-    ...
-
-def fresnel_s(t: float) -> float:
-    """Fresnel sine integral S(t).
-
-    The Fresnel sine integral is defined as:
-    S(t) = integral from 0 to t of sin(pi/2 * u^2) du
-
-    Used for generating Euler (clothoid) spiral bends.
-
-    Args:
-        t: Upper limit of integration
-
-    Returns:
-        The value of S(t)
     """
     ...
 
@@ -1619,24 +1590,6 @@ class DrcResult:
         ...
     def __repr__(self) -> str: ...
 
-class DrcCache:
-    """In-memory, cross-call DRC cache for the live-preview (``serve``) loop.
-
-    Hold a single instance across reloads and pass it to
-    :func:`run_drc` via ``cache=``. A change to one cell then triggers DRC
-    work proportional to that cell, not the whole design (ROS-548). The cache
-    is invalidated automatically when the rule set changes. In-memory only for
-    the process lifetime — there is no on-disk cache.
-    """
-
-    def __new__(cls) -> DrcCache: ...
-    def __len__(self) -> int:
-        """Number of cached cell entries (for diagnostics/tests)."""
-        ...
-    def clear(self) -> None:
-        """Drop all cached entries."""
-        ...
-
 def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
     """Load DRC rules from ``rosette.toml``."""
     ...
@@ -1645,7 +1598,6 @@ def run_drc(
     cell: Cell,
     rules: DrcRules,
     library: Library | None = None,
-    cache: DrcCache | None = None,
 ) -> DrcResult:
     """Run DRC on a cell.
 
@@ -1654,10 +1606,6 @@ def run_drc(
         rules: DRC rules to apply
         library: Library containing referenced cells. If None, cell references
                  cannot be resolved and are skipped during flattening.
-        cache: Optional :class:`DrcCache` reused across calls to make
-               re-runs incremental (serve loop). Results are identical to a
-               cache-free run; only the amount of work differs.
-
     Returns:
         DrcResult with violations and statistics
 
@@ -1849,14 +1797,6 @@ def run_dfm(
             if m:
                 print(f"  Layer {lp.layer}: edge dev {m.max_edge_deviation:.3f} um")
     """
-    ...
-
-def add_dfm_predictions(
-    cell: Cell,
-    result: DfmResult,
-    datatype_offset: int = 100,
-) -> None:
-    """Add predicted polygons to offset datatypes on a cell."""
     ...
 
 # ---------------------------------------------------------------------------

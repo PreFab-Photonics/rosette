@@ -24,7 +24,8 @@ Open `designs/hello.py` in your editor and add the following:
 
 ```python
 # designs/hello.py
-from rosette import Cell, Layer, Point, Polygon, Port, Vector2, write_gds
+from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+from rosette.io import write_gds
 
 # 1. Create a top-level cell.
 top = Cell("hello")

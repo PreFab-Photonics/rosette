@@ -197,7 +197,7 @@ my-chip/
 │   ├── .rosette-provenance.json # Copy baselines for upgrade checks
 │   └── ...
 ├── .rosette/
-│   ├── api.pyi           # Public Python facade reference
+│   ├── api.pyi           # Public Python API reference
 │   ├── cli.json          # Machine-readable CLI contract
 │   └── manifest.json     # Managed-reference provenance
 └── AGENTS.md             # AI agent instructions (if selected)
@@ -216,7 +216,7 @@ my-chip/
   template-specific: the generic template copies the standard photonic building
   blocks, while the blank template starts with only an empty scaffold and shared
   authoring utilities. Everything here is yours to read and modify.
-- **`.rosette/api.pyi`**: the public `rosette` facade reference for agents.
+- **`.rosette/api.pyi`**: the public Python API reference for agents.
 - **`.rosette/cli.json`**: the complete machine-readable CLI contract, including
   commands, flags, exit codes, and JSON output schemas.
 - **`.rosette/manifest.json`**: package and contract provenance for the managed core

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 import rosette.components
-from rosette import Cell, Layer, Route, write_gds
+from rosette import Cell, Layer
 from rosette.components import (
     bragg_grating,
     crossing,
@@ -22,6 +22,8 @@ from rosette.components import (
     ring,
     sbend,
 )
+from rosette.io import write_gds
+from rosette.routing import Route
 
 
 @pytest.fixture

@@ -117,7 +117,8 @@ See [`DrcRules.warning_margin`](/docs/api-reference/DrcRules) for details.
 ## Run DRC from Python
 
 ```python
-from rosette import Cell, Layer, Point, Polygon, load_drc_rules, run_drc
+from rosette import Cell, Layer, Point, Polygon
+from rosette.drc import load_drc_rules, run_drc
 
 cell = Cell("top")
 cell.add_polygon(Polygon.rect(Point(0, 0), 10, 0.08), Layer(1, 0))  # too narrow

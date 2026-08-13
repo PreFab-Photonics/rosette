@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from rosette import DEFAULT_LAYERS, Layer, LayerInfo, LayerMap, _default_layer_map, load_layer_map
+from rosette import Layer
+from rosette._api import DEFAULT_LAYERS, _default_layer_map
+from rosette.project import LayerInfo, LayerMap, load_layer_map
 
 
 class TestLayerInfo:

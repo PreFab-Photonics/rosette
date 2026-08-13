@@ -2,7 +2,8 @@
 
 import pytest
 
-from rosette import BBox, Cell, Layer, Library, Point, Polygon, RenderResult, render_png
+from rosette import BBox, Cell, Layer, Library, Point, Polygon
+from rosette.render import RenderResult, render_png
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 

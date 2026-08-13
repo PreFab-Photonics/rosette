@@ -171,7 +171,9 @@ def edge_coupler(
 
         Place one edge coupler at each die edge and route between them::
 
-            from rosette import Cell, Layer, Route, write_gds
+            from rosette import Cell, Layer
+            from rosette.io import write_gds
+            from rosette.routing import Route
             from rosette.components import edge_coupler
 
             layer = Layer(1, 0)

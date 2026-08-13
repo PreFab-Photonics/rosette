@@ -10,15 +10,13 @@ import pytest
 
 from rosette import (
     Cell,
-    ChecksConfig,
     Layer,
     Point,
     Polygon,
     Port,
     Vector2,
-    load_checks_config,
-    run_checks,
 )
+from rosette.checks import ChecksConfig, load_checks_config, run_checks
 from rosette.cli import (
     _checks_result_to_dict,
     _print_checks_result,

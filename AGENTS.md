@@ -23,7 +23,7 @@ www/                    Docs site (Next.js + fumadocs) — see www/AGENTS.md
 designs/                Example design scripts
 ```
 
-Pipeline: `rosette-core` + feature crates such as `rosette-route` -> PyO3 (`rosette-python`) -> `rosette._core` -> Python wrapper (`python/rosette/__init__.py`).
+Pipeline: `rosette-core` + feature crates such as `rosette-route` -> PyO3 (`rosette-python`) -> `rosette._core` -> Python wrappers (`python/rosette/_api.py`) -> the root facade and public feature modules.
 
 ## Commands
 
@@ -62,7 +62,7 @@ Full surface: `uv run rosette --help` or `uv run rosette cli-manifest`.
 
 **Templates:** `rosette init` scaffolds from `python/rosette/templates/{blank,generic}/`. Each template stores one harness-neutral instruction body (`agent-rules.md.template`) plus `skills/`; the `HARNESSES` adapter in `cli.py` projects them into each tool's files (`AGENTS.md` + `.agents/skills/` for most, `CLAUDE.md` + `.claude/skills/` for Claude Code). Read `HARNESSES` and `update_project()` in `cli.py` before changing any of this. Check whether your change needs a template update.
 
-**API docs:** Every `__all__` symbol (in `python/rosette/__init__.py`) needs a docs page in `www/content/docs/api-reference/` — classes get their own `.mdx`, functions/constants go on `index.mdx`. New class pages must also be listed in `api-reference/meta.json` or the sidebar check fails. Verify with `uv run --no-project python www/scripts/check-api-docs.py`; update docs when changing public API.
+**API docs:** Every symbol exported by the root facade or a public feature module needs a docs page in `www/content/docs/api-reference/` — classes get their own `.mdx`, functions/constants go on `index.mdx`. New class pages must also be listed in `api-reference/meta.json` or the sidebar check fails. Verify with `uv run --no-project python www/scripts/check-api-docs.py`; update docs when changing public API.
 
 **WASM bindings:** The app type-checks against `app/src/wasm/rosette_wasm.d.ts`, a checked-in cache of `wasm-pack` output (the rest of `app/src/wasm/` is gitignored). CI rebuilds wasm and fails if the committed stub's public API drifted. See Boundaries for how to regenerate it.
 

@@ -24,7 +24,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 if TYPE_CHECKING:
-    from rosette import BBox, Cell, ChecksResult, DfmResult, DrcResult, LayerMetrics
+    from rosette import BBox, Cell
+    from rosette.checks import ChecksResult
+    from rosette.dfm import DfmResult, LayerMetrics
+    from rosette.drc import DrcResult
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +48,7 @@ OUTPUT_DIR = "output"  # default location for built GDS (created on first build)
 #
 #   Managed reference (regenerated wholesale by `rosette init`/`update`, pinned
 #   to the installed librosette build):
-#     .rosette/api.pyi   -- public facade API reference
+#     .rosette/api.pyi   -- public Python API reference
 #     .rosette/cli.json  -- CLI manifest (regenerated from the argparse parser;
 #                           stamps `package_version` for staleness detection)
 #     .rosette/manifest.json -- provenance for all managed references
@@ -1682,7 +1685,7 @@ def init_project(
 
 
 def _copy_api_stub(rosette_dir: Path):
-    """Copy the public facade contract to .rosette/ for agents to read."""
+    """Copy the public Python API contract to .rosette/ for agents to read."""
     package_dir = Path(__file__).parent
 
     pyi_file = package_dir / "api.pyi"
@@ -2057,7 +2060,8 @@ def _check_reference_staleness() -> None:
     in ``cli.json``, which remains a fallback until ``rosette update`` creates
     the reference manifest. Missing or malformed metadata is never fatal.
     """
-    from rosette import __version__, _find_rosette_toml
+    from rosette import __version__
+    from rosette._api import _find_rosette_toml
 
     toml = _find_rosette_toml()
     if toml is None:
@@ -2309,7 +2313,7 @@ def _run_drc_check(
     Loads the design, loads rules from rosette.toml, and runs DRC.
     Returns (DrcResult, file_path) for the caller to format output.
     """
-    from rosette import load_drc_rules, run_drc
+    from rosette.drc import load_drc_rules, run_drc
 
     # Load design
     cell, file_path, _ = load_design(design_spec)
@@ -2461,7 +2465,7 @@ def _run_dfm_check(
     Raises FileNotFoundError/ValueError on config issues instead of exiting,
     so callers can decide how to handle errors.
     """
-    from rosette import load_dfm_config, run_dfm
+    from rosette.dfm import load_dfm_config, run_dfm
 
     # Load design if not provided
     if cell is None:
@@ -2616,7 +2620,8 @@ def dfm_design(
     # output so the JSON object can report it.
     gds_written: str | None = None
     if gds_output is not None:
-        from rosette import add_dfm_predictions, write_gds
+        from rosette._api import add_dfm_predictions
+        from rosette.io import write_gds
 
         add_dfm_predictions(cell, result)
         write_gds(gds_output, cell, quiet=json_output, verbose=verbose)
@@ -2648,7 +2653,7 @@ def _run_checks_check(
     Loads the design (unless cell/file_path are provided), loads checks
     config from rosette.toml, and runs all checks (connectivity + bend radius).
     """
-    from rosette import load_checks_config, run_checks
+    from rosette.checks import load_checks_config, run_checks
 
     # Load design if not provided
     if cell is None:
@@ -2744,7 +2749,7 @@ def check_design(
     cell, file_path, _ = load_design(design)
 
     # DRC
-    from rosette import load_drc_rules, run_drc
+    from rosette.drc import load_drc_rules, run_drc
 
     try:
         rules = load_drc_rules(config)
@@ -2803,7 +2808,7 @@ def _check_design_json(design: str, config: str | None, include_dfm: bool) -> No
     section exists (or its config errored), it becomes a structured skip/error
     object so the output stays a single parseable object.
     """
-    from rosette import load_drc_rules, run_drc
+    from rosette.drc import load_drc_rules, run_drc
 
     all_passed = True
 
@@ -2882,7 +2887,7 @@ def build_design(
     config: str | None = None,
 ):
     """Build a design to GDS using the 'design' convention."""
-    from rosette import write_gds
+    from rosette.io import write_gds
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -2892,7 +2897,7 @@ def build_design(
 
     # Run DRC before building if --check is set
     if check:
-        from rosette import load_drc_rules, run_drc
+        from rosette.drc import load_drc_rules, run_drc
 
         try:
             rules = load_drc_rules(config)
@@ -2976,7 +2981,7 @@ def _project_snapshot_dir() -> Path | None:
     Returns None when no `rosette.toml` is found upward from cwd, signalling
     that the caller should fall back to writing next to the design file.
     """
-    from rosette import _find_rosette_toml
+    from rosette._api import _find_rosette_toml
 
     toml = _find_rosette_toml()
     if toml is None:
@@ -2986,7 +2991,7 @@ def _project_snapshot_dir() -> Path | None:
 
 def _load_retain_config() -> int:
     """Read `[snapshots] retain = N` from rosette.toml; default 20."""
-    from rosette import _find_rosette_toml
+    from rosette._api import _find_rosette_toml
 
     toml_path = _find_rosette_toml()
     if toml_path is None:
@@ -3048,7 +3053,7 @@ def shot_design(
 ) -> None:
     """Render a design to a PNG image (and a sidecar JSON by default).
 
-    The CLI form of `rosette.render_png`. Reach for this — either as a
+    The CLI form of `rosette.render.render_png`. Reach for this — either as a
     subprocess (`rosette shot ...`) or by importing `render_png` directly
     — only when the conversation has hit a visual gap: the user is
     describing something they can see but the assistant can't picture, or
@@ -3059,7 +3064,7 @@ def shot_design(
     Choose the subprocess form when the assistant doesn't already have
     the design's Python module loaded (no shared interpreter state).
     When the assistant is running inside the design's process, importing
-    `rosette.render_png` directly is simpler.
+    `rosette.render.render_png` directly is simpler.
 
     Output location: when `out` is None, snapshots land in
     `<project_root>/.rosette/snapshots/<stem>-<timestamp>-<tag>.png`,
@@ -3080,7 +3085,7 @@ def shot_design(
     import secrets
     import time
 
-    from rosette import render_png
+    from rosette.render import render_png
 
     try:
         bbox = _parse_bbox_arg(bbox_str) if bbox_str else None

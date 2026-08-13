@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from rosette import (
-    ArrayCopy,
     BBox,
     Cell,
     Instance,
@@ -20,11 +19,12 @@ from rosette import (
     Point,
     Polygon,
     Port,
-    Route,
     Transform,
     Vector2,
-    write_gds,
 )
+from rosette.io import write_gds
+from rosette.layout import ArrayCopy
+from rosette.routing import Route
 
 
 class TestLayer:
@@ -425,7 +425,7 @@ class TestInstance:
 
     def test_instance_scale_is_preserved_by_native_lowering_and_gds(self):
         """Uniform scale is identical in ports, hierarchy geometry, and GDS."""
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         child = Cell("scaled_child")
         child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
@@ -602,7 +602,7 @@ class TestInstance:
         to emit a spurious mirror_y that cancelled the 180-degree
         rotation, making the GDS reference appear unrotated.
         """
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         # Asymmetric cell: polygon only in +X half
         child = Cell("asym")
@@ -645,7 +645,7 @@ class TestInstance:
 
     def test_instance_mirror_x_gds_roundtrip(self):
         """mirror_x() Instance survives GDS round-trip."""
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         child = Cell("mirrored")
         child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
@@ -677,7 +677,7 @@ class TestInstance:
         The fix applies rotation first, then translation:
         .rotate(angle).at(pos).
         """
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         child = Cell("child")
         child.add_polygon(Polygon.rect(Point(0, 0), 10, 5), Layer(1, 0))
@@ -784,7 +784,7 @@ class TestInstanceArray:
 
     def test_instance_array_gds_roundtrip(self):
         """Instance with array writes as AREF and round-trips through GDS."""
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         child = Cell("unit")
         child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
@@ -807,7 +807,7 @@ class TestInstanceArray:
 
     def test_instance_array_preserves_transforms(self):
         """Instance.array() with rotation round-trips through GDS."""
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         child = Cell("unit")
         child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
@@ -841,7 +841,7 @@ class TestInstanceArray:
         bounding box extends into the negative quadrant exactly as
         predicted by mirroring the positive-pitch case.
         """
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         child = Cell("unit")
         child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
@@ -1015,7 +1015,7 @@ class TestLibraryCellBbox:
         box matches — which is the round-trip invariant the two code
         paths must share.
         """
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         child = Cell("unit")
         child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
@@ -1096,7 +1096,7 @@ class TestSkewedArefs:
         """
         import math
 
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         unit = Cell("unit")
         unit.add_polygon(Polygon.rect(Point(0, 0), 1.0, 1.0), Layer(1, 0))
@@ -1160,7 +1160,7 @@ class TestSkewedArefs:
         """`Instance.array_vectors` lowers to GDS without losing its lattice."""
         import math
 
-        from rosette import read_gds
+        from rosette.io import read_gds
 
         unit = Cell("unit")
         unit.add_polygon(Polygon.rect(Point(0, 0), 1.0, 1.0), Layer(1, 0))

@@ -121,7 +121,9 @@ def ring(
 
     Example -- ring inline on a GC loopback route::
 
-        from rosette import Cell, Layer, Route, write_gds
+        from rosette import Cell, Layer
+        from rosette.io import write_gds
+        from rosette.routing import Route
         from rosette.components import grating_coupler, ring
 
         layer = Layer(1, 0)

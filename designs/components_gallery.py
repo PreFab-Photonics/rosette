@@ -29,7 +29,7 @@ or build it to GDS::
 
 from __future__ import annotations
 
-from rosette import Cell, Point, load_layer_map
+from rosette import Cell, Point
 from rosette.components import (
     bragg_grating,
     crossing,
@@ -40,6 +40,7 @@ from rosette.components import (
     ring,
     sbend,
 )
+from rosette.project import load_layer_map
 
 layers = load_layer_map()
 silicon = layers.silicon.layer

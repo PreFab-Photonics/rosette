@@ -148,7 +148,9 @@ def crossing(
 
         Crossover grid -- route a waveguide across a bus bar::
 
-            from rosette import Cell, Layer, Route, write_gds
+            from rosette import Cell, Layer
+            from rosette.io import write_gds
+            from rosette.routing import Route
             from rosette.components import crossing
 
             layer = Layer(1, 0)

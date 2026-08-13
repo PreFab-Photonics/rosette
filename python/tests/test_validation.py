@@ -13,11 +13,10 @@ from rosette import (
     Port,
     Transform,
     Vector2,
-    offset_polygon,
-    offset_polygon_varying,
 )
 from rosette._core import Cell as NativeCell
 from rosette._core import CellRef as NativeCellRef
+from rosette.geometry import offset_polygon, offset_polygon_varying
 
 NONFINITE = [float("nan"), float("inf"), float("-inf")]
 

@@ -16,7 +16,8 @@ config supports but does not currently enable (no_self_intersection,
 min_edge_length, max_width, density, snap_to_grid) are not exercised here.
 """
 
-from rosette import Cell, Point, Polygon, load_layer_map
+from rosette import Cell, Point, Polygon
+from rosette.project import load_layer_map
 
 layers = load_layer_map()
 silicon = layers.silicon.layer

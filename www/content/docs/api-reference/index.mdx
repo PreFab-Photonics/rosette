@@ -8,7 +8,9 @@ Rosette is pre-1.0. Function signatures, class interfaces, and behavior may chan
 </Callout>
 
 ```python
-from rosette import Cell, Layer, Point, Polygon, Route, write_gds
+from rosette import Cell, Layer, Point, Polygon
+from rosette.io import write_gds
+from rosette.routing import Route
 
 # Create a simple cell
 cell = Cell("my_design")
@@ -32,13 +34,6 @@ For library development, import from `rosette.components`:
 ```python
 from rosette.components import mmi, ring, grating_coupler
 ```
-
-<PyAttribute name={"DEFAULT_LAYERS"} type={"list[dict]"} value={"[{'name': 'silicon', ...}, {'name': 'text', ...}]"}>
-
-Default layer definitions used as fallback when `rosette.toml` has no `[layers]`
-section. Contains two layers: silicon (1/0), text (10/0).
-
-</PyAttribute>
 
 <Tabs items={["Classes","Functions"]}>
 
@@ -87,7 +82,6 @@ section. Contains two layers: silicon (1/0), text (10/0).
 <Card title={"DrcRules"} href={"/docs/api-reference/DrcRules"} />
 <Card title={"DrcViolation"} href={"/docs/api-reference/DrcViolation"} />
 <Card title={"DrcResult"} href={"/docs/api-reference/DrcResult"} />
-<Card title={"DrcCache"} href={"/docs/api-reference/DrcCache"} />
 
 </Cards>
 
@@ -126,6 +120,8 @@ section. Contains two layers: silicon (1/0), text (10/0).
 <Tab value={"Functions"}>
 
 ### I/O
+
+Import `read_gds` and `write_gds` from `rosette.io`.
 
 <PyFunction name={"read_gds"} type={"(path) -> Library"}>
 
@@ -219,6 +215,8 @@ If `True`, print detailed build info including port positions.
 
 ### Placement
 
+Import `connect_transform` from `rosette`.
+
 <PyFunction name={"connect_transform"} type={"(component_port, target_port) -> Transform"}>
 
 Calculate the transform that aligns a component port with a target port,
@@ -261,6 +259,8 @@ Transform that aligns the two ports.
 
 ### Configuration
 
+Import `load_layer_map` from `rosette.project`.
+
 <PyFunction name={"load_layer_map"} type={"(config_path=None) -> LayerMap"}>
 
 Load layer definitions from `rosette.toml`.
@@ -298,6 +298,8 @@ LayerMap with named layer access.
 </PyFunction>
 
 ### DRC
+
+Import `load_drc_rules` and `run_drc` from `rosette.drc`.
 
 <PyFunction name={"load_drc_rules"} type={"(config_path=None) -> DrcRules"}>
 
@@ -345,7 +347,7 @@ DrcRules built from the configuration.
 
 </PyFunction>
 
-<PyFunction name={"run_drc"} type={"(cell, rules, library=None, cache=None) -> DrcResult"}>
+<PyFunction name={"run_drc"} type={"(cell, rules, library=None) -> DrcResult"}>
 
 Run DRC on a cell.
 
@@ -380,13 +382,6 @@ DRC rules to apply.
 Library containing referenced cells (required if cell has refs).
 
 </PyParameter>
-<PyParameter name={"cache"} type={"DrcCache | None"} value={"None"}>
-
-Optional [`DrcCache`](./DrcCache) reused across calls to make re-runs
-incremental (the `rosette serve` live-preview loop). Results are identical to
-a cache-free run; only the amount of work differs.
-
-</PyParameter>
 
 </div>
 
@@ -399,6 +394,8 @@ DrcResult with violations and statistics.
 </PyFunction>
 
 ### Design Checks
+
+Import `load_checks_config` and `run_checks` from `rosette.checks`.
 
 <PyFunction name={"load_checks_config"} type={"(config_path=None) -> ChecksConfig"}>
 
@@ -489,6 +486,8 @@ ChecksResult with violations and statistics.
 </PyFunction>
 
 ### DFM
+
+Import `load_dfm_config` and `run_dfm` from `rosette.dfm`.
 
 <PyFunction name={"load_dfm_config"} type={"(config_path=None) -> tuple[DfmConfig, GaussianModel, list[Layer]] | None"}>
 
@@ -591,50 +590,10 @@ DfmResult with per-layer predictions and statistics.
 
 </PyFunction>
 
-<PyFunction name={"add_dfm_predictions"} type={"(cell, result, datatype_offset=100) -> None"}>
-
-Add DFM predicted polygons to a cell on offset layers.
-
-For each layer in the DFM result, adds the predicted polygons to the cell
-on a new layer with the same number but datatype offset by `datatype_offset`.
-This makes it easy to visualize designed vs predicted geometry side-by-side.
-
-<Callout title={"Example"} type={"example"}>
-
-```python
-result = run_dfm(cell, layers=[Layer(1, 0)])
-add_dfm_predictions(cell, result)
-write_gds("output.gds", cell)
-# Layer 1/0 = designed, Layer 1/100 = predicted
-```
-
-</Callout>
-
-<div>
-
-<PyParameter name={"cell"} type={"Cell"}>
-
-The cell to add predicted polygons to (modified in-place).
-
-</PyParameter>
-<PyParameter name={"result"} type={"DfmResult"}>
-
-DFM prediction result from `run_dfm`.
-
-</PyParameter>
-<PyParameter name={"datatype_offset"} type={"int"} value={"100"}>
-
-Offset added to the original datatype.
-
-</PyParameter>
-
-</div>
-
-<PyFunctionReturn type={"None"} />
-
-</PyFunction>
-
 ### Geometry Utilities
+
+Import `arc_points`, `offset_polygon`, and `offset_polygon_varying` from
+`rosette.geometry`.
 
 <PyFunction name={"arc_points"} type={"(center, radius, start_angle, end_angle, num_points=64) -> list[Point]"}>
 
@@ -738,71 +697,9 @@ A closed polygon.
 
 </PyFunction>
 
-<PyFunction name={"path_length"} type={"(points) -> float"}>
-
-Calculate the total length of a polyline path.
-
-<div>
-
-<PyParameter name={"points"} type={"list[Point]"}>
-
-List of points defining the path.
-
-</PyParameter>
-
-</div>
-
-<PyFunctionReturn type={"float"}>
-
-Sum of distances between consecutive points.
-
-</PyFunctionReturn>
-
-</PyFunction>
-
-<PyFunction name={"fresnel_c"} type={"(t) -> float"}>
-
-Fresnel cosine integral C(t).
-
-Used for generating Euler (clothoid) spiral bends.
-C(t) = integral from 0 to t of cos(pi/2 * u^2) du.
-
-<div>
-
-<PyParameter name={"t"} type={"float"}>
-
-Upper limit of integration.
-
-</PyParameter>
-
-</div>
-
-<PyFunctionReturn type={"float"} />
-
-</PyFunction>
-
-<PyFunction name={"fresnel_s"} type={"(t) -> float"}>
-
-Fresnel sine integral S(t).
-
-Used for generating Euler (clothoid) spiral bends.
-S(t) = integral from 0 to t of sin(pi/2 * u^2) du.
-
-<div>
-
-<PyParameter name={"t"} type={"float"}>
-
-Upper limit of integration.
-
-</PyParameter>
-
-</div>
-
-<PyFunctionReturn type={"float"} />
-
-</PyFunction>
-
 ### Rendering
+
+Import `render_png` from `rosette.render`.
 
 <Callout type="warn" title="Experimental">
 The rendering API is evolving; the signature and `RenderResult` shape may change

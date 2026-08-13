@@ -9,9 +9,9 @@ from rosette import (
     Library,
     Point,
     Polygon,
-    write_gds,
 )
 from rosette.components import grating_coupler
+from rosette.io import write_gds
 
 
 class TestWriteGds:

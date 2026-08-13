@@ -6,13 +6,15 @@ Result of a [`render_png()`](./index#render_png) call: the PNG image bytes plus
 the world↔pixel transform metadata needed to map between design (micron) and
 image (pixel) coordinates.
 
+Import with `from rosette.render import RenderResult`.
+
 <Callout type="warn" title="Experimental">
 The rendering API (`render_png` / `RenderResult`) is evolving. Property shapes
 (notably the `view` metadata) and method signatures may change without notice.
 </Callout>
 
 ```python
-from rosette import render_png
+from rosette.render import render_png
 
 result = render_png(library, width=1024)
 png_bytes = result.png
@@ -30,7 +32,7 @@ PNG-encoded image bytes.
 <PyAttribute name={"view"} type={"dict[str, object]"}>
 
 World↔pixel transform metadata (scale, offsets, canvas size, and the visible
-world bbox in microns). See the facade contract in `python/rosette/api.pyi` for
+world bbox in microns). See the public API contract in `python/rosette/api.pyi` for
 the current key set, which may change.
 
 </PyAttribute>

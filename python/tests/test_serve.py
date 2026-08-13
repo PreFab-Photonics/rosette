@@ -5,13 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from rosette import Cell, DrcCache, DrcRules, Layer, Point, Polygon
+from rosette import Cell, Layer, Point, Polygon
+from rosette._core import DrcCache
 from rosette._serve import (
     _load_layer_map_safe,
     _prepare_design,
     _run_drc_safe,
     _validate_webapp_bundle,
 )
+from rosette.drc import DrcRules
 
 
 def test_prepare_design_collects_descendants_added_after_parent_placement():

@@ -26,7 +26,8 @@ The usual recipe is: build a sub-cell, place it with `.at(x, y)`, and
 add it to a parent.
 
 ```python
-from rosette import Cell, Layer, Point, Polygon, write_gds
+from rosette import Cell, Layer, Point, Polygon
+from rosette.io import write_gds
 
 # A sub-cell: a 10 x 0.5 um waveguide stub.
 stub = Cell("stub")
@@ -200,7 +201,8 @@ operations report those graph-level issues separately.
 A 2x2 grid of a sub-cell, with text labels per copy:
 
 ```python
-from rosette import Cell, Layer, Point, Polygon, write_gds
+from rosette import Cell, Layer, Point, Polygon
+from rosette.io import write_gds
 
 # Sub-cell: a 5 x 5 um square.
 unit = Cell("unit")

@@ -23,7 +23,7 @@ RUNNABLE_API_EXAMPLES = {
     ("Cell.mdx", 16),
     ("Cell.mdx", 50),
     ("Cell.mdx", 91),
-    ("DfmConfig.mdx", 121),
+    ("DfmConfig.mdx", 123),
     ("Layer.mdx", 11),
     ("Layer.mdx", 41),
     ("Point.mdx", 12),
@@ -43,8 +43,8 @@ RUNNABLE_API_EXAMPLES = {
     ("Vector2.mdx", 185),
     ("Vector2.mdx", 191),
     ("Vector2.mdx", 198),
-    ("index.mdx", 32),
-    ("index.mdx", 229),
+    ("index.mdx", 34),
+    ("index.mdx", 227),
 }
 
 RUNNABLE_STUB_EXAMPLES = (
@@ -70,6 +70,25 @@ config.set_layer_config(Layer(2, 0), sigma=0.15)""",
 COMPONENT_MODULES = sorted(
     {getattr(rosette.components, name).__module__ for name in rosette.components.__all__}
 )
+PUBLIC_MODULES = (
+    "rosette.checks",
+    "rosette.dfm",
+    "rosette.drc",
+    "rosette.geometry",
+    "rosette.io",
+    "rosette.layout",
+    "rosette.project",
+    "rosette.render",
+    "rosette.routing",
+)
+
+
+def _public_namespace() -> dict[str, object]:
+    namespace = vars(rosette).copy()
+    for module_name in PUBLIC_MODULES:
+        module = importlib.import_module(module_name)
+        namespace.update({name: getattr(module, name) for name in module.__all__})
+    return namespace
 
 
 @pytest.mark.parametrize("module_name", COMPONENT_MODULES)
@@ -98,7 +117,7 @@ def test_self_contained_api_reference_examples_execute():
             key = (path.name, opening_line)
             if key not in RUNNABLE_API_EXAMPLES:
                 continue
-            exec(match.group(1), vars(rosette).copy())
+            exec(match.group(1), _public_namespace())
             executed.add(key)
 
     assert executed == RUNNABLE_API_EXAMPLES
@@ -114,4 +133,4 @@ def test_self_contained_agent_reference_examples_execute(source: str):
         if line.strip() == source.splitlines()[0]
     ]
     assert matches.count(source) == 1
-    exec(source, vars(rosette).copy())
+    exec(source, _public_namespace())

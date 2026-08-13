@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from rosette import Cell, DrcCache, DrcRules, Library
+    from rosette import Cell, Library
+    from rosette._core import DrcCache
     from rosette._core import Library as _CoreLibrary
+    from rosette.drc import DrcRules
 
 _LAYOUT_FORMAT = "rosette-layout"
 _LAYOUT_SCHEMA = 1
@@ -83,7 +85,7 @@ def _prepare_design(cell: Cell):
         - json_str: Hierarchical library JSON (micrometers, full structure)
         - cell_tree: Hierarchy tree dict for the explorer panel
     """
-    from rosette import _collect_all_cells
+    from rosette._api import _collect_all_cells
     from rosette._core import to_json
 
     child_cells: set[Cell] = set()
@@ -197,7 +199,7 @@ def _start_server(port: int):
 def _load_layer_map_safe() -> list[dict[str, object]] | None:
     """Try to load layer map from rosette.toml, fall back to defaults."""
     try:
-        from rosette import load_layer_map
+        from rosette.project import load_layer_map
 
         layer_map = load_layer_map()
         if len(layer_map) > 0:
@@ -205,7 +207,7 @@ def _load_layer_map_safe() -> list[dict[str, object]] | None:
     except (FileNotFoundError, ValueError):
         pass
     # Fall back to built-in defaults so the app always has layers
-    from rosette import _default_layer_map
+    from rosette._api import _default_layer_map
 
     return _default_layer_map().to_dict_list()
 
@@ -218,7 +220,7 @@ def _load_drc_rules_safe():
     live preview, so all expected config errors are swallowed.
     """
     try:
-        from rosette import load_drc_rules
+        from rosette.drc import load_drc_rules
 
         return load_drc_rules()
     except (FileNotFoundError, ValueError):
@@ -234,7 +236,7 @@ def _run_drc_safe(
     a DRC failure degrades gracefully to "no violations shown" rather than
     killing the reload.
 
-    When ``cache`` (a :class:`rosette.DrcCache`) is supplied, DRC re-runs are
+    When an internal DRC cache is supplied, DRC re-runs are
     incremental: a change to one cell only re-checks that cell and its
     dependents, rather than the full design every reload (ROS-548). Results
     are identical to a cache-free run.
@@ -245,7 +247,7 @@ def _run_drc_safe(
     if rules is None:
         return None
     try:
-        from rosette import run_drc
+        from rosette._api import run_drc
 
         result = run_drc(cell, rules, cache=cache)
     except Exception as e:  # never let DRC break live preview
@@ -589,7 +591,7 @@ def serve_design(
         # reload are incremental: a change to one cell only re-checks that
         # cell and its dependents (ROS-548). The cache invalidates itself when
         # the [drc] rule set changes.
-        from rosette import DrcCache
+        from rosette._core import DrcCache
 
         drc_cache = DrcCache()
 

@@ -204,7 +204,9 @@ def mmi(
 
         Splitter feeding two grating couplers at fiber pitch::
 
-            from rosette import Cell, Layer, Route, write_gds
+            from rosette import Cell, Layer
+            from rosette.io import write_gds
+            from rosette.routing import Route
             from rosette.components import grating_coupler, mmi
 
             layer = Layer(1, 0)
@@ -238,7 +240,9 @@ def mmi(
         arms -- toggling the arm length imbalance sweeps the cross/bar
         ratio::
 
-            from rosette import Cell, Layer, Route, write_gds
+            from rosette import Cell, Layer
+            from rosette.io import write_gds
+            from rosette.routing import Route
             from rosette.components import mmi
 
             layer = Layer(1, 0)

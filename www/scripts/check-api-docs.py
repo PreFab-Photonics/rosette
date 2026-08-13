@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Check that every public API symbol has a corresponding docs page.
 
-Parses __all__ from rosette/__init__.py and verifies that each symbol
-either has its own .mdx page (classes) or is documented on the index
-page (functions and constants).
+Parses __all__ from the root package and public feature modules, then verifies
+that each symbol either has its own .mdx page (classes) or is documented on the
+index page (functions and constants).
 
 Usage:
     uv run python www/scripts/check-api-docs.py
@@ -25,7 +25,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 DOCS_DIR = ROOT / "www" / "content" / "docs" / "api-reference"
 META_JSON = DOCS_DIR / "meta.json"
-ROSETTE_INIT = ROOT / "python" / "rosette" / "__init__.py"
+ROSETTE_PACKAGE = ROOT / "python" / "rosette"
+PUBLIC_MODULES = {
+    "rosette": ROSETTE_PACKAGE / "__init__.py",
+    "rosette.layout": ROSETTE_PACKAGE / "layout.py",
+    "rosette.routing": ROSETTE_PACKAGE / "routing.py",
+    "rosette.io": ROSETTE_PACKAGE / "io.py",
+    "rosette.geometry": ROSETTE_PACKAGE / "geometry.py",
+    "rosette.project": ROSETTE_PACKAGE / "project.py",
+    "rosette.drc": ROSETTE_PACKAGE / "drc.py",
+    "rosette.checks": ROSETTE_PACKAGE / "checks.py",
+    "rosette.dfm": ROSETTE_PACKAGE / "dfm.py",
+    "rosette.render": ROSETTE_PACKAGE / "render.py",
+}
 AGENT_REFERENCE = ROOT / "python" / "rosette" / "api.pyi"
 
 
@@ -126,18 +138,39 @@ def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
 
-    # ── Parse __all__ ──────────────────────────────────────────────────
-    all_symbols = extract_all(ROSETTE_INIT)
-    if not all_symbols:
-        print(f"ERROR: Could not parse __all__ from {ROSETTE_INIT}", file=sys.stderr)
-        return 1
+    # ── Parse public modules ───────────────────────────────────────────
+    symbols_by_module: dict[str, list[str]] = {}
+    for module, filepath in PUBLIC_MODULES.items():
+        symbols = extract_all(filepath)
+        if not symbols:
+            errors.append(f"Could not parse __all__ from {module} ({filepath})")
+            continue
+        symbols_by_module[module] = symbols
+        duplicates = [name for name, count in Counter(symbols).items() if count > 1]
+        for symbol in duplicates:
+            errors.append(f"Symbol '{module}.{symbol}' appears more than once in __all__")
 
-    duplicates = [name for name, count in Counter(all_symbols).items() if count > 1]
-    for symbol in duplicates:
-        errors.append(f"Symbol '{symbol}' appears more than once in __all__")
+    all_symbols = [
+        symbol
+        for symbols in symbols_by_module.values()
+        for symbol in symbols
+    ]
+    duplicate_exports = [
+        name for name, count in Counter(all_symbols).items() if count > 1
+    ]
+    for symbol in duplicate_exports:
+        modules = [
+            module
+            for module, symbols in symbols_by_module.items()
+            if symbol in symbols
+        ]
+        errors.append(
+            f"Symbol '{symbol}' is exported by multiple public modules: "
+            f"{', '.join(modules)}"
+        )
 
     # Separate classes (uppercase, not ALL_CAPS) from functions/constants.
-    # ALL_CAPS names like DEFAULT_LAYERS are constants documented on index.mdx.
+    # ALL_CAPS names are constants documented on index.mdx.
     # The leading `s and` guards against a malformed (empty) __all__ entry.
     classes = [s for s in all_symbols if s and s[0].isupper() and not s.isupper()]
     functions = [s for s in all_symbols if s and s[0].islower()]
@@ -238,7 +271,7 @@ def main() -> int:
     print(
         f"API docs check passed: {len(classes)} classes, "
         f"{len(functions)} functions, {len(constants)} constants "
-        f"— all documented."
+        f"across {len(symbols_by_module)} public modules - all documented."
     )
     return 0
 

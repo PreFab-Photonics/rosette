@@ -167,7 +167,9 @@ def directional_coupler(
 
         Two couplers as a Mach-Zehnder interferometer skeleton::
 
-            from rosette import Cell, Layer, Route, write_gds
+            from rosette import Cell, Layer
+            from rosette.io import write_gds
+            from rosette.routing import Route
             from rosette.components import directional_coupler
 
             layer = Layer(1, 0)

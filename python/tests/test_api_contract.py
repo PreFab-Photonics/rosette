@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import inspect
 from pathlib import Path
 
 import rosette
+import rosette._api as api
 import rosette._core as core
 import rosette.components
+from rosette.routing import Route
 
 ROOT = Path(__file__).resolve().parents[2]
 NATIVE_STUB_PATH = ROOT / "python" / "rosette" / "_core.pyi"
@@ -257,6 +260,14 @@ def _public_names(obj: object) -> set[str]:
     return {name for name in dir(obj) if not name.startswith("_")}
 
 
+def _public_api_objects() -> dict[str, object]:
+    objects = {name: getattr(rosette, name) for name in rosette.__all__}
+    for module_name in TARGET_FEATURE_EXPORTS:
+        module = importlib.import_module(module_name)
+        objects.update({name: getattr(module, name) for name in module.__all__})
+    return objects
+
+
 def _stub_class_members(node: ast.ClassDef) -> set[str]:
     members = {child.name for child in node.body if isinstance(child, ast.FunctionDef)}
     members.update(
@@ -292,7 +303,7 @@ def test_extension_exports_are_stable():
 
 
 def test_public_facade_exports_exist_and_are_unique():
-    assert tuple(rosette.__all__) == CURRENT_FACADE_EXPORTS
+    assert tuple(rosette.__all__) == TARGET_FACADE_EXPORTS
     assert {name for name in rosette.__all__ if not hasattr(rosette, name)} == set()
 
 
@@ -321,12 +332,30 @@ def test_target_contract_assigns_every_current_export_once():
     assert set(destinations) == set(CURRENT_FACADE_EXPORTS)
 
 
+def test_feature_modules_exactly_match_target_contract():
+    for module_name, expected in TARGET_FEATURE_EXPORTS.items():
+        module = importlib.import_module(module_name)
+        assert tuple(module.__all__) == expected
+        assert {name for name in expected if not hasattr(module, name)} == set()
+        for name in expected:
+            if module_name == "rosette.drc" and name == "run_drc":
+                continue
+            owner = api if hasattr(api, name) else core
+            assert getattr(module, name) is getattr(owner, name)
+
+
+def test_moved_and_removed_exports_are_absent_from_default_facade():
+    moved = {name for exports in TARGET_FEATURE_EXPORTS.values() for name in exports}
+
+    assert {name for name in moved | TARGET_REMOVED_EXPORTS if hasattr(rosette, name)} == set()
+
+
 def test_native_stub_exactly_matches_extension_exports():
     assert _stub_names(NATIVE_STUB_PATH) == _public_names(core)
 
 
-def test_facade_stub_exactly_matches_public_exports():
-    assert _stub_names(FACADE_STUB_PATH) == set(rosette.__all__)
+def test_agent_reference_exactly_matches_public_exports():
+    assert _stub_names(FACADE_STUB_PATH) == set(_public_api_objects())
 
 
 def test_extension_only_symbols_have_explicit_visibility():
@@ -394,7 +423,7 @@ def test_library_method_signatures_match_contracts():
             )
 
 
-def test_public_facade_methods_are_represented_in_agent_reference():
+def test_public_api_methods_are_represented_in_agent_reference():
     stub_classes = {
         name: node
         for name, node in _stub_symbols(FACADE_STUB_PATH).items()
@@ -402,8 +431,9 @@ def test_public_facade_methods_are_represented_in_agent_reference():
     }
     mismatches: dict[str, tuple[set[str], set[str]]] = {}
 
-    for name in set(rosette.__all__) & set(stub_classes):
-        runtime_class = getattr(rosette, name)
+    for name, runtime_class in _public_api_objects().items():
+        if name not in stub_classes or not inspect.isclass(runtime_class):
+            continue
         stub_members = {
             member
             for member in _stub_class_members(stub_classes[name])
@@ -469,8 +499,9 @@ def test_facade_function_signature_shapes_match_runtime():
         if isinstance(node, ast.FunctionDef)
     }
     mismatches = {}
+    public_api = _public_api_objects()
     for name, node in stub_functions.items():
-        runtime = getattr(rosette, name)
+        runtime = public_api[name]
         stub_shape = _stub_parameter_shape(node)
         runtime_shape = _runtime_parameter_shape(runtime)
         if stub_shape != runtime_shape:
@@ -480,38 +511,23 @@ def test_facade_function_signature_shapes_match_runtime():
 
 
 def test_route_constructor_signatures_match_agent_reference():
-    for path, runtime in ((FACADE_STUB_PATH, rosette.Route), (NATIVE_STUB_PATH, core.Route)):
-        route = _stub_symbols(path)["Route"]
-        assert isinstance(route, ast.ClassDef)
-        init = next(
-            child
-            for child in route.body
-            if isinstance(child, ast.FunctionDef) and child.name == "__init__"
-        )
-        stub_shape = _stub_parameter_shape(init)[1:]
-        stub_defaults = tuple(ast.literal_eval(default) for default in init.args.defaults)
+    route = _stub_symbols(NATIVE_STUB_PATH)["Route"]
+    assert isinstance(route, ast.ClassDef)
+    init = next(
+        child
+        for child in route.body
+        if isinstance(child, ast.FunctionDef) and child.name == "__init__"
+    )
+    stub_shape = _stub_parameter_shape(init)[1:]
+    stub_defaults = tuple(ast.literal_eval(default) for default in init.args.defaults)
 
-        assert _runtime_parameter_shape(runtime) == stub_shape
-        assert stub_defaults == (0.5, 5.0, "circular")
-        parameters = inspect.signature(runtime).parameters
-        assert tuple(parameter.default for parameter in parameters.values()) == (
-            inspect.Parameter.empty,
-            *stub_defaults,
-        )
-
-
-def test_corrected_agent_reference_annotations_match_facade_contract():
-    functions = {
-        name: node
-        for name, node in _stub_symbols(FACADE_STUB_PATH).items()
-        if isinstance(node, ast.FunctionDef)
-    }
-
-    assert ast.unparse(functions["read_gds"].args.args[0].annotation) == "str | Path"
-    assert ast.unparse(functions["write_gds"].args.args[0].annotation) == "str | Path"
-    render_design = functions["render_png"].args.args[0]
-    assert render_design.arg == "design"
-    assert ast.unparse(render_design.annotation) == "Cell | Library"
+    assert _runtime_parameter_shape(Route) == stub_shape
+    assert stub_defaults == (0.5, 5.0, "circular")
+    parameters = inspect.signature(Route).parameters
+    assert tuple(parameter.default for parameter in parameters.values()) == (
+        inspect.Parameter.empty,
+        *stub_defaults,
+    )
 
 
 def test_component_catalog_is_not_embedded_in_core_agent_reference():

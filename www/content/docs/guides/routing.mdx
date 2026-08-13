@@ -15,7 +15,9 @@ Route is not an auto-router. You supply the path; it fills in the geometry.
 Connect two ports with a simple S-shape:
 
 ```python
-from rosette import Cell, Layer, Point, Port, Route, Vector2, write_gds
+from rosette import Cell, Layer, Point, Port, Vector2
+from rosette.io import write_gds
+from rosette.routing import Route
 
 # A simple source/sink pair of ports.
 src = Port("out", Point(0,  0),  Vector2( 1, 0), width=0.5)
@@ -58,7 +60,8 @@ If you do not have ports, use `start_at` and `end_at` with an explicit
 angle in degrees:
 
 ```python
-from rosette import Layer, Route
+from rosette import Layer
+from rosette.routing import Route
 
 route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
 route.start_at(0, 0, angle=0)      # head in +X
@@ -82,7 +85,8 @@ Every corner in a route is filleted by a bend. Rosette ships two profiles:
   bend at the same peak curvature).
 
 ```python
-from rosette import Layer, Route
+from rosette import Layer
+from rosette.routing import Route
 
 # High-index platform? Prefer Euler bends.
 route = Route(
@@ -115,7 +119,8 @@ the full segment ending at that waypoint. Place a preceding waypoint to
 control where the transition starts:
 
 ```python
-from rosette import Layer, Route
+from rosette import Layer
+from rosette.routing import Route
 
 route = Route(Layer(1, 0), width=0.5, bend_radius=5.0)
 route.start_at(0, 0, angle=0)

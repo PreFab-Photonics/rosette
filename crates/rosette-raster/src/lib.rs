@@ -7,7 +7,7 @@
 //!
 //! ## Consumed by
 //!
-//! - `rosette.render_png` — Python wrapper in `python/rosette/__init__.py`
+//! - `rosette.render.render_png` — Python wrapper in `python/rosette/_api.py`
 //! - `rosette shot` — CLI subcommand in `python/rosette/cli.py`
 //!
 //! Both entry points exist to let an AI assistant "look at" a design

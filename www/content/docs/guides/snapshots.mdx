@@ -60,14 +60,16 @@ Run `uv run rosette shot --help` for the full list.
 
 ## From Python
 
-The same renderer is exposed as `rosette.render_png`. Reach for it when you
-already have a `Cell` or `Library` in memory and want to avoid the subprocess
-hop.
+Import the same renderer with `from rosette.render import render_png`. Reach for
+it when you already have a `Cell` or `Library` in memory and want to avoid the
+subprocess hop.
 
 ```python
 import json
 from pathlib import Path
-from rosette import BBox, Point, render_png
+
+from rosette import BBox, Point
+from rosette.render import render_png
 
 result = render_png(my_cell, bbox=BBox(Point(10, 0), Point(40, 20)))
 

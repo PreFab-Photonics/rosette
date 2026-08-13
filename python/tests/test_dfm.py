@@ -10,19 +10,21 @@ import pytest
 
 from rosette import (
     Cell,
+    Layer,
+    Point,
+    Polygon,
+)
+from rosette.cli import _print_dfm_result, _run_dfm_check, dfm_design
+from rosette.dfm import (
     DfmConfig,
     DfmResult,
     DfmViolation,
     GaussianModel,
-    Layer,
     LayerMetrics,
     LayerPrediction,
-    Point,
-    Polygon,
     load_dfm_config,
     run_dfm,
 )
-from rosette.cli import _print_dfm_result, _run_dfm_check, dfm_design
 
 
 class TestDfmConfig:

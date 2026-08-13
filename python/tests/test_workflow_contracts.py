@@ -12,7 +12,9 @@ from rosette.cli import build_design, check_design, init_project, shot_design, u
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 GENERIC_LOOPBACK = """\
-from rosette import Cell, Route, load_layer_map
+from rosette import Cell
+from rosette.project import load_layer_map
+from rosette.routing import Route
 from components import grating_coupler
 
 layers = load_layer_map()
