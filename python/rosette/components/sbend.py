@@ -101,7 +101,31 @@ from rosette.components._curves import (
 )
 from rosette.components._utils import safe_cell_name
 
-__all__ = ["sbend"]
+__all__ = ["sbend", "sbend_path_length"]
+
+
+def sbend_path_length(
+    length: float,
+    offset: float,
+    bend_type: Literal["cosine", "circular", "euler"] = "cosine",
+    num_segments: int | None = None,
+) -> float:
+    """Return the numerically integrated S-bend centerline length in microns."""
+    if not math.isfinite(length):
+        raise ValueError("S-bend length must be finite")
+    if not math.isfinite(offset):
+        raise ValueError("S-bend offset must be finite")
+    if length <= 0:
+        raise ValueError("S-bend length must be positive")
+    if offset == 0:
+        return length
+    if bend_type not in ("cosine", "circular", "euler"):
+        raise ValueError(f"Unknown S-bend type: {bend_type!r}")
+    if num_segments is None:
+        num_segments = 32 + int(abs(offset) / length * 32)
+    if num_segments < 1:
+        raise ValueError("Number of segments must be at least 1")
+    return estimate_sbend_path_length(length, offset, bend_type, num_segments)
 
 
 def sbend(
@@ -124,7 +148,7 @@ def sbend(
     When ``offset=0`` the result is a straight waveguide of the given
     *length* (degenerate case). In this case *bend_type* and *num_segments*
     have no geometric meaning and are ignored — the returned cell is a
-    single rectangular polygon with ``path_length = length``.
+    single rectangular polygon.
 
     Ports:
         - ``"in"``  at ``(0, 0)``,            facing **-X**, width = *waveguide_width*
@@ -159,11 +183,12 @@ def sbend(
 
     Returns:
         Cell with ports ``"in"`` and ``"out"``.
-        ``path_length`` = numerically integrated arc length of the
-        centerline (falls back to *length* exactly when ``offset == 0``).
+
+        Use :func:`sbend_path_length` when the centerline length is needed.
 
     Raises:
-        ValueError: If *length* or *waveguide_width* is not positive.
+        ValueError: If *length* or *waveguide_width* is not positive, if
+            *bend_type* is unknown, or if *num_segments* is less than 1.
 
     Placement notes:
         The ``"in"`` port faces **-X** and the ``"out"`` port faces **+X**,
@@ -267,13 +292,16 @@ def sbend(
         )
         cell.add_port(Port("in", Point(0.0, 0.0), -Vector2.unit_x(), waveguide_width))
         cell.add_port(Port("out", Point(length, 0.0), Vector2.unit_x(), waveguide_width))
-        cell.path_length = length
         return cell
 
     # Default segments based on geometry
     if num_segments is None:
         aspect = abs(offset) / length
         num_segments = 32 + int(aspect * 32)
+    if num_segments < 1:
+        raise ValueError("Number of segments must be at least 1")
+    if bend_type not in ("cosine", "circular", "euler"):
+        raise ValueError(f"Unknown S-bend type: {bend_type!r}")
 
     # Select curve functions based on bend type
     if bend_type == "circular":
@@ -322,8 +350,5 @@ def sbend(
     # Add ports
     cell.add_port(Port("in", Point(0.0, 0.0), -Vector2.unit_x(), waveguide_width))
     cell.add_port(Port("out", Point(length, offset), Vector2.unit_x(), waveguide_width))
-
-    # Path length
-    cell.path_length = estimate_sbend_path_length(length, offset, bend_type, num_segments)
 
     return cell

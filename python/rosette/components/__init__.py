@@ -47,10 +47,10 @@ All components follow these conventions:
 * **Gap parameters** -- Where a component has a ``gap`` parameter (ring,
   directional coupler), it means the **edge-to-edge** distance between
   the nearest physical surfaces of the two waveguides.
-* **Path length** -- Optical components with a meaningful propagation path
-  set ``cell.path_length`` (float, microns) to the physical centerline
-  length, useful for phase calculations and delay tracking. Non-optical
-  geometry leaves it unset rather than assigning a synthetic zero.
+* **Measurements** -- Component factories return geometry. When a metric is
+  meaningful and unambiguous, the module exposes a semantically named companion
+  function such as ``ring_round_trip_length`` rather than attaching generic
+  metadata to the returned ``Cell``.
 * **Cell names** -- Auto-generated from component parameters and
   truncated to 32 characters (the GDS-II limit) via ``safe_cell_name``.
 
@@ -134,8 +134,10 @@ Follow this skeleton when creating new components::
         cell.add_port(Port("in", Point(0, 0), -Vector2.unit_x(), waveguide_width))
         cell.add_port(Port("out", Point(length, 0), Vector2.unit_x(), waveguide_width))
 
-        cell.path_length = length  # Set when the component has an optical path
         return cell
+
+    def my_component_through_length(length: float) -> float:
+        return length
 
 Internal modules available to component authors:
 
@@ -146,22 +148,31 @@ Internal modules available to component authors:
 * ``_utils`` -- ``safe_cell_name()`` for GDS-safe cell naming.
 """
 
-from rosette.components.bragg_grating import bragg_grating
-from rosette.components.crossing import crossing
-from rosette.components.directional_coupler import directional_coupler
+from rosette.components.bragg_grating import bragg_grating, bragg_grating_length
+from rosette.components.crossing import crossing, crossing_through_length
+from rosette.components.directional_coupler import (
+    directional_coupler,
+    directional_coupler_arm_length,
+)
 from rosette.components.edge_coupler import edge_coupler
 from rosette.components.grating_coupler import grating_coupler
-from rosette.components.mmi import mmi
-from rosette.components.ring import ring
-from rosette.components.sbend import sbend
+from rosette.components.mmi import mmi, mmi_through_length
+from rosette.components.ring import ring, ring_round_trip_length
+from rosette.components.sbend import sbend, sbend_path_length
 
 __all__ = [
     "bragg_grating",
+    "bragg_grating_length",
     "crossing",
+    "crossing_through_length",
     "directional_coupler",
+    "directional_coupler_arm_length",
     "edge_coupler",
     "grating_coupler",
     "mmi",
+    "mmi_through_length",
     "ring",
+    "ring_round_trip_length",
     "sbend",
+    "sbend_path_length",
 ]

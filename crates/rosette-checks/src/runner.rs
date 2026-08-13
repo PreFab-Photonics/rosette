@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use rosette_core::{Cell, Library};
 
-use crate::bend_radius;
+use crate::bend_radius::{self, RouteAnnotationMap};
 use crate::config::ChecksConfig;
 use crate::connectivity;
 use crate::violation::CheckViolation;
@@ -46,11 +46,13 @@ impl ChecksResult {
     }
 }
 
-/// Run all design checks on a cell.
-///
-/// Runs connectivity checks and bend radius checks in sequence,
-/// returning a unified result.
-pub fn run_checks(cell: &Cell, config: &ChecksConfig, library: Option<&Library>) -> ChecksResult {
+/// Run connectivity and bend checks with route annotations keyed by cell name.
+pub fn run_checks(
+    cell: &Cell,
+    config: &ChecksConfig,
+    library: Option<&Library>,
+    route_annotations: &RouteAnnotationMap,
+) -> ChecksResult {
     let start = Instant::now();
     let mut violations = Vec::new();
 
@@ -59,7 +61,8 @@ pub fn run_checks(cell: &Cell, config: &ChecksConfig, library: Option<&Library>)
     violations.extend(conn_violations);
 
     // 2. Bend radius checks
-    let (bend_violations, bend_stats) = bend_radius::check_bend_radius(cell, config, library);
+    let (bend_violations, bend_stats) =
+        bend_radius::check_bend_radius(cell, config, library, route_annotations);
     violations.extend(bend_violations);
 
     ChecksResult {
@@ -77,7 +80,8 @@ pub fn run_checks(cell: &Cell, config: &ChecksConfig, library: Option<&Library>)
 #[allow(unused_must_use)]
 mod tests {
     use super::*;
-    use rosette_core::{BendInfo, CellRef, Layer, Point, Polygon, Port, Vector2};
+    use rosette_core::{CellRef, Layer, Point, Polygon, Port, Vector2};
+    use rosette_route::{BendInfo, RouteAnnotations};
 
     #[test]
     fn test_run_checks_all_pass() {
@@ -94,10 +98,17 @@ mod tests {
             Vector2::unit_x(),
             0.5,
         ));
-        cell.add_bend(BendInfo::new(10.0, Point::new(5.0, 0.0)));
+        let routes = RouteAnnotationMap::from([(
+            "top".to_string(),
+            RouteAnnotations::new(
+                None,
+                vec![BendInfo::new(10.0, Point::new(5.0, 0.0))],
+                Vec::new(),
+            ),
+        )]);
 
         let config = ChecksConfig::default().with_min_bend_radius(5.0);
-        let result = run_checks(&cell, &config, None);
+        let result = run_checks(&cell, &config, None, &routes);
 
         assert!(result.passed());
         assert_eq!(result.stats.ports_checked, 2);
@@ -121,7 +132,14 @@ mod tests {
             Vector2::unit_x(),
             0.5,
         ));
-        wg.add_bend(BendInfo::new(2.0, Point::new(5.0, 0.25)));
+        let routes = RouteAnnotationMap::from([(
+            "wg".to_string(),
+            RouteAnnotations::new(
+                None,
+                vec![BendInfo::new(2.0, Point::new(5.0, 0.25))],
+                Vec::new(),
+            ),
+        )]);
 
         let mut top = Cell::new("top");
         top.add_ref(CellRef::new("wg"));
@@ -138,7 +156,7 @@ mod tests {
         lib.add_cell(top);
 
         let config = ChecksConfig::default().with_min_bend_radius(5.0);
-        let result = run_checks(lib.cell("top").unwrap(), &config, Some(&lib));
+        let result = run_checks(lib.cell("top").unwrap(), &config, Some(&lib), &routes);
 
         assert!(!result.passed());
         // Should have unconnected port + bend radius violation
@@ -149,7 +167,12 @@ mod tests {
     fn test_run_checks_default_config() {
         // With default config (no min_bend_radius), only connectivity runs meaningfully
         let cell = Cell::new("empty");
-        let result = run_checks(&cell, &ChecksConfig::default(), None);
+        let result = run_checks(
+            &cell,
+            &ChecksConfig::default(),
+            None,
+            &RouteAnnotationMap::new(),
+        );
 
         assert!(result.passed());
         assert_eq!(result.stats.ports_checked, 0);

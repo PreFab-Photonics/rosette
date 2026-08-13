@@ -41,6 +41,7 @@ from typing import Literal, TypedDict
 from rosette._core import (
     # Geometry
     BBox,
+    BendInfo,
     ChecksConfig,
     ChecksResult,
     # DFM
@@ -48,6 +49,7 @@ from rosette._core import (
     DfmResult,
     # DRC
     DrcCache,
+    DrcPolicy,
     DrcResult,
     DrcRules,
     GaussianModel,
@@ -690,18 +692,13 @@ class Cell:
 
     __slots__ = ("_child_cells", "_inner")
 
-    def __init__(self, name: str, *, drc_skip: bool = False) -> None:
+    def __init__(self, name: str) -> None:
         """Create a new empty cell.
 
         Args:
             name: Name of the cell (must be unique within a design)
-            drc_skip: If True, mark this cell as trusted for DRC. Violations
-                attributed entirely to this cell (or cells in its subtree)
-                are suppressed from the final DRC result. Inter-cell
-                violations between this cell and an untrusted cell are
-                still reported.
         """
-        self._inner = _Cell(name, drc_skip=drc_skip)
+        self._inner = _Cell(name)
         self._child_cells: set[Cell] = set()
 
     @classmethod
@@ -718,123 +715,6 @@ class Cell:
     def name(self) -> str:
         """Cell name."""
         return self._inner.name
-
-    @property
-    def path_length(self) -> float | None:
-        """Path length metadata (if built from a Route)."""
-        return self._inner.path_length
-
-    @path_length.setter
-    def path_length(self, value: float) -> None:
-        self._inner.path_length = value
-
-    @property
-    def drc_skip(self) -> bool:
-        """Whether this cell is marked as trusted for DRC.
-
-        When True, DRC violations attributed entirely to this cell (or
-        cells in its subtree) are suppressed from the final DRC result.
-        Inter-cell violations between a trusted cell and an untrusted
-        cell are still reported.
-
-        Known v1 limitations:
-
-        - Per-polygon rules (e.g. ``MinWidth``, ``MinArea``) and
-          cross-layer pairwise rules (e.g. ``Enclosure``, cross-layer
-          ``MinSpacing``) currently produce violations without cell-name
-          provenance and are not suppressed.
-        - The flag is not persisted to GDS — round-tripping a design
-          through ``write_gds`` / ``read_gds`` clears ``drc_skip``.
-        """
-        return self._inner.drc_skip
-
-    @drc_skip.setter
-    def drc_skip(self, value: bool) -> None:
-        self._inner.drc_skip = value
-
-    @property
-    def drc_waive_regions(self) -> list[BBox]:
-        """DRC region waivers defined on this cell, in local coordinates.
-
-        Each waiver is an axis-aligned :class:`BBox` in this cell's local
-        coordinate frame. A DRC violation whose location is fully contained
-        within one of these regions is suppressed from the final DRC result.
-        The region is transformed into top-level global coordinates for the
-        relevant placement of this cell before the containment test, so a
-        waiver defined in a child cell correctly tracks every placement of
-        that child (including array references).
-
-        Use this for intentional local violations such as taper tips or
-        deliberate overlaps, where marking the whole cell ``drc_skip`` would
-        be too broad.
-
-        Notes:
-
-        - Containment is *full* — a violation that only partially overlaps a
-          waiver region is still reported.
-        - Coordinates are this cell's *local* frame, not global.
-        - Like ``drc_skip``, region waivers are not persisted to GDS;
-          round-tripping a design through ``write_gds`` / ``read_gds`` clears
-          them.
-
-        Example:
-            ```python
-            taper = Cell("taper")
-            # ... add geometry whose narrow tip violates min-width ...
-            taper.add_drc_waive_region(BBox(Point(9, -1), Point(11, 1)))
-            ```
-        """
-        return list(self._inner.drc_waive_regions)
-
-    @drc_waive_regions.setter
-    def drc_waive_regions(self, value: list[BBox]) -> None:
-        self._inner.drc_waive_regions = list(value)
-
-    def add_drc_waive_region(self, region: BBox) -> None:
-        """Add a DRC region waiver in this cell's local coordinate frame.
-
-        Args:
-            region: Waiver bounding box in this cell's local coordinates. Any
-                DRC violation fully contained within it (after transforming
-                into global coordinates for each placement of this cell) is
-                suppressed. See :attr:`drc_waive_regions`.
-        """
-        self._inner.add_drc_waive_region(region)
-
-    def clear_drc_waive_regions(self) -> None:
-        """Remove all DRC region waivers from this cell."""
-        self._inner.clear_drc_waive_regions()
-
-    def add_bend(
-        self,
-        radius: float,
-        x: float,
-        y: float,
-        requested_radius: float | None = None,
-    ) -> None:
-        """Add a bend info entry to the cell metadata.
-
-        Args:
-            radius: Effective bend radius in um.
-            x: X coordinate of bend location.
-            y: Y coordinate of bend location.
-            requested_radius: Original requested radius if auto-reduced.
-        """
-        self._inner.add_bend(radius, x, y, requested_radius)
-
-    @property
-    def bends(self) -> list[dict[str, float]]:
-        """Bend info entries as list of dicts."""
-        return self._inner.bends
-
-    def add_warning(self, warning: str) -> None:
-        """Add a warning to the cell metadata."""
-        self._inner.add_warning(warning)
-
-    @property
-    def cell_warnings(self) -> list[str]:
-        """Warnings from cell construction."""
-        return self._inner.cell_warnings
 
     # --- Delegated methods ---
 
@@ -1178,6 +1058,11 @@ class Route:
     def warnings(self) -> list[str]:
         """Warnings from route generation (e.g., reduced bend radii)."""
         return self._inner.warnings
+
+    @property
+    def bends(self) -> list[BendInfo]:
+        """Bends generated by the route, including radius reductions."""
+        return self._inner.bends
 
     @staticmethod
     def through(
@@ -1737,6 +1622,8 @@ def run_drc(
     rules: DrcRules,
     library: Library | _Library | None = None,
     cache: DrcCache | None = None,
+    *,
+    policy: DrcPolicy | None = None,
 ) -> DrcResult:
     """Run DRC on a cell.
 
@@ -1753,8 +1640,9 @@ def run_drc(
                  incremental (the ``rosette serve`` live-preview loop). A
                  change to one cell then triggers DRC work proportional to
                  that cell, not the whole design. Results are identical to a
-                 cache-free run; only the amount of work differs. The cache
-                 invalidates automatically when ``rules`` change.
+                  cache-free run; only the amount of work differs. The cache
+                  invalidates automatically when ``rules`` change.
+        policy: Optional per-run cell skips and local waiver regions.
 
     Returns:
         DrcResult with violations and statistics
@@ -1787,7 +1675,7 @@ def run_drc(
             lib.add_cell(cell)
             inner_library = lib._inner
 
-    return _run_drc(inner_cell, rules, inner_library, cache)
+    return _run_drc(inner_cell, rules, inner_library, cache, policy)
 
 
 # =============================================================================

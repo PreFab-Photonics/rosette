@@ -10,7 +10,7 @@ Rosette is pre-1.0. Function signatures, class interfaces, and behavior may chan
 ```python
 from rosette import Cell, Layer, Point, Polygon
 from rosette.io import write_gds
-from rosette.routing import Route
+from rosette.routing import BendInfo, Route
 
 # Create a simple cell
 cell = Cell("my_design")
@@ -59,12 +59,32 @@ from rosette.components import mmi, ring, grating_coupler
 <Card title={"Instance"} href={"/docs/api-reference/Instance"} />
 <Card title={"ArrayCopy"} href={"/docs/api-reference/ArrayCopy"} />
 <Card title={"Route"} href={"/docs/api-reference/Route"} />
+<Card title={"BendInfo"} href={"/docs/api-reference/BendInfo"} />
 <Card title={"Library"} href={"/docs/api-reference/Library"} />
 <Card title={"Layer"} href={"/docs/api-reference/Layer"} />
 <Card title={"Port"} href={"/docs/api-reference/Port"} />
 <Card title={"PathEndType"} href={"/docs/api-reference/PathEndType"} />
 
 </Cards>
+
+### Component metrics
+
+Component factories return geometry-only Cells. When a component has a
+meaningful optical metric, import its semantically named companion from
+`components` in a generated project or from `rosette.components` during
+library development:
+
+| Function | Metric |
+| --- | --- |
+| `sbend_path_length(...)` | S-bend centerline length. |
+| `mmi_through_length(...)` | Straight through length across the MMI and tapers. |
+| `ring_round_trip_length(...)` | Ring or racetrack resonator round-trip length. |
+| `crossing_through_length(...)` | Through length across either crossing axis. |
+| `directional_coupler_arm_length(...)` | Centerline length of either symmetric coupler arm. |
+| `bragg_grating_length(...)` | Total grating length, including terminator and phase stub. |
+
+These names identify the measured path. Do not assume every component has one
+generic path or a `Cell.path_length` value.
 
 ### Configuration
 
@@ -79,6 +99,7 @@ from rosette.components import mmi, ring, grating_coupler
 
 <Cards>
 
+<Card title={"DrcPolicy"} href={"/docs/api-reference/DrcPolicy"} />
 <Card title={"DrcRules"} href={"/docs/api-reference/DrcRules"} />
 <Card title={"DrcViolation"} href={"/docs/api-reference/DrcViolation"} />
 <Card title={"DrcResult"} href={"/docs/api-reference/DrcResult"} />
@@ -299,7 +320,7 @@ LayerMap with named layer access.
 
 ### DRC
 
-Import `load_drc_rules` and `run_drc` from `rosette.drc`.
+Import `DrcPolicy`, `load_drc_rules`, and `run_drc` from `rosette.drc`.
 
 <PyFunction name={"load_drc_rules"} type={"(config_path=None) -> DrcRules"}>
 
@@ -347,15 +368,22 @@ DrcRules built from the configuration.
 
 </PyFunction>
 
-<PyFunction name={"run_drc"} type={"(cell, rules, library=None) -> DrcResult"}>
+<PyFunction name={"run_drc"} type={"(cell, rules, library=None, *, policy=None) -> DrcResult"}>
 
 Run DRC on a cell.
 
 <Callout title={"Example"} type={"example"}>
 
 ```python
+from rosette import BBox, Point
+from rosette.drc import DrcPolicy, load_drc_rules, run_drc
+
 rules = load_drc_rules()
-result = run_drc(cell, rules)
+policy = DrcPolicy()
+policy.skip_cell("trusted_pdk_cell")
+policy.waive_region("taper", BBox(Point(9, -1), Point(11, 1)))
+
+result = run_drc(cell, rules, policy=policy)
 if result.passed:
     print("DRC passed!")
 else:
@@ -380,6 +408,12 @@ DRC rules to apply.
 <PyParameter name={"library"} type={"Library | None"} value={"None"}>
 
 Library containing referenced cells (required if cell has refs).
+
+</PyParameter>
+<PyParameter name={"policy"} type={"DrcPolicy | None"} value={"None"}>
+
+Optional explicit per-run cell skips and local waiver regions. DRC policy is
+separate from Cell geometry; see [`DrcPolicy`](./DrcPolicy).
 
 </PyParameter>
 
@@ -443,6 +477,8 @@ as unconnected.
 
 When called with a Cell built using Instance references, child cells
 are automatically collected into a Library for hierarchy resolution.
+Bend-radius checks read route diagnostics retained privately alongside Cells
+created by `Route.to_cell()`; they do not inspect generic Cell metadata.
 
 <Callout title={"Example"} type={"example"}>
 

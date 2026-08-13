@@ -5,7 +5,6 @@ import sys
 import pytest
 
 from rosette import (
-    BBox,
     Cell,
     Instance,
     Point,
@@ -237,48 +236,6 @@ class TestCellValidation:
         with pytest.raises(ValueError, match="already contains a port"):
             cell.add_port(Port("p", Point(1, 0), Vector2.unit_y()))
         assert [port.name for port in cell.ports()] == ["p"]
-
-    @pytest.mark.parametrize("value", NONFINITE)
-    def test_path_length_rejection_preserves_metadata(self, value: float):
-        cell = NativeCell("cell")
-        cell.path_length = 12.0
-        with pytest.raises(ValueError, match="path length must be finite"):
-            cell.path_length = value
-        assert cell.path_length == 12.0
-
-    @pytest.mark.parametrize(
-        ("args", "message"),
-        [
-            ((float("nan"), 0, 0), "radius must be finite"),
-            ((1, float("inf"), 0), "position must be finite"),
-            ((1, 0, 0, float("nan")), "Requested bend radius must be finite"),
-        ],
-    )
-    def test_add_bend_rejects_without_mutation(self, args: tuple[float, ...], message: str):
-        cell = NativeCell("cell")
-        with pytest.raises(ValueError, match=message):
-            cell.add_bend(*args)
-        assert cell.bends == []
-
-    @pytest.mark.parametrize(
-        "invalid",
-        [
-            BBox(Point.origin(), Point(float("nan"), 1)),
-            BBox(Point(2, 0), Point(1, 1)),
-        ],
-    )
-    def test_waiver_rejection_preserves_regions(self, invalid: BBox):
-        cell = NativeCell("cell")
-        valid = BBox(Point.origin(), Point(1, 1))
-        cell.drc_waive_regions = [valid]
-
-        with pytest.raises(ValueError, match="finite, ordered corners"):
-            cell.add_drc_waive_region(invalid)
-        with pytest.raises(ValueError, match="finite, ordered corners"):
-            cell.drc_waive_regions = [valid, invalid]
-
-        assert len(cell.drc_waive_regions) == 1
-        assert cell.drc_waive_regions[0].max.x == 1
 
 
 class TestFacadeAtomicity:

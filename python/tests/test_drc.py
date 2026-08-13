@@ -17,7 +17,7 @@ from rosette import (
     Polygon,
 )
 from rosette.cli import _print_drc_result, _run_drc_check, check_design, drc_design
-from rosette.drc import DrcRules, load_drc_rules, run_drc
+from rosette.drc import DrcPolicy, DrcRules, load_drc_rules, run_drc
 
 
 class TestDrcRules:
@@ -452,35 +452,54 @@ class TestRunDrc:
         assert result.polygons_checked == 2
 
 
-class TestDrcSkip:
-    """Tests for the per-cell ``drc_skip`` suppression mechanism."""
+class TestDrcPolicy:
+    """Tests for explicit per-run DRC suppression policy."""
 
-    def test_default_is_false(self):
-        """Cells default to ``drc_skip = False``."""
-        cell = Cell("c")
-        assert cell.drc_skip is False
+    def test_default_is_empty(self):
+        policy = DrcPolicy()
+        assert policy.skips("c") is False
+        assert policy.waiver_regions("c") == []
 
-    def test_constructor_kwarg(self):
-        """``drc_skip`` can be set via constructor kwarg."""
-        cell = Cell("c", drc_skip=True)
-        assert cell.drc_skip is True
+    def test_accessors_report_configured_entries(self):
+        policy = DrcPolicy()
+        region = BBox(Point(0, 0), Point(1, 1))
+        policy.skip_cell("c")
+        policy.waive_region("c", region)
 
-    def test_setter(self):
-        """``drc_skip`` can be toggled via the property setter."""
-        cell = Cell("c")
-        cell.drc_skip = True
-        assert cell.drc_skip is True
-        cell.drc_skip = False
-        assert cell.drc_skip is False
+        assert policy.skips("c") is True
+        regions = policy.waiver_regions("c")
+        assert len(regions) == 1
+        assert regions[0].min.x == 0.0
+        regions.clear()
+        assert len(policy.waiver_regions("c")) == 1
+
+    @pytest.mark.parametrize(
+        "invalid",
+        [
+            BBox(Point.origin(), Point(float("nan"), 1)),
+            BBox(Point(2, 0), Point(1, 1)),
+        ],
+    )
+    def test_invalid_waiver_does_not_mutate_policy(self, invalid: BBox):
+        policy = DrcPolicy()
+        valid = BBox(Point.origin(), Point(1, 1))
+        policy.waive_region("c", valid)
+
+        with pytest.raises(ValueError, match="finite, ordered corners"):
+            policy.waive_region("c", invalid)
+
+        assert len(policy.waiver_regions("c")) == 1
 
     def test_intra_cell_violation_suppressed(self):
         """Internal violation in a trusted cell is suppressed."""
-        trusted = Cell("trusted", drc_skip=True)
+        trusted = Cell("trusted")
         trusted.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
         trusted.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
+        policy = DrcPolicy()
+        policy.skip_cell("trusted")
 
         rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
-        result = run_drc(trusted, rules)
+        result = run_drc(trusted, rules, policy=policy)
 
         assert result.passed
         assert len(result.violations) == 0
@@ -489,15 +508,17 @@ class TestDrcSkip:
 
     def test_inter_cell_violation_kept(self):
         """A trusted cell still gets checked against untrusted neighbors."""
-        child = Cell("child", drc_skip=True)
+        child = Cell("child")
         child.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
 
         top = Cell("top")
         top.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
         top.add_ref(child.at(0, 0))
+        policy = DrcPolicy()
+        policy.skip_cell("child")
 
         rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
-        result = run_drc(top, rules)
+        result = run_drc(top, rules, policy=policy)
 
         assert not result.passed
         assert len(result.violations) == 1
@@ -506,18 +527,21 @@ class TestDrcSkip:
 
     def test_both_cells_trusted_suppressed(self):
         """Overlap between two trusted cells is suppressed."""
-        a = Cell("a", drc_skip=True)
+        a = Cell("a")
         a.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
 
-        b = Cell("b", drc_skip=True)
+        b = Cell("b")
         b.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
 
         top = Cell("top")
         top.add_ref(a.at(0, 0))
         top.add_ref(b.at(0, 0))
+        policy = DrcPolicy()
+        policy.skip_cell("a")
+        policy.skip_cell("b")
 
         rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
-        result = run_drc(top, rules)
+        result = run_drc(top, rules, policy=policy)
 
         assert result.passed
         assert len(result.violations) == 0
@@ -530,14 +554,16 @@ class TestDrcSkip:
         grandchild.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
         grandchild.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
 
-        parent = Cell("parent", drc_skip=True)
+        parent = Cell("parent")
         parent.add_ref(grandchild.at(0, 0))
 
         top = Cell("top")
         top.add_ref(parent.at(0, 0))
+        policy = DrcPolicy()
+        policy.skip_cell("parent")
 
         rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
-        result = run_drc(top, rules)
+        result = run_drc(top, rules, policy=policy)
 
         assert result.passed
         assert result.suppressed_violations == 1
@@ -555,16 +581,18 @@ class TestDrcSkip:
         parent_a = Cell("parent_a")
         parent_a.add_ref(shared.at(0, 0))
 
-        parent_b = Cell("parent_b", drc_skip=True)
+        parent_b = Cell("parent_b")
         parent_b.add_ref(shared.at(0, 0))
 
         top = Cell("top")
         # Untrusted parent first to reproduce the visit-order bug pattern.
         top.add_ref(parent_a.at(0, 0))
         top.add_ref(parent_b.at(20, 0))
+        policy = DrcPolicy()
+        policy.skip_cell("parent_b")
 
         rules = DrcRules().forbid_overlap(Layer(1, 0), Layer(1, 0), name="NO_OVLP")
-        result = run_drc(top, rules)
+        result = run_drc(top, rules, policy=policy)
 
         assert result.passed, (
             "shared's intra-cell violation must be suppressed via the trusted parent_b, "
@@ -573,20 +601,21 @@ class TestDrcSkip:
         assert result.skipped_cells == 2  # parent_b and shared
 
     def test_per_polygon_violation_suppressed_via_provenance(self):
-        """Per ROS-552, per-polygon rules carry cell-name provenance so
-        drc_skip now suppresses them."""
-        trusted = Cell("trusted", drc_skip=True)
+        """Per-polygon rules carry enough provenance for policy skips."""
+        trusted = Cell("trusted")
         trusted.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
+        policy = DrcPolicy()
+        policy.skip_cell("trusted")
 
         rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
-        result = run_drc(trusted, rules)
+        result = run_drc(trusted, rules, policy=policy)
 
         assert result.passed
         assert result.suppressed_violations == 1
         assert result.skipped_cells == 1
 
     def test_no_skipped_cells_default(self):
-        """Without any drc_skip cells, both new stats are 0 and behavior is unchanged."""
+        """Without a policy, suppression stats are 0 and behavior is unchanged."""
         cell = Cell("plain")
         cell.add_polygon(Polygon.rect(Point(0, 0), 5.0, 5.0), Layer(1, 0))
         cell.add_polygon(Polygon.rect(Point(3, 0), 5.0, 5.0), Layer(1, 0))
@@ -600,42 +629,18 @@ class TestDrcSkip:
         assert result.skipped_cells == 0
 
 
-class TestDrcWaiveRegions:
-    """Tests for the region-waiver (``drc_waive_regions``) suppression."""
-
-    def test_default_is_empty(self):
-        """Cells default to no waiver regions."""
-        cell = Cell("c")
-        assert cell.drc_waive_regions == []
-
-    def test_add_and_clear(self):
-        """Regions can be added, read back, and cleared."""
-        cell = Cell("c")
-        region = BBox(Point(0, 0), Point(1, 1))
-        cell.add_drc_waive_region(region)
-        assert len(cell.drc_waive_regions) == 1
-        got = cell.drc_waive_regions[0]
-        assert got.min.x == 0.0 and got.max.x == 1.0
-
-        cell.clear_drc_waive_regions()
-        assert cell.drc_waive_regions == []
-
-    def test_setter_replaces(self):
-        """Assigning the property replaces the whole list."""
-        cell = Cell("c")
-        cell.add_drc_waive_region(BBox(Point(0, 0), Point(1, 1)))
-        cell.drc_waive_regions = [BBox(Point(2, 2), Point(3, 3))]
-        assert len(cell.drc_waive_regions) == 1
-        assert cell.drc_waive_regions[0].min.x == 2.0
+class TestDrcPolicyWaiveRegions:
+    """Tests for policy-owned region waivers."""
 
     def test_contained_violation_waived(self):
         """A violation fully inside a waiver region is suppressed."""
         cell = Cell("c")
         cell.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
-        cell.add_drc_waive_region(BBox(Point(-1, -1), Point(11, 1)))
+        policy = DrcPolicy()
+        policy.waive_region("c", BBox(Point(-1, -1), Point(11, 1)))
 
         rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
-        result = run_drc(cell, rules)
+        result = run_drc(cell, rules, policy=policy)
 
         assert result.passed
         assert len(result.violations) == 0
@@ -647,10 +652,11 @@ class TestDrcWaiveRegions:
         cell = Cell("c")
         cell.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
         # Covers only the left half of the polygon.
-        cell.add_drc_waive_region(BBox(Point(-1, -1), Point(4, 1)))
+        policy = DrcPolicy()
+        policy.waive_region("c", BBox(Point(-1, -1), Point(4, 1)))
 
         rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
-        result = run_drc(cell, rules)
+        result = run_drc(cell, rules, policy=policy)
 
         assert not result.passed
         assert len(result.violations) == 1
@@ -671,13 +677,14 @@ class TestDrcWaiveRegions:
         """A child-local waiver tracks a translated placement (global frame)."""
         child = Cell("child")
         child.add_polygon(Polygon.rect(Point(0, 0), 10.0, 0.05), Layer(1, 0))
-        child.add_drc_waive_region(BBox(Point(-1, -1), Point(11, 1)))
 
         top = Cell("top")
         top.add_ref(child.at(1000, 2000))
+        policy = DrcPolicy()
+        policy.waive_region("child", BBox(Point(-1, -1), Point(11, 1)))
 
         rules = DrcRules().min_width(Layer(1, 0), 0.5, name="MIN_W")
-        result = run_drc(top, rules)
+        result = run_drc(top, rules, policy=policy)
 
         assert result.passed, (
             "child-local waiver must be transformed into global coords for the translated placement"

@@ -101,31 +101,6 @@ pub enum PortValidationReason {
     NonPositiveWidth,
 }
 
-/// Reason that bend metadata is invalid.
-#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
-pub enum BendValidationReason {
-    /// Effective bend radius must be finite.
-    #[error("radius is not finite")]
-    NonFiniteRadius,
-    /// Bend position must be finite.
-    #[error("position is not finite")]
-    NonFinitePosition,
-    /// Requested bend radius must be finite when present.
-    #[error("requested radius is not finite")]
-    NonFiniteRequestedRadius,
-}
-
-/// Reason that a DRC waiver bounding box is invalid.
-#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
-pub enum WaiverValidationReason {
-    /// Both bounding-box corners must be finite.
-    #[error("corner is not finite")]
-    NonFiniteCorner,
-    /// Minimum coordinates cannot exceed maximum coordinates.
-    #[error("corners are not ordered")]
-    UnorderedCorners,
-}
-
 /// A local invariant violation in a [`crate::Cell`].
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum CellValidationError {
@@ -174,24 +149,6 @@ pub enum CellValidationError {
         name: String,
         first_index: usize,
         duplicate_index: usize,
-    },
-    /// Cell origin must be finite.
-    #[error("cell origin is not finite")]
-    NonFiniteOrigin,
-    /// Optical path-length metadata must be finite when present.
-    #[error("path length metadata is not finite")]
-    NonFinitePathLength,
-    /// Bend metadata is malformed.
-    #[error("bend metadata {bend_index} is invalid: {reason}")]
-    InvalidBend {
-        bend_index: usize,
-        reason: BendValidationReason,
-    },
-    /// DRC waiver boxes must have finite, ordered corners.
-    #[error("DRC waiver region {waiver_index} is invalid: {reason}")]
-    InvalidWaiver {
-        waiver_index: usize,
-        reason: WaiverValidationReason,
     },
     /// A transactional element edit addressed a missing index.
     #[error("element index {index} is out of bounds for {len} elements")]

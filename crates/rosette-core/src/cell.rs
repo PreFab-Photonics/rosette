@@ -4,9 +4,8 @@
 //! enabling hierarchical layout design.
 
 use crate::error::{
-    BendValidationReason, CellRefValidationReason, CellValidationError, LibraryError,
-    PathValidationReason, PolygonValidationReason, RepetitionValidationReason,
-    TextValidationReason, WaiverValidationReason,
+    CellRefValidationReason, CellValidationError, LibraryError, PathValidationReason,
+    PolygonValidationReason, RepetitionValidationReason, TextValidationReason,
 };
 use crate::geometry::{BBox, Point, Polygon, Transform, Vector2};
 use crate::hierarchy::{
@@ -344,72 +343,6 @@ impl CellRef {
     }
 }
 
-/// Information about a single bend in a cell.
-#[derive(Debug, Clone)]
-pub struct BendInfo {
-    /// Effective bend radius (after any auto-reduction).
-    pub radius: f64,
-    /// Location of the bend center.
-    pub position: Point,
-    /// Original requested radius, if the bend was auto-reduced.
-    pub requested_radius: Option<f64>,
-}
-
-impl BendInfo {
-    /// Create a new bend info entry.
-    pub fn new(radius: f64, position: Point) -> Self {
-        assert!(radius.is_finite(), "Bend radius must be finite");
-        assert!(position.is_finite(), "Bend position must be finite");
-        Self {
-            radius,
-            position,
-            requested_radius: None,
-        }
-    }
-
-    /// Create a bend info entry for an auto-reduced bend.
-    pub fn auto_reduced(radius: f64, position: Point, requested_radius: f64) -> Self {
-        assert!(radius.is_finite(), "Bend radius must be finite");
-        assert!(position.is_finite(), "Bend position must be finite");
-        assert!(
-            requested_radius.is_finite(),
-            "Requested bend radius must be finite"
-        );
-        Self {
-            radius,
-            position,
-            requested_radius: Some(requested_radius),
-        }
-    }
-
-    fn validation_error(&self) -> Option<BendValidationReason> {
-        if !self.radius.is_finite() {
-            return Some(BendValidationReason::NonFiniteRadius);
-        }
-        if !self.position.is_finite() {
-            return Some(BendValidationReason::NonFinitePosition);
-        }
-        if self
-            .requested_radius
-            .is_some_and(|radius| !radius.is_finite())
-        {
-            return Some(BendValidationReason::NonFiniteRequestedRadius);
-        }
-        None
-    }
-}
-
-/// Metadata associated with a cell.
-#[derive(Debug, Clone, Default)]
-struct CellMetadata {
-    /// Total optical path length (if built from a Route).
-    path_length: Option<f64>,
-    /// Bend information for bends in this cell.
-    bends: Vec<BendInfo>,
-    /// Warnings generated during cell construction.
-    warnings: Vec<String>,
-}
-
 /// A cell containing geometry and references to other cells.
 #[derive(Debug, Clone)]
 pub struct Cell {
@@ -419,22 +352,6 @@ pub struct Cell {
     elements: Vec<Element>,
     /// Ports defined on the cell.
     ports: Vec<Port>,
-    /// Optional metadata (path length, etc.)
-    metadata: CellMetadata,
-    /// Cell origin point, used as the reference for cell instancing.
-    origin: Point,
-    /// If true, DRC violations attributed entirely to this cell (or cells in
-    /// its subtree) are suppressed from the final DRC result. Used to mark
-    /// trusted cells such as PDK components. See `rosette-drc` for the exact
-    /// suppression predicate.
-    drc_skip: bool,
-    /// Region waivers in this cell's local coordinate frame. A DRC violation
-    /// whose location is fully contained in one of these regions (after the
-    /// region is transformed into top-level global coordinates for each
-    /// placement of this cell) is suppressed. Used for intentional local
-    /// violations such as taper tips or deliberate overlaps. See `rosette-drc`
-    /// for the exact suppression predicate.
-    drc_waive_regions: Vec<BBox>,
 }
 
 fn validate_element(element_index: usize, element: &Element) -> Result<(), CellValidationError> {
@@ -545,10 +462,6 @@ impl Cell {
             name: name.into(),
             elements: Vec::new(),
             ports: Vec::new(),
-            metadata: CellMetadata::default(),
-            origin: Point::origin(),
-            drc_skip: false,
-            drc_waive_regions: Vec::new(),
         }
     }
 
@@ -576,36 +489,6 @@ impl Cell {
             }
         }
 
-        if !self.origin.is_finite() {
-            return Err(CellValidationError::NonFiniteOrigin);
-        }
-        if self
-            .metadata
-            .path_length
-            .is_some_and(|length| !length.is_finite())
-        {
-            return Err(CellValidationError::NonFinitePathLength);
-        }
-        for (bend_index, bend) in self.metadata.bends.iter().enumerate() {
-            if let Some(reason) = bend.validation_error() {
-                return Err(CellValidationError::InvalidBend { bend_index, reason });
-            }
-        }
-        for (waiver_index, region) in self.drc_waive_regions.iter().enumerate() {
-            let reason = if !region.is_finite() {
-                Some(WaiverValidationReason::NonFiniteCorner)
-            } else if !region.has_ordered_corners() {
-                Some(WaiverValidationReason::UnorderedCorners)
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
-                return Err(CellValidationError::InvalidWaiver {
-                    waiver_index,
-                    reason,
-                });
-            }
-        }
         Ok(())
     }
 
@@ -624,17 +507,6 @@ impl Cell {
         self.name = name.into();
     }
 
-    /// Get the cell origin.
-    pub fn origin(&self) -> Point {
-        self.origin
-    }
-
-    /// Set the cell origin.
-    pub fn set_origin(&mut self, origin: Point) {
-        assert!(origin.is_finite(), "Cell origin must be finite");
-        self.origin = origin;
-    }
-
     /// Get all elements.
     pub fn elements(&self) -> &[Element] {
         &self.elements
@@ -648,99 +520,6 @@ impl Cell {
     /// Get a port by name.
     pub fn port(&self, name: &str) -> Option<&Port> {
         self.ports.iter().find(|p| p.name == name)
-    }
-
-    /// Set the path length metadata.
-    pub fn set_path_length(&mut self, length: f64) {
-        assert!(length.is_finite(), "Cell path length must be finite");
-        self.metadata.path_length = Some(length);
-    }
-
-    /// Get the path length metadata.
-    pub fn path_length(&self) -> Option<f64> {
-        self.metadata.path_length
-    }
-
-    /// Returns true if this cell is marked as trusted for DRC.
-    ///
-    /// When true, DRC violations attributed entirely to this cell (or to cells
-    /// in its subtree) are suppressed from the final DRC result. Inter-cell
-    /// violations between a trusted cell and an untrusted cell are still
-    /// reported.
-    pub fn drc_skip(&self) -> bool {
-        self.drc_skip
-    }
-
-    /// Set whether this cell is marked as trusted for DRC.
-    ///
-    /// See [`Cell::drc_skip`] for the exact suppression semantics.
-    pub fn set_drc_skip(&mut self, drc_skip: bool) {
-        self.drc_skip = drc_skip;
-    }
-
-    /// Get the DRC region waivers defined on this cell.
-    ///
-    /// Each waiver is an axis-aligned bounding box in this cell's local
-    /// coordinate frame. A DRC violation is suppressed if its location is
-    /// fully contained within one of these regions once the region has been
-    /// transformed into top-level global coordinates for the relevant
-    /// placement of this cell. See [`Cell::add_drc_waive_region`].
-    pub fn drc_waive_regions(&self) -> &[BBox] {
-        &self.drc_waive_regions
-    }
-
-    /// Add a DRC region waiver in this cell's local coordinate frame.
-    ///
-    /// Any DRC violation whose location is fully contained in `region` (after
-    /// transforming the region into top-level global coordinates for each
-    /// placement of this cell) is suppressed from the final DRC result. This
-    /// is intended for intentional local violations such as taper tips or
-    /// deliberate overlaps.
-    ///
-    /// Like [`Cell::drc_skip`], region waivers are not persisted to GDS.
-    pub fn add_drc_waive_region(&mut self, region: BBox) {
-        assert!(region.is_valid(), "DRC waiver region must be a valid BBox");
-        self.drc_waive_regions.push(region);
-    }
-
-    /// Replace all DRC region waivers on this cell.
-    ///
-    /// See [`Cell::add_drc_waive_region`] for the suppression semantics.
-    pub fn set_drc_waive_regions(&mut self, regions: Vec<BBox>) {
-        assert!(
-            regions.iter().all(BBox::is_valid),
-            "DRC waiver regions must be valid BBoxes"
-        );
-        self.drc_waive_regions = regions;
-    }
-
-    /// Remove all DRC region waivers from this cell.
-    pub fn clear_drc_waive_regions(&mut self) {
-        self.drc_waive_regions.clear();
-    }
-
-    /// Add a bend info entry to the cell metadata.
-    pub fn add_bend(&mut self, bend: BendInfo) {
-        assert!(
-            bend.validation_error().is_none(),
-            "Bend metadata fields must be finite"
-        );
-        self.metadata.bends.push(bend);
-    }
-
-    /// Get bend info entries from the cell metadata.
-    pub fn bends(&self) -> &[BendInfo] {
-        &self.metadata.bends
-    }
-
-    /// Get warnings from the cell metadata.
-    pub fn warnings(&self) -> &[String] {
-        &self.metadata.warnings
-    }
-
-    /// Add a warning to the cell metadata.
-    pub fn add_warning(&mut self, warning: String) {
-        self.metadata.warnings.push(warning);
     }
 
     /// Add a polygon to the cell.
@@ -1004,24 +783,6 @@ impl Cell {
             }
         }
         self.ports = candidates;
-        Ok(result)
-    }
-
-    /// Transactionally edit every bend annotation without changing cardinality.
-    ///
-    /// The originals are left untouched if any candidate is invalid.
-    pub fn edit_bends<R>(
-        &mut self,
-        edit: impl FnOnce(&mut [BendInfo]) -> R,
-    ) -> Result<R, CellValidationError> {
-        let mut candidates = self.metadata.bends.clone();
-        let result = edit(&mut candidates);
-        for (bend_index, bend) in candidates.iter().enumerate() {
-            if let Some(reason) = bend.validation_error() {
-                return Err(CellValidationError::InvalidBend { bend_index, reason });
-            }
-        }
-        self.metadata.bends = candidates;
         Ok(result)
     }
 
@@ -1871,7 +1632,7 @@ mod tests {
     }
 
     #[test]
-    fn cell_validation_reports_port_metadata_and_waiver_reasons() {
+    fn cell_validation_reports_port_reasons() {
         let mut cell = Cell::new("test");
         cell.ports.push(Port {
             name: String::new(),
@@ -1949,51 +1710,6 @@ mod tests {
                 ..
             })
         ));
-
-        cell.ports.pop();
-        cell.origin.x = f64::INFINITY;
-        assert_eq!(cell.validate(), Err(CellValidationError::NonFiniteOrigin));
-        cell.origin = Point::origin();
-        cell.metadata.path_length = Some(f64::NAN);
-        assert_eq!(
-            cell.validate(),
-            Err(CellValidationError::NonFinitePathLength)
-        );
-
-        cell.metadata.path_length = None;
-        cell.metadata.bends.push(BendInfo {
-            radius: f64::INFINITY,
-            position: Point::origin(),
-            requested_radius: None,
-        });
-        assert!(matches!(
-            cell.validate(),
-            Err(CellValidationError::InvalidBend {
-                bend_index: 0,
-                reason: BendValidationReason::NonFiniteRadius
-            })
-        ));
-
-        cell.metadata.bends.clear();
-        cell.drc_waive_regions
-            .push(BBox::new(Point::origin(), Point::new(f64::NAN, 1.0)));
-        assert_eq!(
-            cell.validate(),
-            Err(CellValidationError::InvalidWaiver {
-                waiver_index: 0,
-                reason: WaiverValidationReason::NonFiniteCorner
-            })
-        );
-        cell.drc_waive_regions.clear();
-        cell.drc_waive_regions
-            .push(BBox::new(Point::new(2.0, 0.0), Point::new(1.0, 1.0)));
-        assert_eq!(
-            cell.validate(),
-            Err(CellValidationError::InvalidWaiver {
-                waiver_index: 0,
-                reason: WaiverValidationReason::UnorderedCorners
-            })
-        );
     }
 
     #[test]
@@ -2030,22 +1746,6 @@ mod tests {
     #[test]
     fn cell_mutators_reject_before_committing_invalid_state() {
         let mut cell = Cell::new("test");
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.set_origin(Point::new(f64::NAN, 0.0));
-            }))
-            .is_err()
-        );
-        assert_eq!(cell.origin(), Point::origin());
-
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.set_path_length(f64::INFINITY);
-            }))
-            .is_err()
-        );
-        assert_eq!(cell.path_length(), None);
-
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 cell.add_polygon(
@@ -2106,70 +1806,7 @@ mod tests {
             .is_err()
         );
         assert_eq!(cell.ports().len(), 1);
-
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.add_bend(BendInfo {
-                    radius: f64::NAN,
-                    position: Point::origin(),
-                    requested_radius: None,
-                });
-            }))
-            .is_err()
-        );
-        assert!(cell.bends().is_empty());
-
-        let invalid_box = BBox::new(Point::new(1.0, 0.0), Point::origin());
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.add_drc_waive_region(invalid_box);
-            }))
-            .is_err()
-        );
-        assert!(cell.drc_waive_regions().is_empty());
         assert!(cell.validate().is_ok());
-    }
-
-    #[test]
-    fn test_drc_skip_default_false() {
-        let cell = Cell::new("trusted");
-        assert!(!cell.drc_skip());
-    }
-
-    #[test]
-    fn test_drc_skip_setter() {
-        let mut cell = Cell::new("trusted");
-        cell.set_drc_skip(true);
-        assert!(cell.drc_skip());
-        cell.set_drc_skip(false);
-        assert!(!cell.drc_skip());
-    }
-
-    #[test]
-    fn test_drc_waive_regions_default_empty() {
-        let cell = Cell::new("c");
-        assert!(cell.drc_waive_regions().is_empty());
-    }
-
-    #[test]
-    fn test_drc_waive_regions_add_set_clear() {
-        let mut cell = Cell::new("c");
-        let r1 = BBox::new(Point::new(0.0, 0.0), Point::new(1.0, 1.0));
-        let r2 = BBox::new(Point::new(2.0, 2.0), Point::new(3.0, 3.0));
-
-        cell.add_drc_waive_region(r1);
-        assert_eq!(cell.drc_waive_regions().len(), 1);
-        assert_eq!(cell.drc_waive_regions()[0], r1);
-
-        cell.add_drc_waive_region(r2);
-        assert_eq!(cell.drc_waive_regions().len(), 2);
-
-        cell.set_drc_waive_regions(vec![r2]);
-        assert_eq!(cell.drc_waive_regions().len(), 1);
-        assert_eq!(cell.drc_waive_regions()[0], r2);
-
-        cell.clear_drc_waive_regions();
-        assert!(cell.drc_waive_regions().is_empty());
     }
 
     #[test]
@@ -2836,11 +2473,10 @@ mod tests {
     }
 
     #[test]
-    fn port_and_bend_edits_are_transactional() {
+    fn port_edits_are_transactional() {
         let mut cell = Cell::new("test");
         cell.add_port(Port::new("in", Point::origin(), Vector2::unit_x()));
         cell.add_port(Port::new("out", Point::new(1.0, 0.0), Vector2::unit_x()));
-        cell.add_bend(BendInfo::new(5.0, Point::new(0.5, 0.0)));
 
         let error = cell
             .edit_ports(|ports| ports[0].direction = Vector2::zero())
@@ -2856,12 +2492,6 @@ mod tests {
             CellValidationError::DuplicatePortName { .. }
         ));
         assert_eq!(cell.ports()[1].name, "out");
-
-        let error = cell
-            .edit_bends(|bends| bends[0].radius = f64::INFINITY)
-            .unwrap_err();
-        assert!(matches!(error, CellValidationError::InvalidBend { .. }));
-        assert_eq!(cell.bends()[0].radius, 5.0);
     }
 
     #[test]
@@ -2902,7 +2532,7 @@ mod tests {
 
         let error = library
             .edit_cells(|cell| {
-                cell.add_warning("candidate-only".to_string());
+                cell.add_text("candidate-only", Point::origin(), 1);
                 if cell.name() == "B" {
                     cell.elements.push(Element::Text {
                         text: String::new(),
@@ -2914,12 +2544,8 @@ mod tests {
             })
             .unwrap_err();
         assert!(matches!(error, LibraryError::InvalidCell { name, .. } if name == "B"));
-        assert!(
-            library
-                .cells()
-                .iter()
-                .all(|cell| cell.warnings().is_empty())
-        );
+        assert_eq!(library.cell("A").unwrap().text_count(), 1);
+        assert_eq!(library.cell("B").unwrap().text_count(), 0);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = library.edit_cells(|cell| {

@@ -21,7 +21,7 @@ use dfm::{
     PyDfmConfig, PyDfmResult, PyDfmViolation, PyGaussianModel, PyLayerMetrics, PyLayerPrediction,
     py_run_dfm,
 };
-use drc::{PyDrcCache, PyDrcResult, PyDrcRules, PyDrcViolation, py_run_drc};
+use drc::{PyDrcCache, PyDrcPolicy, PyDrcResult, PyDrcRules, PyDrcViolation, py_run_drc};
 use geometry::{
     PyBBox, PyPoint, PyPolygon, PyTransform, PyVector2, py_arc_points, py_fresnel_c, py_fresnel_s,
     py_path_length,
@@ -29,7 +29,7 @@ use geometry::{
 use layout::{PyCell, PyCellRef, PyLayer, PyLibrary, PyPathEndType, PyPort, py_connect_transform};
 use render::{PyRenderResult, py_render_png};
 use rosette_core::Layer;
-use route::PyRoute;
+use route::{PyBendInfo, PyRoute};
 
 /// Extract a Layer from either an int, Layer object, or (int, int) tuple.
 ///
@@ -75,6 +75,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Route (core routing infrastructure, not a component)
     m.add_class::<PyRoute>()?;
+    m.add_class::<PyBendInfo>()?;
 
     // Check types
     m.add_class::<PyChecksConfig>()?;
@@ -84,6 +85,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // DRC types
     m.add_class::<PyDrcRules>()?;
+    m.add_class::<PyDrcPolicy>()?;
     m.add_class::<PyDrcResult>()?;
     m.add_class::<PyDrcViolation>()?;
     m.add_class::<PyDrcCache>()?;

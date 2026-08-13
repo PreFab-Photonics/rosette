@@ -5,12 +5,14 @@ Core algorithm correctness is tested in Rust.
 """
 
 import json
+import math
 
 import pytest
 
 from rosette import (
     Cell,
     Layer,
+    Library,
     Point,
     Polygon,
     Port,
@@ -24,6 +26,7 @@ from rosette.cli import (
     _skip_dict,
     check_design,
 )
+from rosette.routing import Route
 
 
 def _make_waveguide(name: str, length: float, width: float) -> Cell:
@@ -165,10 +168,18 @@ class TestRunChecks:
 class TestBendRadiusChecks:
     """Tests for bend radius checking via run_checks."""
 
+    @staticmethod
+    def _route_cell(name: str, radius: float, leg: float = 20.0) -> Cell:
+        route = Route(Layer(1, 0), bend_radius=radius)
+        route.start_at(0, 0)
+        route.to(leg, 0)
+        route.to(leg, leg)
+        route.end_at(leg, leg, 90)
+        return route.to_cell(name)
+
     def test_bend_below_minimum(self):
         """A bend below min_bend_radius is flagged."""
-        cell = Cell("top")
-        cell.add_bend(3.0, 5.0, 0.0)
+        cell = self._route_cell("top", 3.0)
 
         config = ChecksConfig(min_bend_radius=5.0)
         result = run_checks(cell, config)
@@ -182,8 +193,7 @@ class TestBendRadiusChecks:
 
     def test_bend_above_minimum(self):
         """A bend above min_bend_radius passes."""
-        cell = Cell("top")
-        cell.add_bend(10.0, 5.0, 0.0)
+        cell = self._route_cell("top", 10.0)
 
         config = ChecksConfig(min_bend_radius=5.0)
         result = run_checks(cell, config)
@@ -193,8 +203,7 @@ class TestBendRadiusChecks:
 
     def test_no_min_bend_radius(self):
         """Without min_bend_radius configured, bend checks are skipped."""
-        cell = Cell("top")
-        cell.add_bend(1.0, 5.0, 0.0)
+        cell = self._route_cell("top", 1.0)
 
         config = ChecksConfig()  # min_bend_radius=None
         result = run_checks(cell, config)
@@ -207,8 +216,7 @@ class TestBendRadiusChecks:
 
     def test_auto_reduced_bend_warning(self):
         """An auto-reduced bend produces a warning."""
-        cell = Cell("top")
-        cell.add_bend(3.0, 5.0, 0.0, requested_radius=10.0)
+        cell = self._route_cell("top", 10.0, leg=5.0)
 
         config = ChecksConfig(min_bend_radius=5.0)
         result = run_checks(cell, config)
@@ -220,6 +228,42 @@ class TestBendRadiusChecks:
         assert len(auto_reduced) == 1
         assert auto_reduced[0].severity == "warning"
         assert len(too_small) == 1
+
+    def test_scaled_bend_radius_overflow_fails_as_uncheckable(self):
+        """A supplied bend that cannot be evaluated fails the result."""
+        route = Route(Layer(1, 0), bend_radius=1e100)
+        route.start_at(-3e100, 0)
+        route.to(0, 0)
+        route.to(0, 3e100)
+        route.end_at(0, 3e100, 90)
+        leaf = route.to_cell("overflow_bend")
+
+        cells = [leaf]
+        child = leaf
+        for index in range(3):
+            parent = Cell(f"bend_scale_{index}")
+            parent.add_ref(child.at(0, 0).scale(1e70))
+            cells.append(parent)
+            child = parent
+
+        library = Library("bend_overflow")
+        for cell in cells:
+            library.add_cell(cell)
+
+        result = run_checks(
+            child,
+            ChecksConfig(min_bend_radius=5.0, severity="warning"),
+            library,
+        )
+
+        uncheckable = [
+            v for v in result.violations if v.violation_type == "bend_radius_uncheckable"
+        ]
+        assert not result.passed
+        assert result.bends_checked == 0
+        assert len(uncheckable) == 1
+        assert uncheckable[0].severity == "error"
+        assert all(math.isfinite(value) for point in uncheckable[0].bbox for value in point)
 
 
 class TestChecksResult:

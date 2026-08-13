@@ -2,8 +2,10 @@
 
 use crate::layout::{PyCell, PyLibrary};
 use pyo3::prelude::*;
+use rosette_checks::RouteAnnotationMap;
 use rosette_core::{Cell, DuplicatePolicy, Library};
 use rosette_io::{gds, json};
+use rosette_route::RouteAnnotations;
 
 /// Build summary information for a cell.
 struct BuildSummary {
@@ -39,11 +41,15 @@ struct InstancePortGroup {
 }
 
 impl BuildSummary {
-    fn from_cell(cell: &Cell) -> Self {
-        Self::from_cell_with_library(cell, None)
+    fn from_cell(cell: &Cell, route_annotations: Option<&RouteAnnotations>) -> Self {
+        Self::from_cell_with_library(cell, None, route_annotations)
     }
 
-    fn from_cell_with_library(cell: &Cell, library: Option<&Library>) -> Self {
+    fn from_cell_with_library(
+        cell: &Cell,
+        library: Option<&Library>,
+        route_annotations: Option<&RouteAnnotations>,
+    ) -> Self {
         // Prefer the library-resolved bbox so hierarchical designs (SREFs and
         // AREFs) report the true extent of the chip, not just the polygons
         // sitting directly in the top cell. Falls back to the local bbox when
@@ -124,7 +130,7 @@ impl BuildSummary {
             bbox_height,
             cell_count: cell.ref_count() + 1, // +1 for the cell itself
             port_count: cell.ports().len(),
-            path_length: cell.path_length(),
+            path_length: route_annotations.and_then(RouteAnnotations::path_length),
             ports,
             refs,
             has_refs_only,
@@ -262,7 +268,7 @@ fn angle_to_dir_str(angle_deg: f64) -> &'static str {
 pub fn read_gds(path: &str) -> PyResult<PyLibrary> {
     let lib = gds::read(path)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to read GDS: {}", e)))?;
-    Ok(PyLibrary(lib))
+    Ok(PyLibrary::from_library(lib))
 }
 
 /// Write a cell or library to a GDS file.
@@ -313,7 +319,11 @@ pub fn write_gds(
                 |top| vec![top],
             );
             for entry in entries {
-                let summary = BuildSummary::from_cell_with_library(entry, Some(&lib.0));
+                let summary = BuildSummary::from_cell_with_library(
+                    entry,
+                    Some(&lib.0),
+                    lib.route_annotations().get(entry.name()),
+                );
                 if verbose {
                     eprintln!("{}", summary.format_verbose());
                 } else {
@@ -337,7 +347,11 @@ pub fn write_gds(
             })?;
 
             if print_summary && let Some(top) = lib.top_cell() {
-                let summary = BuildSummary::from_cell_with_library(top, Some(&lib));
+                let summary = BuildSummary::from_cell_with_library(
+                    top,
+                    Some(&lib),
+                    (top.name() == cell.0.name()).then(|| cell.route_annotations()),
+                );
                 if verbose {
                     eprintln!("{}", summary.format_verbose());
                 } else {
@@ -350,7 +364,7 @@ pub fn write_gds(
             })?;
 
             if print_summary {
-                let summary = BuildSummary::from_cell(&cell.0);
+                let summary = BuildSummary::from_cell(&cell.0, Some(cell.route_annotations()));
                 if verbose {
                     eprintln!("{}", summary.format_verbose());
                 } else {
@@ -370,6 +384,7 @@ pub fn write_gds(
 mod tests {
     use super::*;
     use rosette_core::{CellRef, Point, Port, Vector2};
+    use rosette_route::{BendInfo, RouteAnnotations};
 
     #[test]
     fn build_summary_expands_aref_port_groups() {
@@ -381,8 +396,11 @@ mod tests {
         library.add_cell(child).unwrap();
         library.add_cell(top).unwrap();
 
-        let summary =
-            BuildSummary::from_cell_with_library(library.cell("top").unwrap(), Some(&library));
+        let summary = BuildSummary::from_cell_with_library(
+            library.cell("top").unwrap(),
+            Some(&library),
+            None,
+        );
 
         assert_eq!(summary.instance_ports.len(), 2);
         assert_eq!(summary.instance_ports[0].origin_x, 0.0);
@@ -400,13 +418,77 @@ mod tests {
         library.add_cell(child).unwrap();
         library.add_cell(top).unwrap();
 
-        let summary =
-            BuildSummary::from_cell_with_library(library.cell("top").unwrap(), Some(&library));
+        let summary = BuildSummary::from_cell_with_library(
+            library.cell("top").unwrap(),
+            Some(&library),
+            None,
+        );
 
         assert_eq!(summary.instance_ports.len(), 1);
         assert!(summary.instance_ports[0].ports.is_empty());
         assert!(summary.instance_ports[0].angles.is_empty());
     }
+
+    #[test]
+    fn layout_document_persists_only_route_sidecars() {
+        let mut library = Library::new("test");
+        library.add_cell(Cell::new("route")).unwrap();
+        let routes = RouteAnnotationMap::from([(
+            "route".to_string(),
+            RouteAnnotations::new(
+                Some(15.0),
+                vec![BendInfo::auto_reduced(2.0, Point::new(5.0, 1.0), 4.0)],
+                vec!["reduced".to_string()],
+            ),
+        )]);
+
+        let document = layout_document(library, &routes).unwrap();
+        let annotations = &document.annotations()["route"];
+
+        assert_eq!(annotations.route.path_length, Some(15.0));
+        assert_eq!(annotations.route.bends.len(), 1);
+        assert_eq!(annotations.route.warnings, vec!["reduced"]);
+        assert!(!annotations.drc.skip);
+        assert!(annotations.drc.waive_regions.is_empty());
+        assert_eq!(annotations.editor, json::EditorAnnotations::default());
+    }
+}
+
+fn layout_document(
+    library: Library,
+    route_annotations: &RouteAnnotationMap,
+) -> Result<json::LayoutDocument, json::JsonError> {
+    let annotations = library
+        .cells()
+        .iter()
+        .map(|cell| {
+            let route_annotations = route_annotations
+                .get(cell.name())
+                .cloned()
+                .unwrap_or_default();
+            let route = json::RouteAnnotations {
+                path_length: route_annotations.path_length(),
+                bends: route_annotations
+                    .bends()
+                    .iter()
+                    .map(|bend| json::BendAnnotation {
+                        radius: bend.radius(),
+                        position: bend.position(),
+                        requested_radius: bend.requested_radius(),
+                    })
+                    .collect(),
+                warnings: route_annotations.warnings().to_vec(),
+            };
+            (
+                cell.name().to_string(),
+                json::CellAnnotations {
+                    route,
+                    ..json::CellAnnotations::default()
+                },
+            )
+        })
+        .collect();
+    json::LayoutDocument::from_parts(library, annotations)
 }
 
 /// Serialize a Cell or Library to a JSON string.
@@ -435,7 +517,10 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
                 "cells parameter is only valid when design is a Cell, not a Library",
             ));
         }
-        return json::to_string_compact(&lib.0).map_err(|e| {
+        let document = layout_document(lib.0.clone(), lib.route_annotations()).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize to JSON: {}", e))
+        })?;
+        return json::to_string_compact(&document).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize to JSON: {}", e))
         });
     }
@@ -444,8 +529,15 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
     if let Ok(cell) = design.extract::<PyCell>() {
         // Create a library for serialization
         let mut lib = rosette_core::Library::new(cell.0.name().to_string());
+        let mut route_annotations = RouteAnnotationMap::new();
 
         if let Some(child_cells) = cells {
+            route_annotations.extend(child_cells.iter().map(|child| {
+                (
+                    child.0.name().to_string(),
+                    child.route_annotations().clone(),
+                )
+            }));
             let cells_vec: Vec<_> = child_cells.iter().map(|c| c.0.clone()).collect();
             lib.add_cell_recursive(cell.0.clone(), &cells_vec, DuplicatePolicy::KeepExisting)
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -453,8 +545,12 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
             lib.add_cell(cell.0.clone())
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         }
+        route_annotations.insert(cell.0.name().to_string(), cell.route_annotations().clone());
 
-        return json::to_string_compact(&lib).map_err(|e| {
+        let document = layout_document(lib, &route_annotations).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize to JSON: {}", e))
+        })?;
+        return json::to_string_compact(&document).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize to JSON: {}", e))
         });
     }

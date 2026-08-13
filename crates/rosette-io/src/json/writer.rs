@@ -1,12 +1,11 @@
 //! JSON writer for rosette libraries.
 
-use super::{JsonError, dto::DocumentDto};
-use rosette_core::Library;
+use super::{JsonError, LayoutDocument, dto::DocumentDto};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-/// Write a library to a JSON file.
+/// Write a layout document to a JSON file.
 ///
 /// Schema V1 preserves the full library structure including:
 /// - All cells with their elements (polygons, paths, cell references, text)
@@ -15,12 +14,12 @@ use std::path::Path;
 ///
 /// # Arguments
 /// * `path` - Path to the output JSON file
-/// * `library` - The library to serialize
+/// * `document` - The layout document to serialize
 ///
 /// # Errors
 /// Returns an error if the file cannot be created or written.
-pub fn write(path: impl AsRef<Path>, library: &Library) -> Result<(), JsonError> {
-    let document = DocumentDto::from_library(library)?;
+pub fn write(path: impl AsRef<Path>, document: &LayoutDocument) -> Result<(), JsonError> {
+    let document = DocumentDto::from_document(document)?;
     let file = File::create(path)?;
     write_buffered(file, &document)?;
     Ok(())
@@ -33,19 +32,19 @@ fn write_buffered(writer: impl Write, document: &DocumentDto) -> Result<(), Json
     Ok(())
 }
 
-/// Serialize a library to a pretty-printed JSON string.
+/// Serialize a layout document to a pretty-printed JSON string.
 ///
 /// # Arguments
-/// * `library` - The library to serialize
+/// * `document` - The layout document to serialize
 ///
 /// # Returns
 /// A pretty-printed JSON string representation of the library.
 ///
 /// # Errors
 /// Returns an error if serialization fails.
-pub fn to_string(library: &Library) -> Result<String, JsonError> {
-    Ok(serde_json::to_string_pretty(&DocumentDto::from_library(
-        library,
+pub fn to_string(document: &LayoutDocument) -> Result<String, JsonError> {
+    Ok(serde_json::to_string_pretty(&DocumentDto::from_document(
+        document,
     )?)?)
 }
 
@@ -55,21 +54,27 @@ pub fn to_string(library: &Library) -> Result<String, JsonError> {
 /// transfer (e.g., SSE events from `rosette serve`).
 ///
 /// # Arguments
-/// * `library` - The library to serialize
+/// * `document` - The layout document to serialize
 ///
 /// # Returns
 /// A compact JSON string representation of the library.
 ///
 /// # Errors
 /// Returns an error if serialization fails.
-pub fn to_string_compact(library: &Library) -> Result<String, JsonError> {
-    Ok(serde_json::to_string(&DocumentDto::from_library(library)?)?)
+pub fn to_string_compact(document: &LayoutDocument) -> Result<String, JsonError> {
+    Ok(serde_json::to_string(&DocumentDto::from_document(
+        document,
+    )?)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::{Cell, Layer, Point, Polygon, Port, Vector2};
+    use rosette_core::{Cell, Layer, Library, Point, Polygon, Port, Vector2};
+
+    fn document(library: Library) -> LayoutDocument {
+        LayoutDocument::from_library(library).unwrap()
+    }
 
     struct DelayedWriteFailure;
 
@@ -91,7 +96,7 @@ mod tests {
         let mut library = Library::new("test_lib");
         library.add_cell(cell).unwrap();
 
-        let json = to_string(&library).unwrap();
+        let json = to_string(&document(library)).unwrap();
         assert!(json.contains("\"name\":"));
         assert!(json.contains("test_lib"));
         assert!(json.contains("test"));
@@ -117,7 +122,7 @@ mod tests {
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
 
-        let json = to_string(&library).unwrap();
+        let json = to_string(&document(library)).unwrap();
         assert!(json.contains("\"in\""));
         assert!(json.contains("\"out\""));
     }
@@ -130,8 +135,9 @@ mod tests {
         let mut library = Library::new("test_lib");
         library.add_cell(cell).unwrap();
 
-        let compact = to_string_compact(&library).unwrap();
-        let pretty = to_string(&library).unwrap();
+        let document = document(library);
+        let compact = to_string_compact(&document).unwrap();
+        let pretty = to_string(&document).unwrap();
 
         // Compact has no newlines; pretty does
         assert!(!compact.contains('\n'));
@@ -147,8 +153,8 @@ mod tests {
 
     #[test]
     fn propagates_errors_when_flushing_buffered_json() {
-        let library = Library::new("test");
-        let document = DocumentDto::from_library(&library).unwrap();
+        let document = document(Library::new("test"));
+        let document = DocumentDto::from_document(&document).unwrap();
         assert!(matches!(
             write_buffered(DelayedWriteFailure, &document),
             Err(JsonError::Io(_))

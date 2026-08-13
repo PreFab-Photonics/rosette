@@ -18,15 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A canonical layout-path stroker with bounded miter joins and explicit flush,
   round, and half-width-extension caps.
 - A dedicated `rosette-route` crate with read-only `RouteResult` geometry and
-  diagnostics.
+  typed diagnostics, exposed in Python through `Route.path_length`,
+  `Route.warnings`, and `Route.bends: list[BendInfo]`.
 - A hole-preserving core `Region` and DRC-owned `DrcPolicy` side table.
 - Graph-derived library roots, explicit runtime top-cell selection, and duplicate
   insertion policies.
 - Rust local-model validation with structured cell, element, port, repetition,
   and library errors, plus transactional `Cell::edit_element` and
-  `Cell::edit_elements`, `Cell::edit_ports`, and `Cell::edit_bends` APIs.
+  `Cell::edit_elements` and `Cell::edit_ports` APIs.
 - A versioned `rosette-layout` JSON document owned by `rosette-io`, with explicit
-  coordinate conventions, typed element records, annotations, and top-cell selection.
+  coordinate conventions, typed element records, annotation sidecars, and top-cell
+  selection.
+- Semantically named component metrics: `sbend_path_length`, `mmi_through_length`,
+  `ring_round_trip_length`, `crossing_through_length`,
+  `directional_coupler_arm_length`, and `bragg_grating_length`.
 - Direct `Instance.copy(col, row)` access to the same validated `ArrayCopy` views
   yielded by `Instance.copies()`.
 - Task-oriented generated agent context with a compact `.rosette/index.md`, derived
@@ -59,10 +64,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   GDS widths, and use the same geometry for checks, rendering, selection, and app
   previews. Internal polygonization skips exact reversals and invalid numeric geometry.
 - Rendering flatten DTOs and entry points now belong to `rosette-raster`; routing
-  policy belongs to `rosette-route` while the public Python `Route` API is unchanged.
-- WASM editor origins are owned by editor state and persisted through explicit V1
-  editor annotations. DRC suppression is owned by `DrcPolicy`, with cell annotations
-  adapted at the runner boundary.
+  policy belongs to `rosette-route`. `Route.to_cell()` returns geometry while route
+  diagnostics remain available on `Route` and in private check/JSON sidecars.
+- Core and public `Cell` now contain geometry, hierarchy, and ports only. Component
+  factories return geometry-only Cells, and DRC suppression is supplied explicitly
+  through `DrcPolicy`.
+- Typed `LayoutDocument` sidecars keep editor, route, and DRC annotations outside
+  core while preserving the existing `rosette-layout` JSON V1 wire shape.
 - GDS structure-name constraints are enforced by `rosette-io` before writing any
   bytes. Core libraries accept format-neutral names while Python and WASM retain
   early GDS-compatible validation.
@@ -72,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   missing references, cycles, ambiguous candidates, and duplicate-policy conflicts
   atomically instead of silently dropping them.
 - **Rust behavior tightening:** core constructors and mutators now enforce local
-  polygon, port, path, text, reference, repetition, metadata, and transform
+  polygon, port, path, text, reference, repetition, and transform
   invariants before mutation. Finite degenerate polygons and negative absolute
   GDS path widths remain valid.
 - **Rust breaking:** `Library::edit_cell` and `Library::edit_cells` now return
@@ -102,8 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - WASM instance IDs are stable-token validated so stale selections cannot retarget
   another reference. Cell and element delete/undo preserve element order, native
   path records, transforms, arrays, and surviving editor UUIDs.
-- WASM JSON import/export now converts ports, path lengths, bend annotations, and
-  DRC waiver regions with geometry; path lengths display in the correct units.
+- WASM JSON import/export now converts ports and typed editor, route, and DRC
+  annotations alongside geometry; path lengths display in the correct units.
 - `rosette serve` and `rosette run` now reject stale bundled viewers with an
   actionable rebuild command instead of silently showing an empty design.
 
@@ -125,8 +133,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the implementation details it needs without advertising them as user APIs.
 - Removed the inert `Route` `auto_taper` and `taper_length` controls. Waypoint
   spacing now explicitly determines transition length.
-- Removed unused Rust component traits, generic placement, metadata access,
-  route internals, and unconsumed root aliases.
+- Removed unused Rust component traits, generic placement, core Cell feature-metadata
+  storage/access, route internals, and unconsumed root aliases.
+- Removed public Cell path-length, bend/warning, DRC skip, and region-waiver APIs.
+  Use `Route` diagnostics, semantically named component metric functions, and an
+  explicit `DrcPolicy` instead.
 - Removed the public `PolygonIterator` extension symbol; `Polygon` remains
   iterable through the standard Python iterator protocol.
 - Removed the duplicate public facade `CellRef`, `Instance.to_ref()`, and

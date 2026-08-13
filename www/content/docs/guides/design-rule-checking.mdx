@@ -155,6 +155,34 @@ or explicitly managed hierarchy, pass its
 [`Library`](/docs/api-reference/Library) via `library=` so DRC can resolve all
 referenced cells.
 
+## Explicit skips and waivers
+
+Use a [`DrcPolicy`](/docs/api-reference/DrcPolicy) when a run should trust an
+entire cell subtree or waive an intentional violation in a bounded region.
+Policy is supplied explicitly to `run_drc`; it is not stored on `Cell`.
+
+```python
+from rosette import BBox, Point
+from rosette.drc import DrcPolicy, run_drc
+
+policy = DrcPolicy()
+policy.skip_cell("trusted_pdk_cell")
+policy.waive_region("taper", BBox(Point(9, -1), Point(11, 1)))
+
+result = run_drc(cell, rules, policy=policy)
+```
+
+`skip_cell(name)` suppresses a violation only when every named source cell is
+inside that skipped subtree. Violations without cell provenance, including
+density-window violations, remain visible. `waive_region(name, bbox)` uses the
+named cell's local coordinates and requires full containment; Rosette
+transforms the region for each placement before filtering.
+
+`result.suppressed_violations`, `result.skipped_cells`, and
+`result.waived_violations` report effects of the explicit policy for that run.
+If both a cell skip and a waiver match, the violation counts as suppressed by
+the cell skip rather than being counted twice.
+
 ## Run DRC from the CLI
 
 Three CLI entry points hit DRC:
@@ -186,6 +214,8 @@ and raise on `result.passed == False`.
 
 - [`DrcRules`](/docs/api-reference/DrcRules): construct and inspect rule
   sets programmatically
+- [`DrcPolicy`](/docs/api-reference/DrcPolicy): explicit per-run cell skips
+  and local region waivers
 - [`DrcResult`](/docs/api-reference/DrcResult): result aggregate with
   statistics and `passed` flag
 - [`DrcViolation`](/docs/api-reference/DrcViolation): individual

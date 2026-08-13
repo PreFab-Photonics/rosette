@@ -74,13 +74,27 @@ is ``taper_width ~= 2-3 x waveguide_width``; the module default is
 ``1.2 um`` which is a compromise for ``waveguide_width = 0.5``.
 """
 
+import math
 from typing import Literal
 
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
 from rosette.components._tapers import taper_polygon
 from rosette.components._utils import safe_cell_name
 
-__all__ = ["mmi"]
+__all__ = ["mmi", "mmi_through_length"]
+
+
+def mmi_through_length(length: float, taper_length: float) -> float:
+    """Return the straight through length across the MMI and both tapers."""
+    if not math.isfinite(length):
+        raise ValueError("MMI length must be finite")
+    if not math.isfinite(taper_length):
+        raise ValueError("Taper length must be finite")
+    if length <= 0:
+        raise ValueError("MMI length must be positive")
+    if taper_length < 0:
+        raise ValueError("Taper length must be non-negative")
+    return length + 2 * taper_length
 
 
 def mmi(
@@ -155,9 +169,8 @@ def mmi(
 
     Returns:
         Cell whose ports depend on *n_in* / *n_out* (see above).
-        ``path_length`` = *total_length* (straight-line length; all
-        arms through the MMI share this path length, so delay matching
-        between them is automatic).
+
+        Use :func:`mmi_through_length` for the common straight through length.
 
     Raises:
         ValueError: If *n_in* or *n_out* is not 1 or 2; if
@@ -214,7 +227,7 @@ def mmi(
             gc = grating_coupler(layer)
 
             sp = splitter.at(0, 0)
-            L = splitter.path_length                 # length attribute lives on the Cell
+            L = splitter.port("out1").position.x
             gc_lo = gc.at(0, 0).translate(L + 80, -63.5)
             gc_hi = gc.at(0, 0).translate(L + 80, +63.5)
 
@@ -250,7 +263,8 @@ def mmi(
 
             # Place input and output MMIs, separated by a 100 um arm region.
             mmi_in  = coupler.at(0, 0)
-            mmi_out = coupler.at(0, 0).translate(coupler.path_length + 100, 0)
+            coupler_x = coupler.port("out1").position.x
+            mmi_out = coupler.at(0, 0).translate(coupler_x + 100, 0)
 
             # Route the two arms. The upper arm takes a small detour to
             # create a delta-length and set the interferometer bias;
@@ -260,10 +274,10 @@ def mmi(
             y_up_peak = y_up + delta_y
             upper = Route.through(
                 mmi_in.port("out2"),
-                (coupler.path_length + 20, y_up),
-                (coupler.path_length + 20, y_up_peak),
-                (coupler.path_length + 80, y_up_peak),
-                (coupler.path_length + 80, mmi_out.port("in2").position.y),
+                (coupler_x + 20, y_up),
+                (coupler_x + 20, y_up_peak),
+                (coupler_x + 80, y_up_peak),
+                (coupler_x + 80, mmi_out.port("in2").position.y),
                 mmi_out.port("in2"),
                 layer=layer, bend_radius=5.0,
             )
@@ -293,20 +307,16 @@ def mmi(
         raise ValueError(f"n_in must be 1 or 2, got {n_in}")
     if n_out not in (1, 2):
         raise ValueError(f"n_out must be 1 or 2, got {n_out}")
-    if length <= 0:
-        raise ValueError("MMI length must be positive")
+    total_length = mmi_through_length(length, taper_length)
     if mmi_width <= 0:
         raise ValueError("MMI width must be positive")
     if waveguide_width <= 0:
         raise ValueError("Waveguide width must be positive")
     if taper_width <= 0:
         raise ValueError("Taper width must be positive")
-    if taper_length < 0:
-        raise ValueError("Taper length must be non-negative")
     if port_separation <= 0:
         raise ValueError("Port separation must be positive")
 
-    total_length = length + 2 * taper_length
     half_width = mmi_width / 2.0
     half_sep = port_separation / 2.0
 
@@ -376,8 +386,5 @@ def mmi(
     # Output ports face +X
     for name, y in zip(output_names, output_positions, strict=True):
         cell.add_port(Port(name, Point(total_length, y), Vector2.unit_x(), waveguide_width))
-
-    # Path length (straight-line through the MMI body + both tapers)
-    cell.path_length = total_length
 
     return cell

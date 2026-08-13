@@ -118,8 +118,6 @@ def edge_coupler(
 
     Returns:
         Cell with port ``"opt"``.
-        ``path_length`` = *taper_length* (the centerline is a straight
-        line from ``(0, 0)`` to ``(-taper_length, 0)``).
 
     Raises:
         ValueError: If *waveguide_width*, *tip_width*, or *taper_length*
@@ -250,8 +248,5 @@ def edge_coupler(
 
     # Port at the wide (on-chip) end, facing +X into the circuit.
     cell.add_port(Port("opt", Point(0.0, 0.0), Vector2.unit_x(), waveguide_width))
-
-    # Centerline is a straight line of length taper_length.
-    cell.path_length = taper_length
 
     return cell

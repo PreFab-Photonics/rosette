@@ -14,13 +14,19 @@ import rosette.components
 from rosette import Cell, Layer
 from rosette.components import (
     bragg_grating,
+    bragg_grating_length,
     crossing,
+    crossing_through_length,
     directional_coupler,
+    directional_coupler_arm_length,
     edge_coupler,
     grating_coupler,
     mmi,
+    mmi_through_length,
     ring,
+    ring_round_trip_length,
     sbend,
+    sbend_path_length,
 )
 from rosette.io import write_gds
 from rosette.routing import Route
@@ -45,14 +51,121 @@ def test_public_component_catalog_matches_modules():
         if path.name != "__init__.py" and not path.name.startswith("_")
     }
 
+    expected = {
+        "bragg_grating": ["bragg_grating", "bragg_grating_length"],
+        "crossing": ["crossing", "crossing_through_length"],
+        "directional_coupler": [
+            "directional_coupler",
+            "directional_coupler_arm_length",
+        ],
+        "edge_coupler": ["edge_coupler"],
+        "grating_coupler": ["grating_coupler"],
+        "mmi": ["mmi", "mmi_through_length"],
+        "ring": ["ring", "ring_round_trip_length"],
+        "sbend": ["sbend", "sbend_path_length"],
+    }
+
+    assert module_names == set(expected)
     assert len(rosette.components.__all__) == len(set(rosette.components.__all__))
-    assert set(rosette.components.__all__) == module_names
-    for name in rosette.components.__all__:
-        component = getattr(rosette.components, name)
-        assert callable(component)
-        assert component.__module__ == f"rosette.components.{name}"
-        module = importlib.import_module(component.__module__)
-        assert module.__all__ == [name]
+    assert set(rosette.components.__all__) == {
+        name for exports in expected.values() for name in exports
+    }
+    for module_name, exports in expected.items():
+        module = importlib.import_module(f"rosette.components.{module_name}")
+        assert module.__all__ == exports
+        for name in exports:
+            exported = getattr(rosette.components, name)
+            assert callable(exported)
+            assert exported is getattr(module, name)
+
+
+@pytest.mark.parametrize(
+    "measurement,args,match",
+    [
+        (sbend_path_length, (0.0, 1.0), "S-bend length"),
+        (sbend_path_length, (10.0, 1.0, "cosine", 0), "Number of segments"),
+        (mmi_through_length, (0.0, 1.0), "MMI length"),
+        (mmi_through_length, (1.0, -1.0), "Taper length"),
+        (ring_round_trip_length, (0.0,), "Ring radius"),
+        (ring_round_trip_length, (1.0, -1.0), "Coupling length"),
+        (crossing_through_length, (0.0,), "Arm length"),
+        (
+            directional_coupler_arm_length,
+            (10.0, 20.0, 0.7, 0.2, 0.5),
+            "Port spacing",
+        ),
+        (bragg_grating_length, (0.0, 10, 0.5), "Period"),
+        (bragg_grating_length, (0.32, 0, 0.5), "Number of periods"),
+        (bragg_grating_length, (0.32, 10, 1.0), "Duty cycle"),
+        (bragg_grating_length, (0.32, 10, 0.5, 0.0), "Phase shift"),
+    ],
+)
+def test_component_measurements_validate_factory_inputs(measurement, args, match):
+    with pytest.raises(ValueError, match=match):
+        measurement(*args)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param(math.nan, id="nan"),
+        pytest.param(math.inf, id="positive-infinity"),
+        pytest.param(-math.inf, id="negative-infinity"),
+    ],
+)
+@pytest.mark.parametrize(
+    "measurement,args,arg_index,match",
+    [
+        (sbend_path_length, (10.0, 2.0), 0, "S-bend length must be finite"),
+        (sbend_path_length, (10.0, 2.0), 1, "S-bend offset must be finite"),
+        (mmi_through_length, (10.0, 5.0), 0, "MMI length must be finite"),
+        (mmi_through_length, (10.0, 5.0), 1, "Taper length must be finite"),
+        (ring_round_trip_length, (10.0, 2.0), 0, "Ring radius must be finite"),
+        (ring_round_trip_length, (10.0, 2.0), 1, "Coupling length must be finite"),
+        (crossing_through_length, (5.0,), 0, "Arm length must be finite"),
+        (
+            directional_coupler_arm_length,
+            (10.0, 20.0, 5.0, 0.2, 0.5),
+            0,
+            "Bend length must be finite",
+        ),
+        (
+            directional_coupler_arm_length,
+            (10.0, 20.0, 5.0, 0.2, 0.5),
+            1,
+            "Coupling length must be finite",
+        ),
+        (
+            directional_coupler_arm_length,
+            (10.0, 20.0, 5.0, 0.2, 0.5),
+            2,
+            "Port spacing must be finite",
+        ),
+        (
+            directional_coupler_arm_length,
+            (10.0, 20.0, 5.0, 0.2, 0.5),
+            3,
+            "Gap must be finite",
+        ),
+        (
+            directional_coupler_arm_length,
+            (10.0, 20.0, 5.0, 0.2, 0.5),
+            4,
+            "Waveguide width must be finite",
+        ),
+        (bragg_grating_length, (0.32, 10, 0.5, math.pi), 0, "Period must be finite"),
+        (bragg_grating_length, (0.32, 10, 0.5, math.pi), 2, "Duty cycle must be finite"),
+        (bragg_grating_length, (0.32, 10, 0.5, math.pi), 3, "Phase shift must be finite"),
+    ],
+)
+def test_component_measurements_reject_non_finite_float_inputs(
+    measurement, args, arg_index, match, bad
+):
+    invalid_args = list(args)
+    invalid_args[arg_index] = bad
+
+    with pytest.raises(ValueError, match=match):
+        measurement(*invalid_args)
 
 
 @pytest.mark.parametrize(
@@ -179,8 +292,7 @@ class TestSBend:
         assert cell.port("in").position.y == pytest.approx(0.0)
         assert cell.port("out").position.y == pytest.approx(0.0)
         assert cell.port("out").position.x == pytest.approx(length)
-        # Path length is just the straight length
-        assert cell.path_length == pytest.approx(length)
+        assert sbend_path_length(length, 0.0) == pytest.approx(length)
         # BBox matches a plain rectangle
         bb = cell.bbox()
         assert bb.min.x == pytest.approx(0.0)
@@ -205,7 +317,7 @@ class TestSBend:
             num_segments=128,
         )
         assert cell.polygon_count() == 1
-        assert cell.path_length == pytest.approx(10.0)
+        assert sbend_path_length(10.0, 0.0, bend_type, 128) == pytest.approx(10.0)
 
     @pytest.mark.parametrize(
         "kwargs,match",
@@ -260,19 +372,17 @@ class TestSBend:
         assert port_out.width == pytest.approx(width)
 
     # ------------------------------------------------------------------
-    # path_length and bbox (sanity — exact integration is covered in
+    # Centerline length and bbox (exact integration is covered in
     # test_curves.py).
     # ------------------------------------------------------------------
 
     @pytest.mark.parametrize("bend_type", ["cosine", "circular", "euler"])
-    def test_path_length_at_least_horizontal_length(self, layer, bend_type):
+    def test_centerline_length_at_least_horizontal_length(self, bend_type):
         """Arc length is always >= horizontal span; a nonzero offset makes it
         strictly greater.
         """
-        cell = sbend(layer, length=20.0, offset=5.0, bend_type=bend_type)
-        assert cell.path_length > 20.0  # curved -> strictly longer
-        cell_straight = sbend(layer, length=20.0, offset=0.0)
-        assert cell_straight.path_length == pytest.approx(20.0)
+        assert sbend_path_length(20.0, 5.0, bend_type) > 20.0
+        assert sbend_path_length(20.0, 0.0, bend_type) == pytest.approx(20.0)
 
     def test_bbox_extents_small_fixed_case(self, layer):
         """BBox hugs the input/output ports for a small fixed parameter set."""
@@ -471,7 +581,7 @@ class TestMMI:
             assert p.width == pytest.approx(waveguide_width), f"{name} width"
 
     # ------------------------------------------------------------------
-    # path_length contract: total_length = length + 2 * taper_length
+    # Through-length contract: total_length = length + 2 * taper_length
     # ------------------------------------------------------------------
 
     @pytest.mark.parametrize(
@@ -484,10 +594,14 @@ class TestMMI:
             (1, 2, 5.0, 0.0),  # taper_length >= 0 is allowed
         ],
     )
-    def test_path_length_is_total_length(self, layer, n_in, n_out, length, taper_length):
-        """path_length == length + 2*taper_length for all MMI variants."""
+    def test_through_length_is_total_length(self, layer, n_in, n_out, length, taper_length):
+        """The metric matches the generated output-port position for every variant."""
         cell = mmi(layer, n_in=n_in, n_out=n_out, length=length, taper_length=taper_length)
-        assert cell.path_length == pytest.approx(length + 2 * taper_length)
+        output_name = "out" if n_out == 1 else "out1"
+        through_length = mmi_through_length(length, taper_length)
+
+        assert through_length == pytest.approx(length + 2 * taper_length)
+        assert through_length == pytest.approx(cell.port(output_name).position.x)
 
     # ------------------------------------------------------------------
     # BBox extents: the MMI body dominates Y; total_length sets X.
@@ -650,21 +764,16 @@ class TestRing:
             assert p.width == pytest.approx(waveguide_width), f"{name} width"
 
     # ------------------------------------------------------------------
-    # path_length: 2*pi*radius + 2*coupling_length
+    # Round-trip length: 2*pi*radius + 2*coupling_length
     # ------------------------------------------------------------------
 
     @pytest.mark.parametrize("coupling_length", [0.0, 5.0, 12.5])
-    @pytest.mark.parametrize("coupling", ["allpass", "adddrop"])
-    def test_path_length_is_circumference(self, layer, coupling, coupling_length):
-        """path_length == 2*pi*radius + 2*coupling_length (racetrack circumf)."""
+    def test_round_trip_length_is_circumference(self, coupling_length):
+        """The companion metric covers circular and racetrack resonators."""
         radius = 7.5
-        cell = ring(
-            layer,
-            radius=radius,
-            coupling=coupling,
-            coupling_length=coupling_length,
+        assert ring_round_trip_length(radius, coupling_length) == pytest.approx(
+            2 * math.pi * radius + 2 * coupling_length
         )
-        assert cell.path_length == pytest.approx(2 * math.pi * radius + 2 * coupling_length)
 
     # ------------------------------------------------------------------
     # BBox sanity
@@ -796,15 +905,23 @@ class TestCrossing:
             assert p.width == pytest.approx(waveguide_width), f"{name} width"
 
     # ------------------------------------------------------------------
-    # path_length = 2 * arm_length
+    # Through length = 2 * arm_length
     # ------------------------------------------------------------------
 
     @pytest.mark.parametrize("crossing_type", ["simple", "elliptical", "mmi"])
     @pytest.mark.parametrize("arm_length", [5.0, 8.0, 12.5])
-    def test_path_length_is_twice_arm_length(self, layer, crossing_type, arm_length):
-        """Horizontal path length (``in1`` → ``out1``) is ``2 * arm_length``."""
+    def test_through_length_is_twice_arm_length(self, layer, crossing_type, arm_length):
+        """The metric matches both generated port-to-port physical extents."""
         cell = crossing(layer, arm_length=arm_length, crossing_type=crossing_type)
-        assert cell.path_length == pytest.approx(2 * arm_length)
+        through_length = crossing_through_length(arm_length)
+
+        assert through_length == pytest.approx(2 * arm_length)
+        assert through_length == pytest.approx(
+            cell.port("out1").position.x - cell.port("in1").position.x
+        )
+        assert through_length == pytest.approx(
+            cell.port("out2").position.y - cell.port("in2").position.y
+        )
 
     # ------------------------------------------------------------------
     # BBox: centered at origin, symmetric in both X and Y.
@@ -944,15 +1061,6 @@ class TestGratingCoupler:
         assert p.direction.x == pytest.approx(+1.0)
         assert p.direction.y == pytest.approx(0.0)
         assert p.width == pytest.approx(waveguide_width)
-
-    # ------------------------------------------------------------------
-    # path_length == taper_length (documented).
-    # ------------------------------------------------------------------
-
-    @pytest.mark.parametrize("taper_length", [10.0, 20.0, 35.0])
-    def test_path_length_is_taper_length(self, layer, taper_length):
-        cell = grating_coupler(layer, taper_length=taper_length)
-        assert cell.path_length == pytest.approx(taper_length)
 
     # ------------------------------------------------------------------
     # BBox sanity: the body lies entirely in -X, taper right edge at x=0.
@@ -1144,15 +1252,6 @@ class TestEdgeCoupler:
         assert p.width == pytest.approx(waveguide_width)
 
     # ------------------------------------------------------------------
-    # path_length == taper_length (centerline is a straight line).
-    # ------------------------------------------------------------------
-
-    @pytest.mark.parametrize("taper_length", [50.0, 150.0, 300.0])
-    def test_path_length_is_taper_length(self, layer, taper_length):
-        cell = edge_coupler(layer, taper_length=taper_length)
-        assert cell.path_length == pytest.approx(taper_length)
-
-    # ------------------------------------------------------------------
     # BBox: body lies entirely in -X with wide end at x=0; y symmetric.
     # With cladding, y extent equals ±cladding_width/2.
     # ------------------------------------------------------------------
@@ -1335,11 +1434,11 @@ class TestDirectionalCoupler:
             assert p.width == pytest.approx(waveguide_width), f"{name} width"
 
     # ------------------------------------------------------------------
-    # path_length == 2 * cosine_sbend_arc + coupling_length.
+    # Arm length == 2 * cosine_sbend_arc + coupling_length.
     # ------------------------------------------------------------------
 
-    def test_path_length_matches_arc_plus_coupling(self, layer):
-        """``2 * cosine_arc(bend_length, sbend_offset) + coupling_length``.
+    def test_default_arm_length_matches_arc_plus_coupling(self):
+        """The metric uses the same 32-segment integration as the arm geometry.
 
         Where ``sbend_offset = |port_spacing/2 - (gap + waveguide_width)/2|``.
         """
@@ -1350,17 +1449,15 @@ class TestDirectionalCoupler:
         bend_length = 10.0
         port_spacing = 5.0
         gap = 0.2
-        cell = directional_coupler(
-            layer,
-            waveguide_width=waveguide_width,
-            coupling_length=coupling_length,
-            gap=gap,
-            bend_length=bend_length,
-            port_spacing=port_spacing,
-        )
         sbend_offset = abs(port_spacing / 2 - (gap + waveguide_width) / 2)
-        expected_arc = estimate_sbend_path_length(bend_length, sbend_offset, "cosine")
-        assert cell.path_length == pytest.approx(2 * expected_arc + coupling_length)
+        expected_arc = estimate_sbend_path_length(bend_length, sbend_offset, "cosine", 32)
+        assert directional_coupler_arm_length(
+            bend_length,
+            coupling_length,
+            port_spacing,
+            gap,
+            waveguide_width,
+        ) == pytest.approx(2 * expected_arc + coupling_length)
 
     # ------------------------------------------------------------------
     # BBox: total_length in X, |port_spacing/2| + half-width in Y.
@@ -1476,8 +1573,9 @@ class TestBraggGrating:
         assert port_out.direction.y == pytest.approx(0.0)
         assert port_out.width == pytest.approx(width)
 
-    def test_path_length_matches_total_length(self, layer):
-        """path_length equals num_periods * period + duty_cycle * period.
+    @pytest.mark.parametrize("duty_cycle", [0.5, 0.7])
+    def test_length_matches_total_length(self, layer, duty_cycle):
+        """The metric and output port include the trailing wide terminator.
 
         The trailing wide-half terminator added after the main loop makes
         the grating end on a wide segment (avoiding a short narrow-to-port
@@ -1486,14 +1584,16 @@ class TestBraggGrating:
         """
         num_periods = 100
         period = 0.32
-        duty_cycle = 0.5
-        cell = bragg_grating(layer, period=period, num_periods=num_periods, duty_cycle=duty_cycle)
-        assert cell.path_length == pytest.approx(num_periods * period + duty_cycle * period)
+        cell = bragg_grating(
+            layer,
+            period=period,
+            num_periods=num_periods,
+            duty_cycle=duty_cycle,
+        )
+        total_length = bragg_grating_length(period, num_periods, duty_cycle)
 
-        # A non-trivial duty cycle scales the trailing-half contribution.
-        duty = 0.7
-        cell2 = bragg_grating(layer, period=period, num_periods=num_periods, duty_cycle=duty)
-        assert cell2.path_length == pytest.approx(num_periods * period + duty * period)
+        assert total_length == pytest.approx(num_periods * period + duty_cycle * period)
+        assert total_length == pytest.approx(cell.port("out").position.x)
 
     def test_phase_shift_extends_length(self, layer):
         """pi phase shift adds period/2 to the total length."""
@@ -1507,10 +1607,16 @@ class TestBraggGrating:
             phase_shift=math.pi,
             phase_shift_position=0.5,
         )
-        extra = shifted.path_length - plain.path_length
+        plain_length = bragg_grating_length(period, num_periods, 0.5)
+        shifted_length = bragg_grating_length(period, num_periods, 0.5, math.pi)
+        assert plain_length == pytest.approx(plain.port("out").position.x)
+        assert shifted_length == pytest.approx(shifted.port("out").position.x)
+        extra = shifted_length - plain_length
         assert extra == pytest.approx(period / 2.0)
         # Output port position follows suit.
-        assert shifted.port("out").position.x == pytest.approx(plain.path_length + period / 2.0)
+        assert shifted.port("out").position.x == pytest.approx(
+            plain.port("out").position.x + period / 2.0
+        )
 
     def test_gaussian_apodization_preserves_length(self, layer):
         """Gaussian apodization does not change total length or polygon count.
@@ -1527,7 +1633,7 @@ class TestBraggGrating:
         gaussian = bragg_grating(
             layer, num_periods=101, corrugation_width=0.1, apodization="gaussian"
         )
-        assert uniform.path_length == pytest.approx(gaussian.path_length)
+        assert uniform.port("out").position.x == pytest.approx(gaussian.port("out").position.x)
         assert uniform.polygon_count() == gaussian.polygon_count() == 1
         # Peak amplitude is reached at the middle period in both cases.
         expected_peak_half_y = (0.5 + 0.1) / 2.0
@@ -1556,7 +1662,7 @@ class TestBraggGrating:
             duty_cycle=0.5,
         )
         # num_periods * period + duty_cycle * period (trailing wide half).
-        assert tight.path_length == pytest.approx(201 * 0.32 + 0.5 * 0.32)
+        assert bragg_grating_length(0.32, 201, 0.5) == pytest.approx(201 * 0.32 + 0.5 * 0.32)
         # Peak in the middle still reaches the full amplitude.
         assert tight.bbox().max.y == pytest.approx((0.5 + 0.2) / 2.0)
 

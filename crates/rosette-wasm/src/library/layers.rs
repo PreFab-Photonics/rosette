@@ -143,8 +143,12 @@ impl WasmLibrary {
     /// The returned value is in nanometers (matching the library's internal unit).
     pub fn get_cell_path_length(&self, cell_name: &str) -> Option<f64> {
         const GRID_SIZE: f64 = 50.0;
-        let cell = self.library.cell(cell_name)?;
-        cell.path_length().map(|length| length / GRID_SIZE)
+        self.library.cell(cell_name)?;
+        self.annotations
+            .get(cell_name)?
+            .route
+            .path_length
+            .map(|length| length / GRID_SIZE)
     }
 }
 

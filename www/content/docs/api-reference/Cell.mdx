@@ -2,12 +2,13 @@
 title: Cell
 ---
 
-A cell containing geometry and references to other cells.
+A cell containing geometry, hierarchy, and ports.
 
 Cells are the primary container for layout geometry. Each cell has a unique
 name and holds polygons, paths, text labels, ports, and references to other
 cells. Use `cell.at(x, y)` to create positioned instances for ergonomic
-placement and port queries.
+placement and port queries. Routing diagnostics and DRC policy are not Cell
+metadata; they are owned by their respective feature APIs.
 
 Python cell mutations validate their complete input before committing. Invalid
 geometry, references, text, or ports raise `ValueError` and leave the cell
@@ -31,87 +32,9 @@ Cell name (unique within a design).
 
 </PyAttribute>
 
-<PyAttribute name={"path_length"} type={"float | None"}>
-
-Path length metadata. Automatically set when a cell is created from a Route
-via `to_cell()`. Can also be set manually for component cells.
-
-</PyAttribute>
-
-<PyAttribute name={"drc_skip"} type={"bool"}>
-
-Whether this cell is marked as trusted for DRC. When `True`, DRC violations
-attributed entirely to this cell (or to cells in its subtree) are suppressed
-from the final `DrcResult`. Inter-cell violations between this cell and an
-untrusted cell are still reported.
-
-Use this to silence noise from PDK components or vendor IP that you trust:
-
-```python
-pd = Cell("PD_A", drc_skip=True)
-# ... or set later
-pd.drc_skip = True
-```
-
-The skipped-cell counts and number of suppressed violations are surfaced on
-[`DrcResult.skipped_cells`](./DrcResult) and
-[`DrcResult.suppressed_violations`](./DrcResult).
-
-**Limitations.**
-
-- **Density rules are not suppressed.** `density` is a window-level check
-  with no single source cell, so its violations carry no cell-name
-  provenance and always pass through the filter. All other rule types do
-  have provenance and are suppressed when attributed to trusted cells.
-- **Placement is also trusted, not just interior.** If two trusted cells (or
-  two instances of the same trusted cell) are placed by an untrusted parent
-  in a way that violates a same-layer rule between them, the violation is
-  still suppressed because both endpoint cells are trusted. If you need to
-  catch placement mistakes against trusted blocks, place at least one of the
-  participants in an untrusted cell.
-- **Not persisted to GDS.** GDS has no standard place to store this flag, so
-  round-tripping a design through `write_gds` / `read_gds` clears `drc_skip`
-  on every cell.
-
-</PyAttribute>
-
-<PyAttribute name={"drc_waive_regions"} type={"list[BBox]"}>
-
-Region waivers defined on this cell, in its **local** coordinate frame. A DRC
-violation whose location is fully contained within one of these regions is
-suppressed from the final `DrcResult`. Each region is transformed into
-top-level global coordinates for the relevant placement of this cell before
-the containment test, so a waiver defined in a child cell correctly tracks
-every placement of that child (including array references).
-
-Use this for intentional *local* violations — a taper tip that dips below
-`min_width`, a deliberate overlap in a test structure — where marking the
-whole cell `drc_skip` would be too broad.
-
-```python
-taper = Cell("taper")
-# ... geometry whose narrow tip violates min-width ...
-taper.add_drc_waive_region(BBox(Point(9, -1), Point(11, 1)))
-```
-
-The number of waived violations is surfaced on
-[`DrcResult.waived_violations`](./DrcResult).
-
-**Limitations.**
-
-- **Full containment required.** A violation that only partially overlaps a
-  waiver region is still reported. Size the region to fully cover the
-  intended violation.
-- **Local coordinates.** Regions are expressed in this cell's own frame, not
-  the global frame. The runner transforms them per placement.
-- **Not persisted to GDS.** Like `drc_skip`, region waivers are cleared by a
-  `write_gds` / `read_gds` round trip.
-
-</PyAttribute>
-
 ## Methods
 
-<PyFunction name={"__init__"} type={"(name, *, drc_skip=False) -> None"}>
+<PyFunction name={"__init__"} type={"(name) -> None"}>
 
 Create a new empty cell.
 
@@ -123,13 +46,6 @@ Name of the cell. Must be unique within a design, non-empty, at most 32
 characters, and contain only printable ASCII (no spaces or Unicode).
 
 </PyParameter>
-<PyParameter name={"drc_skip"} type={"bool"} default={"False"}>
-
-If `True`, mark this cell as trusted for DRC. See the `drc_skip` attribute
-above for full semantics.
-
-</PyParameter>
-
 </div>
 
 <PyFunctionReturn type={"None"} />
@@ -173,6 +89,7 @@ more compact than storing the full polygon outline.
 <Callout title={"Example"} type={"example"}>
 
 ```python
+cell = Cell("waveguide")
 cell.add_path(
     [Point(0, 0), Point(100, 0), Point(100, 50)],
     width=0.5,
@@ -481,106 +398,5 @@ A resolved `Instance` to place with its transform.
 
 Raises `TypeError` when `ref` is not an `Instance`, or `ValueError` when the
 placement is invalid, without modifying the parent.
-
-</PyFunction>
-
-### Metadata
-
-<PyFunction name={"add_bend"} type={"(radius, x, y, requested_radius=None) -> None"}>
-
-Add a bend info entry to the cell metadata.
-
-This is used by component authors to record bend locations for
-design checks (`run_checks`). The bend radius and location are
-stored so that minimum bend radius violations can be detected.
-
-<div>
-
-<PyParameter name={"radius"} type={"float"}>
-
-Effective bend radius in um.
-
-</PyParameter>
-<PyParameter name={"x"} type={"float"}>
-
-X coordinate of bend location.
-
-</PyParameter>
-<PyParameter name={"y"} type={"float"}>
-
-Y coordinate of bend location.
-
-</PyParameter>
-<PyParameter name={"requested_radius"} type={"float | None"} value={"None"}>
-
-Original requested radius, if the router auto-reduced it.
-
-</PyParameter>
-
-</div>
-
-<PyFunctionReturn type={"None"} />
-
-</PyFunction>
-
-<PyAttribute name={"bends"} type={"list[dict]"}>
-
-Bend info entries as list of dicts with keys: `radius`, `x`, `y`,
-and optionally `requested_radius`.
-
-</PyAttribute>
-
-<PyFunction name={"add_warning"} type={"(warning) -> None"}>
-
-Add a warning to the cell metadata.
-
-<div>
-
-<PyParameter name={"warning"} type={"str"}>
-
-Warning message string.
-
-</PyParameter>
-
-</div>
-
-<PyFunctionReturn type={"None"} />
-
-</PyFunction>
-
-<PyAttribute name={"cell_warnings"} type={"list[str]"}>
-
-Warnings from cell construction (e.g., auto-reduced bend radii).
-
-</PyAttribute>
-
-### DRC waivers
-
-<PyFunction name={"add_drc_waive_region"} type={"(region) -> None"}>
-
-Add a DRC region waiver in this cell's local coordinate frame. Any violation
-fully contained within `region` (after transforming into global coordinates
-for each placement of this cell) is suppressed. See the
-[`drc_waive_regions`](#drc_waive_regions) attribute for full semantics.
-
-<div>
-
-<PyParameter name={"region"} type={"BBox"}>
-
-Waiver bounding box, in this cell's local coordinates.
-
-</PyParameter>
-
-</div>
-
-<PyFunctionReturn type={"None"} />
-
-</PyFunction>
-
-<PyFunction name={"clear_drc_waive_regions"} type={"() -> None"}>
-
-Remove all DRC region waivers from this cell.
-
-<PyFunctionReturn type={"None"} />
 
 </PyFunction>

@@ -3,19 +3,18 @@
 
 use super::{ElementRef, WasmLibrary};
 use rosette_core::cell::Element;
-use rosette_core::{BBox, BendInfo, CellRef, Library, Point, Port, Repetition, Transform};
+use rosette_core::{CellRef, Library, Point, Port, Repetition, Transform};
+use rosette_io::json::{CellAnnotations, LayoutDocument};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
+const UM_TO_WORLD: f64 = 50_000.0;
+
 struct ConvertedCell {
-    origin: Point,
     elements: Vec<Element>,
     ports: Vec<Port>,
-    path_length: Option<f64>,
-    bends: Vec<BendInfo>,
-    waive_regions: Vec<BBox>,
 }
 
 fn convert_element_coordinates(
@@ -138,10 +137,6 @@ fn convert_library_coordinates(
         .cells()
         .iter()
         .map(|cell| {
-            let origin = coordinate_transform.apply(cell.origin());
-            if !origin.is_finite() {
-                return Err(JsValue::from_str("cell origin conversion overflowed"));
-            }
             let elements = cell
                 .elements()
                 .iter()
@@ -174,57 +169,7 @@ fn convert_library_coordinates(
                     Ok(converted)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let path_length = cell
-                .path_length()
-                .map(|length| {
-                    let length = length * scalar;
-                    length.is_finite().then_some(length).ok_or_else(|| {
-                        JsValue::from_str("path length coordinate conversion overflowed")
-                    })
-                })
-                .transpose()?;
-            let bends = cell
-                .bends()
-                .iter()
-                .map(|bend| {
-                    let radius = bend.radius * scalar;
-                    let position = coordinate_transform.apply(bend.position);
-                    let requested_radius = bend.requested_radius.map(|radius| radius * scalar);
-                    if !radius.is_finite()
-                        || !position.is_finite()
-                        || requested_radius.is_some_and(|radius| !radius.is_finite())
-                    {
-                        return Err(JsValue::from_str(
-                            "bend annotation coordinate conversion overflowed",
-                        ));
-                    }
-                    Ok(BendInfo {
-                        radius,
-                        position,
-                        requested_radius,
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let waive_regions = cell
-                .drc_waive_regions()
-                .iter()
-                .map(|region| {
-                    region.try_transform(&coordinate_transform).ok_or_else(|| {
-                        JsValue::from_str("DRC waiver coordinate conversion overflowed")
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok((
-                cell.name().to_string(),
-                ConvertedCell {
-                    origin,
-                    elements,
-                    ports,
-                    path_length,
-                    bends,
-                    waive_regions,
-                },
-            ))
+            Ok((cell.name().to_string(), ConvertedCell { elements, ports }))
         })
         .collect();
     let converted = converted?;
@@ -239,7 +184,6 @@ fn convert_library_coordinates(
             let converted = converted
                 .get(cell.name())
                 .expect("converted cell names match the source library");
-            cell.set_origin(converted.origin);
             if let Err(error) =
                 cell.edit_elements(|current| current.clone_from_slice(&converted.elements))
             {
@@ -250,24 +194,76 @@ fn convert_library_coordinates(
                 cell.edit_ports(|current| current.clone_from_slice(&converted.ports))
             {
                 cell_error = Some(error);
-                return;
             }
-            if let Some(path_length) = converted.path_length {
-                cell.set_path_length(path_length);
-            }
-            if let Err(error) =
-                cell.edit_bends(|current| current.clone_from_slice(&converted.bends))
-            {
-                cell_error = Some(error);
-                return;
-            }
-            cell.set_drc_waive_regions(converted.waive_regions.clone());
         })
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     if let Some(error) = cell_error {
         return Err(JsValue::from_str(&error.to_string()));
     }
     *library = candidate;
+    Ok(())
+}
+
+fn convert_annotation_coordinates(
+    annotations: &mut HashMap<String, CellAnnotations>,
+    coordinate_transform: &Transform,
+    scalar: f64,
+) -> Result<(), JsValue> {
+    if !scalar.is_finite() || scalar <= 0.0 {
+        return Err(JsValue::from_str(
+            "coordinate conversion requires a positive finite scale",
+        ));
+    }
+
+    let mut candidate = annotations.clone();
+    for cell_annotations in candidate.values_mut() {
+        if let Some(path_length) = cell_annotations.route.path_length.as_mut() {
+            *path_length *= scalar;
+            if !path_length.is_finite() {
+                return Err(JsValue::from_str(
+                    "path length coordinate conversion overflowed",
+                ));
+            }
+        }
+
+        for bend in &mut cell_annotations.route.bends {
+            bend.radius *= scalar;
+            bend.position = coordinate_transform.apply(bend.position);
+            if let Some(requested_radius) = bend.requested_radius.as_mut() {
+                *requested_radius *= scalar;
+            }
+            if !bend.radius.is_finite()
+                || !bend.position.is_finite()
+                || bend
+                    .requested_radius
+                    .is_some_and(|requested_radius| !requested_radius.is_finite())
+            {
+                return Err(JsValue::from_str(
+                    "bend annotation coordinate conversion overflowed",
+                ));
+            }
+        }
+
+        cell_annotations.drc.waive_regions = cell_annotations
+            .drc
+            .waive_regions
+            .iter()
+            .map(|region| {
+                region
+                    .try_transform(coordinate_transform)
+                    .ok_or_else(|| JsValue::from_str("DRC waiver coordinate conversion overflowed"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        cell_annotations.editor.origin = coordinate_transform.apply(cell_annotations.editor.origin);
+        if !cell_annotations.editor.origin.is_finite() {
+            return Err(JsValue::from_str(
+                "cell origin coordinate conversion overflowed",
+            ));
+        }
+    }
+
+    *annotations = candidate;
     Ok(())
 }
 
@@ -291,10 +287,9 @@ impl WasmLibrary {
     /// # Errors
     /// Returns a JsValue error if parsing fails.
     pub fn from_library_json(json: &str) -> Result<WasmLibrary, JsValue> {
-        let library: Library = rosette_io::json::from_string(json)
-            .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
-
-        Self::init_from_library(library)
+        let document = rosette_io::json::from_string(json)
+            .map_err(|error| JsValue::from_str(&format!("JSON parse error: {error}")))?;
+        Self::init_from_document(document)
     }
 
     /// Create a WasmLibrary directly from raw GDS binary bytes.
@@ -304,62 +299,38 @@ impl WasmLibrary {
     /// that `from_library_json` requires.
     pub fn from_gds_bytes(bytes: &[u8]) -> Result<WasmLibrary, JsValue> {
         let library = rosette_io::gds::read_bytes(bytes)
-            .map_err(|e| JsValue::from_str(&format!("GDS parse error: {}", e)))?;
-
-        Self::init_from_library(library)
+            .map_err(|error| JsValue::from_str(&format!("GDS parse error: {error}")))?;
+        let document = LayoutDocument::from_library(library)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        Self::init_from_document(document)
     }
 
-    /// Shared initialization: transform coordinates, build element refs, set active cell.
-    ///
-    /// Takes a `Library` in SDK coordinates (micrometers, Y-up) and produces a
-    /// fully initialized `WasmLibrary` in world coordinates (nm * GRID_SIZE, Y-down).
-    fn init_from_library(mut library: Library) -> Result<WasmLibrary, JsValue> {
-        // Scale factor: SDK uses micrometers, app world units = nm * GRID_SIZE.
-        // 1 μm = 1000 nm, and 1 nm = GRID_SIZE world units.
-        // Y is negated: GDS/SDK use math convention (Y-up), renderer uses screen (Y-down).
-        const UM_TO_NM: f64 = 1000.0;
-        const GRID_SIZE: f64 = 50.0;
-        let s = UM_TO_NM * GRID_SIZE;
+    fn init_from_document(document: LayoutDocument) -> Result<WasmLibrary, JsValue> {
+        let (mut library, mut annotations) = document.into_parts();
+        let sdk_to_world = Transform::scale(UM_TO_WORLD, -UM_TO_WORLD);
+        let world_to_sdk = Transform::scale(1.0 / UM_TO_WORLD, -1.0 / UM_TO_WORLD);
+        convert_library_coordinates(&mut library, sdk_to_world, world_to_sdk, UM_TO_WORLD)?;
+        convert_annotation_coordinates(&mut annotations, &sdk_to_world, UM_TO_WORLD)?;
 
-        // Pre-compute the flip transforms once (used for CellRef conjugation)
-        let flip = Transform::scale(s, -s);
-        let flip_inv = Transform::scale(1.0 / s, -1.0 / s);
-
-        convert_library_coordinates(&mut library, flip, flip_inv, s)?;
-
-        // Import the V1 editor annotation into authoritative editor state.
-        let cell_origins = library
+        let total_elements: usize = library
             .cells()
             .iter()
-            .map(|cell| (cell.name().to_string(), cell.origin()))
-            .collect();
-        library
-            .edit_cells(|cell| cell.set_origin(Point::origin()))
-            .map_err(|error| JsValue::from_str(&error.to_string()))?;
-
-        // Count total elements across all cells for pre-allocation (Opt 2)
-        let total_elements: usize = library.cells().iter().map(|c| c.elements().len()).sum();
-
-        // Build element_refs for all cells.
-        // Pre-allocate HashMap to avoid ~17 resize/rehash cycles (Opt 2).
-        // Iterate cells directly by slice to avoid O(C^2) name lookups (Opt 4).
+            .map(|cell| cell.elements().len())
+            .sum();
         let mut element_refs = HashMap::with_capacity(total_elements);
         for cell in library.cells() {
             let cell_name = cell.name().to_string();
-            for i in 0..cell.elements().len() {
-                let uuid = Uuid::new_v4().to_string();
+            for element_index in 0..cell.elements().len() {
                 element_refs.insert(
-                    uuid,
+                    Uuid::new_v4().to_string(),
                     ElementRef {
                         cell_name: cell_name.clone(),
-                        element_index: i,
+                        element_index,
                     },
                 );
             }
         }
 
-        // Prefer a persisted or unambiguous top, then the first graph root,
-        // with a final fallback for rootless cycles and imported GDS.
         let active_cell = library
             .top_cell()
             .or_else(|| library.roots().into_iter().next())
@@ -369,7 +340,7 @@ impl WasmLibrary {
         Ok(WasmLibrary {
             library,
             active_cell,
-            cell_origins,
+            annotations,
             element_refs,
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
@@ -395,21 +366,13 @@ impl WasmLibrary {
     /// # Errors
     /// Returns a JsValue error if serialization fails.
     pub fn to_gds(&self) -> Result<Vec<u8>, JsValue> {
-        // Clone the library and apply inverse coordinate transform
-        let mut library = self.library_with_origins()?;
-
-        // Inverse scale: world -> um. s = UM_TO_NM * GRID_SIZE = 50000
-        const UM_TO_NM: f64 = 1000.0;
-        const GRID_SIZE: f64 = 50.0;
-        let s = UM_TO_NM * GRID_SIZE;
-        let inv = 1.0 / s;
-        let inv_flip = Transform::scale(inv, -inv);
-        let flip = Transform::scale(s, -s);
-
-        convert_library_coordinates(&mut library, inv_flip, flip, inv)?;
+        let mut library = self.library.clone();
+        let world_to_sdk = Transform::scale(1.0 / UM_TO_WORLD, -1.0 / UM_TO_WORLD);
+        let sdk_to_world = Transform::scale(UM_TO_WORLD, -UM_TO_WORLD);
+        convert_library_coordinates(&mut library, world_to_sdk, sdk_to_world, 1.0 / UM_TO_WORLD)?;
 
         rosette_io::gds::write_bytes(&library)
-            .map_err(|e| JsValue::from_str(&format!("GDS write error: {}", e)))
+            .map_err(|error| JsValue::from_str(&format!("GDS write error: {error}")))
     }
 
     /// Export the library to JSON with coordinates in micrometers (GDS convention).
@@ -422,48 +385,33 @@ impl WasmLibrary {
     /// # Errors
     /// Returns a JsValue error if serialization fails.
     pub fn to_library_json(&self) -> Result<String, JsValue> {
-        // Clone the library and apply inverse coordinate transform
-        let mut library = self.library_with_origins()?;
-
-        const UM_TO_NM: f64 = 1000.0;
-        const GRID_SIZE: f64 = 50.0;
-        let s = UM_TO_NM * GRID_SIZE;
-        let inv = 1.0 / s;
-        let inv_flip = Transform::scale(inv, -inv);
-        let flip = Transform::scale(s, -s);
-
-        convert_library_coordinates(&mut library, inv_flip, flip, inv)?;
-
-        rosette_io::json::to_string(&library)
-            .map_err(|e| JsValue::from_str(&format!("JSON serialize error: {}", e)))
-    }
-}
-
-impl WasmLibrary {
-    fn library_with_origins(&self) -> Result<Library, JsValue> {
         let mut library = self.library.clone();
-        library
-            .edit_cells(|cell| {
-                cell.set_origin(
-                    self.cell_origins
-                        .get(cell.name())
-                        .copied()
-                        .unwrap_or_else(Point::origin),
-                );
-            })
-            .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        Ok(library)
+        let mut annotations = self.annotations.clone();
+        let world_to_sdk = Transform::scale(1.0 / UM_TO_WORLD, -1.0 / UM_TO_WORLD);
+        let sdk_to_world = Transform::scale(UM_TO_WORLD, -UM_TO_WORLD);
+        convert_library_coordinates(&mut library, world_to_sdk, sdk_to_world, 1.0 / UM_TO_WORLD)?;
+        convert_annotation_coordinates(&mut annotations, &world_to_sdk, 1.0 / UM_TO_WORLD)?;
+
+        let document = LayoutDocument::from_parts(library, annotations)
+            .map_err(|error| JsValue::from_str(&format!("JSON serialize error: {error}")))?;
+        rosette_io::json::to_string(&document)
+            .map_err(|error| JsValue::from_str(&format!("JSON serialize error: {error}")))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::{BBox, BendInfo, Cell, CellRef, Layer, PathEndType, Polygon, Port, Vector2};
+    use rosette_core::{BBox, Cell, CellRef, Layer, PathEndType, Polygon, Port, Vector2};
+    use rosette_io::json::{BendAnnotation, DrcAnnotations, EditorAnnotations, RouteAnnotations};
 
     const CURRENT_LIBRARY: &str = include_str!("../../../../fixtures/json/current-library.json");
     const CYCLE: &str = include_str!("../../../../fixtures/json/cycle.json");
     const MULTI_ROOT: &str = include_str!("../../../../fixtures/json/multi-root.json");
+
+    fn document(library: Library) -> LayoutDocument {
+        LayoutDocument::from_library(library).unwrap()
+    }
 
     fn assert_close(actual: f64, expected: f64) {
         assert!((actual - expected).abs() < 1e-12, "{actual} != {expected}");
@@ -478,33 +426,49 @@ mod tests {
     fn hierarchical_json_round_trip_preserves_skew_repetition() {
         let wasm = WasmLibrary::from_library_json(CURRENT_LIBRARY).unwrap();
         let restored = rosette_io::json::from_string(&wasm.to_library_json().unwrap()).unwrap();
+        let library = restored.library();
 
-        assert_eq!(restored.cells().len(), 3);
-        assert_eq!(restored.top_cell().unwrap().name(), "top");
-        let refs: Vec<_> = restored.cell("top").unwrap().cell_refs().collect();
+        assert_eq!(library.cells().len(), 3);
+        assert_eq!(library.top_cell().unwrap().name(), "top");
+        let refs: Vec<_> = library.cell("top").unwrap().cell_refs().collect();
         let repetition = refs[1].repetition.unwrap();
         assert_eq!((repetition.columns, repetition.rows), (3, 2));
-        assert!((repetition.col_vector.x - 8.0).abs() < 1e-12);
-        assert!((repetition.col_vector.y - 1.0).abs() < 1e-12);
-        assert!((repetition.row_vector.x - 2.0).abs() < 1e-12);
-        assert!((repetition.row_vector.y - 6.0).abs() < 1e-12);
+        assert_close(repetition.col_vector.x, 8.0);
+        assert_close(repetition.col_vector.y, 1.0);
+        assert_close(repetition.row_vector.x, 2.0);
+        assert_close(repetition.row_vector.y, 6.0);
         assert_eq!(refs[2].cell_name, "missing");
+
+        assert_eq!(
+            restored.annotations()["leaf"].route.warnings,
+            ["radius reduced"]
+        );
+        assert!(restored.annotations()["leaf"].drc.skip);
     }
 
     #[test]
     fn hierarchical_json_round_trip_preserves_editor_origin() {
-        let mut cell = Cell::new("origin");
-        cell.set_origin(Point::new(1.25, -2.5));
         let mut library = Library::new("origin");
-        library.add_cell(cell).unwrap();
-        let json = rosette_io::json::to_string(&library).unwrap();
+        library.add_cell(Cell::new("origin")).unwrap();
+        let mut source = document(library);
+        source
+            .annotations_mut()
+            .get_mut("origin")
+            .unwrap()
+            .editor
+            .origin = Point::new(1.25, -2.5);
+        let json = rosette_io::json::to_string(&source).unwrap();
 
         let wasm = WasmLibrary::from_library_json(&json).unwrap();
-        assert_eq!(wasm.get_cell_origin(), Some(vec![62500.0, 125000.0]));
+        assert_eq!(wasm.get_cell_origin(), Some(vec![62_500.0, 125_000.0]));
+        assert_eq!(
+            wasm.annotations["origin"].editor.origin,
+            Point::new(62_500.0, 125_000.0)
+        );
 
         let restored = rosette_io::json::from_string(&wasm.to_library_json().unwrap()).unwrap();
         assert_eq!(
-            restored.cell("origin").unwrap().origin(),
+            restored.annotations()["origin"].editor.origin,
             Point::new(1.25, -2.5)
         );
     }
@@ -518,43 +482,94 @@ mod tests {
             Vector2::unit_y(),
             0.4,
         ));
-        cell.set_path_length(7.25);
-        cell.add_bend(BendInfo::auto_reduced(3.0, Point::new(3.0, 4.0), 4.0));
-        cell.add_drc_waive_region(BBox::new(Point::new(1.0, 2.0), Point::new(3.0, 5.0)));
         let mut library = Library::new("annotations");
         library.add_cell(cell).unwrap();
+        let annotations = HashMap::from([(
+            "annotated".to_string(),
+            CellAnnotations {
+                route: RouteAnnotations {
+                    path_length: Some(7.25),
+                    bends: vec![BendAnnotation {
+                        radius: 3.0,
+                        position: Point::new(3.0, 4.0),
+                        requested_radius: Some(4.0),
+                    }],
+                    warnings: vec!["radius reduced".to_string()],
+                },
+                drc: DrcAnnotations {
+                    skip: true,
+                    waive_regions: vec![BBox::new(Point::new(1.0, 2.0), Point::new(3.0, 5.0))],
+                },
+                editor: EditorAnnotations {
+                    origin: Point::new(-2.0, 6.0),
+                },
+            },
+        )]);
+        let source = LayoutDocument::from_parts(library, annotations).unwrap();
 
-        let json = rosette_io::json::to_string(&library).unwrap();
+        let json = rosette_io::json::to_string(&source).unwrap();
         let wasm = WasmLibrary::from_library_json(&json).unwrap();
         let world = wasm.library.cell("annotated").unwrap();
         let port = &world.ports()[0];
         assert_eq!(port.position, Point::new(50_000.0, -100_000.0));
         assert_eq!(port.direction, Vector2::new(0.0, -1.0));
         assert_eq!(port.width, Some(20_000.0));
-        assert_eq!(world.path_length(), Some(362_500.0));
+
+        let world_annotations = &wasm.annotations["annotated"];
+        assert_eq!(world_annotations.route.path_length, Some(362_500.0));
         assert_eq!(wasm.get_cell_path_length("annotated"), Some(7_250.0));
-        assert_eq!(world.bends()[0].radius, 150_000.0);
-        assert_eq!(world.bends()[0].position, Point::new(150_000.0, -200_000.0));
-        assert_eq!(world.bends()[0].requested_radius, Some(200_000.0));
+        assert_eq!(world_annotations.route.bends[0].radius, 150_000.0);
         assert_eq!(
-            world.drc_waive_regions()[0],
+            world_annotations.route.bends[0].position,
+            Point::new(150_000.0, -200_000.0)
+        );
+        assert_eq!(
+            world_annotations.route.bends[0].requested_radius,
+            Some(200_000.0)
+        );
+        assert_eq!(world_annotations.route.warnings, ["radius reduced"]);
+        assert!(world_annotations.drc.skip);
+        assert_eq!(
+            world_annotations.drc.waive_regions[0],
             BBox::new(
                 Point::new(50_000.0, -250_000.0),
                 Point::new(150_000.0, -100_000.0),
             )
         );
+        assert_eq!(
+            world_annotations.editor.origin,
+            Point::new(-100_000.0, -300_000.0)
+        );
 
         let restored = rosette_io::json::from_string(&wasm.to_library_json().unwrap()).unwrap();
-        let restored = restored.cell("annotated").unwrap();
-        assert_point_close(restored.ports()[0].position, Point::new(1.0, 2.0));
-        assert_eq!(restored.ports()[0].direction, Vector2::unit_y());
-        assert_close(restored.ports()[0].width.unwrap(), 0.4);
-        assert_close(restored.path_length().unwrap(), 7.25);
-        assert_close(restored.bends()[0].radius, 3.0);
-        assert_point_close(restored.bends()[0].position, Point::new(3.0, 4.0));
-        assert_close(restored.bends()[0].requested_radius.unwrap(), 4.0);
-        assert_point_close(restored.drc_waive_regions()[0].min(), Point::new(1.0, 2.0));
-        assert_point_close(restored.drc_waive_regions()[0].max(), Point::new(3.0, 5.0));
+        let restored_cell = restored.library().cell("annotated").unwrap();
+        assert_point_close(restored_cell.ports()[0].position, Point::new(1.0, 2.0));
+        assert_eq!(restored_cell.ports()[0].direction, Vector2::unit_y());
+        assert_close(restored_cell.ports()[0].width.unwrap(), 0.4);
+        let restored_annotations = &restored.annotations()["annotated"];
+        assert_close(restored_annotations.route.path_length.unwrap(), 7.25);
+        assert_close(restored_annotations.route.bends[0].radius, 3.0);
+        assert_point_close(
+            restored_annotations.route.bends[0].position,
+            Point::new(3.0, 4.0),
+        );
+        assert_close(
+            restored_annotations.route.bends[0]
+                .requested_radius
+                .unwrap(),
+            4.0,
+        );
+        assert_eq!(restored_annotations.route.warnings, ["radius reduced"]);
+        assert!(restored_annotations.drc.skip);
+        assert_point_close(
+            restored_annotations.drc.waive_regions[0].min(),
+            Point::new(1.0, 2.0),
+        );
+        assert_point_close(
+            restored_annotations.drc.waive_regions[0].max(),
+            Point::new(3.0, 5.0),
+        );
+        assert_point_close(restored_annotations.editor.origin, Point::new(-2.0, 6.0));
     }
 
     #[test]
@@ -570,7 +585,6 @@ mod tests {
         );
 
         let mut top = Cell::new("top");
-        top.set_origin(Point::new(1.25, -2.5));
         top.add_polygon(
             Polygon::new(vec![
                 Point::new(1.0, 2.0),
@@ -590,60 +604,63 @@ mod tests {
                 .with_repetition(Some(Repetition::new_vectors(
                     3,
                     2,
-                    rosette_core::Vector2::new(8.0, 1.0),
-                    rosette_core::Vector2::new(2.0, 6.0),
+                    Vector2::new(8.0, 1.0),
+                    Vector2::new(2.0, 6.0),
                 ))),
         );
         top.add_text_with_height("label", Point::new(7.0, -8.0), Layer::new(5, 6), 9.0);
 
-        let mut source = Library::new("round-trip");
-        source.add_cell(child).unwrap();
-        source.add_cell(top).unwrap();
+        let mut library = Library::new("round-trip");
+        library.add_cell(child).unwrap();
+        library.add_cell(top).unwrap();
+        let mut source = document(library);
+        source
+            .annotations_mut()
+            .get_mut("top")
+            .unwrap()
+            .editor
+            .origin = Point::new(1.25, -2.5);
         let json = rosette_io::json::to_string(&source).unwrap();
         let wasm = WasmLibrary::from_library_json(&json).unwrap();
 
-        assert_eq!(wasm.get_cell_origin(), Some(vec![62500.0, 125000.0]));
+        assert_eq!(wasm.get_cell_origin(), Some(vec![62_500.0, 125_000.0]));
         let world_top = wasm.library.cell("top").unwrap();
         assert_eq!(world_top.elements().len(), 4);
         let Element::Polygon { polygon, .. } = &world_top.elements()[0] else {
             panic!("polygon order changed");
         };
-        assert_eq!(polygon.vertices()[0], Point::new(50000.0, -100000.0));
+        assert_eq!(polygon.vertices()[0], Point::new(50_000.0, -100_000.0));
         let Element::Path { points, width, .. } = &world_top.elements()[1] else {
             panic!("path order changed");
         };
-        assert_eq!(points[0], Point::new(-50000.0, -100000.0));
-        assert_eq!(*width, -100000.0);
+        assert_eq!(points[0], Point::new(-50_000.0, -100_000.0));
+        assert_eq!(*width, -100_000.0);
         let Element::CellRef(cell_ref) = &world_top.elements()[2] else {
             panic!("cell reference order changed");
         };
         assert_eq!(
             cell_ref.transform,
-            Transform::new(0.0, 1.0, -1.0, 0.0, 150000.0, 200000.0)
+            Transform::new(0.0, 1.0, -1.0, 0.0, 150_000.0, 200_000.0)
         );
         let repetition = cell_ref.repetition.unwrap();
-        assert_eq!(
-            repetition.col_vector,
-            rosette_core::Vector2::new(400000.0, -50000.0)
-        );
-        assert_eq!(
-            repetition.row_vector,
-            rosette_core::Vector2::new(100000.0, -300000.0)
-        );
+        assert_eq!(repetition.col_vector, Vector2::new(400_000.0, -50_000.0));
+        assert_eq!(repetition.row_vector, Vector2::new(100_000.0, -300_000.0));
         let Element::Text {
             position, height, ..
         } = &world_top.elements()[3]
         else {
             panic!("text order changed");
         };
-        assert_eq!(*position, Point::new(350000.0, 400000.0));
-        assert_eq!(*height, 450000.0);
+        assert_eq!(*position, Point::new(350_000.0, 400_000.0));
+        assert_eq!(*height, 450_000.0);
         assert_eq!(wasm.element_refs.len(), 5);
 
-        let restored: Library =
-            rosette_io::json::from_string(&wasm.to_library_json().unwrap()).unwrap();
-        let restored_top = restored.cell("top").unwrap();
-        assert_eq!(restored_top.origin(), Point::new(1.25, -2.5));
+        let restored = rosette_io::json::from_string(&wasm.to_library_json().unwrap()).unwrap();
+        let restored_top = restored.library().cell("top").unwrap();
+        assert_eq!(
+            restored.annotations()["top"].editor.origin,
+            Point::new(1.25, -2.5)
+        );
         assert!(matches!(
             restored_top.elements()[0],
             Element::Polygon { .. }
@@ -655,10 +672,9 @@ mod tests {
             .iter()
             .zip([Point::new(-1.0, 2.0), Point::new(5.0, -6.0)])
         {
-            assert!((actual.x - expected.x).abs() < 1e-12);
-            assert!((actual.y - expected.y).abs() < 1e-12);
+            assert_point_close(*actual, expected);
         }
-        assert!((*width + 2.0).abs() < 1e-12);
+        assert_close(*width, -2.0);
         let Element::CellRef(cell_ref) = &restored_top.elements()[2] else {
             panic!("cell reference order changed after round trip");
         };
@@ -672,7 +688,7 @@ mod tests {
             cell_ref.transform.ty,
         ];
         for (actual, expected) in actual_transform.into_iter().zip(expected_transform) {
-            assert!((actual - expected).abs() < 1e-12);
+            assert_close(actual, expected);
         }
         assert_eq!(cell_ref.repetition.unwrap().columns, 3);
         let Element::Text {
@@ -681,9 +697,29 @@ mod tests {
         else {
             panic!("text order changed after round trip");
         };
-        assert!((position.x - 7.0).abs() < 1e-12);
-        assert!((position.y + 8.0).abs() < 1e-12);
-        assert!((*height - 9.0).abs() < 1e-12);
+        assert_point_close(*position, Point::new(7.0, -8.0));
+        assert_close(*height, 9.0);
+    }
+
+    #[test]
+    fn gds_round_trip_uses_default_annotations() {
+        let mut library = WasmLibrary::new("gds");
+        library.add_cell("top").unwrap();
+        library
+            .add_polygon(&[0.0, 0.0, 50_000.0, 0.0, 50_000.0, 50_000.0], 1, 0)
+            .unwrap();
+        let annotations = library.annotations.get_mut("top").unwrap();
+        annotations.route.path_length = Some(123.0);
+        annotations.route.warnings.push("not in GDS".to_string());
+        annotations.drc.skip = true;
+        annotations.editor.origin = Point::new(10.0, 20.0);
+
+        let bytes = library.to_gds().unwrap();
+        let restored = WasmLibrary::from_gds_bytes(&bytes).unwrap();
+
+        assert_eq!(restored.annotations["top"], CellAnnotations::default());
+        assert_eq!(restored.get_cell_origin(), Some(vec![0.0, 0.0]));
+        assert_eq!(restored.get_cell_path_length("top"), None);
     }
 
     #[test]
@@ -722,14 +758,15 @@ mod tests {
     fn removing_a_self_referencing_cell_leaves_no_stale_element_ids() {
         let mut cell = Cell::new("self_ref");
         cell.add_ref(CellRef::new("self_ref"));
-        let mut core = Library::new("test");
-        core.add_cell(cell).unwrap();
-        let json = rosette_io::json::to_string(&core).unwrap();
+        let mut library = Library::new("test");
+        library.add_cell(cell).unwrap();
+        let json = rosette_io::json::to_string(&document(library)).unwrap();
         let mut library = WasmLibrary::from_library_json(&json).unwrap();
 
         assert!(!library.element_refs.is_empty());
         assert_eq!(library.remove_cell_cascade("self_ref"), 1);
         assert!(library.element_refs.is_empty());
+        assert!(library.annotations.is_empty());
     }
 
     #[test]
@@ -746,7 +783,7 @@ mod tests {
         let mut library = Library::new("cycle");
         library.add_cell(cell_a).unwrap();
         library.add_cell(cell_b).unwrap();
-        let json = rosette_io::json::to_string(&library).unwrap();
+        let json = rosette_io::json::to_string(&document(library)).unwrap();
 
         let wasm = WasmLibrary::from_library_json(&json).unwrap();
         assert_eq!(wasm.active_cell.as_deref(), Some("A"));

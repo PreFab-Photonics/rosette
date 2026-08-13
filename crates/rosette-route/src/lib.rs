@@ -5,4 +5,4 @@
 
 mod route;
 
-pub use route::{BendProfile, Route, RouteBuildError, RouteResult};
+pub use route::{BendInfo, BendProfile, Route, RouteAnnotations, RouteBuildError, RouteResult};

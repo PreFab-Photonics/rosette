@@ -47,6 +47,8 @@ pub enum CheckViolationType {
         /// Originally requested radius.
         requested_radius: f64,
     },
+    /// Bend radius could not be evaluated safely.
+    BendRadiusUncheckable,
 }
 
 /// A single check violation.

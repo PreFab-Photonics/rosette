@@ -69,25 +69,24 @@ pub struct DrcStats {
     pub rules_checked: usize,
     /// Total elapsed time.
     pub elapsed: Duration,
-    /// Number of violations suppressed by `drc_skip` post-filtering.
+    /// Number of violations suppressed by skipped-cell policy post-filtering.
     ///
     /// A violation is suppressed iff every cell it names
     /// (`cell_name`, `cell_name2`) is within the skipped-cell closure
-    /// (a cell with `drc_skip = true` or any cell reachable from it via
-    /// `CellRef`). As of ROS-552, per-polygon rules and cross-layer
+    /// (a policy skip root or any cell reachable from it via `CellRef`).
+    /// As of ROS-552, per-polygon rules and cross-layer
     /// pairwise rules also carry cell-name provenance and therefore
     /// participate in suppression. The only rule that doesn't is
     /// `Density`, whose window-based check has no single source cell.
     ///
     /// Violations suppressed only by a region waiver (see
     /// [`Self::waived_violations`]) are *not* counted here. A violation that
-    /// would be suppressed by both mechanisms is counted as a `drc_skip`
+    /// would be suppressed by both mechanisms is counted as a skipped-cell
     /// suppression (it is tested first).
     pub suppressed_violations: usize,
-    /// Number of violations suppressed by a region waiver
-    /// (`Cell::drc_waive_regions`).
+    /// Number of violations suppressed by a policy region waiver.
     ///
-    /// A violation is waived iff it was not already suppressed by `drc_skip`
+    /// A violation is waived iff it was not already suppressed by cell skip
     /// and its `location` is fully contained within at least one waiver
     /// region, after each region is transformed into top-level global
     /// coordinates for the relevant placement of its owning cell.
@@ -162,11 +161,11 @@ struct InstancePolygons {
 
 /// Compute the set of cell names whose violations should be suppressed.
 ///
-/// This is the "skipped closure": every cell with `drc_skip = true` that is
-/// reachable from the top cell (via `CellRef` through the optional library),
+/// This is the "skipped closure": every policy skip root that is reachable
+/// from the top cell (via `CellRef` through the optional library),
 /// plus every cell reachable from any such cell via `CellRef`.
 ///
-/// The top cell itself is considered if it has `drc_skip = true`.
+/// The top cell itself is considered if it is a policy skip root.
 ///
 /// Implementation note: uses two passes rather than a single DFS with an
 /// "ancestor trusted" flag, because the latter is visit-order-dependent in
@@ -202,7 +201,7 @@ fn collect_skipped_closure(
     closure
 }
 
-/// Walk the hierarchy and collect names of every cell with `drc_skip = true`.
+/// Walk the hierarchy and collect every reachable policy skip root.
 fn collect_skipped_roots(
     cell: &Cell,
     library: Option<&Library>,
@@ -244,11 +243,11 @@ fn expand_subtree(cell: &Cell, library: &Library, closure: &mut HashSet<String>)
 /// Collect every DRC region waiver in the hierarchy, transformed into
 /// top-level global coordinates.
 ///
-/// Each cell may carry waiver regions in its own local coordinate frame
-/// (`Cell::drc_waive_regions`). This walk threads the transform stack down the
-/// hierarchy exactly like the geometry-flattening pass, so a waiver defined in
-/// a child cell is replicated and transformed for every placement of that
-/// child (including AREF/repetition copies). The resulting boxes live in the
+/// Policy regions use the named cell's local coordinate frame. This walk
+/// threads the transform stack down the hierarchy exactly like the
+/// geometry-flattening pass, so a waiver for a child cell is replicated and
+/// transformed for every placement of that child (including AREF/repetition
+/// copies). The resulting boxes live in the
 /// same top-level global frame as every `DrcViolation::location`, so the
 /// containment test in [`apply_waiver_filter`] is a direct comparison.
 ///
@@ -403,8 +402,7 @@ impl DrcRunner {
     /// * `cell` - The cell to check
     /// * `library` - Optional library containing referenced cells
     pub fn check(&self, cell: &Cell, library: Option<&Library>) -> DrcResult {
-        let policy = DrcPolicy::from_cells(cell, library);
-        self.check_with_policy(cell, library, &policy)
+        self.check_with_policy(cell, library, &DrcPolicy::new())
     }
 
     /// Run DRC with an explicit DRC-owned suppression policy.
@@ -441,8 +439,7 @@ impl DrcRunner {
         library: Option<&Library>,
         cache: &mut DrcCache,
     ) -> DrcResult {
-        let policy = DrcPolicy::from_cells(cell, library);
-        self.check_cached_with_policy(cell, library, &policy, cache)
+        self.check_cached_with_policy(cell, library, &DrcPolicy::new(), cache)
     }
 
     /// Run cached DRC with an explicit DRC-owned suppression policy.

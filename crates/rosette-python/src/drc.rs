@@ -2,10 +2,57 @@
 
 use pyo3::prelude::*;
 
-use rosette_drc::{DrcCache, DrcResult, DrcRules, DrcRunner, DrcViolation, RuleType, Severity};
+use rosette_drc::{
+    DrcCache, DrcPolicy, DrcResult, DrcRules, DrcRunner, DrcViolation, RuleType, Severity,
+};
 
 use crate::extract_layer;
+use crate::geometry::PyBBox;
 use crate::layout::{PyCell, PyLibrary};
+
+/// Explicit cell-level DRC suppression policy.
+#[pyclass(name = "DrcPolicy", from_py_object)]
+#[derive(Clone)]
+pub struct PyDrcPolicy(pub DrcPolicy);
+
+#[pymethods]
+impl PyDrcPolicy {
+    #[new]
+    fn new() -> Self {
+        Self(DrcPolicy::new())
+    }
+
+    /// Mark a cell and its reachable subtree as skipped during filtering.
+    fn skip_cell(&mut self, cell_name: String) {
+        self.0.skip_cell(cell_name);
+    }
+
+    /// Add a waiver region in a cell's local coordinate frame.
+    fn waive_region(&mut self, cell_name: String, region: &PyBBox) -> PyResult<()> {
+        if !region.0.is_valid() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "DRC waiver region must have finite, ordered corners",
+            ));
+        }
+        self.0.waive_region(cell_name, region.0);
+        Ok(())
+    }
+
+    /// Whether a cell is the root of a skipped subtree.
+    fn skips(&self, cell_name: &str) -> bool {
+        self.0.skips(cell_name)
+    }
+
+    /// Waiver regions attached to a cell in local coordinates.
+    fn waiver_regions(&self, cell_name: &str) -> Vec<PyBBox> {
+        self.0
+            .waiver_regions(cell_name)
+            .iter()
+            .copied()
+            .map(PyBBox)
+            .collect()
+    }
+}
 
 /// DRC rule builder.
 #[pyclass(name = "DrcRules", from_py_object)]
@@ -431,11 +478,11 @@ impl PyDrcResult {
         self.0.warning_count()
     }
 
-    /// Number of violations suppressed by `drc_skip` post-filtering.
+    /// Number of violations suppressed by the explicit DRC policy.
     ///
-    /// A violation is suppressed if every cell it names has ``drc_skip =
-    /// True`` (or is within the subtree of a trusted cell). Violations with
-    /// unknown cell-name provenance are always kept.
+    /// A violation is suppressed if every cell it names is skipped by policy
+    /// (or is within the subtree of a skipped cell). Violations with unknown
+    /// cell-name provenance are always kept.
     #[getter]
     fn suppressed_violations(&self) -> usize {
         self.0.stats.suppressed_violations
@@ -443,20 +490,19 @@ impl PyDrcResult {
 
     /// Number of unique cells in the skipped-cell closure for this run.
     ///
-    /// This is the count of cells that either have ``drc_skip = True`` or
-    /// are reachable from such a cell via ``CellRef``.
+    /// This is the count of cells explicitly skipped by policy or reachable
+    /// from such a cell via ``CellRef``.
     #[getter]
     fn skipped_cells(&self) -> usize {
         self.0.stats.skipped_cells
     }
 
-    /// Number of violations suppressed by a region waiver
-    /// (``Cell.drc_waive_regions``).
+    /// Number of violations suppressed by a policy region waiver.
     ///
     /// A violation is waived if its location is fully contained within at
     /// least one waiver region (transformed into top-level global
     /// coordinates for the relevant placement of its owning cell). Violations
-    /// already suppressed by ``drc_skip`` are not counted here.
+    /// already suppressed by a skipped cell are not counted here.
     #[getter]
     fn waived_violations(&self) -> usize {
         self.0.stats.waived_violations
@@ -507,24 +553,27 @@ impl PyDrcResult {
 
 /// Run DRC on a cell.
 #[pyfunction]
-#[pyo3(name = "run_drc", signature = (cell, rules, library=None, cache=None))]
+#[pyo3(name = "run_drc", signature = (cell, rules, library=None, cache=None, policy=None))]
 pub fn py_run_drc(
     cell: &PyCell,
     rules: &PyDrcRules,
     library: Option<&PyLibrary>,
     cache: Option<&Bound<'_, PyDrcCache>>,
+    policy: Option<&PyDrcPolicy>,
 ) -> PyDrcResult {
     let lib_ref = library.map(|l| &l.0);
     let runner = DrcRunner::new(rules.0.clone());
+    let default_policy = DrcPolicy::new();
+    let policy = policy.map(|policy| &policy.0).unwrap_or(&default_policy);
     let result = match cache {
         // Incremental path (serve loop): reuse per-cell detection results
         // across calls via the supplied cache. Identical violations to the
         // one-shot path; only the amount of work differs.
         Some(cache) => {
             let mut cache = cache.borrow_mut();
-            runner.check_cached(&cell.0, lib_ref, &mut cache.0)
+            runner.check_cached_with_policy(&cell.0, lib_ref, policy, &mut cache.0)
         }
-        None => runner.check(&cell.0, lib_ref),
+        None => runner.check_with_policy(&cell.0, lib_ref, policy),
     };
     PyDrcResult(result)
 }
@@ -553,5 +602,23 @@ impl PyDrcCache {
     /// Drop all cached entries.
     fn clear(&mut self) {
         self.0 = DrcCache::new();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rosette_core::{BBox, Point};
+
+    #[test]
+    fn python_policy_wraps_explicit_drc_policy() {
+        let mut policy = PyDrcPolicy::new();
+        let region = PyBBox(BBox::new(Point::origin(), Point::new(2.0, 3.0)));
+
+        policy.skip_cell("trusted".to_string());
+        policy.waive_region("trusted".to_string(), &region).unwrap();
+
+        assert!(policy.skips("trusted"));
+        assert_eq!(policy.waiver_regions("trusted").len(), 1);
     }
 }

@@ -85,6 +85,7 @@ impl PyCheckViolation {
             CheckViolationType::AngleMismatch { .. } => "angle_mismatch",
             CheckViolationType::BendRadiusTooSmall { .. } => "bend_radius_too_small",
             CheckViolationType::BendRadiusAutoReduced { .. } => "bend_radius_auto_reduced",
+            CheckViolationType::BendRadiusUncheckable => "bend_radius_uncheckable",
         }
     }
 
@@ -227,6 +228,57 @@ pub fn py_run_checks(
     let default_config = ChecksConfig::default();
     let cfg = config.map(|c| &c.0).unwrap_or(&default_config);
     let lib_ref = library.map(|l| &l.0);
-    let result = run_checks(&cell.0, cfg, lib_ref);
+    let mut route_annotations = library
+        .map(|library| library.route_annotations().clone())
+        .unwrap_or_default();
+    route_annotations.insert(cell.0.name().to_string(), cell.route_annotations().clone());
+    let result = run_checks(&cell.0, cfg, lib_ref, &route_annotations);
     PyChecksResult(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rosette_core::{Cell, Point};
+    use rosette_route::{BendInfo, RouteAnnotations};
+
+    #[test]
+    fn direct_cell_route_sidecar_participates_in_bend_checks() {
+        let cell = PyCell::from_parts(
+            Cell::new("route"),
+            RouteAnnotations::new(None, vec![BendInfo::new(2.0, Point::origin())], Vec::new()),
+        );
+        let config = PyChecksConfig(ChecksConfig::new().with_min_bend_radius(5.0));
+
+        let result = py_run_checks(&cell, Some(&config), None);
+
+        assert_eq!(result.0.stats.bends_checked, 1);
+        assert_eq!(result.0.violations.len(), 1);
+    }
+
+    #[test]
+    fn uncheckable_bend_has_public_violation_type_and_fails_result() {
+        let violation = CheckViolation::new(
+            CheckViolationType::BendRadiusUncheckable,
+            "route",
+            "route",
+            rosette_core::BBox::new(Point::origin(), Point::origin()),
+            "Bend cannot be checked",
+            Severity::Error,
+        );
+        let py_violation = PyCheckViolation(violation.clone());
+        let result = PyChecksResult(ChecksResult {
+            violations: vec![violation],
+            stats: rosette_checks::ChecksStats {
+                ports_checked: 0,
+                connections_found: 0,
+                bends_checked: 0,
+                elapsed: std::time::Duration::ZERO,
+            },
+        });
+
+        assert_eq!(py_violation.violation_type(), "bend_radius_uncheckable");
+        assert!(!result.passed());
+        assert_eq!(result.bends_checked(), 0);
+    }
 }

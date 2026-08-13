@@ -21,6 +21,7 @@ CURRENT_FACADE_EXPORTS = (
     "DEFAULT_LAYERS",
     "ArrayCopy",
     "BBox",
+    "BendInfo",
     "Cell",
     "CheckViolation",
     "ChecksConfig",
@@ -29,6 +30,7 @@ CURRENT_FACADE_EXPORTS = (
     "DfmResult",
     "DfmViolation",
     "DrcCache",
+    "DrcPolicy",
     "DrcResult",
     "DrcRules",
     "DrcViolation",
@@ -86,6 +88,7 @@ CURRENT_EXPORTS_BY_KIND = {
     "feature": {
         "ChecksConfig",
         "DfmConfig",
+        "DrcPolicy",
         "DrcRules",
         "GaussianModel",
         "Route",
@@ -110,6 +113,7 @@ CURRENT_EXPORTS_BY_KIND = {
     },
     "result_type": {
         "ArrayCopy",
+        "BendInfo",
         "CheckViolation",
         "ChecksResult",
         "DfmResult",
@@ -163,6 +167,7 @@ TARGET_FEATURE_EXPORTS = {
         "run_dfm",
     ),
     "rosette.drc": (
+        "DrcPolicy",
         "DrcResult",
         "DrcRules",
         "DrcViolation",
@@ -174,7 +179,7 @@ TARGET_FEATURE_EXPORTS = {
     "rosette.layout": ("ArrayCopy",),
     "rosette.project": ("LayerInfo", "LayerMap", "load_layer_map"),
     "rosette.render": ("RenderResult", "render_png"),
-    "rosette.routing": ("Route",),
+    "rosette.routing": ("BendInfo", "Route"),
 }
 
 TARGET_REMOVED_EXPORTS = {
@@ -190,6 +195,7 @@ TARGET_REMOVED_EXPORTS = {
 
 EXTENSION_EXPORTS = {
     "BBox",
+    "BendInfo",
     "Cell",
     "CellRef",
     "CheckViolation",
@@ -199,6 +205,7 @@ EXTENSION_EXPORTS = {
     "DfmResult",
     "DfmViolation",
     "DrcCache",
+    "DrcPolicy",
     "DrcResult",
     "DrcRules",
     "DrcViolation",
@@ -539,3 +546,20 @@ def test_cell_ref_names_is_delegated_by_public_cell_wrapper():
     parent.add_ref(child.at(0, 0))
 
     assert parent.cell_ref_names() == ["child"]
+
+
+def test_cell_surface_is_geometry_only():
+    cell = rosette.Cell("cell")
+    removed = {
+        "add_bend",
+        "add_drc_waive_region",
+        "add_warning",
+        "bends",
+        "cell_warnings",
+        "clear_drc_waive_regions",
+        "drc_skip",
+        "drc_waive_regions",
+        "path_length",
+    }
+
+    assert removed.isdisjoint(dir(cell))

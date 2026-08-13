@@ -366,9 +366,9 @@ impl WasmLibrary {
         }
 
         let origin = self
-            .cell_origins
+            .annotations
             .get(ref_cell_name)
-            .copied()
+            .map(|annotations| annotations.editor.origin)
             .unwrap_or_else(rosette_core::Point::origin);
         if !(x - origin.x).is_finite() || !(y - origin.y).is_finite() {
             return None;

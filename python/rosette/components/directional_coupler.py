@@ -59,11 +59,63 @@ from rosette import Cell, Layer, Point, Polygon, Port, Vector2
 from rosette.components._curves import (
     cosine_sbend_point,
     cosine_sbend_tangent,
-    estimate_sbend_path_length,
 )
 from rosette.components._utils import safe_cell_name
+from rosette.components.sbend import sbend_path_length
 
-__all__ = ["directional_coupler"]
+__all__ = ["directional_coupler", "directional_coupler_arm_length"]
+
+
+def directional_coupler_arm_length(
+    bend_length: float,
+    coupling_length: float,
+    port_spacing: float,
+    gap: float,
+    waveguide_width: float,
+    num_segments: int = 32,
+) -> float:
+    """Return the centerline length through either symmetric coupler arm.
+
+    *num_segments* matches :func:`directional_coupler`: it defaults to 32
+    segments per S-bend and must be at least 1.
+    """
+    finite_values = (
+        ("Bend length", bend_length),
+        ("Coupling length", coupling_length),
+        ("Port spacing", port_spacing),
+        ("Gap", gap),
+        ("Waveguide width", waveguide_width),
+    )
+    for name, value in finite_values:
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
+    if coupling_length <= 0:
+        raise ValueError("Coupling length must be positive")
+    if gap <= 0:
+        raise ValueError("Gap must be positive")
+    if waveguide_width <= 0:
+        raise ValueError("Waveguide width must be positive")
+    if bend_length <= 0:
+        raise ValueError("Bend length must be positive")
+    if num_segments < 1:
+        raise ValueError("Number of segments must be at least 1")
+    if port_spacing <= gap + waveguide_width:
+        raise ValueError(
+            f"Port spacing ({port_spacing}) must be greater than "
+            f"gap + waveguide_width ({gap + waveguide_width}) so the "
+            f"S-bends can bring the two arms together in the coupling region"
+        )
+
+    sbend_offset = (port_spacing - gap - waveguide_width) / 2
+    return (
+        2
+        * sbend_path_length(
+            bend_length,
+            sbend_offset,
+            num_segments=num_segments,
+        )
+        + coupling_length
+    )
 
 
 def directional_coupler(
@@ -116,12 +168,8 @@ def directional_coupler(
 
     Returns:
         Cell with ports ``"in1"``, ``"in2"``, ``"out1"``, ``"out2"``.
-        ``path_length`` = arc length through one arm
-        (``2 * S_bend_arc + coupling_length``), where ``S_bend_arc`` is
-        the numerically integrated cosine-S-bend length over
-        *bend_length* with offset ``(port_spacing - gap - waveguide_width)
-        / 2``. The two arms are symmetric so either has the same
-        *path_length*; use this for delay-line matching.
+
+        Use :func:`directional_coupler_arm_length` for either symmetric arm.
 
     Raises:
         ValueError: If *coupling_length*, *gap*, *waveguide_width*, or
@@ -180,11 +228,8 @@ def directional_coupler(
                 bend_length=bend_length,
             )
 
-            # Couplers separated by a 100 um straight gap. Use the coupler's
-            # x-extent (2*bend_length + coupling_length), NOT dc.path_length
-            # (which is the optical arc length through one arm and is a few
-            # hundred nm longer than the x-extent).
-            total_x = 2 * bend_length + coupling_length
+            # Couplers separated by a 100 um straight gap.
+            total_x = dc.port("out1").position.x
             dc_in  = dc.at(0, 0)
             dc_out = dc.at(0, 0).translate(total_x + 100, 0)
 
@@ -253,11 +298,6 @@ def directional_coupler(
     cell.add_port(Port("in2", Point(0.0, -port_y), -Vector2.unit_x(), waveguide_width))
     cell.add_port(Port("out1", Point(total_length, port_y), Vector2.unit_x(), waveguide_width))
     cell.add_port(Port("out2", Point(total_length, -port_y), Vector2.unit_x(), waveguide_width))
-
-    # Path length through one arm (S-bend arc length + straight coupling)
-    sbend_offset = abs(port_y - coupling_y)
-    sbend_arc = estimate_sbend_path_length(bend_length, sbend_offset, "cosine")
-    cell.path_length = 2 * sbend_arc + coupling_length
 
     return cell
 

@@ -25,9 +25,9 @@ export interface DrcPayload {
   violations: Violation[];
   error_count: number;
   warning_count: number;
-  /** Number of violations suppressed by trusted cells (drc_skip). */
+  /** Number of violations suppressed by explicit policy cell skips. */
   suppressed: number;
-  /** Number of violations waived by region (drc_waive_regions). */
+  /** Number of violations suppressed by explicit policy region waivers. */
   waived: number;
   /** Whether the design passes (warnings alone still pass). */
   passed: boolean;

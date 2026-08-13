@@ -1282,10 +1282,10 @@ fn test_drc_skip_suppresses_intra_cell_violation() {
         Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
         Layer::new(1, 0),
     );
-    trusted.set_drc_skip(true);
-
     let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
-    let result = run_drc(&trusted, &rules, None);
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("trusted");
+    let result = run_drc_with_policy(&trusted, &rules, None, &policy);
 
     assert!(
         result.passed(),
@@ -1306,8 +1306,6 @@ fn test_drc_skip_keeps_inter_cell_violation() {
         Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
         Layer::new(1, 0),
     );
-    child.set_drc_skip(true);
-
     let mut top = Cell::new("top");
     top.add_polygon(
         Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
@@ -1320,7 +1318,9 @@ fn test_drc_skip_keeps_inter_cell_violation() {
     lib.add_cell(top).unwrap();
 
     let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
-    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("child");
+    let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
     assert!(
         !result.passed(),
@@ -1340,15 +1340,11 @@ fn test_drc_skip_suppresses_when_both_cells_trusted() {
         Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
         Layer::new(1, 0),
     );
-    a.set_drc_skip(true);
-
     let mut b = Cell::new("b");
     b.add_polygon(
         Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
         Layer::new(1, 0),
     );
-    b.set_drc_skip(true);
-
     let mut top = Cell::new("top");
     top.add_ref(CellRef::new("a"));
     top.add_ref(CellRef::new("b"));
@@ -1359,7 +1355,10 @@ fn test_drc_skip_suppresses_when_both_cells_trusted() {
     lib.add_cell(top).unwrap();
 
     let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
-    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("a");
+    policy.skip_cell("b");
+    let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
     assert!(
         result.passed(),
@@ -1387,8 +1386,6 @@ fn test_drc_skip_propagates_to_subtree() {
 
     let mut parent = Cell::new("parent");
     parent.add_ref(CellRef::new("grandchild"));
-    parent.set_drc_skip(true);
-
     let mut top = Cell::new("top");
     top.add_ref(CellRef::new("parent"));
 
@@ -1398,7 +1395,9 @@ fn test_drc_skip_propagates_to_subtree() {
     lib.add_cell(top).unwrap();
 
     let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
-    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("parent");
+    let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
     assert!(
         result.passed(),
@@ -1440,8 +1439,6 @@ fn test_drc_skip_diamond_hierarchy() {
 
     let mut parent_b = Cell::new("parent_b");
     parent_b.add_ref(CellRef::new("shared"));
-    parent_b.set_drc_skip(true);
-
     let mut top = Cell::new("top");
     // Order matters for reproducing the old bug: put the untrusted
     // parent first so `shared` is visited via it first.
@@ -1455,7 +1452,9 @@ fn test_drc_skip_diamond_hierarchy() {
     lib.add_cell(top).unwrap();
 
     let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
-    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("parent_b");
+    let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
     // `shared` must be in the closure via `parent_b`, so its intra-cell
     // violation is suppressed.
@@ -1489,10 +1488,10 @@ fn test_drc_skip_suppresses_per_polygon_violation() {
         Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
         Layer::new(1, 0),
     );
-    trusted.set_drc_skip(true);
-
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, Some("MIN_W"));
-    let result = run_drc(&trusted, &rules, None);
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("trusted");
+    let result = run_drc_with_policy(&trusted, &rules, None, &policy);
 
     // With ROS-552 in place, the per-polygon violation is attributed to
     // "trusted" and therefore suppressed.
@@ -1935,10 +1934,11 @@ fn prov_drc_skip_suppresses_per_polygon_in_nested_cell() {
         Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
         Layer::new(1, 0),
     );
-    leaf.set_drc_skip(true);
     let (lib, top) = two_level_hierarchy(leaf);
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
-    let result = run_drc(lib.cell(&top).unwrap(), &rules, Some(&lib));
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("trusted_leaf");
+    let result = run_drc_with_policy(lib.cell(&top).unwrap(), &rules, Some(&lib), &policy);
     assert!(result.passed());
     assert_eq!(result.stats.suppressed_violations, 1);
 }
@@ -1952,13 +1952,11 @@ fn prov_drc_skip_suppresses_cross_layer_when_both_trusted() {
         Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
         Layer::new(1, 0),
     );
-    a.set_drc_skip(true);
     let mut b = Cell::new("b");
     b.add_polygon(
         Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
         Layer::new(2, 0),
     );
-    b.set_drc_skip(true);
     let mut top = Cell::new("top");
     top.add_ref(CellRef::new("a").at(0.0, 0.0));
     top.add_ref(CellRef::new("b").at(1.0, 0.0));
@@ -1967,7 +1965,10 @@ fn prov_drc_skip_suppresses_cross_layer_when_both_trusted() {
     lib.add_cell(b).unwrap();
     lib.add_cell(top).unwrap();
     let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(2, 0), None);
-    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("a");
+    policy.skip_cell("b");
+    let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
     assert!(result.passed());
     assert!(result.stats.suppressed_violations >= 1);
 }
@@ -2080,11 +2081,14 @@ fn waive_region_suppresses_contained_violation() {
         Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
         Layer::new(1, 0),
     );
-    // Region generously covers the whole polygon (and thus the violation).
-    cell.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
-
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
-    let result = run_drc(&cell, &rules, None);
+    let mut policy = DrcPolicy::new();
+    // Region generously covers the whole polygon (and thus the violation).
+    policy.waive_region(
+        "c",
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+    );
+    let result = run_drc_with_policy(&cell, &rules, None, &policy);
 
     assert!(result.passed(), "waived violation should not fail DRC");
     assert_eq!(result.violations.len(), 0);
@@ -2101,12 +2105,12 @@ fn waive_region_keeps_partially_overlapping_violation() {
         Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
         Layer::new(1, 0),
     );
+    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
+    let mut policy = DrcPolicy::new();
     // Region covers only the left half — it does not contain the full
     // violation bbox (which spans the whole 10-wide polygon).
-    cell.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(4.0, 1.0)));
-
-    let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
-    let result = run_drc(&cell, &rules, None);
+    policy.waive_region("c", BBox::new(Point::new(-1.0, -1.0), Point::new(4.0, 1.0)));
+    let result = run_drc_with_policy(&cell, &rules, None, &policy);
 
     assert!(
         !result.passed(),
@@ -2143,9 +2147,6 @@ fn waive_region_transformed_through_translated_ref() {
         Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
         Layer::new(1, 0),
     );
-    // Local-frame region around the violation.
-    child.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
-
     let mut top = Cell::new("top");
     // Place far from the origin: a region left in local coords would miss.
     top.add_ref(CellRef::new("child").at(1000.0, 2000.0));
@@ -2155,7 +2156,13 @@ fn waive_region_transformed_through_translated_ref() {
     lib.add_cell(top).unwrap();
 
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
-    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+    let mut policy = DrcPolicy::new();
+    // Local-frame region around the violation.
+    policy.waive_region(
+        "child",
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+    );
+    let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
     assert!(
         result.passed(),
@@ -2177,16 +2184,19 @@ fn waive_region_local_coords_do_not_match_when_placed_far() {
     );
     let mut top = Cell::new("top");
     top.add_ref(CellRef::new("child").at(1000.0, 2000.0));
-    // Waiver placed on the TOP cell at the child's local coords — wrong frame,
-    // should not match the (translated) global violation location.
-    top.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
-
     let mut lib = Library::new("waive_lib2");
     lib.add_cell(child).unwrap();
     lib.add_cell(top).unwrap();
 
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
-    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+    let mut policy = DrcPolicy::new();
+    // Waiver placed on the TOP cell at the child's local coords — wrong frame,
+    // so it should not match the translated global violation location.
+    policy.waive_region(
+        "top",
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+    );
+    let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
     assert!(!result.passed());
     assert_eq!(result.stats.waived_violations, 0);
@@ -2201,8 +2211,6 @@ fn waive_region_replicated_across_aref_copies() {
         Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
         Layer::new(1, 0),
     );
-    child.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
-
     let mut top = Cell::new("top");
     let cref = CellRef::new("child").array(3, 1, 100.0, 0.0);
     top.add_ref(cref);
@@ -2212,7 +2220,12 @@ fn waive_region_replicated_across_aref_copies() {
     lib.add_cell(top).unwrap();
 
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
-    let result = run_drc(lib.cell("top").unwrap(), &rules, Some(&lib));
+    let mut policy = DrcPolicy::new();
+    policy.waive_region(
+        "child",
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+    );
+    let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
     assert!(
         result.passed(),
@@ -2230,11 +2243,14 @@ fn waive_region_and_drc_skip_not_double_counted() {
         Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
         Layer::new(1, 0),
     );
-    cell.set_drc_skip(true);
-    cell.add_drc_waive_region(BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)));
-
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
-    let result = run_drc(&cell, &rules, None);
+    let mut policy = DrcPolicy::new();
+    policy.skip_cell("c");
+    policy.waive_region(
+        "c",
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+    );
+    let result = run_drc_with_policy(&cell, &rules, None, &policy);
 
     assert!(result.passed());
     assert_eq!(result.violations.len(), 0);
@@ -2468,7 +2484,7 @@ fn explicit_policy_suppresses_without_mutating_cell() {
     let result = run_drc_with_policy(&cell, &rules, None, &policy);
     assert!(result.passed());
     assert_eq!(result.stats.suppressed_violations, 1);
-    assert!(!cell.drc_skip());
+    assert_eq!(cell.polygon_count(), 1);
 }
 
 #[test]
@@ -2487,20 +2503,6 @@ fn cached_run_invalidates_full_result_when_policy_changes() {
     let second = runner.check_cached_with_policy(&cell, None, &skipped, &mut cache);
     assert!(second.passed());
     assert_eq!(second.stats.suppressed_violations, 1);
-}
-
-#[test]
-fn content_hash_excludes_drc_policy_annotations() {
-    let mut plain = Cell::new("cell");
-    plain.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
-    let mut annotated = plain.clone();
-    annotated.set_drc_skip(true);
-    annotated.add_drc_waive_region(BBox::new(Point::origin(), Point::new(1.0, 1.0)));
-
-    assert_eq!(
-        cell_content_hash(&plain, None, &mut HashMap::new()),
-        cell_content_hash(&annotated, None, &mut HashMap::new())
-    );
 }
 
 #[test]

@@ -20,8 +20,7 @@ STUB = ROOT / "python" / "rosette" / "api.pyi"
 
 RUNNABLE_API_EXAMPLES = {
     ("BBox.mdx", 11),
-    ("Cell.mdx", 16),
-    ("Cell.mdx", 50),
+    ("Cell.mdx", 17),
     ("Cell.mdx", 91),
     ("DfmConfig.mdx", 123),
     ("Layer.mdx", 11),
@@ -44,7 +43,7 @@ RUNNABLE_API_EXAMPLES = {
     ("Vector2.mdx", 191),
     ("Vector2.mdx", 198),
     ("index.mdx", 34),
-    ("index.mdx", 227),
+    ("index.mdx", 248),
 }
 
 RUNNABLE_STUB_EXAMPLES = (

@@ -1,7 +1,7 @@
 //! JSON format support for rosette designs.
 //!
 //! This module owns the versioned `rosette-layout` persistence contract and
-//! converts it to and from validated rosette [`Library`] values. Schema V1 uses
+//! converts it to and from validated [`LayoutDocument`] values. Schema V1 uses
 //! micrometers with a Y-up coordinate axis and is used internally by
 //! `rosette serve` to communicate designs to the web viewer.
 //!
@@ -18,16 +18,22 @@
 //! library.add_cell(cell);
 //!
 //! // Write to file
-//! json::write("design.json", &library).unwrap();
+//! let document = json::LayoutDocument::from_library(library).unwrap();
+//! json::write("design.json", &document).unwrap();
 //!
 //! // Or get as string
-//! let json_str = json::to_string(&library).unwrap();
+//! let json_str = json::to_string(&document).unwrap();
 //! ```
 
+mod document;
 mod dto;
 mod reader;
 mod writer;
 
+pub use document::{
+    BendAnnotation, CellAnnotations, DrcAnnotations, EditorAnnotations, LayoutDocument,
+    RouteAnnotations,
+};
 pub use dto::{FORMAT, SCHEMA_VERSION};
 pub use reader::{from_string, read};
 pub use writer::{to_string, to_string_compact, write};

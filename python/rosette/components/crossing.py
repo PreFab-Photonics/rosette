@@ -58,7 +58,16 @@ from typing import Literal
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
 from rosette.components._utils import safe_cell_name
 
-__all__ = ["crossing"]
+__all__ = ["crossing", "crossing_through_length"]
+
+
+def crossing_through_length(arm_length: float) -> float:
+    """Return the center-to-center through length across either crossing axis."""
+    if not math.isfinite(arm_length):
+        raise ValueError("Arm length must be finite")
+    if arm_length <= 0:
+        raise ValueError("Arm length must be positive")
+    return 2 * arm_length
 
 
 def crossing(
@@ -107,8 +116,8 @@ def crossing(
 
     Returns:
         Cell with ports ``"in1"``, ``"out1"``, ``"in2"``, ``"out2"``.
-        ``path_length`` = ``2 * arm_length`` (length of the horizontal
-        path, which by symmetry equals the vertical path).
+
+        Use :func:`crossing_through_length` for either symmetric through path.
 
     Raises:
         ValueError: If *waveguide_width* or *arm_length* is not positive;
@@ -217,9 +226,6 @@ def crossing(
     cell.add_port(Port("out1", Point(arm_length, 0), Vector2.unit_x(), waveguide_width))
     cell.add_port(Port("in2", Point(0, -arm_length), -Vector2.unit_y(), waveguide_width))
     cell.add_port(Port("out2", Point(0, arm_length), Vector2.unit_y(), waveguide_width))
-
-    # Total size for metadata
-    cell.path_length = 2 * arm_length
 
     return cell
 

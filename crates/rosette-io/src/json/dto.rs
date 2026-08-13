@@ -1,13 +1,16 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rosette_core::cell::Element;
 use rosette_core::{
-    BBox, BendInfo, Cell, CellRef, Layer, Library, PathEndType, Point, Polygon, Port, Repetition,
-    Transform, Vector2,
+    BBox, Cell, CellRef, Layer, Library, PathEndType, Point, Polygon, Port, Repetition, Transform,
+    Vector2,
 };
 use serde::{Deserialize, Serialize};
 
-use super::JsonError;
+use super::{
+    BendAnnotation, CellAnnotations, DrcAnnotations, EditorAnnotations, JsonError, LayoutDocument,
+    RouteAnnotations,
+};
 
 pub const FORMAT: &str = "rosette-layout";
 pub const SCHEMA_VERSION: u32 = 1;
@@ -178,7 +181,7 @@ struct EditorAnnotationsDto {
 }
 
 impl DocumentDto {
-    pub(super) fn decode(json: &str) -> Result<Library, JsonError> {
+    pub(super) fn decode(json: &str) -> Result<LayoutDocument, JsonError> {
         let header: DocumentHeader = serde_json::from_str(json)?;
         if header.format != FORMAT {
             return Err(JsonError::UnsupportedFormat(header.format));
@@ -186,11 +189,11 @@ impl DocumentDto {
         if header.schema != SCHEMA_VERSION {
             return Err(JsonError::UnsupportedSchema(header.schema));
         }
-        serde_json::from_str::<Self>(json)?.into_library()
+        serde_json::from_str::<Self>(json)?.into_document()
     }
 
-    pub(super) fn from_library(library: &Library) -> Result<Self, JsonError> {
-        library.validate()?;
+    pub(super) fn from_document(document: &LayoutDocument) -> Result<Self, JsonError> {
+        document.validate()?;
         Ok(Self {
             format: FORMAT.to_string(),
             schema: SCHEMA_VERSION,
@@ -198,11 +201,11 @@ impl DocumentDto {
                 unit: UNIT.to_string(),
                 y_axis: Y_AXIS.to_string(),
             },
-            library: LibraryDto::from_library(library),
+            library: LibraryDto::from_document(document),
         })
     }
 
-    pub(super) fn into_library(self) -> Result<Library, JsonError> {
+    pub(super) fn into_document(self) -> Result<LayoutDocument, JsonError> {
         if self.format != FORMAT {
             return Err(JsonError::UnsupportedFormat(self.format));
         }
@@ -215,39 +218,54 @@ impl DocumentDto {
                 y_axis: self.coordinate_system.y_axis,
             });
         }
-        self.library.into_library()
+        self.library.into_document()
     }
 }
 
 impl LibraryDto {
-    fn from_library(library: &Library) -> Self {
+    fn from_document(document: &LayoutDocument) -> Self {
+        let library = document.library();
         Self {
             name: library.name().to_string(),
             top_cell: library
                 .explicit_top_cell()
                 .map(|cell| cell.name().to_string()),
-            cells: library.cells().iter().map(CellDto::from_cell).collect(),
+            cells: library
+                .cells()
+                .iter()
+                .map(|cell| {
+                    CellDto::from_cell(
+                        cell,
+                        document
+                            .annotations()
+                            .get(cell.name())
+                            .expect("validated document has annotations for every cell"),
+                    )
+                })
+                .collect(),
         }
     }
 
-    fn into_library(self) -> Result<Library, JsonError> {
+    fn into_document(self) -> Result<LayoutDocument, JsonError> {
         let mut library = Library::new(self.name);
+        let mut annotations = HashMap::with_capacity(self.cells.len());
         for (cell_index, cell) in self.cells.into_iter().enumerate() {
-            library
-                .add_cell(cell.into_cell(cell_index)?)
-                .map_err(JsonError::InvalidLibrary)?;
+            let (cell, cell_annotations) = cell.into_parts(cell_index)?;
+            let cell_name = cell.name().to_string();
+            library.add_cell(cell).map_err(JsonError::InvalidLibrary)?;
+            annotations.insert(cell_name, cell_annotations);
         }
         if let Some(top_cell) = self.top_cell {
             library
                 .set_top_cell(&top_cell)
                 .map_err(JsonError::InvalidLibrary)?;
         }
-        Ok(library)
+        LayoutDocument::from_parts(library, annotations)
     }
 }
 
 impl CellDto {
-    fn from_cell(cell: &Cell) -> Self {
+    fn from_cell(cell: &Cell, annotations: &CellAnnotations) -> Self {
         Self {
             name: cell.name().to_string(),
             elements: cell
@@ -257,25 +275,31 @@ impl CellDto {
                 .collect(),
             ports: cell.ports().iter().map(PortDto::from_port).collect(),
             route: RouteAnnotationsDto {
-                path_length: cell.path_length(),
-                bends: cell.bends().iter().map(BendDto::from_bend).collect(),
-                warnings: cell.warnings().to_vec(),
+                path_length: annotations.route.path_length,
+                bends: annotations
+                    .route
+                    .bends
+                    .iter()
+                    .map(BendDto::from_bend)
+                    .collect(),
+                warnings: annotations.route.warnings.clone(),
             },
             drc: DrcAnnotationsDto {
-                skip: cell.drc_skip(),
-                waive_regions: cell
-                    .drc_waive_regions()
+                skip: annotations.drc.skip,
+                waive_regions: annotations
+                    .drc
+                    .waive_regions
                     .iter()
                     .map(BBoxDto::from_bbox)
                     .collect(),
             },
             editor: EditorAnnotationsDto {
-                origin: cell.origin().into(),
+                origin: annotations.editor.origin.into(),
             },
         }
     }
 
-    fn into_cell(self, cell_index: usize) -> Result<Cell, JsonError> {
+    fn into_parts(self, cell_index: usize) -> Result<(Cell, CellAnnotations), JsonError> {
         let cell_path = format!("library.cells[{cell_index}]");
         if self.name.is_empty() {
             return Err(invalid(&cell_path, "cell name cannot be empty"));
@@ -297,27 +321,36 @@ impl CellDto {
 
         if let Some(path_length) = self.route.path_length {
             ensure_finite(path_length, &format!("{cell_path}.route.path_length"))?;
-            cell.set_path_length(path_length);
         }
+        let mut bends = Vec::with_capacity(self.route.bends.len());
         for (bend_index, bend) in self.route.bends.into_iter().enumerate() {
-            cell.add_bend(bend.into_bend(&format!("{cell_path}.route.bends[{bend_index}]"))?);
-        }
-        for warning in self.route.warnings {
-            cell.add_warning(warning);
+            bends.push(bend.into_bend(&format!("{cell_path}.route.bends[{bend_index}]"))?);
         }
 
-        cell.set_drc_skip(self.drc.skip);
+        let mut waive_regions = Vec::with_capacity(self.drc.waive_regions.len());
         for (region_index, region) in self.drc.waive_regions.into_iter().enumerate() {
-            cell.add_drc_waive_region(
-                region.into_bbox(&format!("{cell_path}.drc.waive_regions[{region_index}]"))?,
-            );
+            waive_regions
+                .push(region.into_bbox(&format!("{cell_path}.drc.waive_regions[{region_index}]"))?);
         }
 
         let origin: Point = self.editor.origin.into();
         ensure_point(origin, &format!("{cell_path}.editor.origin"))?;
-        cell.set_origin(origin);
 
-        Ok(cell)
+        Ok((
+            cell,
+            CellAnnotations {
+                route: RouteAnnotations {
+                    path_length: self.route.path_length,
+                    bends,
+                    warnings: self.route.warnings,
+                },
+                drc: DrcAnnotations {
+                    skip: self.drc.skip,
+                    waive_regions,
+                },
+                editor: EditorAnnotations { origin },
+            },
+        ))
     }
 }
 
@@ -484,7 +517,7 @@ impl PortDto {
 }
 
 impl BendDto {
-    fn from_bend(bend: &BendInfo) -> Self {
+    fn from_bend(bend: &BendAnnotation) -> Self {
         Self {
             radius: bend.radius,
             position: bend.position.into(),
@@ -492,21 +525,18 @@ impl BendDto {
         }
     }
 
-    fn into_bend(self, path: &str) -> Result<BendInfo, JsonError> {
+    fn into_bend(self, path: &str) -> Result<BendAnnotation, JsonError> {
         ensure_finite(self.radius, &format!("{path}.radius"))?;
         let position: Point = self.position.into();
         ensure_point(position, &format!("{path}.position"))?;
-        match self.requested_radius {
-            Some(requested_radius) => {
-                ensure_finite(requested_radius, &format!("{path}.requested_radius"))?;
-                Ok(BendInfo::auto_reduced(
-                    self.radius,
-                    position,
-                    requested_radius,
-                ))
-            }
-            None => Ok(BendInfo::new(self.radius, position)),
+        if let Some(requested_radius) = self.requested_radius {
+            ensure_finite(requested_radius, &format!("{path}.requested_radius"))?;
         }
+        Ok(BendAnnotation {
+            radius: self.radius,
+            position,
+            requested_radius: self.requested_radius,
+        })
     }
 }
 

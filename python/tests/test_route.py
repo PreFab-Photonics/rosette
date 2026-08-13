@@ -8,7 +8,7 @@ import pytest
 from rosette import Layer, Point, Port, Vector2
 from rosette._core import fresnel_c, fresnel_s
 from rosette.io import write_gds
-from rosette.routing import Route
+from rosette.routing import BendInfo, Route
 
 
 class TestRouteBasic:
@@ -43,6 +43,33 @@ class TestRouteBasic:
         # arc = 5 * π/2 ≈ 7.85
         expected = 50 - 5 + 5 * math.pi / 2 + 50 - 5
         assert abs(route.path_length - expected) < 1.0
+
+        assert len(route.bends) == 1
+        bend = route.bends[0]
+        assert isinstance(bend, BendInfo)
+        assert bend.radius == pytest.approx(5.0)
+        assert bend.position.x == pytest.approx(50.0)
+        assert bend.position.y == pytest.approx(0.0)
+        assert bend.requested_radius is None
+
+        with pytest.raises(AttributeError):
+            bend.radius = 10.0
+
+    def test_auto_reduced_bend_reports_requested_radius(self):
+        route = Route(Layer(1, 0), bend_radius=10.0)
+        route.start_at(0, 0)
+        route.to(5, 0)
+        route.to(5, 5)
+        route.end_at(5, 5, 90)
+
+        assert len(route.bends) == 1
+        assert route.bends[0].radius == pytest.approx(4.5)
+        assert route.bends[0].requested_radius == pytest.approx(10.0)
+
+    def test_incomplete_route_has_empty_bend_diagnostics(self):
+        route = Route(Layer(1, 0))
+
+        assert route.bends == []
 
     def test_s_curve(self):
         """Route with two opposite bends (S-curve)."""

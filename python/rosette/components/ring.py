@@ -27,7 +27,20 @@ from typing import Literal
 from rosette import Cell, Layer, Point, Polygon, Port, Vector2
 from rosette.components._utils import safe_cell_name
 
-__all__ = ["ring"]
+__all__ = ["ring", "ring_round_trip_length"]
+
+
+def ring_round_trip_length(radius: float, coupling_length: float = 0.0) -> float:
+    """Return the ring or racetrack centerline round-trip length in microns."""
+    if not math.isfinite(radius):
+        raise ValueError("Ring radius must be finite")
+    if not math.isfinite(coupling_length):
+        raise ValueError("Coupling length must be finite")
+    if radius <= 0:
+        raise ValueError("Ring radius must be positive")
+    if coupling_length < 0:
+        raise ValueError("Coupling length must be non-negative")
+    return 2 * math.pi * radius + 2 * coupling_length
 
 
 def ring(
@@ -81,8 +94,8 @@ def ring(
 
     Returns:
         Cell with ports listed above.
-        ``path_length`` = ring circumference
-        (``2 * pi * radius + 2 * coupling_length``).
+
+        Use :func:`ring_round_trip_length` for the resonator round-trip length.
 
     Raises:
         ValueError: If *radius*, *waveguide_width*, or *gap* is not
@@ -224,15 +237,6 @@ def ring(
     else:
         cell.add_port(Port("in", Point(0.0, 0.0), -Vector2.unit_x(), waveguide_width))
         cell.add_port(Port("out", Point(bus_length, 0.0), Vector2.unit_x(), waveguide_width))
-
-    # Circumference for metadata
-    circumference = 2 * math.pi * radius + 2 * coupling_length
-    cell.path_length = circumference
-
-    # Record bend info for design checks
-    ring_cx = bus_extension + coupling_length / 2
-    ring_cy = ring_center_y if not is_adddrop else 0.0
-    cell.add_bend(radius, ring_cx, ring_cy)
 
     return cell
 

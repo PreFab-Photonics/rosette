@@ -1,34 +1,33 @@
 //! JSON reader for rosette libraries.
 
-use super::{JsonError, dto::DocumentDto};
-use rosette_core::Library;
+use super::{JsonError, LayoutDocument, dto::DocumentDto};
 use std::path::Path;
 
-/// Read a library from a JSON file.
+/// Read a layout document from a JSON file.
 ///
 /// # Arguments
 /// * `path` - Path to the JSON file
 ///
 /// # Returns
-/// The deserialized library.
+/// The deserialized layout document.
 ///
 /// # Errors
 /// Returns an error if the file cannot be read or parsed.
-pub fn read(path: impl AsRef<Path>) -> Result<Library, JsonError> {
+pub fn read(path: impl AsRef<Path>) -> Result<LayoutDocument, JsonError> {
     from_string(&std::fs::read_to_string(path)?)
 }
 
-/// Deserialize a library from a JSON string.
+/// Deserialize a layout document from a JSON string.
 ///
 /// # Arguments
 /// * `json` - JSON string to parse
 ///
 /// # Returns
-/// The deserialized library.
+/// The deserialized layout document.
 ///
 /// # Errors
 /// Returns an error if the JSON is invalid or doesn't match the expected structure.
-pub fn from_string(json: &str) -> Result<Library, JsonError> {
+pub fn from_string(json: &str) -> Result<LayoutDocument, JsonError> {
     DocumentDto::decode(json)
 }
 
@@ -36,7 +35,11 @@ pub fn from_string(json: &str) -> Result<Library, JsonError> {
 mod tests {
     use super::*;
     use crate::json::to_string;
-    use rosette_core::{Cell, Layer, Point, Polygon, Port, Vector2};
+    use rosette_core::{Cell, Layer, Library, Point, Polygon, Port, Vector2};
+
+    fn document(library: Library) -> LayoutDocument {
+        LayoutDocument::from_library(library).unwrap()
+    }
 
     #[test]
     fn test_round_trip() {
@@ -58,16 +61,16 @@ mod tests {
         library.add_cell(cell).unwrap();
 
         // Serialize
-        let json = to_string(&library).unwrap();
+        let json = to_string(&document(library)).unwrap();
 
         // Deserialize
         let restored = from_string(&json).unwrap();
 
         // Verify
-        assert_eq!(restored.name(), "test_lib");
-        assert_eq!(restored.cells().len(), 1);
+        assert_eq!(restored.library().name(), "test_lib");
+        assert_eq!(restored.library().cells().len(), 1);
 
-        let cell = restored.cell("test_cell").unwrap();
+        let cell = restored.library().cell("test_cell").unwrap();
         assert_eq!(cell.polygon_count(), 2);
         assert_eq!(cell.ports().len(), 1);
         assert_eq!(cell.ports()[0].name, "opt1");
@@ -92,10 +95,10 @@ mod tests {
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
 
-        let json = to_string(&library).unwrap();
+        let json = to_string(&document(library)).unwrap();
         let restored = from_string(&json).unwrap();
 
-        let cell = restored.cell("with_path").unwrap();
+        let cell = restored.library().cell("with_path").unwrap();
         assert_eq!(cell.path_count(), 1);
     }
 
@@ -115,14 +118,14 @@ mod tests {
         library.add_cell(child).unwrap();
         library.add_cell(parent).unwrap();
 
-        let json = to_string(&library).unwrap();
+        let json = to_string(&document(library)).unwrap();
         let restored = from_string(&json).unwrap();
 
-        assert_eq!(restored.cells().len(), 2);
-        assert!(restored.cell("child").is_some());
-        assert!(restored.cell("parent").is_some());
+        assert_eq!(restored.library().cells().len(), 2);
+        assert!(restored.library().cell("child").is_some());
+        assert!(restored.library().cell("parent").is_some());
 
-        let parent = restored.cell("parent").unwrap();
+        let parent = restored.library().cell("parent").unwrap();
         assert_eq!(parent.ref_count(), 1);
     }
 
@@ -130,7 +133,8 @@ mod tests {
     fn rejects_empty_and_duplicate_cell_identities() {
         let mut library = Library::new("test");
         library.add_cell(Cell::new("cell")).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&to_string(&library).unwrap()).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&to_string(&document(library)).unwrap()).unwrap();
 
         let mut empty = value.clone();
         empty["library"]["cells"][0]["name"] = serde_json::Value::String(String::new());
@@ -164,7 +168,7 @@ mod tests {
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut value: serde_json::Value =
-            serde_json::from_str(&to_string(&library).unwrap()).unwrap();
+            serde_json::from_str(&to_string(&document(library)).unwrap()).unwrap();
         value["library"]["cells"][0]["elements"][0]["points"] = serde_json::json!([]);
 
         assert!(matches!(
@@ -176,7 +180,7 @@ mod tests {
     #[test]
     fn dispatches_format_and_schema_before_decoding_the_payload() {
         let value: serde_json::Value =
-            serde_json::from_str(&to_string(&Library::new("test")).unwrap()).unwrap();
+            serde_json::from_str(&to_string(&document(Library::new("test"))).unwrap()).unwrap();
 
         let mut wrong_format = value.clone();
         wrong_format["format"] = serde_json::json!("other-layout");
@@ -210,7 +214,7 @@ mod tests {
         ));
 
         let mut value: serde_json::Value =
-            serde_json::from_str(&to_string(&Library::new("test")).unwrap()).unwrap();
+            serde_json::from_str(&to_string(&document(Library::new("test"))).unwrap()).unwrap();
         value["library"]["top_cell"] = serde_json::json!("missing");
         assert!(matches!(
             from_string(&serde_json::to_string(&value).unwrap()),
@@ -222,7 +226,7 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_fields_without_collapsing_the_document() {
-        let json = to_string(&Library::new("test")).unwrap();
+        let json = to_string(&document(Library::new("test"))).unwrap();
         let duplicate = json.replacen(r#""name": "test""#, r#""name": "first", "name": "test""#, 1);
 
         assert!(matches!(from_string(&duplicate), Err(JsonError::Json(_))));

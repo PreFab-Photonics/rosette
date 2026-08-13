@@ -288,7 +288,11 @@ class TestLibrary:
 
     def test_add_cell_validates_cells_created_outside_constructor(self):
         """Library keeps GDS name validation for route-produced cells."""
-        invalid = Route(Layer(1)).to_cell("has space")
+        route = Route(Layer(1))
+        route.start_at(0, 0)
+        route.to(1, 0)
+        route.end_at(1, 0)
+        invalid = route.to_cell("has space")
         with pytest.raises(ValueError, match="invalid character"):
             Library("test_lib").add_cell(invalid)
 

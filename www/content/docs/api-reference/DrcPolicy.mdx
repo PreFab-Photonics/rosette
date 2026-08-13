@@ -1,0 +1,111 @@
+---
+title: DrcPolicy
+---
+
+Explicit per-run DRC suppression policy keyed by cell name.
+
+Import with `from rosette.drc import DrcPolicy` and pass the policy to
+[`run_drc(..., policy=policy)`](/docs/api-reference#run_drc). Policies are
+separate from Cell geometry and hierarchy.
+
+```python
+from rosette import BBox, Point
+from rosette.drc import DrcPolicy, run_drc
+
+policy = DrcPolicy()
+policy.skip_cell("trusted_pdk_cell")
+policy.waive_region("taper", BBox(Point(9, -1), Point(11, 1)))
+
+result = run_drc(cell, rules, policy=policy)
+```
+
+## Methods
+
+<PyFunction name={"__init__"} type={"() -> None"}>
+
+Create an empty DRC policy.
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"skip_cell"} type={"(name) -> None"}>
+
+Suppress violations attributed entirely to the named cell or its reachable
+subtree. Violations involving an unskipped cell remain visible.
+
+<div>
+
+<PyParameter name={"name"} type={"str"}>
+
+Name of the cell whose subtree should be skipped.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"waive_region"} type={"(name, region) -> None"}>
+
+Add a region waiver in the named cell's local coordinate system. A violation
+is waived only when its location is fully contained by the region after the
+region is transformed for that cell placement.
+
+<div>
+
+<PyParameter name={"name"} type={"str"}>
+
+Name of the cell that owns the local waiver region.
+
+</PyParameter>
+<PyParameter name={"region"} type={"BBox"}>
+
+Finite bounding box with ordered corners.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"skips"} type={"(name) -> bool"}>
+
+Return whether the named cell was explicitly passed to `skip_cell`. This does
+not report cells included only because they are descendants of a skipped cell.
+
+<div>
+
+<PyParameter name={"name"} type={"str"}>
+
+Cell name to query.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"bool"} />
+
+</PyFunction>
+
+<PyFunction name={"waiver_regions"} type={"(name) -> list[BBox]"}>
+
+Return a copy of the local waiver regions registered for the named cell.
+
+<div>
+
+<PyParameter name={"name"} type={"str"}>
+
+Cell name to query.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"list[BBox]"} />
+
+</PyFunction>

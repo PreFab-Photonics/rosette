@@ -71,15 +71,15 @@ Elapsed time in milliseconds.
 
 <PyAttribute name={"suppressed_violations"} type={"int"}>
 
-Number of violations suppressed by `drc_skip` post-filtering.
+Number of violations suppressed by explicit [`DrcPolicy`](./DrcPolicy) cell
+skips.
 
 A violation is suppressed when every cell it names is within the
-skipped-cell closure (a cell with `drc_skip = True` or any cell reachable
-from it through child-cell references). Violations with unknown cell-name
-provenance are kept as a safe default. See [`Cell.drc_skip`](./Cell).
+skipped-cell closure (a cell passed to `DrcPolicy.skip_cell()` or any cell
+reachable from it through child-cell references). Violations with unknown
+cell-name provenance are kept as a safe default.
 
-As of the provenance work in ROS-552, per-polygon rules (`MinWidth`,
-`MinArea`, etc.), cross-layer pairwise rules (`Enclosure`,
+Per-polygon rules (`MinWidth`, `MinArea`, etc.), cross-layer pairwise rules (`Enclosure`,
 `RequireOverlap`, cross-layer `MinSpacing`/`ForbidOverlap`) and
 `NotInside` all carry cell-name provenance and therefore participate in
 suppression. The only rule that does not is `Density`, whose window-level
@@ -90,20 +90,20 @@ check has no single source cell.
 <PyAttribute name={"skipped_cells"} type={"int"}>
 
 Number of unique cells in the skipped-cell closure for this run. That is,
-cells with `drc_skip = True` plus every cell reachable from them via
-child-cell references. See [`Cell.drc_skip`](./Cell).
+cells explicitly skipped by the run's policy plus every cell reachable from
+them via child-cell references.
 
 </PyAttribute>
 
 <PyAttribute name={"waived_violations"} type={"int"}>
 
-Number of violations suppressed by a region waiver
-([`Cell.drc_waive_regions`](./Cell)).
+Number of violations suppressed by a
+[`DrcPolicy.waive_region()`](./DrcPolicy) waiver.
 
-A violation is waived when it was not already suppressed by `drc_skip` and
-its location is fully contained within at least one waiver region
+A violation is waived when it was not already suppressed by a policy cell
+skip and its location is fully contained within at least one waiver region
 (transformed into top-level global coordinates for the relevant placement of
 its owning cell). A violation suppressible by both mechanisms is counted as a
-`drc_skip` suppression, not a waiver.
+cell-skip suppression, not a waiver.
 
 </PyAttribute>

@@ -50,8 +50,10 @@ connected ports with different widths generate a violation.
 <PyParameter name={"min_bend_radius"} type={"float | None"} value={"None"}>
 
 Minimum allowed bend radius in design units. Set to `None` to skip bend
-radius checking. When set, bends recorded in cell metadata are validated
-against this limit.
+radius checking. When set, bend diagnostics produced by `Route` are validated
+against this limit. Rosette retains those diagnostics privately alongside
+Cells created by `Route.to_cell()` and in `rosette-layout` JSON; generic Cell
+metadata is not inspected.
 
 </PyParameter>
 <PyParameter name={"severity"} type={"str"} value={"\"error\""}>

@@ -398,10 +398,12 @@ _TASK_CONTRACTS: dict[str, tuple[str, ...]] = {
         "Vector2",
         "Layer",
         "Port",
+        "BendInfo",
         "Route",
     ),
     "verification": (
         "Layer",
+        "DrcPolicy",
         "DrcRules",
         "DrcViolation",
         "DrcResult",
@@ -444,12 +446,12 @@ _TASK_IMPORTS = {
     from rosette.project import LayerInfo, LayerMap, load_layer_map""",
     "routing": """\
     from rosette import Layer, Point, Port, Vector2
-    from rosette.routing import Route""",
+    from rosette.routing import BendInfo, Route""",
     "verification": """\
     from rosette import Layer
     from rosette.checks import CheckViolation, ChecksConfig, ChecksResult, load_checks_config, run_checks
     from rosette.dfm import DfmConfig, DfmResult, DfmViolation, GaussianModel, LayerMetrics, LayerPrediction, load_dfm_config, run_dfm
-    from rosette.drc import DrcResult, DrcRules, DrcViolation, load_drc_rules, run_drc
+    from rosette.drc import DrcPolicy, DrcResult, DrcRules, DrcViolation, load_drc_rules, run_drc
     from rosette.render import RenderResult, render_png""",
     "component-authoring": """\
     from rosette import Cell, Layer, PathEndType, Point, Polygon, Port, Vector2
@@ -557,12 +559,36 @@ def _extract_all(path: Path) -> list[str]:
     raise RuntimeError(f"{path} must define __all__ as a literal list of strings")
 
 
+def _component_export_sources(path: Path) -> dict[str, tuple[str, str]]:
+    """Map package exports to ``(module, source_name)`` without importing code."""
+    exports = _extract_all(path)
+    sources: dict[str, tuple[str, str]] = {}
+    for node in ast.parse(path.read_text()).body:
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        if node.level == 1:
+            module = node.module
+        elif node.module.startswith("rosette.components."):
+            module = node.module.removeprefix("rosette.components.")
+        else:
+            continue
+        for alias in node.names:
+            if alias.name != "*":
+                sources[alias.asname or alias.name] = (module, alias.name)
+
+    missing = set(exports) - sources.keys()
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise RuntimeError(f"{path} does not directly import its exports: {names}")
+    return {name: sources[name] for name in exports}
+
+
 def _component_contract(source: Path, name: str) -> str:
     """Render a structural component contract for provenance comparison."""
     tree = ast.parse(source.read_text())
     module_exports = _extract_all(source)
-    if module_exports != [name]:
-        raise RuntimeError(f"{source} must define __all__ = [{name!r}]")
+    if name not in module_exports:
+        raise RuntimeError(f"{source} must include {name!r} in __all__")
     function = next(
         (node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name),
         None,
@@ -619,6 +645,7 @@ def _write_component_provenance(target_dir: Path, *, minimal: bool) -> None:
 
     package_dir = Path(__file__).parent
     component_exports = _extract_all(target_dir / "__init__.py")
+    component_sources = _component_export_sources(target_dir / "__init__.py")
     payload = {
         "schema": _PROVENANCE_SCHEMA,
         "package_version": __version__,
@@ -626,8 +653,10 @@ def _write_component_provenance(target_dir: Path, *, minimal: bool) -> None:
         "api_contract_sha256": _contract_digest(package_dir / "api.pyi"),
         "component_exports": component_exports,
         "component_contracts": {
-            name: _sha256_bytes(_component_contract(target_dir / f"{name}.py", name).encode())
-            for name in component_exports
+            name: _sha256_bytes(
+                _component_contract(target_dir / f"{module}.py", source_name).encode()
+            )
+            for name, (module, source_name) in component_sources.items()
         },
         "files": files,
     }
@@ -654,19 +683,23 @@ def _check_component_provenance(project_dir: Path) -> list[str]:
     contracts = provenance.get("component_contracts", {})
     if not isinstance(contracts, dict):
         contracts = {}
-    changed_contracts = {
-        name
-        for name, digest in contracts.items()
-        if isinstance(name, str)
-        and isinstance(digest, str)
-        and (COMPONENTS_DIR / f"{name}.py").exists()
-        and _sha256_bytes(
-            _rewrite_component_imports(
-                _component_contract(COMPONENTS_DIR / f"{name}.py", name)
-            ).encode()
-        )
-        != digest
-    }
+    component_sources = _component_export_sources(COMPONENTS_DIR / "__init__.py")
+    changed_contracts: set[str] = set()
+    for name, digest in contracts.items():
+        if not isinstance(name, str) or not isinstance(digest, str):
+            continue
+        if name not in component_sources:
+            continue
+        module, source_name = component_sources[name]
+        source = COMPONENTS_DIR / f"{module}.py"
+        if (
+            source.exists()
+            and _sha256_bytes(
+                _rewrite_component_imports(_component_contract(source, source_name)).encode()
+            )
+            != digest
+        ):
+            changed_contracts.add(module)
     minimal = provenance.get("template") == "blank"
     try:
         current_exports = _extract_all(project_dir / "components" / "__init__.py")
@@ -801,7 +834,7 @@ either re-run ``rosette init`` with ``--template generic`` or copy files from
 ``rosette/components/`` in the rosette source tree.
 
 See ``rosette.components`` for the authoring conventions (units, coordinate
-system, port directions, path length, cell names).
+system, port directions, measurement helpers, cell names).
 """
 
 __all__: list[str] = []
@@ -2579,11 +2612,11 @@ def _print_drc_result(result: DrcResult, file_path: Path | None, verbose: bool =
             cell_word = "cell" if skipped == 1 else "cells"
             viol_word = "violation" if suppressed == 1 else "violations"
             print(
-                f"  {_dim(f'{suppressed} {viol_word} suppressed across {skipped} trusted {cell_word} (drc_skip)')}"
+                f"  {_dim(f'{suppressed} {viol_word} suppressed across {skipped} policy-skipped {cell_word}')}"
             )
         if waived > 0:
             viol_word = "violation" if waived == 1 else "violations"
-            print(f"  {_dim(f'{waived} {viol_word} waived by region (drc_waive_regions)')}")
+            print(f"  {_dim(f'{waived} {viol_word} waived by policy region')}")
 
     # No violations at all: clean pass.
     if not result.violations:

@@ -45,7 +45,8 @@ A few things to notice:
   direction and width, so you do not have to re-specify them.
 - [`to_cell(name)`](/docs/api-reference/Route) returns a
   [`Cell`](/docs/api-reference/Cell) that you can place with `add_ref`
-  like any other cell.
+  like any other cell. The Cell exposes geometry, hierarchy, and ports only;
+  route diagnostics stay on the Route.
 
 <Callout title={"Always add intermediate waypoints between ports"} type={"warn"}>
 `start_at_port(a)` followed immediately by `end_at_port(b)` draws a
@@ -53,6 +54,28 @@ single straight segment between `a` and `b`, ignoring their directions.
 For any bend, you need at least one `to(x, y)` in between so the route
 departs and arrives along each port's axis.
 </Callout>
+
+## Route diagnostics
+
+`Route` exposes the generated centerline length, warnings, and typed bend
+diagnostics directly:
+
+```python
+from rosette.routing import BendInfo, Route
+
+length = route.path_length
+warnings = route.warnings
+bends: list[BendInfo] = route.bends
+
+for bend in bends:
+    print(bend.radius, bend.position, bend.requested_radius)
+```
+
+`to_cell()` returns only the route geometry as a public `Cell`. Rosette retains
+the route diagnostics in a private sidecar so `run_checks()` and
+`rosette-layout` JSON can preserve them without turning Cell into a general
+metadata container. Bend-radius checks consume these route diagnostics, not
+arbitrary Cell metadata.
 
 ## Manual waypoints (no ports)
 
@@ -134,6 +157,28 @@ cell = route.to_cell("taper_route")
 Route has no separate taper-length or abrupt-transition control. For a
 specialized profile, construct the taper geometry explicitly and route
 the constant-width sections on either side.
+
+## Component path metrics
+
+Component factories also return geometry-only Cells. Use the companion metric
+whose name identifies the optical path you mean:
+
+```python
+from rosette.components import (
+    bragg_grating_length,
+    crossing_through_length,
+    directional_coupler_arm_length,
+    mmi_through_length,
+    ring_round_trip_length,
+    sbend_path_length,
+)
+```
+
+The available metrics are `sbend_path_length`, `mmi_through_length`,
+`ring_round_trip_length`, `crossing_through_length`,
+`directional_coupler_arm_length`, and `bragg_grating_length`. Not every
+component has one generic path, so Cells do not carry a generic
+`path_length` attribute.
 
 ## Common pitfalls
 

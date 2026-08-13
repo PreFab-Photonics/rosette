@@ -4,11 +4,13 @@ use crate::extract_layer;
 use crate::geometry::{PyBBox, PyPoint, PyPolygon, PyTransform, PyVector2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use rosette_checks::RouteAnnotationMap;
 use rosette_core::cell::PathEndType;
 use rosette_core::component::connect_transform;
 use rosette_core::{
-    BendInfo, Cell, CellRef, DuplicatePolicy, Layer, Library, Point, Port, Transform, Vector2,
+    Cell, CellRef, DuplicatePolicy, Layer, Library, Point, Port, Transform, Vector2,
 };
+use rosette_route::RouteAnnotations;
 use std::f64::consts::PI;
 
 const GDS_ARRAY_MAX: i64 = 32_767;
@@ -544,7 +546,17 @@ impl PyCellRef {
 /// A cell containing geometry and references to other cells.
 #[pyclass(name = "Cell", from_py_object)]
 #[derive(Clone)]
-pub struct PyCell(pub Cell);
+pub struct PyCell(pub Cell, RouteAnnotations);
+
+impl PyCell {
+    pub(crate) fn from_parts(cell: Cell, route_annotations: RouteAnnotations) -> Self {
+        Self(cell, route_annotations)
+    }
+
+    pub(crate) fn route_annotations(&self) -> &RouteAnnotations {
+        &self.1
+    }
+}
 
 #[pymethods]
 impl PyCell {
@@ -552,23 +564,18 @@ impl PyCell {
     ///
     /// Args:
     ///     name: Cell name. Must be non-empty, <=32 characters, and printable ASCII.
-    ///     drc_skip: If True, mark this cell as trusted for DRC. Violations
-    ///         attributed entirely to this cell (or cells in its subtree) are
-    ///         suppressed from the final DRC result. Defaults to False.
     ///
     /// Raises:
     ///     ValueError: If the name is empty, longer than 32 characters,
     ///         or contains non-printable ASCII characters (spaces, Unicode, etc.)
     #[new]
-    #[pyo3(signature = (name, *, drc_skip=false))]
-    fn new(name: String, drc_skip: bool) -> PyResult<Self> {
+    fn new(name: String) -> PyResult<Self> {
         rosette_io::gds::validate_structure_name(&name)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let mut cell = Cell::new(name);
-        if drc_skip {
-            cell.set_drc_skip(true);
-        }
-        Ok(PyCell(cell))
+        Ok(Self::from_parts(
+            Cell::new(name),
+            RouteAnnotations::default(),
+        ))
     }
 
     /// Cell name.
@@ -777,163 +784,6 @@ impl PyCell {
         self.0.bbox().map(PyBBox)
     }
 
-    /// Get path length (if built from a Route).
-    ///
-    /// Returns None for cells without path length metadata.
-    #[getter]
-    fn path_length(&self) -> Option<f64> {
-        self.0.path_length()
-    }
-
-    /// Set path length metadata.
-    #[setter]
-    fn set_path_length(&mut self, length: f64) -> PyResult<()> {
-        if !length.is_finite() {
-            return Err(PyValueError::new_err("Cell path length must be finite"));
-        }
-        self.0.set_path_length(length);
-        Ok(())
-    }
-
-    /// Whether this cell is marked as trusted for DRC.
-    ///
-    /// When True, DRC violations attributed entirely to this cell (or to
-    /// cells in its subtree) are suppressed from the final DRC result.
-    /// Inter-cell violations between a trusted cell and an untrusted cell
-    /// are still reported.
-    #[getter]
-    fn drc_skip(&self) -> bool {
-        self.0.drc_skip()
-    }
-
-    /// Set whether this cell is marked as trusted for DRC.
-    #[setter]
-    fn set_drc_skip(&mut self, drc_skip: bool) {
-        self.0.set_drc_skip(drc_skip);
-    }
-
-    /// DRC region waivers defined on this cell, in local coordinates.
-    ///
-    /// Each waiver is an axis-aligned bounding box in this cell's local
-    /// coordinate frame. A DRC violation whose location is fully contained
-    /// within one of these regions (after the region is transformed into
-    /// top-level global coordinates for the relevant placement of this cell)
-    /// is suppressed from the final DRC result. Used for intentional local
-    /// violations such as taper tips or deliberate overlaps.
-    ///
-    /// Like ``drc_skip``, region waivers are not persisted to GDS.
-    #[getter]
-    fn drc_waive_regions(&self) -> Vec<PyBBox> {
-        self.0
-            .drc_waive_regions()
-            .iter()
-            .map(|b| PyBBox(*b))
-            .collect()
-    }
-
-    /// Replace all DRC region waivers on this cell.
-    #[setter]
-    fn set_drc_waive_regions(&mut self, regions: Vec<PyBBox>) -> PyResult<()> {
-        for (index, region) in regions.iter().enumerate() {
-            if !region.0.is_valid() {
-                return Err(PyValueError::new_err(format!(
-                    "DRC waiver region {index} must have finite, ordered corners"
-                )));
-            }
-        }
-        self.0
-            .set_drc_waive_regions(regions.into_iter().map(|b| b.0).collect());
-        Ok(())
-    }
-
-    /// Add a DRC region waiver in this cell's local coordinate frame.
-    ///
-    /// Any DRC violation whose location is fully contained in ``region``
-    /// (after transforming the region into top-level global coordinates for
-    /// each placement of this cell) is suppressed from the final DRC result.
-    ///
-    /// Args:
-    ///     region: Waiver bounding box in this cell's local coordinates.
-    fn add_drc_waive_region(&mut self, region: &PyBBox) -> PyResult<()> {
-        if !region.0.is_valid() {
-            return Err(PyValueError::new_err(
-                "DRC waiver region must have finite, ordered corners",
-            ));
-        }
-        self.0.add_drc_waive_region(region.0);
-        Ok(())
-    }
-
-    /// Remove all DRC region waivers from this cell.
-    fn clear_drc_waive_regions(&mut self) {
-        self.0.clear_drc_waive_regions();
-    }
-
-    /// Add a bend info entry.
-    ///
-    /// Args:
-    ///     radius: Effective bend radius in um
-    ///     x: X coordinate of bend location
-    ///     y: Y coordinate of bend location
-    ///     requested_radius: Original requested radius if auto-reduced (optional)
-    #[pyo3(signature = (radius, x, y, requested_radius=None))]
-    fn add_bend(
-        &mut self,
-        radius: f64,
-        x: f64,
-        y: f64,
-        requested_radius: Option<f64>,
-    ) -> PyResult<()> {
-        if !radius.is_finite() {
-            return Err(PyValueError::new_err("Bend radius must be finite"));
-        }
-        if !x.is_finite() || !y.is_finite() {
-            return Err(PyValueError::new_err("Bend position must be finite"));
-        }
-        if requested_radius.is_some_and(|value| !value.is_finite()) {
-            return Err(PyValueError::new_err(
-                "Requested bend radius must be finite",
-            ));
-        }
-        let bend = if let Some(req) = requested_radius {
-            BendInfo::auto_reduced(radius, Point::new(x, y), req)
-        } else {
-            BendInfo::new(radius, Point::new(x, y))
-        };
-        self.0.add_bend(bend);
-        Ok(())
-    }
-
-    /// Get bend info entries as list of dicts.
-    ///
-    /// Each entry has keys: "radius", "x", "y", and optionally "requested_radius".
-    #[getter]
-    fn bends(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let list = pyo3::types::PyList::empty(py);
-        for bend in self.0.bends() {
-            let dict = pyo3::types::PyDict::new(py);
-            dict.set_item("radius", bend.radius)?;
-            dict.set_item("x", bend.position.x)?;
-            dict.set_item("y", bend.position.y)?;
-            if let Some(req) = bend.requested_radius {
-                dict.set_item("requested_radius", req)?;
-            }
-            list.append(dict)?;
-        }
-        Ok(list.into())
-    }
-
-    /// Get warnings from the cell metadata.
-    #[getter]
-    fn cell_warnings(&self) -> Vec<String> {
-        self.0.warnings().to_vec()
-    }
-
-    /// Add a warning to the cell metadata.
-    fn add_warning(&mut self, warning: String) {
-        self.0.add_warning(warning);
-    }
-
     /// Place a cell reference by aligning its port to a target port.
     ///
     /// This is the primary method for positioning components in a design.
@@ -990,7 +840,107 @@ impl PyCell {
 /// A library containing multiple cells.
 #[pyclass(name = "Library", from_py_object)]
 #[derive(Clone)]
-pub struct PyLibrary(pub Library);
+pub struct PyLibrary(pub Library, RouteAnnotationMap);
+
+impl PyLibrary {
+    pub(crate) fn from_library(library: Library) -> Self {
+        let route_annotations = library
+            .cells()
+            .iter()
+            .map(|cell| (cell.name().to_string(), RouteAnnotations::default()))
+            .collect();
+        Self(library, route_annotations)
+    }
+
+    pub(crate) fn route_annotations(&self) -> &RouteAnnotationMap {
+        &self.1
+    }
+
+    fn wrap_cell(&self, cell: &Cell) -> PyCell {
+        PyCell::from_parts(
+            cell.clone(),
+            self.1.get(cell.name()).cloned().unwrap_or_default(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn annotated_cell(name: &str, path_length: f64) -> PyCell {
+        PyCell::from_parts(
+            Cell::new(name),
+            RouteAnnotations::new(Some(path_length), Vec::new(), Vec::new()),
+        )
+    }
+
+    #[test]
+    fn library_preserves_route_annotations_and_duplicate_policy() {
+        let leaf = annotated_cell("leaf", 12.0);
+        let mut root = Cell::new("root");
+        root.add_ref(CellRef::new("leaf"));
+        let root = PyCell::from_parts(root, RouteAnnotations::default());
+        let mut library = PyLibrary::from_library(Library::new("test"));
+
+        library
+            .add_cell_recursive(&root, vec![leaf.clone()], "keep")
+            .unwrap();
+
+        assert_eq!(
+            library
+                .cell("leaf")
+                .unwrap()
+                .route_annotations()
+                .path_length(),
+            Some(12.0)
+        );
+        assert_eq!(
+            library
+                .cells()
+                .into_iter()
+                .find(|cell| cell.0.name() == "leaf")
+                .unwrap()
+                .route_annotations()
+                .path_length(),
+            Some(12.0)
+        );
+        assert_eq!(library.roots()[0].0.name(), "root");
+        assert_eq!(library.top_cell().unwrap().0.name(), "root");
+
+        library
+            .add_cell(&annotated_cell("leaf", 99.0), "keep")
+            .unwrap();
+        assert_eq!(
+            library
+                .cell("leaf")
+                .unwrap()
+                .route_annotations()
+                .path_length(),
+            Some(12.0)
+        );
+        assert!(
+            library
+                .add_cell(&annotated_cell("leaf", 99.0), "error")
+                .is_err()
+        );
+        assert_eq!(library.0.cells().len(), 2);
+        assert_eq!(library.1.len(), 2);
+    }
+
+    #[test]
+    fn core_library_import_creates_default_route_annotations() {
+        let mut core = Library::new("gds");
+        core.add_cell(Cell::new("geometry")).unwrap();
+
+        let library = PyLibrary::from_library(core);
+
+        assert_eq!(
+            library.route_annotations().get("geometry"),
+            Some(&RouteAnnotations::default())
+        );
+    }
+}
 
 fn parse_duplicate_policy(value: &str) -> PyResult<DuplicatePolicy> {
     match value {
@@ -1007,7 +957,7 @@ impl PyLibrary {
     /// Create a new library.
     #[new]
     fn new(name: String) -> Self {
-        PyLibrary(Library::new(name))
+        Self::from_library(Library::new(name))
     }
 
     /// Library name.
@@ -1029,10 +979,17 @@ impl PyLibrary {
         rosette_io::gds::validate_structure_name(cell.0.name())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let duplicates = parse_duplicate_policy(on_duplicate)?;
-        self.0
+        let mut library = self.0.clone();
+        let inserted = library
             .insert_cell(cell.0.clone(), duplicates)
-            .map(|_| ())
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        if inserted {
+            let mut route_annotations = self.1.clone();
+            route_annotations.insert(cell.0.name().to_string(), cell.route_annotations().clone());
+            self.0 = library;
+            self.1 = route_annotations;
+        }
+        Ok(())
     }
 
     /// Add a cell and all its referenced cells recursively.
@@ -1062,7 +1019,14 @@ impl PyLibrary {
         available_cells: Vec<PyCell>,
         on_duplicate: &str,
     ) -> PyResult<()> {
-        let cells: Vec<Cell> = available_cells.into_iter().map(|c| c.0).collect();
+        let available_cells: Vec<(Cell, RouteAnnotations)> = available_cells
+            .into_iter()
+            .map(|cell| (cell.0, cell.1))
+            .collect();
+        let cells: Vec<Cell> = available_cells
+            .iter()
+            .map(|(cell, _)| cell.clone())
+            .collect();
         // Validate all cell names before adding
         for c in &cells {
             rosette_io::gds::validate_structure_name(c.name())
@@ -1071,19 +1035,52 @@ impl PyLibrary {
         rosette_io::gds::validate_structure_name(cell.0.name())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let duplicates = parse_duplicate_policy(on_duplicate)?;
-        self.0
+        let existing_names: std::collections::HashSet<_> = self
+            .0
+            .cells()
+            .iter()
+            .map(|cell| cell.name().to_string())
+            .collect();
+        let mut incoming_annotations: RouteAnnotationMap = available_cells
+            .into_iter()
+            .map(|(cell, annotations)| (cell.name().to_string(), annotations))
+            .collect();
+        incoming_annotations.insert(cell.0.name().to_string(), cell.route_annotations().clone());
+
+        let mut library = self.0.clone();
+        library
             .add_cell_recursive(cell.0.clone(), &cells, duplicates)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let mut route_annotations = self.1.clone();
+        for added in library
+            .cells()
+            .iter()
+            .filter(|added| !existing_names.contains(added.name()))
+        {
+            route_annotations.insert(
+                added.name().to_string(),
+                incoming_annotations
+                    .remove(added.name())
+                    .unwrap_or_default(),
+            );
+        }
+        self.0 = library;
+        self.1 = route_annotations;
+        Ok(())
     }
 
     /// Get a cell by name.
     fn cell(&self, name: &str) -> Option<PyCell> {
-        self.0.cell(name).map(|c| PyCell(c.clone()))
+        self.0.cell(name).map(|cell| self.wrap_cell(cell))
     }
 
     /// Get all cells.
     fn cells(&self) -> Vec<PyCell> {
-        self.0.cells().iter().map(|c| PyCell(c.clone())).collect()
+        self.0
+            .cells()
+            .iter()
+            .map(|cell| self.wrap_cell(cell))
+            .collect()
     }
 
     /// Get graph-derived root cells in deterministic library order.
@@ -1091,7 +1088,7 @@ impl PyLibrary {
         self.0
             .roots()
             .into_iter()
-            .map(|cell| PyCell(cell.clone()))
+            .map(|cell| self.wrap_cell(cell))
             .collect()
     }
 
@@ -1109,7 +1106,7 @@ impl PyLibrary {
 
     /// Get the explicit top cell or the sole graph-derived root.
     fn top_cell(&self) -> Option<PyCell> {
-        self.0.top_cell().map(|c| PyCell(c.clone()))
+        self.0.top_cell().map(|cell| self.wrap_cell(cell))
     }
 
     /// Calculate the fully-resolved bounding box of a cell in this library.

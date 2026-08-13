@@ -45,7 +45,33 @@ from rosette import Cell, Layer, Point, Polygon, Port, Vector2
 from rosette.components._curves import gaussian_envelope
 from rosette.components._utils import safe_cell_name
 
-__all__ = ["bragg_grating"]
+__all__ = ["bragg_grating", "bragg_grating_length"]
+
+
+def bragg_grating_length(
+    period: float,
+    num_periods: int,
+    duty_cycle: float,
+    phase_shift: float | None = None,
+) -> float:
+    """Return the total grating length, including its terminator and phase stub."""
+    if not math.isfinite(period):
+        raise ValueError("Period must be finite")
+    if not math.isfinite(duty_cycle):
+        raise ValueError("Duty cycle must be finite")
+    if phase_shift is not None and not math.isfinite(phase_shift):
+        raise ValueError("Phase shift must be finite when provided")
+    if period <= 0:
+        raise ValueError("Period must be positive")
+    if num_periods < 1:
+        raise ValueError("Number of periods must be at least 1")
+    if not 0 < duty_cycle < 1:
+        raise ValueError("Duty cycle must be strictly between 0 and 1")
+    if phase_shift is not None and phase_shift <= 0:
+        raise ValueError("Phase shift must be strictly positive when provided")
+
+    stub_length = 0.0 if phase_shift is None else phase_shift / (2.0 * math.pi) * period
+    return num_periods * period + duty_cycle * period + stub_length
 
 
 def bragg_grating(
@@ -153,9 +179,8 @@ def bragg_grating(
 
     Returns:
         Cell with ports ``"in"`` and ``"out"``.
-        ``path_length`` = total physical length along +X
-        (``num_periods * period + duty_cycle * period`` + optional
-        phase-shift stub).
+
+        Use :func:`bragg_grating_length` for the total physical length.
 
     Raises:
         ValueError: If *waveguide_width*, *period*, or *apodization_sigma*
@@ -231,7 +256,7 @@ def bragg_grating(
 
             gc_in  = gc.at(0, 0).rotate(180).translate(-50, 0)
             bg_in  = bg.at(0, 0)
-            gc_out = gc.at(0, 0).rotate(0).translate(bg.path_length + 50, 0)
+            gc_out = gc.at(0, 0).rotate(0).translate(bg.port("out").position.x + 50, 0)
 
             r_in = Route.through(
                 gc_in.port("opt"),
@@ -247,20 +272,13 @@ def bragg_grating(
     """
     if waveguide_width <= 0:
         raise ValueError("Waveguide width must be positive")
-    if period <= 0:
-        raise ValueError("Period must be positive")
-    if num_periods < 1:
-        raise ValueError("Number of periods must be at least 1")
-    if not 0 < duty_cycle < 1:
-        raise ValueError("Duty cycle must be strictly between 0 and 1")
+    total_length = bragg_grating_length(period, num_periods, duty_cycle, phase_shift)
     if not 0 < corrugation_width < waveguide_width:
         raise ValueError("Corrugation width must be strictly between 0 and waveguide_width")
     if apodization_sigma <= 0:
         raise ValueError("Apodization sigma must be positive")
     if not 0.0 <= phase_shift_position <= 1.0:
         raise ValueError("Phase shift position must be in [0, 1]")
-    if phase_shift is not None and phase_shift <= 0:
-        raise ValueError("Phase shift must be strictly positive when provided")
 
     # Compute per-period corrugation amplitudes.
     amplitudes = _compute_amplitudes(
@@ -281,7 +299,6 @@ def bragg_grating(
 
     wide_frac = duty_cycle
     trailing_wide_length = wide_frac * period
-    total_length = num_periods * period + trailing_wide_length + stub_length
 
     # Build the outline as two polylines (top sidewall, bottom sidewall)
     # then close them into a single polygon.
@@ -371,8 +388,6 @@ def bragg_grating(
 
     cell.add_port(Port("in", Point(0.0, 0.0), -Vector2.unit_x(), waveguide_width))
     cell.add_port(Port("out", Point(total_length, 0.0), Vector2.unit_x(), waveguide_width))
-
-    cell.path_length = total_length
 
     return cell
 

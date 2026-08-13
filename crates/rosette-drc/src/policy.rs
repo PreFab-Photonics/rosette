@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use rosette_core::{BBox, Cell, Library};
+use rosette_core::BBox;
 
 /// Cell-level skip and local waiver annotations consumed by the DRC runner.
 #[derive(Debug, Clone, Default)]
@@ -18,14 +18,6 @@ impl DrcPolicy {
         Self::default()
     }
 
-    /// Extract cell policy annotations from the reachable hierarchy.
-    pub fn from_cells(top: &Cell, library: Option<&Library>) -> Self {
-        let mut policy = Self::new();
-        let mut visited = HashSet::new();
-        policy.collect_cell(top, library, &mut visited);
-        policy
-    }
-
     /// Mark a cell and its reachable subtree as skipped during filtering.
     pub fn skip_cell(&mut self, cell_name: impl Into<String>) {
         self.skipped_cells.insert(cell_name.into());
@@ -33,6 +25,7 @@ impl DrcPolicy {
 
     /// Add a waiver region in a cell's local coordinate frame.
     pub fn waive_region(&mut self, cell_name: impl Into<String>, region: BBox) {
+        assert!(region.is_valid(), "DRC waiver region must be a valid BBox");
         self.waiver_regions
             .entry(cell_name.into())
             .or_default()
@@ -62,73 +55,59 @@ impl DrcPolicy {
         waiver_cells.sort_unstable();
         for cell_name in waiver_cells {
             cell_name.hash(&mut hasher);
-            for region in &self.waiver_regions[cell_name] {
-                let min = region.min();
-                let max = region.max();
-                min.x.to_bits().hash(&mut hasher);
-                min.y.to_bits().hash(&mut hasher);
-                max.x.to_bits().hash(&mut hasher);
-                max.y.to_bits().hash(&mut hasher);
-            }
+            let mut regions: Vec<_> = self.waiver_regions[cell_name]
+                .iter()
+                .map(|region| {
+                    let min = region.min();
+                    let max = region.max();
+                    (
+                        min.x.to_bits(),
+                        min.y.to_bits(),
+                        max.x.to_bits(),
+                        max.y.to_bits(),
+                    )
+                })
+                .collect();
+            regions.sort_unstable();
+            regions.hash(&mut hasher);
         }
         hasher.finish()
-    }
-
-    fn collect_cell(
-        &mut self,
-        cell: &Cell,
-        library: Option<&Library>,
-        visited: &mut HashSet<String>,
-    ) {
-        if !visited.insert(cell.name().to_string()) {
-            return;
-        }
-        if cell.drc_skip() {
-            self.skip_cell(cell.name());
-        }
-        for region in cell.drc_waive_regions() {
-            self.waive_region(cell.name(), *region);
-        }
-        if let Some(library) = library {
-            for cell_ref in cell.cell_refs() {
-                if let Some(child) = library.cell(&cell_ref.cell_name) {
-                    self.collect_cell(child, Some(library), visited);
-                }
-            }
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::{CellRef, Point};
+    use rosette_core::Point;
 
     #[test]
-    fn extracts_reachable_cell_annotations() {
-        let mut child = Cell::new("child");
-        child.set_drc_skip(true);
-        child.add_drc_waive_region(BBox::new(Point::origin(), Point::new(1.0, 2.0)));
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("child"));
-        let mut library = Library::new("test");
-        library.add_cell(child).unwrap();
-        library.add_cell(top.clone()).unwrap();
-
-        let policy = DrcPolicy::from_cells(&top, Some(&library));
+    fn stores_explicit_cell_annotations() {
+        let mut policy = DrcPolicy::new();
+        policy.skip_cell("child");
+        policy.waive_region("child", BBox::new(Point::origin(), Point::new(1.0, 2.0)));
         assert!(policy.skips("child"));
         assert_eq!(policy.waiver_regions("child").len(), 1);
     }
 
     #[test]
+    #[should_panic(expected = "DRC waiver region must be a valid BBox")]
+    fn rejects_invalid_waiver_regions() {
+        let mut policy = DrcPolicy::new();
+        policy.waive_region("child", BBox::new(Point::new(1.0, 0.0), Point::origin()));
+    }
+
+    #[test]
     fn fingerprint_is_order_independent() {
-        let region = BBox::new(Point::origin(), Point::new(1.0, 2.0));
+        let first = BBox::new(Point::origin(), Point::new(1.0, 2.0));
+        let second = BBox::new(Point::new(3.0, 4.0), Point::new(5.0, 6.0));
         let mut a = DrcPolicy::new();
         a.skip_cell("a");
         a.skip_cell("b");
-        a.waive_region("a", region);
+        a.waive_region("a", first);
+        a.waive_region("a", second);
         let mut b = DrcPolicy::new();
-        b.waive_region("a", region);
+        b.waive_region("a", second);
+        b.waive_region("a", first);
         b.skip_cell("b");
         b.skip_cell("a");
         assert_eq!(a.fingerprint(), b.fingerprint());

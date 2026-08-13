@@ -4,6 +4,7 @@
 use super::WasmLibrary;
 use rosette_core::cell::Element;
 use rosette_core::{Cell, Library, Point};
+use rosette_io::json::CellAnnotations;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use wasm_bindgen::prelude::*;
@@ -16,7 +17,7 @@ impl WasmLibrary {
         Self {
             library: Library::new(name.to_string()),
             active_cell: None,
-            cell_origins: HashMap::new(),
+            annotations: HashMap::new(),
             element_refs: HashMap::new(),
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
@@ -41,7 +42,8 @@ impl WasmLibrary {
         self.library
             .add_cell(cell)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        self.cell_origins.insert(name.to_string(), Point::origin());
+        self.annotations
+            .insert(name.to_string(), CellAnnotations::default());
         if self.active_cell.is_none() {
             self.active_cell = Some(name.to_string());
         }
@@ -65,9 +67,8 @@ impl WasmLibrary {
             if self.active_cell.as_deref() == Some(old_name) {
                 self.active_cell = Some(new_name.to_string());
             }
-            if let Some(origin) = self.cell_origins.remove(old_name) {
-                self.cell_origins.insert(new_name.to_string(), origin);
-            }
+            let annotations = self.annotations.remove(old_name).unwrap_or_default();
+            self.annotations.insert(new_name.to_string(), annotations);
             if self.hidden_cells.remove(old_name) {
                 self.hidden_cells.insert(new_name.to_string());
             }
@@ -91,7 +92,7 @@ impl WasmLibrary {
     /// Also returns false when another cell still references it.
     pub fn remove_cell(&mut self, name: &str) -> bool {
         if self.library.remove_cell(name).unwrap_or(false) {
-            self.cell_origins.remove(name);
+            self.annotations.remove(name);
             self.hidden_cells.remove(name);
             self.cell_image_bounds.remove(name);
             if self.active_cell.as_deref() == Some(name) {
@@ -156,7 +157,7 @@ impl WasmLibrary {
             }
         }
 
-        self.cell_origins.remove(name);
+        self.annotations.remove(name);
         self.hidden_cells.remove(name);
         self.cell_image_bounds.remove(name);
 
@@ -260,9 +261,9 @@ impl WasmLibrary {
         let cell_name = self.active_cell.as_deref()?;
         self.library.cell(cell_name)?;
         let origin = self
-            .cell_origins
+            .annotations
             .get(cell_name)
-            .copied()
+            .map(|annotations| annotations.editor.origin)
             .unwrap_or_else(Point::origin);
         Some(vec![origin.x, origin.y])
     }
@@ -273,9 +274,9 @@ impl WasmLibrary {
     pub fn get_cell_origin_by_name(&self, cell_name: &str) -> Option<Vec<f64>> {
         self.library.cell(cell_name)?;
         let origin = self
-            .cell_origins
+            .annotations
             .get(cell_name)
-            .copied()
+            .map(|annotations| annotations.editor.origin)
             .unwrap_or_else(Point::origin);
         Some(vec![origin.x, origin.y])
     }
@@ -292,7 +293,7 @@ impl WasmLibrary {
             None => return false,
         };
         if self.library.contains(&cell_name) {
-            self.cell_origins.insert(cell_name, Point::new(x, y));
+            self.annotations.entry(cell_name).or_default().editor.origin = Point::new(x, y);
             self.mark_dirty();
             true
         } else {
@@ -332,21 +333,43 @@ impl WasmLibrary {
 mod tests {
     use super::*;
     use rosette_core::{BBox, Port, Transform, Vector2};
+    use rosette_io::json::{BendAnnotation, DrcAnnotations, EditorAnnotations, RouteAnnotations};
 
     #[test]
-    fn origin_state_follows_cell_lifecycle() {
+    fn annotation_state_follows_cell_lifecycle() {
         let mut library = WasmLibrary::new("test");
         library.add_cell("cell").unwrap();
-        assert!(library.set_cell_origin(12.0, -4.0));
+        let expected = CellAnnotations {
+            route: RouteAnnotations {
+                path_length: Some(42.0),
+                bends: vec![BendAnnotation {
+                    radius: 3.0,
+                    position: Point::new(4.0, 5.0),
+                    requested_radius: Some(6.0),
+                }],
+                warnings: vec!["warning".to_string()],
+            },
+            drc: DrcAnnotations {
+                skip: true,
+                waive_regions: vec![BBox::new(Point::origin(), Point::new(3.0, 4.0))],
+            },
+            editor: EditorAnnotations {
+                origin: Point::new(12.0, -4.0),
+            },
+        };
+        library
+            .annotations
+            .insert("cell".to_string(), expected.clone());
         library.clear_active_cell();
         assert_eq!(library.get_cell_origin(), Some(vec![12.0, -4.0]));
+        assert_eq!(library.get_cell_path_length("cell"), Some(0.84));
+        assert_eq!(library.annotations["cell"], expected);
 
         assert!(library.rename_cell("cell", "renamed").unwrap());
-        assert_eq!(
-            library.get_cell_origin_by_name("renamed"),
-            Some(vec![12.0, -4.0])
-        );
+        assert!(!library.annotations.contains_key("cell"));
+        assert_eq!(library.annotations["renamed"], expected);
         assert!(library.remove_cell("renamed"));
+        assert!(!library.annotations.contains_key("renamed"));
         assert!(library.get_cell_origin_by_name("renamed").is_none());
     }
 
@@ -355,13 +378,19 @@ mod tests {
         let mut library = WasmLibrary::new("test");
         library.add_cell("cell").unwrap();
         assert!(library.set_cell_origin(12.0, -4.0));
+        let annotations = library.annotations.get_mut("cell").unwrap();
+        annotations.route.path_length = Some(42.0);
+        annotations.route.warnings.push("warning".to_string());
+        annotations.drc.skip = true;
+        annotations
+            .drc
+            .waive_regions
+            .push(BBox::new(Point::origin(), Point::new(3.0, 4.0)));
+        let expected_annotations = annotations.clone();
         library
             .library
             .edit_cell("cell", |cell| {
                 cell.add_port(Port::new("input", Point::new(1.0, 2.0), Vector2::unit_x()));
-                cell.set_path_length(42.0);
-                cell.set_drc_skip(true);
-                cell.add_drc_waive_region(BBox::new(Point::origin(), Point::new(3.0, 4.0)));
             })
             .unwrap();
         library
@@ -373,9 +402,8 @@ mod tests {
         let cell = library.library.cell("cell").unwrap();
         assert!(cell.is_empty());
         assert_eq!(cell.ports().len(), 1);
-        assert_eq!(cell.path_length(), Some(42.0));
-        assert!(cell.drc_skip());
-        assert_eq!(cell.drc_waive_regions().len(), 1);
+        assert_eq!(library.annotations["cell"], expected_annotations);
+        assert_eq!(library.get_cell_path_length("cell"), Some(0.84));
         assert_eq!(library.get_cell_origin(), Some(vec![12.0, -4.0]));
         assert!(library.element_refs.is_empty());
     }

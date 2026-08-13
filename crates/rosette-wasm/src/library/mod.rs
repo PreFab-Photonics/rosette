@@ -21,6 +21,7 @@ use rosette_core::path::{
     stroke_path, stroke_path_transformed, stroke_path_transformed_with_scale,
 };
 use rosette_core::{Cell, CellRef, Layer, Library, Point, Polygon, Transform};
+use rosette_io::json::CellAnnotations;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use wasm_bindgen::prelude::*;
@@ -158,9 +159,9 @@ impl CellRefInfo {
 pub struct WasmLibrary {
     library: Library,
     active_cell: Option<String>,
-    /// Editor origins keyed by cell name. The V1 persistence adapter transfers
-    /// them through explicit editor annotations at import/export boundaries.
-    cell_origins: HashMap<String, Point>,
+    /// Persisted annotations keyed by cell name. Editor origins here are the
+    /// authoritative origins used by the editor and instance placement.
+    annotations: HashMap<String, CellAnnotations>,
     /// Maps element UUIDs to their location in the library.
     element_refs: HashMap<String, ElementRef>,
     /// Layer colors for rendering (layer_key -> RGBA).
@@ -725,9 +726,9 @@ impl WasmLibrary {
     fn compute_instance_bbox(&self, parent_cell: &str, cell_ref: &CellRef) -> Option<BBox> {
         let mut combined: Option<BBox> = None;
         let origin = self
-            .cell_origins
+            .annotations
             .get(&cell_ref.cell_name)
-            .copied()
+            .map(|annotations| annotations.editor.origin)
             .unwrap_or_else(Point::origin);
         let placeholder = |transform: &Transform| {
             const HALF: f64 = 500.0;

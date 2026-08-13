@@ -4,7 +4,7 @@ use serde::Serialize;
 use tauri::State;
 use tauri::ipc::Response;
 
-use rosette_io::gds;
+use rosette_io::{gds, json::LayoutDocument};
 
 use crate::state::AppState;
 
@@ -26,7 +26,9 @@ pub fn open_gds(path: String) -> Result<OpenGdsResponse, String> {
     let library = gds::read(&path).map_err(|e| format!("Failed to read GDS file: {e}"))?;
 
     // Serialize the full library to JSON (coordinates in micrometers)
-    let json = rosette_io::json::to_string(&library)
+    let document = LayoutDocument::from_library(library)
+        .map_err(|e| format!("Failed to prepare library for serialization: {e}"))?;
+    let json = rosette_io::json::to_string(&document)
         .map_err(|e| format!("Failed to serialize library: {e}"))?;
 
     Ok(OpenGdsResponse { json })
