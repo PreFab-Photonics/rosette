@@ -252,9 +252,28 @@ export function AgentFlow() {
 
       {/* Caption */}
       <div className="mt-4 flex flex-col items-center gap-2 text-center sm:flex-row sm:justify-between sm:text-left">
-        <p className="font-[family-name:var(--font-geist-mono)] text-[11px] text-fd-muted-foreground">
-          Works with any coding agent
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="font-[family-name:var(--font-geist-mono)] text-[11px] text-fd-muted-foreground">
+            Works with any coding agent
+          </p>
+          <span className="group relative inline-flex">
+            <button
+              type="button"
+              aria-describedby="beta-notice"
+              className="cursor-help rounded-full border border-brand-purple/25 bg-brand-purple/5 px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium tracking-widest text-brand-purple uppercase outline-none transition-colors hover:border-brand-purple/40 focus-visible:ring-2 focus-visible:ring-brand-purple/40 dark:text-brand-purple-light"
+            >
+              Beta
+            </button>
+            <span
+              id="beta-notice"
+              role="tooltip"
+              className="pointer-events-none absolute top-full left-1/2 z-10 mt-2 w-64 max-w-[calc(100vw-3rem)] -translate-x-1/2 rounded-lg border border-fd-border bg-fd-background px-3 py-2 text-left text-xs leading-relaxed text-fd-muted-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:shadow-elevation"
+            >
+              Features may be unstable or incomplete. Not suitable for
+              production use.
+            </span>
+          </span>
+        </div>
         <div className="flex items-center gap-4">
           <a
             href="https://github.com/prefab-photonics/rosette"
