@@ -19,6 +19,9 @@ interface KeyboardFocusState {
   /** Release keyboard focus for a layer. Safe to call even if not claimed. */
   release: (layer: string) => void;
 
+  /** Check whether a layer is the topmost keyboard owner. */
+  owns: (layer: string) => boolean;
+
   /** Check if canvas shortcuts should be active (no layers claiming focus). */
   isCanvasActive: () => boolean;
 }
@@ -37,6 +40,11 @@ export const useKeyboardFocusStore = create<KeyboardFocusState>()((set, get) => 
     set((state) => ({
       stack: state.stack.filter((l) => l !== layer),
     })),
+
+  owns: (layer) => {
+    const stack = get().stack;
+    return stack[stack.length - 1] === layer;
+  },
 
   isCanvasActive: () => get().stack.length === 0,
 }));

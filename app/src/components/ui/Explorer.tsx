@@ -6,6 +6,7 @@ import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
 import { useUIStore } from "@/stores/ui";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
+import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useResize } from "@/hooks/use-resize";
 import { RenameCellCommand, DeleteCellCommand } from "@/lib/commands";
@@ -144,6 +145,29 @@ export function Explorer() {
   // On sm, the expanded Explorer is an overlay — track if it was manually opened
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
+  const cellListRef = useCallback(
+    (node: HTMLUListElement | null) => {
+      if (!node) return;
+      const handleFocusOut = (event: FocusEvent) => {
+        if (!node.contains(event.relatedTarget as Node | null)) setFocused(false);
+      };
+      const handleWheel = (event: WheelEvent) => event.stopPropagation();
+      const handleContextMenu = (event: MouseEvent) => {
+        if (event.target !== node) return;
+        event.preventDefault();
+        useContextMenuStore.getState().open("cell", { x: event.clientX, y: event.clientY });
+      };
+      node.addEventListener("focusout", handleFocusOut);
+      node.addEventListener("wheel", handleWheel);
+      node.addEventListener("contextmenu", handleContextMenu);
+      return () => {
+        node.removeEventListener("focusout", handleFocusOut);
+        node.removeEventListener("wheel", handleWheel);
+        node.removeEventListener("contextmenu", handleContextMenu);
+      };
+    },
+    [setFocused],
+  );
 
   // Close drawer on outside click (sm overlay mode)
   useEffect(() => {
@@ -224,16 +248,6 @@ export function Explorer() {
     [activeCell, cells.length, setActiveCell],
   );
 
-  // Right-click on the cell list background (empty space) opens the cell
-  // context menu without a target cell, so cell-specific items auto-disable.
-  const handleBackgroundContextMenu = useCallback((e: React.MouseEvent) => {
-    // Only fire when clicking the container itself, not a child CellRow
-    if (e.target === e.currentTarget) {
-      e.preventDefault();
-      useContextMenuStore.getState().open("cell", { x: e.clientX, y: e.clientY });
-    }
-  }, []);
-
   // =========================================================================
   // Keyboard navigation for the Explorer (tabs + cell list)
   // =========================================================================
@@ -256,6 +270,8 @@ export function Explorer() {
     if (!isFocused) return;
 
     const handler = (e: KeyboardEvent) => {
+      if (!useKeyboardFocusStore.getState().owns("explorer-panel")) return;
+
       // Don't handle if an input is focused (e.g., rename input, level input)
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
@@ -417,6 +433,12 @@ export function Explorer() {
         case "Escape": {
           // Escape: release keyboard focus
           e.preventDefault();
+          if (
+            document.activeElement instanceof HTMLElement &&
+            drawerRef.current?.contains(document.activeElement)
+          ) {
+            document.activeElement.blur();
+          }
           setFocused(false);
           break;
         }
@@ -533,11 +555,11 @@ export function Explorer() {
         <TabList isDark={isDark} focusedItem={isFocused ? focusedItem : null} />
 
         {/* Cell tree / list */}
-        <div
-          className="flex flex-col gap-0.5 overflow-y-auto py-1"
+        <ul
+          ref={cellListRef}
+          aria-label="Cells"
+          className="m-0 flex list-none flex-col gap-0.5 overflow-y-auto p-0 py-1"
           style={{ maxHeight: "calc(100vh - 176px)" }}
-          onWheel={(e) => e.stopPropagation()}
-          onContextMenu={handleBackgroundContextMenu}
         >
           {cellTree && cellListMode === "nested"
             ? /* Hierarchical tree view */
@@ -551,6 +573,7 @@ export function Explorer() {
                   focusedCellName={
                     isFocused && focusedItem?.type === "cell" ? focusedItem.name : null
                   }
+                  isKeyboardNavigationActive={isFocused}
                   editingCellName={editingCellName}
                   expandedCells={expandedCells}
                   hiddenCells={hiddenCells}
@@ -566,6 +589,7 @@ export function Explorer() {
                   name={name}
                   isActive={name === activeCell}
                   isFocused={isFocused && focusedItem?.type === "cell" && focusedItem.name === name}
+                  isKeyboardNavigationActive={isFocused}
                   isDark={isDark}
                   depth={0}
                   hasChildren={false}
@@ -578,7 +602,7 @@ export function Explorer() {
                   canDrag={name !== activeCell}
                 />
               ))}
-        </div>
+        </ul>
 
         {/* Hierarchy level footer — controls rendering depth on canvas */}
         <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />

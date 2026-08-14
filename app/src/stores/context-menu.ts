@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useKeyboardFocusStore } from "./keyboard-focus";
 
 /**
  * Context menu variant determines which actions are shown.
@@ -40,16 +41,20 @@ export const useContextMenuStore = create<ContextMenuState>((set) => ({
   variant: "canvas",
   targetId: null,
 
-  open: (variant, position, targetId = null) =>
+  open: (variant, position, targetId = null) => {
+    useKeyboardFocusStore.getState().claim("context-menu");
     set({
       isOpen: true,
       position,
       variant,
       targetId,
-    }),
+    });
+  },
 
-  close: () =>
+  close: () => {
+    useKeyboardFocusStore.getState().release("context-menu");
     set({
       isOpen: false,
-    }),
+    });
+  },
 }));

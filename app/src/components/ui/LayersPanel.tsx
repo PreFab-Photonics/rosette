@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefCallback } from "react";
 import {
   useLayerStore,
   LAYER_PALETTE,
@@ -11,9 +11,14 @@ import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useUIStore } from "@/stores/ui";
 import { useStatusMessageStore } from "@/stores/status-message";
+import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
+import { useInlineRename } from "@/hooks/use-inline-rename";
+import { useRovingRows } from "@/hooks/use-roving-rows";
 import { EditLayerCommand, DeleteLayerCommand } from "@/lib/commands";
+import { getAdjacentKeyAfterRemoval, getUndoRedoIntent } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
+import { panelRowStateClassName } from "@/components/ui/panel-row";
 
 // =============================================================================
 // Constants
@@ -650,6 +655,11 @@ function LayerRow({
   onSelect,
   onToggleExpand,
   startEditing,
+  rowRef,
+  rowTabIndex,
+  onRowFocus,
+  onRowKeyDown,
+  onRestoreRowFocus,
 }: {
   layer: Layer;
   isActive: boolean;
@@ -662,61 +672,46 @@ function LayerRow({
   onSelect: () => void;
   onToggleExpand: () => void;
   startEditing: boolean;
+  rowRef: RefCallback<HTMLButtonElement>;
+  rowTabIndex: number;
+  onRowFocus: () => void;
+  onRowKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void;
+  onRestoreRowFocus: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState(layer.name);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const rowRef = useRef<HTMLButtonElement>(null);
+  const library = useWasmContextStore((s) => s.library);
+  const renderer = useWasmContextStore((s) => s.renderer);
 
-  // Scroll the focused row into view when it becomes focused
-  useEffect(() => {
-    if (isFocused && rowRef.current) {
-      rowRef.current.scrollIntoView({ block: "nearest" });
-    }
-  }, [isFocused]);
+  const commitName = useCallback(
+    (name: string) => {
+      if (!library || !renderer) return;
+      const cmd = new EditLayerCommand(layer, { ...layer, name });
+      useHistoryStore.getState().execute(cmd, { library, renderer });
+    },
+    [layer, library, renderer],
+  );
+
+  const {
+    inputRef,
+    draft: editName,
+    setDraft: setEditName,
+    commit: handleNameSubmit,
+    handleKeyDown,
+  } = useInlineRename({
+    value: layer.name,
+    isEditing,
+    onEditingChange: setIsEditing,
+    onCommit: commitName,
+  });
 
   // Enter edit mode when triggered externally (e.g., from context menu "Rename")
   useEffect(() => {
     if (startEditing) {
       setIsEditing(true);
-      setEditName(layer.name);
       // Clear the editing signal
       useLayerStore.getState().setEditingLayerId(null);
     }
-  }, [startEditing, layer.name]);
-
-  useEffect(() => {
-    if (isEditing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [isEditing]);
-
-  const library = useWasmContextStore((s) => s.library);
-  const renderer = useWasmContextStore((s) => s.renderer);
-
-  const handleNameSubmit = useCallback(() => {
-    const trimmed = editName.trim();
-    if (trimmed && trimmed !== layer.name && library && renderer) {
-      const cmd = new EditLayerCommand(layer, { ...layer, name: trimmed });
-      useHistoryStore.getState().execute(cmd, { library, renderer });
-    } else {
-      setEditName(layer.name);
-    }
-    setIsEditing(false);
-  }, [editName, layer, library, renderer]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        handleNameSubmit();
-      } else if (e.key === "Escape") {
-        setEditName(layer.name);
-        setIsEditing(false);
-      }
-    },
-    [handleNameSubmit, layer.name],
-  );
+  }, [startEditing]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -732,14 +727,17 @@ function LayerRow({
   const handleSwatchClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      onRowFocus();
       onSelect();
       onToggleExpand();
+      if (isExpanded) requestAnimationFrame(onRestoreRowFocus);
     },
-    [onSelect, onToggleExpand],
+    [isExpanded, onRestoreRowFocus, onRowFocus, onSelect, onToggleExpand],
   );
 
   const handleSwatchMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      if (e.button === 2) e.preventDefault();
       // Prevent the LayerEditor's click-outside listener from firing first,
       // which would clear expandedLayerId before onToggleExpand reads it.
       if (isExpanded) {
@@ -749,39 +747,51 @@ function LayerRow({
     [isExpanded],
   );
 
+  const handleRenameKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      const restoresRowFocus = event.key === "Enter" || event.key === "Escape";
+      handleKeyDown(event);
+      if (restoresRowFocus) requestAnimationFrame(onRestoreRowFocus);
+    },
+    [handleKeyDown, onRestoreRowFocus],
+  );
+
   return (
-    <div className="flex flex-col gap-0.5">
+    <li className="flex flex-col gap-0.5">
       {/* Compact row */}
-      <button
-        ref={rowRef}
-        type="button"
+      <div
         className={cn(
           "group relative mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center gap-2 rounded-lg px-[7px] py-1.5 text-left transition-colors",
-          isActive
-            ? isDark
-              ? "bg-[rgb(54,54,54)] text-white/90"
-              : "bg-[rgb(217,217,217)] text-black/90"
-            : isFocused
-              ? isDark
-                ? "bg-[rgb(44,44,44)] text-white/90"
-                : "bg-[rgb(227,227,227)] text-black/90"
-              : isDark
-                ? "text-white/70 hover:bg-[rgb(54,54,54)] hover:text-white/90"
-                : "text-black/70 hover:bg-[rgb(217,217,217)] hover:text-black/90",
-          isFocused && (isDark ? "ring-1 ring-white/25" : "ring-1 ring-black/20"),
+          panelRowStateClassName({ isActive, isFocused, isDark }),
         )}
-        onClick={onSelect}
         onContextMenu={handleContextMenu}
-        onMouseDown={(e) => e.preventDefault()}
-        tabIndex={-1}
         title={!inUse ? "No shapes use this layer" : undefined}
       >
+        <button
+          ref={rowRef}
+          type="button"
+          aria-current={isActive ? "true" : undefined}
+          aria-label={layer.name}
+          className="absolute inset-0 cursor-pointer rounded-lg border-0 bg-transparent p-0 outline-none"
+          onClick={onSelect}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            setIsEditing(true);
+          }}
+          onFocus={onRowFocus}
+          onKeyDown={onRowKeyDown}
+          onMouseDown={(event) => {
+            if (event.button === 2) event.preventDefault();
+          }}
+          tabIndex={isEditing ? -1 : rowTabIndex}
+        />
+
         {/* Color swatch - click to open editor */}
         <button
           type="button"
           aria-label={`Edit layer color (${layer.color})`}
           className={cn(
-            "h-4.5 w-4.5 flex-shrink-0 cursor-pointer rounded border outline-none transition-shadow",
+            "relative z-10 h-4.5 w-4.5 flex-shrink-0 cursor-pointer rounded border outline-none transition-shadow",
             isDark
               ? "border-white/10 hover:border-white/30"
               : "border-black/10 hover:border-black/30",
@@ -790,10 +800,15 @@ function LayerRow({
           style={{ backgroundColor: layer.color }}
           onClick={handleSwatchClick}
           onMouseDown={handleSwatchMouseDown}
+          tabIndex={-1}
         />
 
-        {/* Layer name */}
-        <div className="relative h-5 min-w-0 flex-1">
+        <div
+          className={cn(
+            "pointer-events-none relative z-10 flex h-5 min-w-0 flex-1 items-center gap-2",
+            !layer.visible ? "opacity-40" : !inUse && "opacity-50",
+          )}
+        >
           {isEditing ? (
             <input
               ref={inputRef}
@@ -801,44 +816,34 @@ function LayerRow({
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               onBlur={handleNameSubmit}
-              onKeyDown={handleKeyDown}
+              onKeyDown={handleRenameKeyDown}
               onClick={(e) => e.stopPropagation()}
               className={cn(
-                "absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-sm leading-5 outline-none focus:ring-0",
+                "pointer-events-auto m-0 min-w-0 flex-1 border-0 bg-transparent p-0 text-sm leading-5 outline-none focus:ring-0",
                 isDark ? "text-white/90" : "text-gray-900",
               )}
             />
           ) : (
-            <span
-              className={cn(
-                "absolute inset-0 truncate text-sm leading-5 select-none",
-                !layer.visible ? "opacity-40" : !inUse && "opacity-50",
-              )}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setIsEditing(true);
-              }}
-            >
+            <span className="min-w-0 flex-1 truncate text-sm leading-5 select-none">
               {layer.name}
             </span>
           )}
+          <LayerNumber layer={layer} />
         </div>
-
-        {/* Layer number / datatype */}
-        <div
-          className={cn(
-            "flex flex-shrink-0 items-center self-center font-mono text-xs",
-            !layer.visible ? "opacity-40" : !inUse && "opacity-50",
-          )}
-        >
-          <span className="select-none">{layer.layerNumber}</span>
-          <span className="px-0.5 opacity-50 select-none">/</span>
-          <span className="select-none">{layer.datatype}</span>
-        </div>
-      </button>
+      </div>
 
       {/* Expanded editor */}
       {isExpanded && <LayerEditor layer={layer} isDark={isDark} />}
+    </li>
+  );
+}
+
+function LayerNumber({ layer }: { layer: Layer }) {
+  return (
+    <div className="flex flex-shrink-0 items-center self-center font-mono text-xs">
+      <span className="select-none">{layer.layerNumber}</span>
+      <span className="px-0.5 opacity-50 select-none">/</span>
+      <span className="select-none">{layer.datatype}</span>
     </div>
   );
 }
@@ -877,7 +882,24 @@ export function LayersPanel() {
   useKeyboardFocus("layers-panel", isFocused);
 
   const layers = getAllLayers();
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const layerIds = layers.map((layer) => layer.id);
+  const scrollRef = useRef<HTMLUListElement>(null);
+
+  const { getRowProps, handleNavigationKeyDown, focusRow } = useRovingRows<
+    number,
+    HTMLButtonElement
+  >({
+    rowKeys: layerIds,
+    focusedKey: focusedLayerId,
+    fallbackKey: activeLayerId,
+    isActive: isFocused,
+    wrap: true,
+    onFocusedKeyChange: setFocusedLayerId,
+    onFocusWithin: () => {
+      const state = useLayerStore.getState();
+      if (!state.isFocused) state.setFocused(true);
+    },
+  });
 
   // Derive the set of layers that actually carry geometry somewhere in the
   // library. Recomputed whenever the library is synced to the renderer.
@@ -919,136 +941,89 @@ export function LayersPanel() {
     return () => document.removeEventListener("mousedown", handler);
   }, [isFocused, setFocused]);
 
-  // Keyboard event handler
-  useEffect(() => {
-    if (!isFocused) return;
-
-    const handler = (e: KeyboardEvent) => {
-      // Don't handle if an input is focused (e.g., rename input, editor fields)
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+  const handleLayerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>, layerId: number) => {
+      if (!useKeyboardFocusStore.getState().owns("layers-panel")) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+        }
         return;
       }
+      if (handleNavigationKeyDown(event, layerId)) return;
 
-      const {
-        focusedLayerId: currentFocus,
-        editingLayerId: editing,
-        expandedLayerId: expanded,
-      } = useLayerStore.getState();
-
-      // Skip navigation while inline editing or editor is expanded
-      if (editing || expanded) return;
-
-      const allLayers = useLayerStore.getState().getAllLayers();
-      if (allLayers.length === 0) return;
-
-      const currentIndex =
-        currentFocus != null ? allLayers.findIndex((l) => l.id === currentFocus) : -1;
-
-      switch (e.key) {
-        case "ArrowDown": {
-          e.preventDefault();
-          const nextIndex = currentIndex < allLayers.length - 1 ? currentIndex + 1 : 0;
-          setFocusedLayerId(allLayers[nextIndex].id);
-          break;
+      if (event.key === " ") {
+        event.preventDefault();
+        setActiveLayer(layerId);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        const current = useLayerStore.getState().expandedLayerId;
+        setExpandedLayerId(current === layerId ? null : layerId);
+      } else if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        const allLayers = useLayerStore.getState().getAllLayers();
+        const nextFocus = getAdjacentKeyAfterRemoval(
+          allLayers.map((layer) => layer.id),
+          layerId,
+        );
+        const { library: currentLibrary, renderer } = useWasmContextStore.getState();
+        if (!currentLibrary || !renderer || nextFocus === null) return;
+        useHistoryStore
+          .getState()
+          .execute(new DeleteLayerCommand(layerId), { library: currentLibrary, renderer });
+        setFocusedLayerId(nextFocus);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        setFocused(false);
+        event.currentTarget.blur();
+      } else {
+        const intent = getUndoRedoIntent(event.nativeEvent);
+        if (!intent) return;
+        event.preventDefault();
+        const { library: currentLibrary, renderer } = useWasmContextStore.getState();
+        if (!currentLibrary || !renderer) return;
+        if (intent === "redo") {
+          useHistoryStore.getState().redo({ library: currentLibrary, renderer });
+        } else {
+          useHistoryStore.getState().undo({ library: currentLibrary, renderer });
         }
-        case "ArrowUp": {
-          e.preventDefault();
-          const prevIndex = currentIndex > 0 ? currentIndex - 1 : allLayers.length - 1;
-          setFocusedLayerId(allLayers[prevIndex].id);
-          break;
-        }
-        case " ": {
-          // Space: set focused layer as active layer
-          e.preventDefault();
-          if (currentFocus != null) {
-            setActiveLayer(currentFocus);
-          }
-          break;
-        }
-        case "Enter": {
-          // Enter: toggle expanded editor for the focused layer
-          e.preventDefault();
-          if (currentFocus != null) {
-            const current = useLayerStore.getState().expandedLayerId;
-            setExpandedLayerId(current === currentFocus ? null : currentFocus);
-          }
-          break;
-        }
-        case "Delete":
-        case "Backspace": {
-          // Delete the focused layer
-          e.preventDefault();
-          if (currentFocus != null && allLayers.length > 1) {
-            const { library: currentLibrary, renderer } = useWasmContextStore.getState();
-            if (currentLibrary && renderer) {
-              // Move focus to neighbor before deleting
-              const nextIndex =
-                currentIndex < allLayers.length - 1 ? currentIndex + 1 : currentIndex - 1;
-              const nextFocus = nextIndex >= 0 ? allLayers[nextIndex].id : null;
-
-              const command = new DeleteLayerCommand(currentFocus);
-              useHistoryStore.getState().execute(command, { library: currentLibrary, renderer });
-
-              if (nextFocus != null && nextFocus !== currentFocus) {
-                setFocusedLayerId(nextFocus);
-              }
-            }
-          }
-          break;
-        }
-        case "z":
-        case "Z": {
-          // Cmd+Z / Cmd+Shift+Z: Undo/Redo
-          const mod = e.metaKey || e.ctrlKey;
-          if (!mod) return;
-          e.preventDefault();
-          const { library: currentLibrary, renderer } = useWasmContextStore.getState();
-          if (!currentLibrary || !renderer) break;
-          if (e.shiftKey) {
-            useHistoryStore.getState().redo({ library: currentLibrary, renderer });
-          } else {
-            useHistoryStore.getState().undo({ library: currentLibrary, renderer });
-          }
-          break;
-        }
-        case "Escape": {
-          // Escape: release keyboard focus
-          e.preventDefault();
-          setFocused(false);
-          break;
-        }
-        default:
-          return; // Don't prevent default for unhandled keys
       }
-    };
-
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [isFocused, setFocused, setFocusedLayerId, setActiveLayer, setExpandedLayerId]);
+    },
+    [handleNavigationKeyDown, setActiveLayer, setExpandedLayerId, setFocused, setFocusedLayerId],
+  );
 
   return (
     <div className="flex h-full flex-col">
       {/* Layer list */}
-      <div
+      <ul
         ref={scrollRef}
-        className="flex flex-1 flex-col gap-0.5 overflow-y-auto py-1"
+        aria-label="Layers"
+        className="m-0 flex flex-1 list-none flex-col gap-0.5 overflow-y-auto p-0 py-1"
         onWheel={(e) => e.stopPropagation()}
       >
-        {layers.map((layer) => (
-          <LayerRow
-            key={layer.id}
-            layer={layer}
-            isActive={layer.id === activeLayerId}
-            isFocused={isFocused && layer.id === focusedLayerId}
-            isExpanded={expandedLayerId === layer.id}
-            isDark={isDark}
-            inUse={usedLayerKeys.has(`${layer.layerNumber}/${layer.datatype}`)}
-            onSelect={() => setActiveLayer(layer.id)}
-            onToggleExpand={() => handleToggleExpand(layer.id)}
-            startEditing={editingLayerId === layer.id}
-          />
-        ))}
-      </div>
+        {layers.map((layer) => {
+          const rowProps = getRowProps(layer.id);
+          return (
+            <LayerRow
+              key={layer.id}
+              layer={layer}
+              isActive={layer.id === activeLayerId}
+              isFocused={isFocused && layer.id === focusedLayerId}
+              isExpanded={expandedLayerId === layer.id}
+              isDark={isDark}
+              inUse={usedLayerKeys.has(`${layer.layerNumber}/${layer.datatype}`)}
+              onSelect={() => setActiveLayer(layer.id)}
+              onToggleExpand={() => handleToggleExpand(layer.id)}
+              startEditing={editingLayerId === layer.id}
+              rowRef={rowProps.ref}
+              rowTabIndex={rowProps.tabIndex}
+              onRowFocus={rowProps.onFocus}
+              onRowKeyDown={(event) => handleLayerKeyDown(event, layer.id)}
+              onRestoreRowFocus={() => focusRow(layer.id)}
+            />
+          );
+        })}
+      </ul>
     </div>
   );
 }

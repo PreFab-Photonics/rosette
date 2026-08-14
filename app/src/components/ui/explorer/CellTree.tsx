@@ -4,7 +4,10 @@ import { useExplorerStore } from "@/stores/explorer";
 import { useContextMenuStore } from "@/stores/context-menu";
 import { useCellDragStore } from "@/stores/cell-drag";
 import { useWasmContextStore } from "@/stores/wasm-context";
+import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
+import { useInlineRename } from "@/hooks/use-inline-rename";
 import { cn } from "@/lib/utils";
+import { panelRowStateClassName } from "@/components/ui/panel-row";
 
 /**
  * Chevron icon for tree expand/collapse.
@@ -36,6 +39,7 @@ export function CellRow({
   name,
   isActive,
   isFocused,
+  isKeyboardNavigationActive,
   isDark,
   depth,
   hasChildren,
@@ -51,6 +55,8 @@ export function CellRow({
   isActive: boolean;
   /** Whether this cell has the keyboard navigation cursor. */
   isFocused: boolean;
+  /** Whether the Explorer currently owns keyboard navigation. */
+  isKeyboardNavigationActive: boolean;
   isDark: boolean;
   depth: number;
   hasChildren: boolean;
@@ -65,14 +71,28 @@ export function CellRow({
   canDrag: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState(name);
-  const inputRef = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLButtonElement>(null);
+
+  const {
+    inputRef,
+    draft: editName,
+    setDraft: setEditName,
+    commit: handleNameSubmit,
+    handleKeyDown,
+  } = useInlineRename({
+    value: name,
+    isEditing,
+    onEditingChange: setIsEditing,
+    onCommit: onRename,
+  });
 
   // Scroll the focused row into view when it becomes focused
   useEffect(() => {
     if (isFocused && rowRef.current) {
-      rowRef.current.scrollIntoView({ block: "nearest" });
+      if (document.activeElement !== rowRef.current) {
+        rowRef.current.focus({ preventScroll: true });
+      }
+      rowRef.current.scrollIntoView?.({ block: "nearest" });
     }
   }, [isFocused]);
 
@@ -80,40 +100,10 @@ export function CellRow({
   useEffect(() => {
     if (startEditing) {
       setIsEditing(true);
-      setEditName(name);
       // Clear the editing signal
       useExplorerStore.getState().setEditingCellName(null);
     }
-  }, [startEditing, name]);
-
-  useEffect(() => {
-    if (isEditing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [isEditing]);
-
-  const handleNameSubmit = useCallback(() => {
-    const trimmed = editName.trim();
-    if (trimmed && trimmed !== name) {
-      onRename(trimmed);
-    } else {
-      setEditName(name);
-    }
-    setIsEditing(false);
-  }, [editName, name, onRename]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        handleNameSubmit();
-      } else if (e.key === "Escape") {
-        setEditName(name);
-        setIsEditing(false);
-      }
-    },
-    [handleNameSubmit, name],
-  );
+  }, [startEditing]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -132,6 +122,36 @@ export function CellRow({
     [onToggleExpand],
   );
 
+  const handleRowFocus = useCallback(() => {
+    const store = useExplorerStore.getState();
+    if (!store.isFocused) store.setFocused(true);
+    store.setFocusedItem({ type: "cell", name });
+  }, [name]);
+
+  const handleRowClick = useCallback(() => {
+    handleRowFocus();
+    onSelect();
+  }, [handleRowFocus, onSelect]);
+
+  const handleRowKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
+    if (
+      !useKeyboardFocusStore.getState().owns("explorer-panel") &&
+      (event.key === "Enter" || event.key === " ")
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, []);
+
+  const handleRenameKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      const restoresRowFocus = event.key === "Enter" || event.key === "Escape";
+      handleKeyDown(event);
+      if (restoresRowFocus) requestAnimationFrame(() => rowRef.current?.focus());
+    },
+    [handleKeyDown],
+  );
+
   // Custom drag: on left-button mousedown, attach global mousemove/mouseup
   // listeners for the duration of the potential drag. After a small movement
   // threshold (5px), initiate a cell drag via the store (bypassing the
@@ -139,8 +159,11 @@ export function CellRow({
   const handleCellMouseDown = useCallback(
     (e: React.MouseEvent) => {
       // Only left button; skip if not draggable or editing
-      if (e.button !== 0 || !canDrag || isEditing) {
-        if (!canDrag) e.preventDefault();
+      if (e.button !== 0) {
+        if (e.button === 2) e.preventDefault();
+        return;
+      }
+      if (!canDrag || isEditing) {
         return;
       }
 
@@ -182,44 +205,51 @@ export function CellRow({
   );
 
   return (
-    <button
-      ref={rowRef}
-      type="button"
+    <li
       className={cn(
-        "mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center rounded-lg py-1.5 text-left transition-colors focus:outline-none",
-        isActive
-          ? isDark
-            ? "bg-[rgb(54,54,54)] text-white/90"
-            : "bg-[rgb(217,217,217)] text-black/90"
-          : isFocused
-            ? isDark
-              ? "bg-[rgb(44,44,44)] text-white/90"
-              : "bg-[rgb(227,227,227)] text-black/90"
-            : isDark
-              ? "text-white/70 hover:bg-[rgb(54,54,54)] hover:text-white/90"
-              : "text-black/70 hover:bg-[rgb(217,217,217)] hover:text-black/90",
-        isFocused && (isDark ? "ring-1 ring-white/25" : "ring-1 ring-black/20"),
+        "relative mx-1 flex min-w-0 w-[calc(100%-8px)] cursor-pointer items-center rounded-lg border-0 py-1.5 text-left transition-colors focus:outline-none",
+        panelRowStateClassName({ isActive, isFocused, isDark }),
       )}
       style={{ paddingLeft: `${7 + depth * 10}px`, paddingRight: "7px" }}
-      onClick={onSelect}
-      onContextMenu={handleContextMenu}
-      onMouseDown={handleCellMouseDown}
-      tabIndex={-1}
     >
+      {!isEditing && (
+        <button
+          ref={rowRef}
+          type="button"
+          aria-label={name}
+          aria-current={isActive ? "true" : undefined}
+          className="absolute inset-0 cursor-pointer rounded-lg border-0 bg-transparent p-0 outline-none"
+          onClick={handleRowClick}
+          onContextMenu={handleContextMenu}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            setIsEditing(true);
+          }}
+          onFocus={handleRowFocus}
+          onKeyDown={handleRowKeyDown}
+          onMouseDown={handleCellMouseDown}
+          tabIndex={isFocused || (!isKeyboardNavigationActive && isActive) ? 0 : -1}
+        />
+      )}
+
       {/* Expand/collapse chevron (or spacer for leaves) */}
       {hasChildren ? (
         <button
           type="button"
-          className="mr-0.5 flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center bg-transparent border-none p-0"
+          aria-label={isExpanded ? `Collapse ${name}` : `Expand ${name}`}
+          className="relative z-10 mr-0.5 flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center bg-transparent border-none p-0"
           onClick={handleChevronClick}
+          onContextMenu={handleContextMenu}
+          onKeyDown={handleRowKeyDown}
+          tabIndex={-1}
         >
           <ChevronIcon expanded={isExpanded} isDark={isDark} />
         </button>
       ) : (
-        <span className="mr-0.5 h-4 w-4 flex-shrink-0" />
+        <span className="pointer-events-none relative z-10 mr-0.5 h-4 w-4 flex-shrink-0" />
       )}
 
-      <div className="relative h-5 min-w-0 flex-1">
+      <div className="pointer-events-none relative z-10 h-5 min-w-0 flex-1">
         {isEditing ? (
           <input
             ref={inputRef}
@@ -227,10 +257,10 @@ export function CellRow({
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             onBlur={handleNameSubmit}
-            onKeyDown={handleKeyDown}
+            onKeyDown={handleRenameKeyDown}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              "absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-sm leading-5 outline-none focus:ring-0",
+              "pointer-events-auto absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-sm leading-5 outline-none focus:ring-0",
               isDark ? "text-white/90" : "text-black/90",
             )}
           />
@@ -240,17 +270,12 @@ export function CellRow({
               "absolute inset-0 truncate text-sm leading-5 select-none",
               isHidden && "opacity-40",
             )}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              setIsEditing(true);
-              setEditName(name);
-            }}
           >
             {name}
           </span>
         )}
       </div>
-    </button>
+    </li>
   );
 }
 
@@ -263,6 +288,7 @@ export function CellTreeNode({
   isDark,
   activeCell,
   focusedCellName,
+  isKeyboardNavigationActive,
   editingCellName,
   expandedCells,
   hiddenCells,
@@ -275,6 +301,7 @@ export function CellTreeNode({
   isDark: boolean;
   activeCell: string | null;
   focusedCellName: string | null;
+  isKeyboardNavigationActive: boolean;
   editingCellName: string | null;
   expandedCells: Set<string>;
   hiddenCells: Set<string>;
@@ -295,6 +322,7 @@ export function CellTreeNode({
         name={node.name}
         isActive={node.name === activeCell}
         isFocused={node.name === focusedCellName}
+        isKeyboardNavigationActive={isKeyboardNavigationActive}
         isDark={isDark}
         depth={depth}
         hasChildren={hasChildren}
@@ -316,6 +344,7 @@ export function CellTreeNode({
             isDark={isDark}
             activeCell={activeCell}
             focusedCellName={focusedCellName}
+            isKeyboardNavigationActive={isKeyboardNavigationActive}
             editingCellName={editingCellName}
             expandedCells={expandedCells}
             hiddenCells={hiddenCells}
