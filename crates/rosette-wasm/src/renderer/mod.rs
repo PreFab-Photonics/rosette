@@ -32,7 +32,7 @@ const VIOLATION_SEGMENT_CAPACITY: usize = 16_384;
 /// These are set high enough to handle very large designs.
 const MAX_POLYGON_VERTICES: usize = 10_000_000; // Further limited by the device's max buffer bytes
 const MAX_POLYGON_INDICES: usize = 30_000_000; // 30M indices (~120MB)
-const MAX_BORDER_SEGMENTS: usize = 5_000_000; // 5M segments (~172 MiB)
+const MAX_BORDER_SEGMENTS: usize = 5_000_000; // 5M segments (~191 MiB)
 const MAX_OUTLINE_SEGMENTS: usize = 500_000; // 500K segments (~8MB)
 
 /// Error type for renderer operations.
@@ -224,6 +224,8 @@ pub struct WasmRenderer {
 
     /// Cell origin in world coordinates for crosshair positioning.
     crosshair_origin: [f32; 2],
+    /// Temporary world-space translation for the active move gesture.
+    move_delta: [f32; 2],
 
     // NOTE: View frustum culling fields removed as optimization.
     // We now triangulate all shapes once and let the GPU clip.
@@ -743,6 +745,12 @@ impl WasmRenderer {
                     offset: 24,
                     shader_location: 2,
                 },
+                // move_selected: u32
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Uint32,
+                    offset: 28,
+                    shader_location: 5,
+                },
                 // bbox_center: vec2<f32>
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
@@ -1122,6 +1130,11 @@ impl WasmRenderer {
                             offset: 32,
                             shader_location: 3, // owning shape's bbox extent
                         },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Uint32,
+                            offset: 36,
+                            shader_location: 4, // transient move membership
+                        },
                     ],
                 }],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -1228,6 +1241,7 @@ impl WasmRenderer {
             borders_dirty: true,
             last_viewport_state: (0.0, 0.0, 0.0, true),
             crosshair_origin: [0.0, 0.0],
+            move_delta: [0.0, 0.0],
             // View frustum culling - start with values that force initial cull
             last_cull_zoom: 0.0,
             last_cull_bounds: [0.0, 0.0, 0.0, 0.0],
@@ -1245,7 +1259,7 @@ impl WasmRenderer {
 
         // Update viewport uniform
         let viewport_uniform =
-            ViewportUniform::from_viewport(&self.viewport, self.crosshair_origin);
+            ViewportUniform::from_viewport(&self.viewport, self.crosshair_origin, self.move_delta);
         self.queue.write_buffer(
             &self.viewport_buffer,
             0,
@@ -1835,6 +1849,27 @@ impl WasmRenderer {
         self.needs_render = true;
     }
 
+    /// Set the logical elements translated by the transient move uniform.
+    pub fn set_move_preview_targets(&mut self, ids: Vec<String>) {
+        if self.shape_manager.set_moving_ids(ids) {
+            self.needs_render = true;
+        }
+    }
+
+    /// Update transient move translation without rebuilding scene geometry.
+    pub fn set_move_preview_delta(&mut self, dx: f64, dy: f64) {
+        let delta = [dx as f32, dy as f32];
+        if delta != self.move_delta {
+            self.move_delta = delta;
+            self.needs_render = true;
+        }
+    }
+
+    /// Clear transient move translation while retaining cached target flags.
+    pub fn clear_move_preview(&mut self) {
+        self.set_move_preview_delta(0.0, 0.0);
+    }
+
     /// Get the number of shapes (excluding preview).
     pub fn shape_count(&self) -> usize {
         self.shape_manager.len()
@@ -1954,7 +1989,7 @@ impl WasmRenderer {
 
         // Update viewport uniform
         let viewport_uniform =
-            ViewportUniform::from_viewport(&self.viewport, self.crosshair_origin);
+            ViewportUniform::from_viewport(&self.viewport, self.crosshair_origin, self.move_delta);
         self.queue.write_buffer(
             &self.viewport_buffer,
             0,

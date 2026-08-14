@@ -16,6 +16,8 @@ struct Viewport {
     _padding: f32,
     crosshair_origin: vec2<f32>, // Cell origin in world coordinates
     _padding2: vec2<f32>,
+    move_delta: vec2<f32>,       // Temporary world-space move translation
+    _padding3: vec2<f32>,
 }
 
 struct BorderUniforms {
@@ -51,11 +53,13 @@ fn vs_main(
     @location(1) seg_p1: vec2<f32>,
     @location(2) seg_color: vec4<f32>,
     @location(3) shape_lod_size: f32,
+    @location(4) move_selected: u32,
 ) -> VertexOutput {
     // Transform world coordinates to screen coordinates
     // screen = world * zoom + offset
-    let screen_p0 = seg_p0 * viewport.zoom + viewport.offset;
-    let screen_p1 = seg_p1 * viewport.zoom + viewport.offset;
+    let move_delta = select(vec2<f32>(0.0, 0.0), viewport.move_delta, move_selected != 0u);
+    let screen_p0 = (seg_p0 + move_delta) * viewport.zoom + viewport.offset;
+    let screen_p1 = (seg_p1 + move_delta) * viewport.zoom + viewport.offset;
 
     let delta = screen_p1 - screen_p0;
     let segment_length = length(delta);

@@ -138,8 +138,16 @@ export function Canvas() {
     handleMouseMove: handleMoveMouseMove,
     handleMouseUp: handleMoveMouseUp,
     handleMouseLeave: handleMoveMouseLeave,
+    cancelMove,
+    isMoving,
     hoveredRulerId: moveHoveredRulerId,
   } = useMove(screenToWorld, library, renderer);
+
+  useEffect(() => {
+    if (activeTool !== "move" && isMoving) {
+      cancelMove();
+    }
+  }, [activeTool, isMoving, cancelMove]);
 
   // Polygon tool integration
   const {
@@ -991,7 +999,7 @@ export function Canvas() {
       )}
       <ImageOverlay />
       <PathSelectionOverlay />
-      <InstanceLabels />
+      <InstanceLabels hidden={isMoving} />
       <TextOverlay />
       <RulerOverlay />
       <ContextMenu library={library} renderer={renderer} canvasRef={canvasRef} />

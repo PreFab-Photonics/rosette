@@ -837,6 +837,10 @@ export class WasmRenderer {
      */
     clear_laser(): void;
     /**
+     * Clear transient move translation while retaining cached target flags.
+     */
+    clear_move_preview(): void;
+    /**
      * Clear the preview shape.
      */
     clear_preview(): void;
@@ -985,6 +989,14 @@ export class WasmRenderer {
      */
     set_laser_points(points: Float64Array): void;
     /**
+     * Update transient move translation without rebuilding scene geometry.
+     */
+    set_move_preview_delta(dx: number, dy: number): void;
+    /**
+     * Set the logical elements translated by the transient move uniform.
+     */
+    set_move_preview_targets(ids: string[]): void;
+    /**
      * Set a preview origin cross (two perpendicular lines at the given world position).
      *
      * # Arguments
@@ -1093,11 +1105,44 @@ export interface InitOutput {
     readonly nativepathinfo_end_type: (a: number) => number;
     readonly nativepathinfo_layer: (a: number) => number;
     readonly nativepathinfo_width: (a: number) => number;
+    readonly wasmlibrary_add_cell_ref: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_add_cell_ref_to: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_add_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
+    readonly wasmlibrary_add_cell_ref_with_transform: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_can_instance_cell: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_get_all_bounds: (a: number) => [number, number];
+    readonly wasmlibrary_get_all_ids: (a: number) => [number, number];
+    readonly wasmlibrary_get_all_vertices: (a: number) => [number, number];
+    readonly wasmlibrary_get_bounds_for_ids: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_bounds: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_preview_polygons: (a: number, b: number, c: number, d: number, e: number) => any;
+    readonly wasmlibrary_get_cell_ref_array: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_ref_array_vectors: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_ref_info: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_get_cell_ref_parents: (a: number, b: number, c: number) => any;
+    readonly wasmlibrary_get_cell_tree: (a: number) => any;
+    readonly wasmlibrary_get_element_info: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_get_element_vertices: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_group_ids: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_instance_cell_contexts: (a: number) => any;
+    readonly wasmlibrary_get_instance_label_data: (a: number) => any;
+    readonly wasmlibrary_get_native_path_info: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_hit_test: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_hit_test_rect: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_hit_test_with_tolerance: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly wasmlibrary_restore_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
+    readonly wasmlibrary_restore_cell_ref_to_with_transform_at: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
+    readonly wasmlibrary_restore_cell_ref_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_set_cell_ref_array: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly wasmlibrary_set_cell_ref_array_vectors: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
+    readonly wasmlibrary_set_cell_ref_transform: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_get_group_representative_ids: (a: number) => [number, number];
     readonly __wbg_wasmrenderer_free: (a: number, b: number) => void;
     readonly wasmrenderer_add_shape: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasmrenderer_add_to_selection: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_capture_screenshot: (a: number) => any;
     readonly wasmrenderer_clear_laser: (a: number) => void;
+    readonly wasmrenderer_clear_move_preview: (a: number) => void;
     readonly wasmrenderer_clear_preview: (a: number) => void;
     readonly wasmrenderer_clear_selection: (a: number) => void;
     readonly wasmrenderer_clear_shapes: (a: number) => void;
@@ -1121,6 +1166,8 @@ export interface InitOutput {
     readonly wasmrenderer_set_hover_multiple: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_laser_opacity: (a: number, b: number) => void;
     readonly wasmrenderer_set_laser_points: (a: number, b: number, c: number) => void;
+    readonly wasmrenderer_set_move_preview_delta: (a: number, b: number, c: number) => void;
+    readonly wasmrenderer_set_move_preview_targets: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_preview_origin: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmrenderer_set_preview_shape: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmrenderer_set_selected_violation: (a: number, b: number) => void;
@@ -1191,38 +1238,6 @@ export interface InitOutput {
     readonly wasmlibrary_set_text_position: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly wasmlibrary_text_to_polygons: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_update_text: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_add_cell_ref: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmlibrary_add_cell_ref_to: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_add_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
-    readonly wasmlibrary_add_cell_ref_with_transform: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmlibrary_can_instance_cell: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_get_all_bounds: (a: number) => [number, number];
-    readonly wasmlibrary_get_all_ids: (a: number) => [number, number];
-    readonly wasmlibrary_get_all_vertices: (a: number) => [number, number];
-    readonly wasmlibrary_get_bounds_for_ids: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_bounds: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_preview_polygons: (a: number, b: number, c: number, d: number, e: number) => any;
-    readonly wasmlibrary_get_cell_ref_array: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_ref_array_vectors: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_ref_info: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_get_cell_ref_parents: (a: number, b: number, c: number) => any;
-    readonly wasmlibrary_get_cell_tree: (a: number) => any;
-    readonly wasmlibrary_get_element_info: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_get_element_vertices: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_group_ids: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_instance_cell_contexts: (a: number) => any;
-    readonly wasmlibrary_get_instance_label_data: (a: number) => any;
-    readonly wasmlibrary_get_native_path_info: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_hit_test: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_hit_test_rect: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmlibrary_hit_test_with_tolerance: (a: number, b: number, c: number, d: number) => [number, number];
-    readonly wasmlibrary_restore_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
-    readonly wasmlibrary_restore_cell_ref_to_with_transform_at: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
-    readonly wasmlibrary_restore_cell_ref_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_set_cell_ref_array: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
-    readonly wasmlibrary_set_cell_ref_array_vectors: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
-    readonly wasmlibrary_set_cell_ref_transform: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_get_group_representative_ids: (a: number) => [number, number];
     readonly wasm_bindgen__closure__destroy__h200b07e2cd2d62ec: (a: number, b: number) => void;
     readonly wasm_bindgen__closure__destroy__h2d6fab434757b308: (a: number, b: number) => void;
     readonly wasm_bindgen__convert__closures_____invoke__hbd2a77e27682db99: (a: number, b: number, c: any) => [number, number];

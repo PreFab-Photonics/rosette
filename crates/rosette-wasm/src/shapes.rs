@@ -87,7 +87,8 @@ pub struct PolygonVertex {
     /// Fill pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
     /// Stored as u32 (maps to WGSL u32). Padded to 8 bytes for alignment.
     pub fill_pattern: u32,
-    pub _padding: u32,
+    /// Whether the transient move transform applies to this vertex.
+    pub move_selected: u32,
     /// Center of the shape's axis-aligned bbox in world coordinates.
     pub bbox_center: [f32; 2],
     /// Size of the shape's axis-aligned bbox in world units.
@@ -109,7 +110,7 @@ pub struct OutlineSegment {
 /// Each segment has its own color (for default borders using darkened fill).
 /// Points are in WORLD coordinates - the shader transforms them to screen space.
 /// This allows borders to be computed once when shapes change, not on every pan/zoom.
-/// Layout must match WGSL: p0 (8), p1 (8), color (16), lod_size (4) = 36 bytes total.
+/// Layout must match WGSL: p0 (8), p1 (8), color (16), lod_size (4), move_selected (4) = 40 bytes total.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ColoredSegment {
@@ -121,6 +122,8 @@ pub struct ColoredSegment {
     pub color: [f32; 4],
     /// Largest dimension of the owning shape's bbox in world units.
     pub lod_size: f32,
+    /// Whether the transient move transform applies to this segment.
+    pub move_selected: u32,
 }
 
 /// GPU-compatible uniform data for outline rendering.
@@ -311,6 +314,8 @@ pub struct ShapeManager {
     selected_ids: HashSet<String>,
     /// Currently hovered shape IDs (can be multiple for marquee preview).
     hovered_ids: HashSet<String>,
+    /// Canonical element targets translated by the transient move uniform.
+    moving_targets: HashSet<String>,
     /// Whether outline data needs update.
     outlines_dirty: bool,
     /// Whether the default-border buffer needs regeneration.
@@ -327,6 +332,35 @@ pub struct ShapeManager {
 }
 
 impl ShapeManager {
+    fn move_target_key(id: &str) -> String {
+        let mut parts = id.split(':');
+        if parts.next() == Some("ref")
+            && let (Some(element_index), Some(_copy_index), Some(token), None) =
+                (parts.next(), parts.next(), parts.next(), parts.next())
+        {
+            return format!("ref:{element_index}:{token}");
+        }
+        id.to_string()
+    }
+
+    fn is_moving(&self, id: &str) -> bool {
+        self.moving_targets.contains(&Self::move_target_key(id))
+    }
+
+    /// Set the logical elements affected by transient move translation.
+    pub fn set_moving_ids(&mut self, ids: Vec<String>) -> bool {
+        let targets: HashSet<String> = ids
+            .into_iter()
+            .map(|id| Self::move_target_key(&id))
+            .collect();
+        if targets == self.moving_targets {
+            return false;
+        }
+        self.moving_targets = targets;
+        self.dirty = true;
+        self.borders_dirty = true;
+        true
+    }
     /// Create a new shape manager.
     pub fn new() -> Self {
         Self::default()
@@ -546,7 +580,7 @@ impl ShapeManager {
             }
 
             if let Some(shape) = self.shapes.get(id) {
-                self.add_shape_border_segments(shape, &mut segments);
+                self.add_shape_border_segments(shape, self.is_moving(id), &mut segments);
             }
         }
 
@@ -581,6 +615,7 @@ impl ShapeManager {
                     p1: [preview.points[j][0] as f32, preview.points[j][1] as f32],
                     color: border_color,
                     lod_size,
+                    move_selected: 0,
                 });
             }
         }
@@ -598,6 +633,7 @@ impl ShapeManager {
                 p1: [ox + a, oy],
                 color,
                 lod_size,
+                move_selected: 0,
             });
             // Vertical arm
             segments.push(ColoredSegment {
@@ -605,6 +641,7 @@ impl ShapeManager {
                 p1: [ox, oy + a],
                 color,
                 lod_size,
+                move_selected: 0,
             });
         }
 
@@ -613,7 +650,12 @@ impl ShapeManager {
 
     /// Helper to add border segments for a single shape.
     /// Segments are stored in WORLD coordinates.
-    fn add_shape_border_segments(&self, shape: &Shape, segments: &mut Vec<ColoredSegment>) {
+    fn add_shape_border_segments(
+        &self,
+        shape: &Shape,
+        move_selected: bool,
+        segments: &mut Vec<ColoredSegment>,
+    ) {
         // Skip fully transparent shapes (hidden layers)
         if shape.color[3] <= 0.0 {
             return;
@@ -630,7 +672,13 @@ impl ShapeManager {
 
         if shape.hole_indices.is_empty() {
             // Simple polygon: one closed ring
-            Self::add_ring_border_segments(&shape.points, border_color, lod_size, segments);
+            Self::add_ring_border_segments(
+                &shape.points,
+                border_color,
+                lod_size,
+                move_selected,
+                segments,
+            );
         } else {
             // Polygon with holes: draw each ring (exterior + holes) separately
             // to avoid connecting the last exterior vertex to the first hole vertex.
@@ -640,7 +688,13 @@ impl ShapeManager {
 
             for w in ring_starts.windows(2) {
                 let ring = &shape.points[w[0]..w[1]];
-                Self::add_ring_border_segments(ring, border_color, lod_size, segments);
+                Self::add_ring_border_segments(
+                    ring,
+                    border_color,
+                    lod_size,
+                    move_selected,
+                    segments,
+                );
             }
         }
     }
@@ -656,6 +710,7 @@ impl ShapeManager {
         points: &[[f64; 2]],
         color: [f32; 4],
         lod_size: f32,
+        move_selected: bool,
         segments: &mut Vec<ColoredSegment>,
     ) {
         let n = points.len();
@@ -696,6 +751,7 @@ impl ShapeManager {
                 p1: [points[j][0] as f32, points[j][1] as f32],
                 color,
                 lod_size,
+                move_selected: u32::from(move_selected),
             });
         }
     }
@@ -968,7 +1024,11 @@ impl ShapeManager {
                     continue;
                 }
                 let base_index = vertices.len() as u32;
-                vertices.extend_from_slice(&cached.vertices);
+                let move_selected = u32::from(self.is_moving(id));
+                vertices.extend(cached.vertices.iter().map(|vertex| PolygonVertex {
+                    move_selected,
+                    ..*vertex
+                }));
                 indices.extend(cached.indices.iter().map(|&idx| idx + base_index));
             }
         }
@@ -1111,7 +1171,7 @@ impl ShapeManager {
                 position: [point[0] as f32, point[1] as f32],
                 color: shape.color,
                 fill_pattern: shape.fill_pattern,
-                _padding: 0,
+                move_selected: 0,
                 bbox_center,
                 bbox_size,
             });
@@ -1156,7 +1216,7 @@ impl ShapeManager {
                 position: [point[0] as f32, point[1] as f32],
                 color,
                 fill_pattern,
-                _padding: 0,
+                move_selected: 0,
                 bbox_center,
                 bbox_size,
             });
@@ -1257,6 +1317,41 @@ mod tests {
 
         assert!(manager.sync_from_polygons(vec![rect("b", 2.0), rect("a", 0.0)]));
         assert!(manager.is_dirty());
+    }
+
+    #[test]
+    fn transient_move_targets_include_all_polygons_from_a_cell_ref() {
+        let mut manager = ShapeManager::new();
+        let rect = |id: &str, x: f64| {
+            (
+                id.to_string(),
+                vec![[x, 0.0], [x + 1.0, 0.0], [x + 1.0, 1.0], [x, 1.0]],
+                [1.0, 0.0, 0.0, 1.0],
+                0,
+            )
+        };
+        manager.sync_from_polygons(vec![
+            rect("ref:2:0:token", 0.0),
+            rect("ref:2:1:token", 2.0),
+            rect("direct", 4.0),
+        ]);
+        assert!(manager.set_moving_ids(vec!["ref:2:0:token".to_string()]));
+
+        let (vertices, _) = manager.triangulate();
+        assert!(vertices[..8].iter().all(|vertex| vertex.move_selected == 1));
+        assert!(vertices[8..].iter().all(|vertex| vertex.move_selected == 0));
+
+        let borders = manager.get_default_border_segments();
+        assert!(
+            borders[..8]
+                .iter()
+                .all(|segment| segment.move_selected == 1)
+        );
+        assert!(
+            borders[8..]
+                .iter()
+                .all(|segment| segment.move_selected == 0)
+        );
     }
 
     #[test]

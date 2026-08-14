@@ -58,6 +58,7 @@ pub fn push_bbox_outline(segments: &mut Vec<ColoredSegment>, bbox: [f64; 4], col
             p1,
             color,
             lod_size,
+            move_selected: 0,
         });
     }
 }

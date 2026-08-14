@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSelectionStore } from "@/stores/selection";
 import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
@@ -17,6 +17,7 @@ import { useStatusMessageStore } from "@/stores/status-message";
 import { findRulerAtScreenPoint } from "@/lib/ruler-hittest";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 import { hitTestLayout } from "@/lib/layout-hit-test";
+import { parseSyntheticRefId } from "@/lib/element-id";
 
 /**
  * A point in world coordinates.
@@ -61,6 +62,7 @@ export function useMove(
     rulerId: string | null;
     startWorld: Point;
     currentDelta: Point;
+    deferred: boolean;
   } | null>(null);
 
   /**
@@ -91,6 +93,7 @@ export function useMove(
           rulerId: hitRulerId,
           startWorld: world,
           currentDelta: { x: 0, y: 0 },
+          deferred: false,
         };
 
         setIsMoving(true);
@@ -129,6 +132,7 @@ export function useMove(
           rulerId: null,
           startWorld: world,
           currentDelta: { x: 0, y: 0 },
+          deferred: false,
         };
         setIsMoving(true);
         return;
@@ -151,17 +155,25 @@ export function useMove(
         useSelectionStore.getState().setSelection(new Set(groupIds));
       }
 
+      const deferred = renderer !== null && elementIds.every((id) => parseSyntheticRefId(id));
+      if (deferred) {
+        renderer.set_hover(undefined);
+        renderer.set_move_preview_targets(elementIds);
+        renderer.clear_move_preview();
+      }
+
       // Initialize move state
       moveState.current = {
         elementIds,
         rulerId: null,
         startWorld: world,
         currentDelta: { x: 0, y: 0 },
+        deferred,
       };
 
       setIsMoving(true);
     },
-    [screenToWorld, library, rulers, zoom, offset, selectRuler],
+    [screenToWorld, library, renderer, rulers, zoom, offset, selectRuler],
   );
 
   /**
@@ -208,6 +220,12 @@ export function useMove(
       // Calculate the delta from start position
       const totalDeltaX = world.x - state.startWorld.x;
       const totalDeltaY = world.y - state.startWorld.y;
+
+      if (state.deferred && renderer) {
+        renderer.set_move_preview_delta(totalDeltaX, totalDeltaY);
+        state.currentDelta = { x: totalDeltaX, y: totalDeltaY };
+        return;
+      }
 
       // Calculate the incremental delta since last move
       const incrementalDeltaX = totalDeltaX - state.currentDelta.x;
@@ -291,7 +309,18 @@ export function useMove(
       return;
     }
 
-    const { elementIds, rulerId, currentDelta } = state;
+    const { elementIds, rulerId, currentDelta, deferred } = state;
+
+    if (deferred) {
+      renderer?.clear_move_preview();
+      if (library && renderer && (currentDelta.x !== 0 || currentDelta.y !== 0)) {
+        const command = new MoveElementsCommand(elementIds, currentDelta.x, currentDelta.y);
+        useHistoryStore.getState().execute(command, { library, renderer });
+      }
+      setIsMoving(false);
+      moveState.current = null;
+      return;
+    }
 
     // For rulers, create a command for undo/redo (doesn't need library/renderer)
     if (rulerId && (currentDelta.x !== 0 || currentDelta.y !== 0)) {
@@ -335,7 +364,9 @@ export function useMove(
     }
 
     const state = moveState.current;
-    if (state && (state.currentDelta.x !== 0 || state.currentDelta.y !== 0)) {
+    if (state?.deferred) {
+      renderer?.clear_move_preview();
+    } else if (state && (state.currentDelta.x !== 0 || state.currentDelta.y !== 0)) {
       if (state.rulerId) {
         // Undo ruler move — translate every control point by `-delta`.
         const targetId = state.rulerId;
@@ -385,6 +416,24 @@ export function useMove(
     setIsMoving(false);
     moveState.current = null;
   }, [isMoving, library, renderer]);
+
+  useEffect(() => {
+    if (!isMoving) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        cancelMove();
+        return;
+      }
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      cancelMove();
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [isMoving, cancelMove]);
 
   /**
    * Handle mouse leave - cancel move if in progress.

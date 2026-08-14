@@ -13,6 +13,8 @@ struct Viewport {
     _padding: f32,
     crosshair_origin: vec2<f32>, // Cell origin in world coordinates
     _padding2: vec2<f32>,
+    move_delta: vec2<f32>,       // Unused
+    _padding3: vec2<f32>,
 }
 
 struct LaserUniforms {

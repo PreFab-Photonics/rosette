@@ -68,7 +68,7 @@ function getInstanceOriginScreen(
  * top-left corner of the instance's bounding box. Crosses mark where the
  * child cell's origin lands in the parent.
  */
-export function InstanceLabels() {
+export function InstanceLabels({ hidden = false }: { hidden?: boolean }) {
   const { zoom, offset } = useViewportStore();
   const library = useWasmContextStore((s) => s.library);
   const theme = useUIStore((s) => s.theme);
@@ -90,7 +90,7 @@ export function InstanceLabels() {
   // renders should only recalculate the screen positions below.
   const allLabels = useMemo<InstanceLabel[]>(() => {
     void syncGeneration;
-    if (!library || !hasActiveIds) return [];
+    if (!library || !hasActiveIds || hidden) return [];
     try {
       if (library.active_cell_name() !== activeCell) return [];
       const data = library.get_instance_label_data();
@@ -101,9 +101,9 @@ export function InstanceLabels() {
       return [];
     }
     return [];
-  }, [library, syncGeneration, activeCell, hasActiveIds]);
+  }, [library, syncGeneration, activeCell, hasActiveIds, hidden]);
 
-  if (!hasActiveIds) return null;
+  if (!hasActiveIds || hidden) return null;
 
   // Filter to only active instances
   const visibleLabels = allLabels.filter((label) => activeIds.has(label.id));

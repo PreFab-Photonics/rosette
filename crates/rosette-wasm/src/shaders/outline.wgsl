@@ -16,6 +16,8 @@ struct Viewport {
     _padding: f32,
     crosshair_origin: vec2<f32>, // Cell origin in world coordinates
     _padding2: vec2<f32>,
+    move_delta: vec2<f32>,       // Temporary world-space move translation
+    _padding3: vec2<f32>,
 }
 
 struct OutlineUniforms {
@@ -48,8 +50,9 @@ fn vs_main(
     @location(1) seg_p1: vec2<f32>,
 ) -> VertexOutput {
     // Points are already in screen coordinates (computed on CPU with f64 precision)
-    let screen_p0 = seg_p0;
-    let screen_p1 = seg_p1;
+    let screen_delta = viewport.move_delta * viewport.zoom;
+    let screen_p0 = seg_p0 + screen_delta;
+    let screen_p1 = seg_p1 + screen_delta;
 
     let delta = screen_p1 - screen_p0;
     let segment_length = length(delta);

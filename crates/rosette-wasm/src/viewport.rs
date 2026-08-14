@@ -135,11 +135,15 @@ pub struct ViewportUniform {
     pub crosshair_origin: [f32; 2],
     /// Padding for 16-byte alignment (total struct = 48 bytes).
     pub _padding2: [f32; 2],
+    /// Temporary world-space translation applied to active move geometry.
+    pub move_delta: [f32; 2],
+    /// Padding for 16-byte alignment (total struct = 64 bytes).
+    pub _padding3: [f32; 2],
 }
 
 impl ViewportUniform {
     /// Create from a viewport with the given crosshair origin in world coordinates.
-    pub fn from_viewport(vp: &Viewport, crosshair_origin: [f32; 2]) -> Self {
+    pub fn from_viewport(vp: &Viewport, crosshair_origin: [f32; 2], move_delta: [f32; 2]) -> Self {
         Self {
             offset: [vp.offset_x as f32, vp.offset_y as f32],
             zoom: vp.zoom as f32,
@@ -149,13 +153,15 @@ impl ViewportUniform {
             _padding: 0.0,
             crosshair_origin,
             _padding2: [0.0, 0.0],
+            move_delta,
+            _padding3: [0.0, 0.0],
         }
     }
 }
 
 impl From<&Viewport> for ViewportUniform {
     fn from(vp: &Viewport) -> Self {
-        Self::from_viewport(vp, [0.0, 0.0])
+        Self::from_viewport(vp, [0.0, 0.0], [0.0, 0.0])
     }
 }
 

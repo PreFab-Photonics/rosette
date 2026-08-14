@@ -14,6 +14,8 @@ struct Viewport {
     _padding: f32,
     crosshair_origin: vec2<f32>, // Cell origin in world coordinates
     _padding2: vec2<f32>,
+    move_delta: vec2<f32>,       // Temporary world-space move translation
+    _padding3: vec2<f32>,
 }
 
 struct VertexInput {
@@ -22,6 +24,7 @@ struct VertexInput {
     @location(2) fill_pattern: u32,         // 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick
     @location(3) bbox_center: vec2<f32>,     // World-space bbox center
     @location(4) bbox_size: vec2<f32>,       // World-space bbox dimensions
+    @location(5) move_selected: u32,          // 1 when move_delta applies
 }
 
 struct VertexOutput {
@@ -49,8 +52,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         vec2<f32>(1.0, 1.0),
         min_screen_size / safe_screen_size
     );
-    let center_screen = in.bbox_center * viewport.zoom + viewport.offset;
-    let screen_pos = center_screen + (in.position - in.bbox_center) * viewport.zoom * lod_scale;
+    let move_delta = select(vec2<f32>(0.0, 0.0), viewport.move_delta, in.move_selected != 0u);
+    let moved_center = in.bbox_center + move_delta;
+    let moved_position = in.position + move_delta;
+    let center_screen = moved_center * viewport.zoom + viewport.offset;
+    let screen_pos = center_screen + (moved_position - moved_center) * viewport.zoom * lod_scale;
 
     // Convert to NDC (-1 to 1)
     let ndc = vec2<f32>(
