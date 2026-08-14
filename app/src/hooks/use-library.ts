@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { WasmLibrary } from "@/wasm/rosette_wasm";
 import { useExplorerStore } from "@/stores/explorer";
-import type { CellNode } from "@/stores/explorer";
+import type { RawCellNode } from "@/stores/explorer";
 import {
   useLayerStore,
   hexToRgba,
@@ -165,7 +165,7 @@ interface DesignResponse {
   version: number;
   json: string | null;
   /** Cell hierarchy tree (design mode) or flat list (legacy). */
-  cells: CellNode | string[] | null;
+  cells: RawCellNode | string[] | null;
   /** Layer definitions from rosette.toml (if available). */
   layers: ServerLayerDef[] | null;
   /** Source filename (e.g., "layout.py" or "mmi.gds"). */
@@ -175,7 +175,7 @@ interface DesignResponse {
 }
 
 /** Type guard: is the cells payload a hierarchy tree? */
-function isCellTree(cells: CellNode | string[] | null): cells is CellNode {
+function isCellTree(cells: RawCellNode | string[] | null): cells is RawCellNode {
   return cells !== null && !Array.isArray(cells) && "name" in cells && "children" in cells;
 }
 
@@ -352,7 +352,7 @@ function resetDocumentStores(): void {
 function setupLibraryInStores(lib: WasmLibrary, projectName?: string): void {
   const tree = lib.get_cell_tree();
   if (tree) {
-    useExplorerStore.getState().setCellTree(tree);
+    useExplorerStore.getState().setCellTree(tree, { resetExpansion: true });
     const topCellName = lib.active_cell_name();
     if (topCellName) {
       useExplorerStore.getState().setActiveCell(topCellName);
@@ -470,7 +470,7 @@ export function useLibrary(
     // Set up explorer
     const tree = lib.get_cell_tree();
     if (tree) {
-      useExplorerStore.getState().setCellTree(tree);
+      useExplorerStore.getState().setCellTree(tree, { resetExpansion: true });
     } else {
       useExplorerStore.getState().setCells(["top"]);
     }
@@ -496,7 +496,7 @@ export function useLibrary(
       useExplorerStore.getState().setProjectName("untitled-project");
       const tree = lib.get_cell_tree();
       if (tree) {
-        useExplorerStore.getState().setCellTree(tree);
+        useExplorerStore.getState().setCellTree(tree, { resetExpansion: true });
       } else {
         useExplorerStore.getState().setCells(["top"]);
       }
@@ -651,7 +651,7 @@ export function useLibrary(
       useExplorerStore.getState().setProjectName("untitled-project");
       const tree = newLib.get_cell_tree();
       if (tree) {
-        useExplorerStore.getState().setCellTree(tree);
+        useExplorerStore.getState().setCellTree(tree, { resetExpansion: true });
       } else {
         useExplorerStore.getState().setCells(["top"]);
       }
@@ -874,7 +874,7 @@ export function useLibrary(
 
         const tree = newLibrary.get_cell_tree();
         if (tree) {
-          useExplorerStore.getState().setCellTree(tree);
+          useExplorerStore.getState().setCellTree(tree, { resetExpansion: true });
           const topCellName = newLibrary.active_cell_name();
           if (topCellName) {
             useExplorerStore.getState().setActiveCell(topCellName);

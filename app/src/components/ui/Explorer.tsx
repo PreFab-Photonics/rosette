@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavArrowLeft, NavArrowRight } from "iconoir-react";
-import { useExplorerStore } from "@/stores/explorer";
+import { cellOccurrenceId, cellOccurrencePath, useExplorerStore } from "@/stores/explorer";
 import { useContextMenuStore } from "@/stores/context-menu";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
@@ -13,15 +13,9 @@ import { RenameCellCommand, DeleteCellCommand } from "@/lib/commands";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useTabsStore, switchTab } from "@/stores/tabs";
-import {
-  getVisibleItems,
-  findParentInTree,
-  findNodeInTree,
-  focusedItemEquals,
-  findItemIndex,
-} from "./explorer/navigation";
+import { findFocusedRowIndex, focusedItemForRow, projectExplorerRows } from "./explorer/navigation";
 import { HamburgerMenu } from "./explorer/HamburgerMenu";
-import { CellRow, CellTreeNode } from "./explorer/CellTree";
+import { CellRow } from "./explorer/CellTree";
 import { TabList } from "./explorer/TabList";
 
 /**
@@ -126,6 +120,7 @@ export function Explorer() {
   const activeCell = useExplorerStore((s) => s.activeCell);
   const setActiveCell = useExplorerStore((s) => s.setActiveCell);
   const editingCellName = useExplorerStore((s) => s.editingCellName);
+  const editingCellOccurrenceId = useExplorerStore((s) => s.editingCellOccurrenceId);
   const expandedCells = useExplorerStore((s) => s.expandedCells);
   const toggleExpanded = useExplorerStore((s) => s.toggleExpanded);
   const cellsLoaded = useExplorerStore((s) => s.cellsLoaded);
@@ -138,6 +133,42 @@ export function Explorer() {
   const focusedItem = useExplorerStore((s) => s.focusedItem);
   const setFocused = useExplorerStore((s) => s.setFocused);
   const setFocusedItem = useExplorerStore((s) => s.setFocusedItem);
+  const tabs = useTabsStore((s) => s.tabs);
+
+  const rows = projectExplorerRows({
+    tabs,
+    cellTree,
+    cells,
+    expandedCells,
+    cellListMode,
+  });
+  const cellRows = rows.filter((row) => row.type === "cell");
+  const ariaSelectedOccurrenceId = cellRows.find((row) => row.name === activeCell)?.occurrenceId;
+  const cellTabStopOccurrenceId =
+    isFocused && focusedItem?.type === "cell"
+      ? focusedItem.occurrenceId
+      : !isFocused
+        ? (cellRows.find((row) => row.name === activeCell)?.occurrenceId ??
+          cellRows[0]?.occurrenceId)
+        : null;
+
+  useEffect(() => {
+    if (!isFocused || !focusedItem || rows.length === 0) return;
+    if (findFocusedRowIndex(rows, focusedItem) >= 0) return;
+
+    let fallback = null;
+    if (focusedItem.type === "cell") {
+      const path = cellOccurrencePath(focusedItem.occurrenceId);
+      for (let length = path.length - 1; length > 0 && !fallback; length--) {
+        const ancestorId = cellOccurrenceId(path.slice(0, length));
+        fallback = rows.find((row) => row.type === "cell" && row.occurrenceId === ancestorId);
+      }
+      fallback ??= rows.find((row) => row.type === "cell" && row.name === focusedItem.name);
+    }
+    fallback ??= rows.find((row) => row.type === "cell" && row.name === activeCell);
+    fallback ??= rows[0];
+    setFocusedItem(focusedItemForRow(fallback));
+  }, [activeCell, focusedItem, isFocused, rows, setFocusedItem]);
 
   // Claim keyboard focus when Explorer is keyboard-navigating
   useKeyboardFocus("explorer-panel", isFocused);
@@ -291,33 +322,42 @@ export function Explorer() {
       if (editing) return;
 
       const allTabs = useTabsStore.getState().tabs;
-      const items = getVisibleItems(allTabs, tree, allCells, expanded, listMode);
-      if (items.length === 0) return;
+      const projectedRows = projectExplorerRows({
+        tabs: allTabs,
+        cellTree: tree,
+        cells: allCells,
+        expandedCells: expanded,
+        cellListMode: listMode,
+      });
+      if (projectedRows.length === 0) return;
 
-      const currentIndex = findItemIndex(items, current);
+      const currentIndex = findFocusedRowIndex(projectedRows, current);
+      const currentRow = currentIndex >= 0 ? projectedRows[currentIndex] : null;
 
       switch (e.key) {
         case "ArrowDown": {
           e.preventDefault();
-          const nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
-          setFocusedItem(items[nextIndex]);
+          const nextIndex = currentIndex < projectedRows.length - 1 ? currentIndex + 1 : 0;
+          setFocusedItem(focusedItemForRow(projectedRows[nextIndex]));
           break;
         }
         case "ArrowUp": {
           e.preventDefault();
-          const prevIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
-          setFocusedItem(items[prevIndex]);
+          const prevIndex = currentIndex > 0 ? currentIndex - 1 : projectedRows.length - 1;
+          setFocusedItem(focusedItemForRow(projectedRows[prevIndex]));
           break;
         }
         case "ArrowRight": {
           // Only applies to cell items in nested mode — expand tree node or move to first child
           e.preventDefault();
-          if (current?.type === "cell" && tree && listMode === "nested") {
-            const node = findNodeInTree(tree, current.name);
-            if (node && node.children.length > 0 && !expanded.has(current.name)) {
-              toggleExpanded(current.name);
-            } else if (node && node.children.length > 0 && expanded.has(current.name)) {
-              setFocusedItem({ type: "cell", name: node.children[0].name });
+          if (currentRow?.type === "cell" && tree && listMode === "nested") {
+            if (currentRow.hasChildren && !currentRow.isExpanded) {
+              toggleExpanded(currentRow.occurrenceId);
+            } else if (currentRow.hasChildren && currentRow.isExpanded) {
+              const child = projectedRows[currentIndex + 1];
+              if (child?.type === "cell" && child.parentOccurrenceId === currentRow.occurrenceId) {
+                setFocusedItem(focusedItemForRow(child));
+              }
             }
           }
           break;
@@ -325,15 +365,14 @@ export function Explorer() {
         case "ArrowLeft": {
           // Only applies to cell items in nested mode — collapse tree node or move to parent
           e.preventDefault();
-          if (current?.type === "cell" && tree && listMode === "nested") {
-            const node = findNodeInTree(tree, current.name);
-            if (node && node.children.length > 0 && expanded.has(current.name)) {
-              toggleExpanded(current.name);
-            } else {
-              const parent = findParentInTree(tree, current.name);
-              if (parent) {
-                setFocusedItem({ type: "cell", name: parent });
-              }
+          if (currentRow?.type === "cell" && tree && listMode === "nested") {
+            if (currentRow.hasChildren && currentRow.isExpanded) {
+              toggleExpanded(currentRow.occurrenceId);
+            } else if (currentRow.parentOccurrenceId) {
+              const parent = projectedRows.find(
+                (row) => row.type === "cell" && row.occurrenceId === currentRow.parentOccurrenceId,
+              );
+              if (parent) setFocusedItem(focusedItemForRow(parent));
             }
           }
           break;
@@ -341,22 +380,26 @@ export function Explorer() {
         case " ": {
           // Space: activate the focused item
           e.preventDefault();
-          if (!current) break;
-          if (current.type === "tab") {
+          if (!currentRow) break;
+          if (currentRow.type === "tab") {
             // Switch to the focused tab
             const activeTabId = useTabsStore.getState().activeTabId;
-            if (current.id !== activeTabId) {
-              switchTab(activeTabId, current.id);
-              useTabsStore.getState().setActiveTab(current.id);
+            if (currentRow.id !== activeTabId) {
+              switchTab(activeTabId, currentRow.id);
+              useTabsStore.getState().setActiveTab(currentRow.id);
+              useExplorerStore.setState({
+                isFocused: true,
+                focusedItem: { type: "tab", id: currentRow.id },
+              });
             }
           } else {
             // Set focused cell as active cell
-            if (current.name === active) {
+            if (currentRow.name === active) {
               if (allCells.length > 1) {
                 setActiveCell(null);
               }
             } else {
-              setActiveCell(current.name);
+              setActiveCell(currentRow.name);
             }
           }
           break;
@@ -364,35 +407,38 @@ export function Explorer() {
         case "Enter": {
           // Enter: rename (cells only)
           e.preventDefault();
-          if (current?.type === "cell") {
-            useExplorerStore.getState().setEditingCellName(current.name);
+          if (currentRow?.type === "cell") {
+            useExplorerStore.getState().setEditingCell(currentRow.occurrenceId, currentRow.name);
           }
           break;
         }
         case "Delete":
         case "Backspace": {
           e.preventDefault();
-          if (!current) break;
-          if (current.type === "tab") {
+          if (!currentRow) break;
+          if (currentRow.type === "tab") {
             // Close the focused tab. The close-tab event is handled async,
             // so defer focus update to after the tab list has been updated.
             const closedIndex = currentIndex;
-            window.dispatchEvent(new CustomEvent("rosette-close-tab", { detail: current.id }));
+            window.dispatchEvent(new CustomEvent("rosette-close-tab", { detail: currentRow.id }));
             setTimeout(() => {
               const freshState = useExplorerStore.getState();
               const freshTabs = useTabsStore.getState().tabs;
-              const freshItems = getVisibleItems(
-                freshTabs,
-                freshState.cellTree,
-                freshState.cells,
-                freshState.expandedCells,
-                freshState.cellListMode,
-              );
-              if (freshItems.length === 0) {
-                setFocusedItem(null);
+              const freshRows = projectExplorerRows({
+                tabs: freshTabs,
+                cellTree: freshState.cellTree,
+                cells: freshState.cells,
+                expandedCells: freshState.expandedCells,
+                cellListMode: freshState.cellListMode,
+              });
+              if (freshRows.length === 0) {
+                useExplorerStore.setState({ isFocused: false, focusedItem: null });
               } else {
-                const idx = Math.min(closedIndex, freshItems.length - 1);
-                setFocusedItem(freshItems[idx]);
+                const idx = Math.min(closedIndex, freshRows.length - 1);
+                useExplorerStore.setState({
+                  isFocused: true,
+                  focusedItem: focusedItemForRow(freshRows[idx]),
+                });
               }
             }, 0);
           } else {
@@ -400,15 +446,22 @@ export function Explorer() {
             if (allCells.length > 1) {
               const { library, renderer } = useWasmContextStore.getState();
               if (library && renderer) {
-                const nextIndex =
-                  currentIndex < items.length - 1 ? currentIndex + 1 : currentIndex - 1;
-                const nextFocus = nextIndex >= 0 ? items[nextIndex] : null;
-
-                const command = new DeleteCellCommand(current.name);
+                const deletedIndex = currentIndex;
+                const command = new DeleteCellCommand(currentRow.name);
                 useHistoryStore.getState().execute(command, { library, renderer });
-
-                if (nextFocus && !focusedItemEquals(nextFocus, current)) {
-                  setFocusedItem(nextFocus);
+                const freshState = useExplorerStore.getState();
+                const freshRows = projectExplorerRows({
+                  tabs: useTabsStore.getState().tabs,
+                  cellTree: freshState.cellTree,
+                  cells: freshState.cells,
+                  expandedCells: freshState.expandedCells,
+                  cellListMode: freshState.cellListMode,
+                });
+                if (freshRows.length > 0) {
+                  const index = Math.min(deletedIndex, freshRows.length - 1);
+                  setFocusedItem(focusedItemForRow(freshRows[index]));
+                } else {
+                  setFocusedItem(null);
                 }
               }
             }
@@ -552,56 +605,50 @@ export function Explorer() {
         <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
 
         {/* Vertical tab list (shown when 2+ tabs are open) */}
-        <TabList isDark={isDark} focusedItem={isFocused ? focusedItem : null} />
+        <TabList
+          isDark={isDark}
+          focusedItem={isFocused ? focusedItem : null}
+          isKeyboardNavigationActive={isFocused}
+        />
 
         {/* Cell tree / list */}
         <ul
           ref={cellListRef}
+          role="tree"
           aria-label="Cells"
+          tabIndex={-1}
           className="m-0 flex list-none flex-col gap-0.5 overflow-y-auto p-0 py-1"
           style={{ maxHeight: "calc(100vh - 176px)" }}
         >
-          {cellTree && cellListMode === "nested"
-            ? /* Hierarchical tree view */
-              cellTree.map((root) => (
-                <CellTreeNode
-                  key={root.name}
-                  node={root}
-                  depth={0}
-                  isDark={isDark}
-                  activeCell={activeCell}
-                  focusedCellName={
-                    isFocused && focusedItem?.type === "cell" ? focusedItem.name : null
-                  }
-                  isKeyboardNavigationActive={isFocused}
-                  editingCellName={editingCellName}
-                  expandedCells={expandedCells}
-                  hiddenCells={hiddenCells}
-                  onSelect={handleSelectCell}
-                  onRename={handleRenameCell}
-                  onToggleExpand={toggleExpanded}
-                />
-              ))
-            : /* Flat list mode or no tree */
-              cells.map((name) => (
-                <CellRow
-                  key={name}
-                  name={name}
-                  isActive={name === activeCell}
-                  isFocused={isFocused && focusedItem?.type === "cell" && focusedItem.name === name}
-                  isKeyboardNavigationActive={isFocused}
-                  isDark={isDark}
-                  depth={0}
-                  hasChildren={false}
-                  isExpanded={false}
-                  isHidden={hiddenCells.has(name)}
-                  onToggleExpand={() => {}}
-                  onSelect={() => handleSelectCell(name)}
-                  onRename={(newName) => handleRenameCell(name, newName)}
-                  startEditing={editingCellName === name}
-                  canDrag={name !== activeCell}
-                />
-              ))}
+          {cellRows.map((row) => (
+            <CellRow
+              key={row.occurrenceId}
+              occurrenceId={row.occurrenceId}
+              name={row.name}
+              isActive={row.name === activeCell}
+              isAriaSelected={row.occurrenceId === ariaSelectedOccurrenceId}
+              isFocused={
+                isFocused &&
+                focusedItem?.type === "cell" &&
+                focusedItem.occurrenceId === row.occurrenceId
+              }
+              isTabStop={row.occurrenceId === cellTabStopOccurrenceId}
+              isDark={isDark}
+              depth={row.depth}
+              posInSet={row.posInSet}
+              setSize={row.setSize}
+              hasChildren={row.hasChildren}
+              isExpanded={row.isExpanded}
+              isHidden={hiddenCells.has(row.name)}
+              onToggleExpand={() => toggleExpanded(row.occurrenceId)}
+              onSelect={() => handleSelectCell(row.name)}
+              onRename={(newName) => handleRenameCell(row.name, newName)}
+              startEditing={
+                editingCellName === row.name && editingCellOccurrenceId === row.occurrenceId
+              }
+              canDrag={row.name !== activeCell}
+            />
+          ))}
         </ul>
 
         {/* Hierarchy level footer — controls rendering depth on canvas */}

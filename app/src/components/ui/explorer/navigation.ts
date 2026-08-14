@@ -1,102 +1,112 @@
-import type { CellNode, CellListMode, FocusedItem } from "@/stores/explorer";
+import {
+  cellOccurrenceId,
+  type CellListMode,
+  type CellNode,
+  type CellOccurrenceId,
+  type FocusedItem,
+} from "@/stores/explorer";
 
-/**
- * Flatten the cell tree into a visible-order list, respecting expanded state.
- *
- * Only descends into children of nodes that are in the `expandedCells` set.
- * Returns cell names in the order they appear visually in the Explorer.
- *
- * In flat mode (or when no tree exists), returns the flat `cells` array directly.
- */
-export function getVisibleCells(
-  cellTree: CellNode[] | null,
-  cells: string[],
-  expandedCells: Set<string>,
-  cellListMode: CellListMode = "nested",
-): string[] {
-  if (cellListMode === "flat" || !cellTree) return cells;
-  const result: string[] = [];
-  function walk(nodes: CellNode[]) {
-    for (const node of nodes) {
-      result.push(node.name);
-      if (node.children.length > 0 && expandedCells.has(node.name)) {
-        walk(node.children);
-      }
-    }
-  }
-  walk(cellTree);
-  return result;
+export type ExplorerRow =
+  | { type: "tab"; id: string }
+  | {
+      type: "cell";
+      occurrenceId: CellOccurrenceId;
+      name: string;
+      depth: number;
+      parentOccurrenceId: CellOccurrenceId | null;
+      hasChildren: boolean;
+      isExpanded: boolean;
+      posInSet: number;
+      setSize: number;
+    };
+
+interface ProjectExplorerRowsOptions {
+  tabs: readonly { id: string }[];
+  cellTree: readonly CellNode[] | null;
+  cells: readonly string[];
+  expandedCells: ReadonlySet<CellOccurrenceId>;
+  cellListMode: CellListMode;
 }
 
-/**
- * Find the parent cell name for a given cell name in the tree.
- * Returns null if the cell is a root or not found.
- */
-export function findParentInTree(cellTree: CellNode[] | null, targetName: string): string | null {
-  if (!cellTree) return null;
-  function search(nodes: CellNode[], parent: string | null): string | null {
-    for (const node of nodes) {
-      if (node.name === targetName) return parent;
-      const found = search(node.children, node.name);
-      if (found !== null) return found;
-    }
-    return null;
-  }
-  return search(cellTree, null);
-}
-
-/**
- * Find a CellNode by name in the tree.
- */
-export function findNodeInTree(cellTree: CellNode[] | null, name: string): CellNode | null {
-  if (!cellTree) return null;
-  function search(nodes: CellNode[]): CellNode | null {
-    for (const node of nodes) {
-      if (node.name === name) return node;
-      const found = search(node.children);
-      if (found) return found;
-    }
-    return null;
-  }
-  return search(cellTree);
-}
-
-/**
- * Build a unified list of focusable items: tabs (when 2+) followed by visible cells.
- * This determines the order for ArrowUp/ArrowDown navigation.
- */
-export function getVisibleItems(
-  tabs: Array<{ id: string }>,
-  cellTree: CellNode[] | null,
-  cells: string[],
-  expandedCells: Set<string>,
-  cellListMode: CellListMode = "nested",
-): FocusedItem[] {
-  const items: FocusedItem[] = [];
-  // Include tabs only when 2+ are open (matches TabList render condition)
+/** Build the authoritative visible row order for tabs and cells. */
+export function projectExplorerRows({
+  tabs,
+  cellTree,
+  cells,
+  expandedCells,
+  cellListMode,
+}: ProjectExplorerRowsOptions): ExplorerRow[] {
+  const rows: ExplorerRow[] = [];
   if (tabs.length > 1) {
-    for (const tab of tabs) {
-      items.push({ type: "tab", id: tab.id });
+    for (const tab of tabs) rows.push({ type: "tab", id: tab.id });
+  }
+
+  if (cellListMode === "flat" || !cellTree) {
+    for (const [index, name] of cells.entries()) {
+      rows.push({
+        type: "cell",
+        occurrenceId: cellOccurrenceId([name]),
+        name,
+        depth: 0,
+        parentOccurrenceId: null,
+        hasChildren: false,
+        isExpanded: false,
+        posInSet: index + 1,
+        setSize: cells.length,
+      });
     }
+    return rows;
   }
-  const visibleCells = getVisibleCells(cellTree, cells, expandedCells, cellListMode);
-  for (const name of visibleCells) {
-    items.push({ type: "cell", name });
-  }
-  return items;
+
+  const walk = (
+    nodes: readonly CellNode[],
+    depth: number,
+    parentOccurrenceId: CellOccurrenceId | null,
+  ) => {
+    for (const [index, node] of nodes.entries()) {
+      const hasChildren = node.children.length > 0;
+      const isExpanded = hasChildren && expandedCells.has(node.occurrenceId);
+      rows.push({
+        type: "cell",
+        occurrenceId: node.occurrenceId,
+        name: node.name,
+        depth,
+        parentOccurrenceId,
+        hasChildren,
+        isExpanded,
+        posInSet: index + 1,
+        setSize: nodes.length,
+      });
+      if (isExpanded) walk(node.children, depth + 1, node.occurrenceId);
+    }
+  };
+  walk(cellTree, 0, null);
+  return rows;
 }
 
-/** Check if two FocusedItem values are equal. */
+export function focusedItemForRow(row: ExplorerRow): FocusedItem {
+  return row.type === "tab"
+    ? row
+    : {
+        type: "cell",
+        occurrenceId: row.occurrenceId,
+        name: row.name,
+      };
+}
+
+/** Check if two focused items identify the same displayed row. */
 export function focusedItemEquals(a: FocusedItem | null, b: FocusedItem | null): boolean {
   if (a === null || b === null) return a === b;
   if (a.type !== b.type) return false;
   if (a.type === "tab" && b.type === "tab") return a.id === b.id;
-  if (a.type === "cell" && b.type === "cell") return a.name === b.name;
-  return false;
+  return a.type === "cell" && b.type === "cell" && a.occurrenceId === b.occurrenceId;
 }
 
-/** Find the index of a FocusedItem in a list. Returns -1 if not found. */
-export function findItemIndex(items: FocusedItem[], target: FocusedItem | null): number {
+/** Find the focused item in a projected row list. */
+export function findFocusedRowIndex(
+  rows: readonly ExplorerRow[],
+  target: FocusedItem | null,
+): number {
   if (!target) return -1;
-  return items.findIndex((item) => focusedItemEquals(item, target));
+  return rows.findIndex((row) => focusedItemEquals(focusedItemForRow(row), target));
 }

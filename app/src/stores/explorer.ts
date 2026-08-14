@@ -5,14 +5,28 @@ import { persist } from "zustand/middleware";
 // Types
 // =============================================================================
 
-/** A node in the cell hierarchy tree. */
+declare const cellOccurrenceIdBrand: unique symbol;
+
+/** Stable identity for one displayed occurrence in the cell hierarchy. */
+export type CellOccurrenceId = string & { readonly [cellOccurrenceIdBrand]: true };
+
+/** Raw hierarchy node received from WASM or the design server. */
+export interface RawCellNode {
+  name: string;
+  children: RawCellNode[];
+}
+
+/** Normalized hierarchy node used by the Explorer UI. */
 export interface CellNode {
+  occurrenceId: CellOccurrenceId;
   name: string;
   children: CellNode[];
 }
 
 /** Item currently highlighted by the keyboard cursor in the Explorer. */
-export type FocusedItem = { type: "tab"; id: string } | { type: "cell"; name: string };
+export type FocusedItem =
+  | { type: "tab"; id: string }
+  | { type: "cell"; occurrenceId: CellOccurrenceId; name: string };
 
 /** How the cell list is displayed in the Explorer panel. */
 export type CellListMode = "nested" | "flat";
@@ -30,12 +44,18 @@ interface ExplorerState {
   cells: string[];
   /** Hierarchy tree roots (one per top-level cell). */
   cellTree: CellNode[] | null;
-  /** Set of cell names whose tree nodes are expanded. */
-  expandedCells: Set<string>;
+  /** Set of hierarchy occurrences whose children are expanded. */
+  expandedCells: Set<CellOccurrenceId>;
+  /** Whether initial hierarchy expansion has been established for this document. */
+  expansionInitialized: boolean;
+  /** Whether this document has ever contained an expandable hierarchy node. */
+  hasSeenHierarchy: boolean;
   /** Currently selected cell name, or null. */
   activeCell: string | null;
   /** Cell name currently being edited inline (for rename), or null. */
   editingCellName: string | null;
+  /** Exact cell occurrence currently being edited inline, or null. */
+  editingCellOccurrenceId: CellOccurrenceId | null;
   /** True once `setCells` has been called at least once (WASM/design loaded). */
   cellsLoaded: boolean;
   /** Maximum rendering depth for the hierarchy tree (1 = roots only). */
@@ -57,15 +77,17 @@ interface ExplorerState {
   /** Replace the cell list (called when a design loads or updates). */
   setCells: (cells: string[]) => void;
   /** Set the cell hierarchy tree roots. */
-  setCellTree: (roots: CellNode[]) => void;
+  setCellTree: (roots: RawCellNode[], options?: { resetExpansion?: boolean }) => void;
   /** Toggle a tree node's expanded/collapsed state. */
-  toggleExpanded: (name: string) => void;
+  toggleExpanded: (occurrenceId: CellOccurrenceId) => void;
   /** Set the maximum hierarchy rendering depth. */
   setHierarchyLevelLimit: (limit: number) => void;
   /** Select a cell by name. */
   setActiveCell: (name: string | null) => void;
   /** Set the cell name that should enter inline edit mode. */
   setEditingCellName: (name: string | null) => void;
+  /** Set the exact cell occurrence that should enter inline edit mode. */
+  setEditingCell: (occurrenceId: CellOccurrenceId, name: string) => void;
   /** Rename a cell in the local list. */
   renameCell: (oldName: string, newName: string) => void;
   /** Remove a cell from the local list. */
@@ -84,6 +106,27 @@ interface ExplorerState {
   setFocused: (focused: boolean) => void;
   /** Set the keyboard-cursor item (tab or cell). */
   setFocusedItem: (item: FocusedItem | null) => void;
+}
+
+/** Encode a complete cell-name path without separator collisions. */
+export function cellOccurrenceId(path: readonly string[]): CellOccurrenceId {
+  return JSON.stringify(path) as CellOccurrenceId;
+}
+
+/** Decode an internally generated occurrence ID. */
+export function cellOccurrencePath(occurrenceId: CellOccurrenceId): string[] {
+  return JSON.parse(occurrenceId) as string[];
+}
+
+/** Remap every path segment affected by a globally unique cell rename. */
+export function remapCellOccurrenceId(
+  occurrenceId: CellOccurrenceId,
+  oldName: string,
+  newName: string,
+): CellOccurrenceId {
+  return cellOccurrenceId(
+    cellOccurrencePath(occurrenceId).map((segment) => (segment === oldName ? newName : segment)),
+  );
 }
 
 /** Collect all cell names from a single tree node into a flat list. */
@@ -110,26 +153,65 @@ function flattenRoots(roots: CellNode[]): string[] {
   return names;
 }
 
-/** Collect names of nodes that have children (for auto-expand). */
-function collectParentNames(node: CellNode): string[] {
-  const names: string[] = [];
+/** Collect occurrence IDs of nodes that have children. */
+function collectParentIds(node: CellNode): CellOccurrenceId[] {
+  const ids: CellOccurrenceId[] = [];
   if (node.children.length > 0) {
-    names.push(node.name);
+    ids.push(node.occurrenceId);
     for (const child of node.children) {
-      names.push(...collectParentNames(child));
+      ids.push(...collectParentIds(child));
     }
   }
-  return names;
+  return ids;
 }
 
-/** Return a copy of the cell tree sorted alphabetically by node name at every level. */
-function sortCellTree(nodes: CellNode[]): CellNode[] {
+function hasExpandableNodes(nodes: readonly CellNode[] | null): boolean {
+  if (!nodes) return false;
+  return nodes.some((node) => node.children.length > 0 || hasExpandableNodes(node.children));
+}
+
+/** Sort and add deterministic occurrence identities at every hierarchy level. */
+function normalizeCellTree(nodes: RawCellNode[], parentPath: readonly string[] = []): CellNode[] {
   return [...nodes]
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((node) => ({
-      ...node,
-      children: node.children.length > 0 ? sortCellTree(node.children) : node.children,
-    }));
+    .map((node) => {
+      const path = [...parentPath, node.name];
+      return {
+        occurrenceId: cellOccurrenceId(path),
+        name: node.name,
+        children: normalizeCellTree(node.children, path),
+      };
+    });
+}
+
+function findFirstOccurrence(
+  nodes: readonly CellNode[] | null,
+  name: string,
+): CellOccurrenceId | null {
+  if (!nodes) return null;
+  for (const node of nodes) {
+    if (node.name === name) return node.occurrenceId;
+    const child = findFirstOccurrence(node.children, name);
+    if (child) return child;
+  }
+  return null;
+}
+
+function collectOccurrenceIds(nodes: readonly CellNode[]): Set<CellOccurrenceId> {
+  const ids = new Set<CellOccurrenceId>();
+  for (const node of nodes) {
+    ids.add(node.occurrenceId);
+    for (const childId of collectOccurrenceIds(node.children)) ids.add(childId);
+  }
+  return ids;
+}
+
+function renameCellTree(nodes: readonly CellNode[], oldName: string, newName: string): CellNode[] {
+  return nodes.map((node) => ({
+    occurrenceId: remapCellOccurrenceId(node.occurrenceId, oldName, newName),
+    name: node.name === oldName ? newName : node.name,
+    children: renameCellTree(node.children, oldName, newName),
+  }));
 }
 
 /** Compute the maximum nesting depth of a tree (1-indexed: a single root with no children = 1). */
@@ -155,9 +237,12 @@ export const useExplorerStore = create<ExplorerState>()(
       projectName: "untitled-project",
       cells: [],
       cellTree: null,
-      expandedCells: new Set<string>(),
+      expandedCells: new Set<CellOccurrenceId>(),
+      expansionInitialized: false,
+      hasSeenHierarchy: false,
       activeCell: null,
       editingCellName: null,
+      editingCellOccurrenceId: null,
       cellsLoaded: false,
       hierarchyLevelLimit: Infinity,
       maxTreeDepth: 0,
@@ -175,50 +260,90 @@ export const useExplorerStore = create<ExplorerState>()(
             state.activeCell && sorted.includes(state.activeCell)
               ? state.activeCell
               : (sorted[0] ?? null);
-          return { cells: sorted, activeCell, cellsLoaded: true };
+          return {
+            cells: sorted,
+            cellTree: null,
+            expandedCells: new Set<CellOccurrenceId>(),
+            expansionInitialized: false,
+            hasSeenHierarchy: false,
+            activeCell,
+            cellsLoaded: true,
+            maxTreeDepth: 0,
+          };
         }),
-      setCellTree: (roots) =>
+      setCellTree: (roots, options) =>
         set((state) => {
-          const sorted = sortCellTree(roots);
+          const sorted = normalizeCellTree(roots);
           const cells = flattenRoots(sorted);
           const maxTreeDepth = computeMaxDepth(sorted);
-          // Auto-expand all parent nodes on first load
+          const resetExpansion = options?.resetExpansion === true;
+          const hasHierarchy = hasExpandableNodes(sorted);
           const expandedCells =
-            state.expandedCells.size === 0
-              ? new Set(sorted.flatMap(collectParentNames))
+            !state.expansionInitialized ||
+            resetExpansion ||
+            (!state.hasSeenHierarchy && hasHierarchy)
+              ? new Set(sorted.flatMap(collectParentIds))
               : state.expandedCells;
           const activeCell =
             state.activeCell && cells.includes(state.activeCell)
               ? state.activeCell
               : (cells[0] ?? null);
-          // Clear keyboard cursor if the focused cell no longer exists
-          const focusedItem =
-            state.focusedItem?.type === "cell" && !cells.includes(state.focusedItem.name)
-              ? null
-              : state.focusedItem;
+          const occurrenceIds = collectOccurrenceIds(sorted);
+          let focusedItem = state.focusedItem;
+          if (focusedItem?.type === "cell" && !occurrenceIds.has(focusedItem.occurrenceId)) {
+            const fallback = findFirstOccurrence(sorted, focusedItem.name);
+            focusedItem = fallback
+              ? { type: "cell", occurrenceId: fallback, name: focusedItem.name }
+              : null;
+          }
+          const editingCellOccurrenceId =
+            state.editingCellOccurrenceId && occurrenceIds.has(state.editingCellOccurrenceId)
+              ? state.editingCellOccurrenceId
+              : null;
           return {
             cellTree: sorted,
             cells,
             expandedCells,
+            expansionInitialized: true,
+            hasSeenHierarchy: resetExpansion
+              ? hasHierarchy
+              : state.hasSeenHierarchy || hasHierarchy,
             activeCell,
             focusedItem,
+            editingCellName: editingCellOccurrenceId ? state.editingCellName : null,
+            editingCellOccurrenceId,
             maxTreeDepth,
             cellsLoaded: true,
           };
         }),
-      toggleExpanded: (name) =>
+      toggleExpanded: (occurrenceId) =>
         set((state) => {
           const next = new Set(state.expandedCells);
-          if (next.has(name)) {
-            next.delete(name);
+          if (next.has(occurrenceId)) {
+            next.delete(occurrenceId);
           } else {
-            next.add(name);
+            next.add(occurrenceId);
           }
           return { expandedCells: next };
         }),
       setHierarchyLevelLimit: (limit) => set({ hierarchyLevelLimit: limit }),
       setActiveCell: (name) => set({ activeCell: name }),
-      setEditingCellName: (name) => set({ editingCellName: name }),
+      setEditingCellName: (name) =>
+        set((state) => {
+          if (name === null) return { editingCellName: null, editingCellOccurrenceId: null };
+          const focusedOccurrence =
+            state.focusedItem?.type === "cell" && state.focusedItem.name === name
+              ? state.focusedItem.occurrenceId
+              : null;
+          const occurrenceId =
+            focusedOccurrence ??
+            (state.cellListMode === "nested"
+              ? (findFirstOccurrence(state.cellTree, name) ?? cellOccurrenceId([name]))
+              : cellOccurrenceId([name]));
+          return { editingCellName: name, editingCellOccurrenceId: occurrenceId };
+        }),
+      setEditingCell: (occurrenceId, name) =>
+        set({ editingCellName: name, editingCellOccurrenceId: occurrenceId }),
       renameCell: (oldName, newName) =>
         set((state) => {
           const cells = state.cells
@@ -226,15 +351,38 @@ export const useExplorerStore = create<ExplorerState>()(
             .sort((a, b) => a.localeCompare(b));
           const activeCell = state.activeCell === oldName ? newName : state.activeCell;
           const focusedItem =
-            state.focusedItem?.type === "cell" && state.focusedItem.name === oldName
-              ? { type: "cell" as const, name: newName }
+            state.focusedItem?.type === "cell"
+              ? {
+                  type: "cell" as const,
+                  occurrenceId: remapCellOccurrenceId(
+                    state.focusedItem.occurrenceId,
+                    oldName,
+                    newName,
+                  ),
+                  name: state.focusedItem.name === oldName ? newName : state.focusedItem.name,
+                }
               : state.focusedItem;
+          const expandedCells = new Set(
+            [...state.expandedCells].map((id) => remapCellOccurrenceId(id, oldName, newName)),
+          );
+          const editingCellOccurrenceId = state.editingCellOccurrenceId
+            ? remapCellOccurrenceId(state.editingCellOccurrenceId, oldName, newName)
+            : null;
           const hiddenCells = new Set(state.hiddenCells);
           if (hiddenCells.has(oldName)) {
             hiddenCells.delete(oldName);
             hiddenCells.add(newName);
           }
-          return { cells, activeCell, focusedItem, hiddenCells };
+          return {
+            cells,
+            cellTree: state.cellTree ? renameCellTree(state.cellTree, oldName, newName) : null,
+            expandedCells,
+            activeCell,
+            focusedItem,
+            editingCellName: state.editingCellName === oldName ? newName : state.editingCellName,
+            editingCellOccurrenceId,
+            hiddenCells,
+          };
         }),
       removeCell: (name) =>
         set((state) => {
@@ -246,7 +394,15 @@ export const useExplorerStore = create<ExplorerState>()(
               : state.focusedItem;
           const hiddenCells = new Set(state.hiddenCells);
           hiddenCells.delete(name);
-          return { cells, activeCell, focusedItem, hiddenCells };
+          return {
+            cells,
+            activeCell,
+            focusedItem,
+            editingCellName: state.editingCellName === name ? null : state.editingCellName,
+            editingCellOccurrenceId:
+              state.editingCellName === name ? null : state.editingCellOccurrenceId,
+            hiddenCells,
+          };
         }),
       addCell: (name) =>
         set((state) => {
@@ -266,15 +422,31 @@ export const useExplorerStore = create<ExplorerState>()(
         }),
       showAllCells: () => set({ hiddenCells: new Set<string>() }),
       hideAllCells: () => set((state) => ({ hiddenCells: new Set(state.cells) })),
-      setCellListMode: (mode) => set({ cellListMode: mode }),
+      setCellListMode: (mode) =>
+        set((state) => {
+          if (state.focusedItem?.type !== "cell") return { cellListMode: mode };
+          const occurrenceId =
+            mode === "flat"
+              ? cellOccurrenceId([state.focusedItem.name])
+              : findFirstOccurrence(state.cellTree, state.focusedItem.name);
+          return {
+            cellListMode: mode,
+            focusedItem: occurrenceId ? { ...state.focusedItem, occurrenceId } : state.focusedItem,
+          };
+        }),
       setFocused: (focused) =>
         set((state) => {
           if (focused) {
+            if (state.isFocused && state.focusedItem) return state;
             // When focusing, initialize cursor to activeCell or first cell
             const cellName = state.activeCell ?? state.cells[0] ?? null;
-            const focusedItem: FocusedItem | null = cellName
-              ? { type: "cell", name: cellName }
+            const occurrenceId = cellName
+              ? state.cellListMode === "nested"
+                ? findFirstOccurrence(state.cellTree, cellName)
+                : cellOccurrenceId([cellName])
               : null;
+            const focusedItem: FocusedItem | null =
+              cellName && occurrenceId ? { type: "cell", occurrenceId, name: cellName } : null;
             return { isFocused: true, focusedItem };
           }
           return { isFocused: false, focusedItem: null };

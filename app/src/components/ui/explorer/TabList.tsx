@@ -1,8 +1,9 @@
 import { useEffect, useRef, useCallback } from "react";
-import type { FocusedItem } from "@/stores/explorer";
+import { useExplorerStore, type FocusedItem } from "@/stores/explorer";
 import { useTabsStore, switchTab } from "@/stores/tabs";
 import type { Tab } from "@/stores/tabs";
 import { cn } from "@/lib/utils";
+import { panelRowStateClassName } from "@/components/ui/panel-row";
 
 /**
  * Single tab row in the vertical tab list.
@@ -12,7 +13,9 @@ export function TabRow({
   tab,
   isActive,
   isFocused,
+  isKeyboardNavigationActive,
   isDark,
+  onFocus,
   onSelect,
   onClose,
   onMiddleClick,
@@ -21,7 +24,9 @@ export function TabRow({
   isActive: boolean;
   /** Whether this tab has the keyboard navigation cursor. */
   isFocused: boolean;
+  isKeyboardNavigationActive: boolean;
   isDark: boolean;
+  onFocus: () => void;
   onSelect: () => void;
   onClose: (e: React.MouseEvent) => void;
   onMiddleClick: (e: React.MouseEvent) => void;
@@ -31,7 +36,10 @@ export function TabRow({
   // Scroll the focused row into view when it becomes focused
   useEffect(() => {
     if (isFocused && rowRef.current) {
-      rowRef.current.scrollIntoView({ block: "nearest" });
+      if (document.activeElement !== rowRef.current) {
+        rowRef.current.focus({ preventScroll: true });
+      }
+      rowRef.current.scrollIntoView?.({ block: "nearest" });
     }
   }, [isFocused]);
 
@@ -39,27 +47,18 @@ export function TabRow({
     <div
       ref={rowRef}
       role="tab"
-      tabIndex={0}
+      tabIndex={isFocused || (!isKeyboardNavigationActive && isActive) ? 0 : -1}
       aria-selected={isActive}
       className={cn(
         "group mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center gap-1.5 rounded-lg py-1.5 pr-1 pl-2 transition-colors",
-        isActive
-          ? isDark
-            ? "bg-[rgb(54,54,54)] text-white/90"
-            : "bg-[rgb(217,217,217)] text-black/90"
-          : isFocused
-            ? isDark
-              ? "bg-[rgb(44,44,44)] text-white/90"
-              : "bg-[rgb(227,227,227)] text-black/90"
-            : isDark
-              ? "text-white/70 hover:bg-[rgb(54,54,54)] hover:text-white/90"
-              : "text-black/70 hover:bg-[rgb(217,217,217)] hover:text-black/90",
-        isFocused && (isDark ? "ring-1 ring-white/25" : "ring-1 ring-black/20"),
+        panelRowStateClassName({ isActive, isFocused, isDark }),
       )}
       onClick={onSelect}
+      onFocus={onFocus}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
+          e.stopPropagation();
           onSelect();
         }
       }}
@@ -119,9 +118,11 @@ export function TabRow({
 export function TabList({
   isDark,
   focusedItem,
+  isKeyboardNavigationActive,
 }: {
   isDark: boolean;
   focusedItem: FocusedItem | null;
+  isKeyboardNavigationActive: boolean;
 }) {
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
@@ -129,8 +130,15 @@ export function TabList({
   const handleTabSelect = useCallback(
     (tabId: string) => {
       if (tabId === activeTabId) return;
+      const preserveExplorerFocus = useExplorerStore.getState().isFocused;
       switchTab(activeTabId, tabId);
       useTabsStore.getState().setActiveTab(tabId);
+      if (preserveExplorerFocus) {
+        useExplorerStore.setState({
+          isFocused: true,
+          focusedItem: { type: "tab", id: tabId },
+        });
+      }
     },
     [activeTabId],
   );
@@ -153,14 +161,30 @@ export function TabList({
 
   return (
     <>
-      <div className="flex flex-col gap-0.5 py-1">
+      <div
+        role="tablist"
+        aria-label="Open designs"
+        aria-orientation="vertical"
+        className="flex flex-col gap-0.5 py-1"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            useExplorerStore.getState().setFocused(false);
+          }
+        }}
+      >
         {tabs.map((tab) => (
           <TabRow
             key={tab.id}
             tab={tab}
             isActive={tab.id === activeTabId}
             isFocused={focusedItem?.type === "tab" && focusedItem.id === tab.id}
+            isKeyboardNavigationActive={isKeyboardNavigationActive}
             isDark={isDark}
+            onFocus={() => {
+              const store = useExplorerStore.getState();
+              if (!store.isFocused) store.setFocused(true);
+              store.setFocusedItem({ type: "tab", id: tab.id });
+            }}
             onSelect={() => handleTabSelect(tab.id)}
             onClose={(e) => handleTabClose(e, tab.id)}
             onMiddleClick={(e) => handleMiddleClick(e, tab.id)}

@@ -18,7 +18,7 @@ import type { WasmLibrary } from "@/wasm/rosette_wasm";
 import type { Layer } from "@/stores/layer";
 import type { Command } from "@/lib/commands";
 import type { Ruler } from "@/stores/ruler";
-import type { CellNode } from "@/stores/explorer";
+import type { CellNode, CellOccurrenceId } from "@/stores/explorer";
 import type { PathMetadata } from "@/stores/path";
 import type { ClipboardSnapshot } from "@/stores/clipboard";
 import type { ToolType } from "@/stores/tool";
@@ -84,7 +84,9 @@ export interface TabSnapshot {
     projectName: string;
     cells: string[];
     cellTree: CellNode[] | null;
-    expandedCells: Set<string>;
+    expandedCells: Set<CellOccurrenceId>;
+    expansionInitialized: boolean;
+    hasSeenHierarchy: boolean;
     activeCell: string | null;
     cellsLoaded: boolean;
     hierarchyLevelLimit: number;
@@ -272,6 +274,8 @@ export function saveTabSnapshot(tabId: string): void {
       cells: [...explorer.cells],
       cellTree: explorer.cellTree,
       expandedCells: new Set(explorer.expandedCells),
+      expansionInitialized: explorer.expansionInitialized,
+      hasSeenHierarchy: explorer.hasSeenHierarchy,
       activeCell: explorer.activeCell,
       cellsLoaded: explorer.cellsLoaded,
       hierarchyLevelLimit: explorer.hierarchyLevelLimit,
@@ -351,8 +355,11 @@ export function restoreTabSnapshot(tabId: string): void {
     cells: [...snapshot.explorer.cells],
     cellTree: snapshot.explorer.cellTree,
     expandedCells: new Set(snapshot.explorer.expandedCells),
+    expansionInitialized: snapshot.explorer.expansionInitialized,
+    hasSeenHierarchy: snapshot.explorer.hasSeenHierarchy,
     activeCell: snapshot.explorer.activeCell,
     editingCellName: null,
+    editingCellOccurrenceId: null,
     cellsLoaded: snapshot.explorer.cellsLoaded,
     hierarchyLevelLimit: snapshot.explorer.hierarchyLevelLimit,
     maxTreeDepth: snapshot.explorer.maxTreeDepth,
@@ -485,6 +492,8 @@ function createDefaultSnapshot(): TabSnapshot {
       cells: ["top"],
       cellTree: null,
       expandedCells: new Set(),
+      expansionInitialized: false,
+      hasSeenHierarchy: false,
       activeCell: "top",
       cellsLoaded: true,
       hierarchyLevelLimit: Infinity,

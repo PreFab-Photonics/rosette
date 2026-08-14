@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { CellNode } from "@/stores/explorer";
-import { useExplorerStore } from "@/stores/explorer";
+import { useExplorerStore, type CellOccurrenceId } from "@/stores/explorer";
 import { useContextMenuStore } from "@/stores/context-menu";
 import { useCellDragStore } from "@/stores/cell-drag";
 import { useWasmContextStore } from "@/stores/wasm-context";
@@ -36,12 +35,16 @@ export function ChevronIcon({ expanded, isDark }: { expanded: boolean; isDark: b
  * (triggered externally via the explorer store's `editingCellName`).
  */
 export function CellRow({
+  occurrenceId,
   name,
   isActive,
+  isAriaSelected,
   isFocused,
-  isKeyboardNavigationActive,
+  isTabStop,
   isDark,
   depth,
+  posInSet,
+  setSize,
   hasChildren,
   isExpanded,
   isHidden,
@@ -51,14 +54,19 @@ export function CellRow({
   startEditing,
   canDrag,
 }: {
+  occurrenceId: CellOccurrenceId;
   name: string;
   isActive: boolean;
+  /** Whether this canonical occurrence represents the active cell to assistive technology. */
+  isAriaSelected: boolean;
   /** Whether this cell has the keyboard navigation cursor. */
   isFocused: boolean;
-  /** Whether the Explorer currently owns keyboard navigation. */
-  isKeyboardNavigationActive: boolean;
+  /** Whether this occurrence is the Explorer's current tab stop. */
+  isTabStop: boolean;
   isDark: boolean;
   depth: number;
+  posInSet: number;
+  setSize: number;
   hasChildren: boolean;
   isExpanded: boolean;
   /** Whether this cell's internal geometry is hidden. */
@@ -71,7 +79,7 @@ export function CellRow({
   canDrag: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
-  const rowRef = useRef<HTMLButtonElement>(null);
+  const rowRef = useRef<HTMLLIElement>(null);
 
   const {
     inputRef,
@@ -88,13 +96,13 @@ export function CellRow({
 
   // Scroll the focused row into view when it becomes focused
   useEffect(() => {
-    if (isFocused && rowRef.current) {
+    if (isFocused && !isEditing && rowRef.current) {
       if (document.activeElement !== rowRef.current) {
         rowRef.current.focus({ preventScroll: true });
       }
       rowRef.current.scrollIntoView?.({ block: "nearest" });
     }
-  }, [isFocused]);
+  }, [isEditing, isFocused]);
 
   // Enter edit mode when triggered externally (e.g., from context menu "Rename")
   useEffect(() => {
@@ -109,9 +117,10 @@ export function CellRow({
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      useExplorerStore.getState().setFocusedItem({ type: "cell", occurrenceId, name });
       useContextMenuStore.getState().open("cell", { x: e.clientX, y: e.clientY }, name);
     },
-    [name],
+    [name, occurrenceId],
   );
 
   const handleChevronClick = useCallback(
@@ -125,8 +134,8 @@ export function CellRow({
   const handleRowFocus = useCallback(() => {
     const store = useExplorerStore.getState();
     if (!store.isFocused) store.setFocused(true);
-    store.setFocusedItem({ type: "cell", name });
-  }, [name]);
+    store.setFocusedItem({ type: "cell", occurrenceId, name });
+  }, [name, occurrenceId]);
 
   const handleRowClick = useCallback(() => {
     handleRowFocus();
@@ -206,41 +215,45 @@ export function CellRow({
 
   return (
     <li
+      ref={rowRef}
+      role="treeitem"
+      aria-label={name}
+      aria-expanded={hasChildren ? isExpanded : undefined}
+      aria-level={depth + 1}
+      aria-posinset={posInSet}
+      aria-selected={isAriaSelected}
+      aria-setsize={setSize}
+      data-occurrence-id={occurrenceId}
       className={cn(
         "relative mx-1 flex min-w-0 w-[calc(100%-8px)] cursor-pointer items-center rounded-lg border-0 py-1.5 text-left transition-colors focus:outline-none",
         panelRowStateClassName({ isActive, isFocused, isDark }),
       )}
       style={{ paddingLeft: `${7 + depth * 10}px`, paddingRight: "7px" }}
+      onClick={handleRowClick}
+      onContextMenu={handleContextMenu}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        setIsEditing(true);
+      }}
+      onFocus={handleRowFocus}
+      onKeyDown={handleRowKeyDown}
+      onMouseDown={handleCellMouseDown}
+      tabIndex={isTabStop ? 0 : -1}
     >
-      {!isEditing && (
-        <button
-          ref={rowRef}
-          type="button"
-          aria-label={name}
-          aria-current={isActive ? "true" : undefined}
-          className="absolute inset-0 cursor-pointer rounded-lg border-0 bg-transparent p-0 outline-none"
-          onClick={handleRowClick}
-          onContextMenu={handleContextMenu}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            setIsEditing(true);
-          }}
-          onFocus={handleRowFocus}
-          onKeyDown={handleRowKeyDown}
-          onMouseDown={handleCellMouseDown}
-          tabIndex={isFocused || (!isKeyboardNavigationActive && isActive) ? 0 : -1}
-        />
-      )}
-
       {/* Expand/collapse chevron (or spacer for leaves) */}
       {hasChildren ? (
         <button
           type="button"
-          aria-label={isExpanded ? `Collapse ${name}` : `Expand ${name}`}
+          aria-hidden="true"
           className="relative z-10 mr-0.5 flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center bg-transparent border-none p-0"
           onClick={handleChevronClick}
           onContextMenu={handleContextMenu}
+          onDoubleClick={(event) => event.stopPropagation()}
           onKeyDown={handleRowKeyDown}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
           tabIndex={-1}
         >
           <ChevronIcon expanded={isExpanded} isDark={isDark} />
@@ -249,7 +262,7 @@ export function CellRow({
         <span className="pointer-events-none relative z-10 mr-0.5 h-4 w-4 flex-shrink-0" />
       )}
 
-      <div className="pointer-events-none relative z-10 h-5 min-w-0 flex-1">
+      <div className="relative z-10 h-5 min-w-0 flex-1">
         {isEditing ? (
           <input
             ref={inputRef}
@@ -259,15 +272,17 @@ export function CellRow({
             onBlur={handleNameSubmit}
             onKeyDown={handleRenameKeyDown}
             onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             className={cn(
-              "pointer-events-auto absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-sm leading-5 outline-none focus:ring-0",
+              "absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-sm leading-5 outline-none focus:ring-0",
               isDark ? "text-white/90" : "text-black/90",
             )}
           />
         ) : (
           <span
             className={cn(
-              "absolute inset-0 truncate text-sm leading-5 select-none",
+              "pointer-events-none absolute inset-0 truncate text-sm leading-5 select-none",
               isHidden && "opacity-40",
             )}
           >
@@ -276,84 +291,6 @@ export function CellRow({
         )}
       </div>
     </li>
-  );
-}
-
-/**
- * Recursive tree node renderer for the cell hierarchy.
- */
-export function CellTreeNode({
-  node,
-  depth,
-  isDark,
-  activeCell,
-  focusedCellName,
-  isKeyboardNavigationActive,
-  editingCellName,
-  expandedCells,
-  hiddenCells,
-  onSelect,
-  onRename,
-  onToggleExpand,
-}: {
-  node: CellNode;
-  depth: number;
-  isDark: boolean;
-  activeCell: string | null;
-  focusedCellName: string | null;
-  isKeyboardNavigationActive: boolean;
-  editingCellName: string | null;
-  expandedCells: Set<string>;
-  hiddenCells: Set<string>;
-  onSelect: (name: string) => void;
-  onRename: (oldName: string, newName: string) => void;
-  onToggleExpand: (name: string) => void;
-}) {
-  const hasChildren = node.children.length > 0;
-  const isExpanded = expandedCells.has(node.name);
-
-  // A cell can be dragged to create an instance if it's not the active cell.
-  // You can't instance a cell inside itself.
-  const canDrag = node.name !== activeCell;
-
-  return (
-    <>
-      <CellRow
-        name={node.name}
-        isActive={node.name === activeCell}
-        isFocused={node.name === focusedCellName}
-        isKeyboardNavigationActive={isKeyboardNavigationActive}
-        isDark={isDark}
-        depth={depth}
-        hasChildren={hasChildren}
-        isExpanded={isExpanded}
-        isHidden={hiddenCells.has(node.name)}
-        onToggleExpand={() => onToggleExpand(node.name)}
-        onSelect={() => onSelect(node.name)}
-        onRename={(newName) => onRename(node.name, newName)}
-        startEditing={editingCellName === node.name}
-        canDrag={canDrag}
-      />
-      {hasChildren &&
-        isExpanded &&
-        node.children.map((child) => (
-          <CellTreeNode
-            key={`${node.name}/${child.name}`}
-            node={child}
-            depth={depth + 1}
-            isDark={isDark}
-            activeCell={activeCell}
-            focusedCellName={focusedCellName}
-            isKeyboardNavigationActive={isKeyboardNavigationActive}
-            editingCellName={editingCellName}
-            expandedCells={expandedCells}
-            hiddenCells={hiddenCells}
-            onSelect={onSelect}
-            onRename={onRename}
-            onToggleExpand={onToggleExpand}
-          />
-        ))}
-    </>
   );
 }
 

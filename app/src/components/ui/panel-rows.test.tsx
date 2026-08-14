@@ -2,10 +2,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LAYERS, useLayerStore } from "@/stores/layer";
-import { useExplorerStore } from "@/stores/explorer";
+import { cellOccurrenceId, useExplorerStore } from "@/stores/explorer";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useContextMenuStore } from "@/stores/context-menu";
+import { useTabsStore } from "@/stores/tabs";
 import { CellRow } from "./explorer/CellTree";
+import { TabList } from "./explorer/TabList";
 import { LayersPanel } from "./LayersPanel";
 
 vi.mock("@/stores/ui", () => ({
@@ -34,7 +36,14 @@ describe("panel row structure", () => {
     root = createRoot(container);
     useKeyboardFocusStore.setState({ stack: [] });
     useContextMenuStore.setState({ isOpen: false, targetId: null });
-    useExplorerStore.setState({ editingCellName: null, isFocused: false, focusedItem: null });
+    useExplorerStore.setState({
+      editingCellName: null,
+      editingCellOccurrenceId: null,
+      expansionInitialized: false,
+      hasSeenHierarchy: false,
+      isFocused: false,
+      focusedItem: null,
+    });
     useLayerStore.setState({
       layers: new Map(DEFAULT_LAYERS.map((layer) => [layer.id, layer])),
       activeLayerId: 1,
@@ -43,6 +52,7 @@ describe("panel row structure", () => {
       isFocused: false,
       focusedLayerId: null,
     });
+    useTabsStore.setState({ tabs: [], activeTabId: null });
   });
 
   afterEach(() => {
@@ -54,12 +64,16 @@ describe("panel row structure", () => {
     act(() =>
       root.render(
         <CellRow
+          occurrenceId={cellOccurrenceId(["root", "child"])}
           name="child"
           isActive={false}
+          isAriaSelected={false}
           isFocused={false}
-          isKeyboardNavigationActive={false}
+          isTabStop={false}
           isDark={true}
           depth={1}
+          posInSet={1}
+          setSize={1}
           hasChildren={true}
           isExpanded={false}
           isHidden={false}
@@ -73,9 +87,9 @@ describe("panel row structure", () => {
     );
 
     expect(container.querySelector("button button")).toBeNull();
-    expect(container.querySelectorAll("button")).toHaveLength(2);
+    expect(container.querySelectorAll("button")).toHaveLength(1);
     expect(container.querySelector("li")).not.toBeNull();
-    const row = container.querySelector<HTMLButtonElement>('button[aria-label="child"]')!;
+    const row = container.querySelector<HTMLLIElement>('li[role="treeitem"][aria-label="child"]')!;
     const mouseDown = new MouseEvent("mousedown", {
       button: 0,
       bubbles: true,
@@ -83,6 +97,15 @@ describe("panel row structure", () => {
     });
     act(() => row.dispatchEvent(mouseDown));
     expect(mouseDown.defaultPrevented).toBe(false);
+
+    const chevron = container.querySelector<HTMLButtonElement>('button[aria-hidden="true"]')!;
+    const chevronMouseDown = new MouseEvent("mousedown", {
+      button: 0,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => chevron.dispatchEvent(chevronMouseDown));
+    expect(chevronMouseDown.defaultPrevented).toBe(true);
   });
 
   it("moves Cell row DOM focus with the keyboard cursor", () => {
@@ -91,12 +114,16 @@ describe("panel row structure", () => {
         {["first", "second"].map((name) => (
           <CellRow
             key={name}
+            occurrenceId={cellOccurrenceId([name])}
             name={name}
             isActive={name === "first"}
+            isAriaSelected={name === "first"}
             isFocused={name === focusedName}
-            isKeyboardNavigationActive
+            isTabStop={name === focusedName}
             isDark
             depth={0}
+            posInSet={name === "first" ? 1 : 2}
+            setSize={2}
             hasChildren={false}
             isExpanded={false}
             isHidden={false}
@@ -115,21 +142,61 @@ describe("panel row structure", () => {
 
     act(() => root.render(renderRows("second")));
     expect(document.activeElement?.getAttribute("aria-label")).toBe("second");
-    expect(container.querySelector('button[aria-label="first"]')?.getAttribute("tabindex")).toBe(
-      "-1",
+    expect(container.querySelector('li[aria-label="first"]')?.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("focuses only the targeted repeated Cell occurrence", () => {
+    const firstId = cellOccurrenceId(["A", "shared"]);
+    const secondId = cellOccurrenceId(["B", "shared"]);
+    act(() =>
+      root.render(
+        <ul>
+          {[firstId, secondId].map((occurrenceId, index) => (
+            <CellRow
+              key={occurrenceId}
+              occurrenceId={occurrenceId}
+              name="shared"
+              isActive
+              isAriaSelected={occurrenceId === firstId}
+              isFocused={occurrenceId === secondId}
+              isTabStop={occurrenceId === secondId}
+              isDark
+              depth={1}
+              posInSet={index + 1}
+              setSize={2}
+              hasChildren={false}
+              isExpanded={false}
+              isHidden={false}
+              onToggleExpand={vi.fn()}
+              onSelect={vi.fn()}
+              onRename={vi.fn()}
+              startEditing={false}
+              canDrag={false}
+            />
+          ))}
+        </ul>,
+      ),
     );
+
+    expect(document.activeElement?.getAttribute("data-occurrence-id")).toBe(secondId);
+    expect(container.querySelectorAll('li[role="treeitem"][tabindex="0"]')).toHaveLength(1);
+    expect(container.querySelectorAll('li[role="treeitem"][aria-selected="true"]')).toHaveLength(1);
   });
 
   it("reclaims Explorer keyboard focus when an already-focused Cell row is clicked", () => {
     act(() =>
       root.render(
         <CellRow
+          occurrenceId={cellOccurrenceId(["child"])}
           name="child"
           isActive
+          isAriaSelected
           isFocused={false}
-          isKeyboardNavigationActive={false}
+          isTabStop
           isDark
           depth={0}
+          posInSet={1}
+          setSize={1}
           hasChildren={false}
           isExpanded={false}
           isHidden={false}
@@ -141,7 +208,7 @@ describe("panel row structure", () => {
         />,
       ),
     );
-    const row = container.querySelector<HTMLButtonElement>('button[aria-label="child"]')!;
+    const row = container.querySelector<HTMLLIElement>('li[role="treeitem"][aria-label="child"]')!;
     act(() => row.focus());
     act(() => useExplorerStore.getState().setFocused(false));
     expect(document.activeElement).toBe(row);
@@ -154,12 +221,16 @@ describe("panel row structure", () => {
     act(() =>
       root.render(
         <CellRow
+          occurrenceId={cellOccurrenceId(["child"])}
           name="child"
           isActive
+          isAriaSelected
           isFocused
-          isKeyboardNavigationActive
+          isTabStop
           isDark
           depth={0}
+          posInSet={1}
+          setSize={1}
           hasChildren={false}
           isExpanded={false}
           isHidden={false}
@@ -171,9 +242,10 @@ describe("panel row structure", () => {
         />,
       ),
     );
-    const row = container.querySelector<HTMLButtonElement>('button[aria-label="child"]')!;
+    const row = container.querySelector<HTMLLIElement>('li[role="treeitem"][aria-label="child"]')!;
     act(() => row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
     const input = container.querySelector<HTMLInputElement>('input[value="child"]')!;
+    expect(input.closest('[role="treeitem"]')).toBe(row);
 
     await act(async () => {
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -181,6 +253,50 @@ describe("panel row structure", () => {
     });
 
     expect(document.activeElement?.getAttribute("aria-label")).toBe("child");
+  });
+
+  it("keeps external Cell rename focused when the row was previously unfocused", () => {
+    const occurrenceId = cellOccurrenceId(["child"]);
+    useExplorerStore.setState({
+      cells: ["child"],
+      cellTree: null,
+      activeCell: "child",
+      cellListMode: "flat",
+    });
+
+    function RenameHarness() {
+      const state = useExplorerStore();
+      return (
+        <CellRow
+          occurrenceId={occurrenceId}
+          name="child"
+          isActive
+          isAriaSelected
+          isFocused={
+            state.isFocused &&
+            state.focusedItem?.type === "cell" &&
+            state.focusedItem.occurrenceId === occurrenceId
+          }
+          isTabStop
+          isDark
+          depth={0}
+          posInSet={1}
+          setSize={1}
+          hasChildren={false}
+          isExpanded={false}
+          isHidden={false}
+          onToggleExpand={vi.fn()}
+          onSelect={vi.fn()}
+          onRename={vi.fn()}
+          startEditing={state.editingCellOccurrenceId === occurrenceId}
+          canDrag={false}
+        />
+      );
+    }
+
+    act(() => root.render(<RenameHarness />));
+    act(() => useExplorerStore.getState().setEditingCell(occurrenceId, "child"));
+    expect(document.activeElement).toBe(container.querySelector('input[value="child"]'));
   });
 
   it("renders Layer rows as a roving semantic list without nested controls", () => {
@@ -192,6 +308,39 @@ describe("panel row structure", () => {
     );
     expect(container.querySelector("button button")).toBeNull();
     expect(container.querySelectorAll('button[tabindex="0"]')).toHaveLength(1);
+  });
+
+  it("marks tabs as vertical and releases Explorer focus when focus leaves", () => {
+    useTabsStore.setState({
+      tabs: [
+        { id: "one", title: "One", filePath: null, isDirty: false },
+        { id: "two", title: "Two", filePath: null, isDirty: false },
+      ],
+      activeTabId: "one",
+    });
+    useExplorerStore.setState({
+      isFocused: true,
+      focusedItem: { type: "tab", id: "one" },
+    });
+    act(() =>
+      root.render(
+        <>
+          <TabList isDark focusedItem={{ type: "tab", id: "one" }} isKeyboardNavigationActive />
+          <button type="button">Outside</button>
+        </>,
+      ),
+    );
+
+    expect(container.querySelector('[role="tablist"]')?.getAttribute("aria-orientation")).toBe(
+      "vertical",
+    );
+    expect(document.activeElement?.getAttribute("role")).toBe("tab");
+
+    const outside = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Outside",
+    )!;
+    act(() => outside.focus());
+    expect(useExplorerStore.getState().isFocused).toBe(false);
   });
 
   it("moves DOM focus into Layers when keyboard focus is requested", () => {
