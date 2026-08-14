@@ -230,6 +230,18 @@ mod tests {
     }
 
     #[test]
+    fn hit_test_tolerance_matches_minimum_polygon_footprint() {
+        let (lib, ids) = three_squares();
+
+        assert_eq!(lib.hit_test(-0.4, 0.5), None);
+        assert_eq!(
+            lib.hit_test_with_tolerance(-0.4, 0.5, 1.0).as_ref(),
+            Some(&ids[0])
+        );
+        assert_eq!(lib.hit_test_with_tolerance(-1.1, 0.5, 1.0), None);
+    }
+
+    #[test]
     fn hit_test_rect_returns_all_overlapping_squares() {
         let (lib, ids) = three_squares();
 

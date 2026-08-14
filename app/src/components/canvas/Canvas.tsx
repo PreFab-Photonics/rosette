@@ -31,6 +31,7 @@ import { useRuler } from "@/hooks/use-ruler";
 import { AddCellRefCommand } from "@/lib/commands";
 import { getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
 import { findRulerAtScreenPoint } from "@/lib/ruler-hittest";
+import { hitTestLayout } from "@/lib/layout-hit-test";
 import { LaserCursor } from "@/components/canvas/LaserCursor";
 import { ZoomBox } from "@/components/canvas/ZoomBox";
 import { MarqueeBox } from "@/components/canvas/MarqueeBox";
@@ -42,7 +43,7 @@ import { TextOverlay } from "@/components/canvas/TextOverlay";
 import { PathSelectionOverlay } from "@/components/canvas/PathSelectionOverlay";
 import { ImageOverlay } from "@/components/canvas/ImageOverlay";
 import { ContextMenu } from "@/components/ui/ContextMenu";
-import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from "@/lib/constants";
+import { wheelZoomFactor } from "@/lib/constants";
 
 const CANVAS_ID = "rosette-canvas";
 
@@ -259,6 +260,7 @@ export function Canvas() {
       library.set_active_cell(activeCell);
       renderer.sync_from_library(library);
       renderer.mark_dirty();
+      useWasmContextStore.getState().bumpSyncGeneration();
 
       // Zoom to fit the new cell
       zoomToFitAll();
@@ -271,9 +273,10 @@ export function Canvas() {
     if (!library || !renderer) return;
     // Convert from UI semantics (Infinity = all) to WASM semantics (0 = unlimited)
     const wasmLimit = hierarchyLevelLimit === Infinity ? 0 : hierarchyLevelLimit;
-    library.set_hierarchy_depth_limit(wasmLimit);
-    renderer.sync_from_library(library);
-    renderer.mark_dirty();
+    if (library.set_hierarchy_depth_limit(wasmLimit)) {
+      renderer.sync_from_library(library);
+      renderer.mark_dirty();
+    }
   }, [library, renderer, hierarchyLevelLimit]);
 
   // Sync hidden cells to WASM library for cell visibility
@@ -282,20 +285,25 @@ export function Canvas() {
     if (!library || !renderer) return;
     // Get the set of cells currently hidden in WASM
     const wasmHidden = new Set<string>(library.get_hidden_cells());
+    let changed = false;
     // Show cells that are no longer hidden
     for (const name of wasmHidden) {
       if (!hiddenCells.has(name)) {
         library.set_cell_visibility(name, true);
+        changed = true;
       }
     }
     // Hide cells that are newly hidden
     for (const name of hiddenCells) {
       if (!wasmHidden.has(name)) {
         library.set_cell_visibility(name, false);
+        changed = true;
       }
     }
-    renderer.sync_from_library(library);
-    renderer.mark_dirty();
+    if (changed) {
+      renderer.sync_from_library(library);
+      renderer.mark_dirty();
+    }
   }, [library, renderer, hiddenCells]);
 
   // Track if we've done the initial zoom-to-fit
@@ -350,21 +358,7 @@ export function Canvas() {
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      // Detect trackpad pinch-to-zoom: browsers set ctrlKey=true for pinch gestures
-      // Also check for small deltaY values typical of trackpads
-      const isTrackpadPinch = e.ctrlKey || Math.abs(e.deltaY) < 50;
-
-      let factor: number;
-      if (isTrackpadPinch) {
-        // Smooth trackpad zoom: scale factor based on deltaY magnitude
-        const sensitivity = 0.01;
-        factor = Math.pow(2, -e.deltaY * sensitivity);
-      } else {
-        // Original mouse wheel behavior (unchanged)
-        factor = e.deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR;
-      }
-
-      zoomAt(factor, mouseX, mouseY);
+      zoomAt(wheelZoomFactor(e.deltaY, e.deltaMode), mouseX, mouseY);
     },
     [zoomAt],
   );
@@ -766,7 +760,7 @@ export function Canvas() {
 
       // Hit test: WASM elements first, then images
       if (library) {
-        const hitId = library.hit_test(worldPos.x, worldPos.y);
+        const hitId = hitTestLayout(library, worldPos.x, worldPos.y, zoom);
 
         if (hitId) {
           // Right-clicked on a WASM element — expand to instance group

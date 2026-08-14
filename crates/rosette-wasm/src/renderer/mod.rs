@@ -30,9 +30,9 @@ const VIOLATION_SEGMENT_CAPACITY: usize = 16_384;
 
 /// Maximum allowed buffer sizes to prevent runaway allocation.
 /// These are set high enough to handle very large designs.
-const MAX_POLYGON_VERTICES: usize = 10_000_000; // 10M vertices (~240MB)
+const MAX_POLYGON_VERTICES: usize = 10_000_000; // Further limited by the device's max buffer bytes
 const MAX_POLYGON_INDICES: usize = 30_000_000; // 30M indices (~120MB)
-const MAX_BORDER_SEGMENTS: usize = 5_000_000; // 5M segments (~160MB)
+const MAX_BORDER_SEGMENTS: usize = 5_000_000; // 5M segments (~172 MiB)
 const MAX_OUTLINE_SEGMENTS: usize = 500_000; // 500K segments (~8MB)
 
 /// Error type for renderer operations.
@@ -743,6 +743,18 @@ impl WasmRenderer {
                     offset: 24,
                     shader_location: 2,
                 },
+                // bbox_center: vec2<f32>
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 32,
+                    shader_location: 3,
+                },
+                // bbox_size: vec2<f32>
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 40,
+                    shader_location: 4,
+                },
             ],
         };
 
@@ -1104,6 +1116,11 @@ impl WasmRenderer {
                             format: wgpu::VertexFormat::Float32x4,
                             offset: 16,
                             shader_location: 2, // color
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32,
+                            offset: 32,
+                            shader_location: 3, // owning shape's bbox extent
                         },
                     ],
                 }],
@@ -2215,18 +2232,29 @@ impl WasmRenderer {
     /// The preview shape is preserved.
     pub fn sync_from_library(&mut self, library: &WasmLibrary) {
         let polygons = library.get_render_polygons_internal();
-        self.shape_manager.sync_from_polygons(polygons);
+        let shapes_changed = self.shape_manager.sync_from_polygons(polygons);
 
         // Cache instance bounding boxes for outline rendering on selection/hover
-        self.instance_bboxes = library.get_instance_bboxes();
-
-        // Sync crosshair to the active cell's origin
-        if let Some(origin) = library.get_cell_origin() {
-            self.crosshair_origin = [origin[0] as f32, origin[1] as f32];
+        let instance_bboxes = library.get_instance_bboxes();
+        let instance_bboxes_changed = self.instance_bboxes != instance_bboxes;
+        if instance_bboxes_changed {
+            self.instance_bboxes = instance_bboxes;
+            self.outlines_viewport_dirty = true;
         }
 
-        self.needs_render = true;
-        self.grid_dirty = true;
-        self.borders_dirty = true;
+        // Sync crosshair to the active cell's origin
+        let crosshair_origin = library
+            .get_cell_origin()
+            .map(|origin| [origin[0] as f32, origin[1] as f32])
+            .unwrap_or([0.0, 0.0]);
+        let crosshair_changed = self.crosshair_origin != crosshair_origin;
+        if crosshair_changed {
+            self.crosshair_origin = crosshair_origin;
+            self.grid_dirty = true;
+        }
+
+        if shapes_changed || instance_bboxes_changed || crosshair_changed {
+            self.needs_render = true;
+        }
     }
 }

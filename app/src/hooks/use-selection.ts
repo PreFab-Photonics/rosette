@@ -14,6 +14,7 @@ import {
 } from "@/lib/ruler-hittest";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 import { syntheticRefTargetKey } from "@/lib/element-id";
+import { hitTestLayout } from "@/lib/layout-hit-test";
 
 /**
  * A point in world coordinates.
@@ -215,7 +216,7 @@ export function useSelection(
       if (!world || !library) return;
 
       // Hit test: WASM elements first (higher priority), then image overlays
-      let hitId = library.hit_test(world.x, world.y);
+      let hitId = hitTestLayout(library, world.x, world.y, zoom);
       if (!hitId) {
         hitId = hitTestImages(world.x, world.y) ?? undefined;
       }
@@ -412,7 +413,7 @@ export function useSelection(
 
       // Only update shape hover if not hovering a ruler
       if (!hitRulerId) {
-        let hitId = library.hit_test(world.x, world.y);
+        let hitId = hitTestLayout(library, world.x, world.y, zoom);
         if (!hitId) {
           hitId = hitTestImages(world.x, world.y) ?? undefined;
         }

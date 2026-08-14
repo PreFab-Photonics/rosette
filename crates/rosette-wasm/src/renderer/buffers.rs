@@ -12,6 +12,13 @@ use crate::shapes::{ColoredSegment, OutlineSegment, PolygonVertex};
 use crate::violation_markers::build_violation_segments;
 
 impl WasmRenderer {
+    /// Cap an element count by both the configured limit and the device's
+    /// maximum buffer byte size.
+    fn max_buffer_elements<T>(&self, configured_max: usize) -> usize {
+        let device_max = self.device.limits().max_buffer_size as usize / std::mem::size_of::<T>();
+        configured_max.min(device_max)
+    }
+
     /// Calculate the new buffer capacity when growth is needed.
     /// Uses exponential growth to minimize reallocations.
     fn calculate_new_capacity(current: usize, required: usize, max: usize) -> usize {
@@ -29,20 +36,18 @@ impl WasmRenderer {
             return false;
         }
 
-        if required > MAX_POLYGON_VERTICES {
+        let max_vertices = self.max_buffer_elements::<PolygonVertex>(MAX_POLYGON_VERTICES);
+        if required > max_vertices {
             log::error!(
                 "Polygon vertex count ({}) exceeds maximum allowed ({}). Design is too complex.",
                 required,
-                MAX_POLYGON_VERTICES
+                max_vertices
             );
             return false;
         }
 
-        let new_capacity = Self::calculate_new_capacity(
-            self.polygon_vertex_capacity,
-            required,
-            MAX_POLYGON_VERTICES,
-        );
+        let new_capacity =
+            Self::calculate_new_capacity(self.polygon_vertex_capacity, required, max_vertices);
 
         log::info!(
             "Reallocating polygon vertex buffer: {} -> {} vertices ({:.1} MB)",
@@ -70,20 +75,18 @@ impl WasmRenderer {
             return false;
         }
 
-        if required > MAX_POLYGON_INDICES {
+        let max_indices = self.max_buffer_elements::<u32>(MAX_POLYGON_INDICES);
+        if required > max_indices {
             log::error!(
                 "Polygon index count ({}) exceeds maximum allowed ({}). Design is too complex.",
                 required,
-                MAX_POLYGON_INDICES
+                max_indices
             );
             return false;
         }
 
-        let new_capacity = Self::calculate_new_capacity(
-            self.polygon_index_capacity,
-            required,
-            MAX_POLYGON_INDICES,
-        );
+        let new_capacity =
+            Self::calculate_new_capacity(self.polygon_index_capacity, required, max_indices);
 
         log::info!(
             "Reallocating polygon index buffer: {} -> {} indices ({:.1} MB)",
@@ -111,20 +114,18 @@ impl WasmRenderer {
             return false;
         }
 
-        if required > MAX_BORDER_SEGMENTS {
+        let max_segments = self.max_buffer_elements::<ColoredSegment>(MAX_BORDER_SEGMENTS);
+        if required > max_segments {
             log::error!(
                 "Border segment count ({}) exceeds maximum allowed ({}). Design is too complex.",
                 required,
-                MAX_BORDER_SEGMENTS
+                max_segments
             );
             return false;
         }
 
-        let new_capacity = Self::calculate_new_capacity(
-            self.border_segment_capacity,
-            required,
-            MAX_BORDER_SEGMENTS,
-        );
+        let new_capacity =
+            Self::calculate_new_capacity(self.border_segment_capacity, required, max_segments);
 
         log::info!(
             "Reallocating border segment buffer: {} -> {} segments ({:.1} MB)",

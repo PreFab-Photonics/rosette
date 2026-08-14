@@ -43,6 +43,8 @@ pub fn parse_violations(data: &[f32]) -> Vec<([f64; 4], bool)> {
 /// Append the 4 world-coordinate colored edge segments of a bbox.
 pub fn push_bbox_outline(segments: &mut Vec<ColoredSegment>, bbox: [f64; 4], color: [f32; 4]) {
     let [min_x, min_y, max_x, max_y] = bbox;
+    // DRC overlays must remain visible independently of geometry LOD.
+    let lod_size = f32::INFINITY;
     let p = |x: f64, y: f64| [x as f32, y as f32];
     let corners = [
         (p(min_x, min_y), p(max_x, min_y)), // bottom
@@ -51,7 +53,12 @@ pub fn push_bbox_outline(segments: &mut Vec<ColoredSegment>, bbox: [f64; 4], col
         (p(min_x, max_y), p(min_x, min_y)), // left
     ];
     for (p0, p1) in corners {
-        segments.push(ColoredSegment { p0, p1, color });
+        segments.push(ColoredSegment {
+            p0,
+            p1,
+            color,
+            lod_size,
+        });
     }
 }
 
@@ -177,6 +184,7 @@ mod tests {
         // Each segment's end should be the next segment's start (closed loop).
         for i in 0..4 {
             assert_eq!(segments[i].p1, segments[(i + 1) % 4].p0);
+            assert!(segments[i].lod_size.is_infinite());
         }
     }
 

@@ -16,6 +16,7 @@ import { usePathStore } from "@/stores/path";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { findRulerAtScreenPoint } from "@/lib/ruler-hittest";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
+import { hitTestLayout } from "@/lib/layout-hit-test";
 
 /**
  * A point in world coordinates.
@@ -99,7 +100,7 @@ export function useMove(
       // Hit test: WASM elements first, then images
       let hitId: string | undefined;
       if (library) {
-        hitId = library.hit_test(world.x, world.y) ?? undefined;
+        hitId = hitTestLayout(library, world.x, world.y, zoom);
       }
       if (!hitId) {
         hitId = hitTestImages(world.x, world.y) ?? undefined;
@@ -188,7 +189,7 @@ export function useMove(
         {
           let hitId: string | null = null;
           if (library) {
-            hitId = library.hit_test(world.x, world.y) ?? null;
+            hitId = hitTestLayout(library, world.x, world.y, zoom) ?? null;
           }
           if (!hitId) {
             hitId = hitTestImages(world.x, world.y);
@@ -374,6 +375,7 @@ export function useMove(
             .translateWaypoints(state.elementIds, -state.currentDelta.x, -state.currentDelta.y);
           renderer.sync_from_library(library);
           renderer.mark_dirty();
+          useWasmContextStore.getState().bumpSyncGeneration();
         } catch (error) {
           useStatusMessageStore.getState().show(String(error), "warn");
         }

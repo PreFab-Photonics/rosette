@@ -21,16 +21,55 @@ impl WasmLibrary {
     /// (typically the "topmost" in visual stacking).
     /// Also tests CellRef-resolved geometry using synthetic UUIDs.
     pub fn hit_test(&self, x: f64, y: f64) -> Option<String> {
+        self.hit_test_with_tolerance(x, y, 0.0)
+    }
+
+    /// Hit test with a world-space half-size for minimum-footprint rendering.
+    ///
+    /// Polygons and paths smaller than `2 * tolerance` are tested against the
+    /// same bbox-centered enlargement used by the renderer's low-zoom proxy.
+    pub fn hit_test_with_tolerance(&self, x: f64, y: f64, tolerance: f64) -> Option<String> {
+        let tolerance = if tolerance.is_finite() {
+            tolerance.max(0.0)
+        } else {
+            0.0
+        };
         let point = Point::new(x, y);
         let cell_name = self.active_cell.as_ref()?;
         let cell = self.library.cell(cell_name)?;
+
+        let proxy_point = |bbox: &BBox| {
+            let width = bbox.max().x - bbox.min().x;
+            let height = bbox.max().y - bbox.min().y;
+            let scale_x = if width > 0.0 {
+                (2.0 * tolerance / width).max(1.0)
+            } else {
+                1.0
+            };
+            let scale_y = if height > 0.0 {
+                (2.0 * tolerance / height).max(1.0)
+            } else {
+                1.0
+            };
+            let center_x = (bbox.min().x + bbox.max().x) * 0.5;
+            let center_y = (bbox.min().y + bbox.max().y) * 0.5;
+            Point::new(
+                center_x + (x - center_x) / scale_x,
+                center_y + (y - center_y) / scale_y,
+            )
+        };
 
         let mut hits: Vec<(String, f64)> = Vec::new(); // (uuid, area)
 
         // Broad phase: ask the spatial index for elements whose bbox contains
         // the point, then run the exact same narrow-phase checks as before.
         self.with_spatial_index(|tree| {
-            for item in tree.locate_in_envelope_intersecting(&point_envelope(x, y)) {
+            let envelope = if tolerance > 0.0 {
+                query_envelope(x - tolerance, y - tolerance, x + tolerance, y + tolerance)
+            } else {
+                point_envelope(x, y)
+            };
+            for item in tree.locate_in_envelope_intersecting(&envelope) {
                 match &item.kind {
                     IndexedKind::Direct { uuid } => {
                         match cell.elements().get(item.element_index) {
@@ -44,11 +83,7 @@ impl WasmLibrary {
                                 }
 
                                 let bbox = polygon.bbox();
-                                if !bbox.contains(point) {
-                                    continue;
-                                }
-
-                                if polygon.contains(point) {
+                                if polygon.contains(proxy_point(&bbox)) {
                                     hits.push((uuid.clone(), polygon.area()));
                                 }
                             }
@@ -67,7 +102,7 @@ impl WasmLibrary {
 
                                 if let Some(ribbon) = stroke_path(points, *width, *end_type) {
                                     let bbox = ribbon.bbox();
-                                    if bbox.contains(point) && ribbon.contains(point) {
+                                    if ribbon.contains(proxy_point(&bbox)) {
                                         hits.push((uuid.clone(), ribbon.area()));
                                     }
                                 }
@@ -98,10 +133,14 @@ impl WasmLibrary {
                         }
                     }
                     IndexedKind::Instance { uuid } => {
-                        // The indexed bbox already contains the point (broad
-                        // phase); clicking anywhere inside the instance bbox
-                        // selects the whole instance.
-                        if item.bbox.contains(point) {
+                        // Descendant proxies can extend by at most `tolerance`
+                        // beyond the aggregate instance bbox.
+                        let bbox = &item.bbox;
+                        if x >= bbox.min().x - tolerance
+                            && x <= bbox.max().x + tolerance
+                            && y >= bbox.min().y - tolerance
+                            && y <= bbox.max().y + tolerance
+                        {
                             let area = (item.bbox.max().x - item.bbox.min().x)
                                 * (item.bbox.max().y - item.bbox.min().y);
                             hits.push((uuid.clone(), area));

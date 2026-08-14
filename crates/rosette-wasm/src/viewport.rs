@@ -63,8 +63,9 @@ impl Viewport {
 
     /// Set the zoom level (pixels per world unit).
     pub fn set_zoom(&mut self, zoom: f64) {
-        const MAX_ZOOM: f64 = 3.0;
-        self.zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        if zoom.is_finite() {
+            self.zoom = zoom.max(MIN_ZOOM);
+        }
     }
 
     /// Set the canvas size and optionally recenter.
@@ -197,5 +198,12 @@ mod tests {
 
         assert!((sx - 100.0).abs() < 0.001);
         assert!((sy - 200.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn physical_zoom_is_not_clamped_below_hidpi_app_zoom() {
+        let mut vp = Viewport::default();
+        vp.set_zoom(6.0);
+        assert_eq!(vp.zoom, 6.0);
     }
 }

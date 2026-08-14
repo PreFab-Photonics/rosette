@@ -209,6 +209,7 @@ export function ImageOverlay() {
   // bounding boxes (selection outlines, zoom-to-fit) include images.
   useEffect(() => {
     if (!library || !renderer) return;
+    let changed = false;
 
     // Compute bounds per cell from all images
     const cellBounds = new Map<string, [number, number, number, number]>();
@@ -232,20 +233,23 @@ export function ImageOverlay() {
     // Clear bounds for cells that no longer have images
     for (const cellName of prevCellsRef.current) {
       if (!cellBounds.has(cellName)) {
-        library.set_cell_image_bounds(cellName, null);
+        changed = library.set_cell_image_bounds(cellName, null) || changed;
       }
     }
 
     // Set bounds for cells that have images
     for (const [cellName, bounds] of cellBounds) {
-      library.set_cell_image_bounds(cellName, new Float64Array(bounds));
+      changed = library.set_cell_image_bounds(cellName, new Float64Array(bounds)) || changed;
     }
 
     prevCellsRef.current = new Set(cellBounds.keys());
 
-    // Re-sync renderer so cached instance bboxes are updated
-    renderer.sync_from_library(library);
-    renderer.mark_dirty();
+    // Re-sync renderer only when cached instance bboxes can have changed.
+    if (changed) {
+      renderer.sync_from_library(library);
+      renderer.mark_dirty();
+      useWasmContextStore.getState().bumpSyncGeneration();
+    }
   }, [images, library, renderer]);
 
   // Get instance cell contexts from WASM (recursive hierarchy walk).

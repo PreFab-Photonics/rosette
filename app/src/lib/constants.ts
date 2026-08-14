@@ -6,6 +6,13 @@
 export const ZOOM_IN_FACTOR = 1.18;
 export const ZOOM_OUT_FACTOR = 0.82;
 
+/** Smooth wheel/trackpad scaling capped at the existing mouse-wheel step. */
+export function wheelZoomFactor(deltaY: number, deltaMode = 0): number {
+  const deltaScale = deltaMode === 1 ? 16 : deltaMode === 2 ? 800 : 1;
+  const smoothFactor = Math.pow(2, -deltaY * deltaScale * 0.01);
+  return Math.max(ZOOM_OUT_FACTOR, Math.min(ZOOM_IN_FACTOR, smoothFactor));
+}
+
 // Fast zoom factors with Shift modifier
 export const ZOOM_IN_FACTOR_FAST = 1.5;
 export const ZOOM_OUT_FACTOR_FAST = 0.67;

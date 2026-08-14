@@ -20,6 +20,8 @@ struct VertexInput {
     @location(0) position: vec2<f32>,       // World position
     @location(1) color: vec4<f32>,          // RGBA color
     @location(2) fill_pattern: u32,         // 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick
+    @location(3) bbox_center: vec2<f32>,     // World-space bbox center
+    @location(4) bbox_size: vec2<f32>,       // World-space bbox dimensions
 }
 
 struct VertexOutput {
@@ -33,9 +35,22 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-    // Transform world position to screen position
-    // screenPos = worldPos * zoom + offset
-    let screen_pos = in.position * viewport.zoom + viewport.offset;
+    // Keep subpixel geometry visible without the unstable dashed/moire pattern
+    // produced by sample-center aliasing. A two-CSS-pixel proxy remains legible;
+    // normal geometry becomes exact as soon as it exceeds that footprint.
+    let screen_size = abs(in.bbox_size * viewport.zoom);
+    let min_screen_size = vec2<f32>(2.0 * viewport.dpr, 2.0 * viewport.dpr);
+    let safe_screen_size = select(
+        screen_size,
+        vec2<f32>(1.0, 1.0),
+        screen_size == vec2<f32>(0.0, 0.0)
+    );
+    let lod_scale = max(
+        vec2<f32>(1.0, 1.0),
+        min_screen_size / safe_screen_size
+    );
+    let center_screen = in.bbox_center * viewport.zoom + viewport.offset;
+    let screen_pos = center_screen + (in.position - in.bbox_center) * viewport.zoom * lod_scale;
 
     // Convert to NDC (-1 to 1)
     let ndc = vec2<f32>(
@@ -47,7 +62,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.position = vec4<f32>(ndc, 0.0, 1.0);
     out.color = in.color;
     out.screen_pos = screen_pos;
-    out.fill_pattern = in.fill_pattern;
+    // Screen-space patterns have gaps wider than a low-LOD proxy. Render the
+    // proxy solid so it remains visible, then restore the pattern at true size.
+    out.fill_pattern = select(in.fill_pattern, 0u, any(lod_scale > vec2<f32>(1.0, 1.0)));
     return out;
 }
 

@@ -197,9 +197,13 @@ impl WasmLibrary {
     /// - `1` means only render direct elements of the active cell; instances
     ///   are not resolved (they still appear as bounding-box outlines).
     /// - `N` means resolve up to N levels of nested CellRef elements.
-    pub fn set_hierarchy_depth_limit(&mut self, limit: u32) {
+    pub fn set_hierarchy_depth_limit(&mut self, limit: u32) -> bool {
+        if self.hierarchy_depth_limit == limit {
+            return false;
+        }
         self.hierarchy_depth_limit = limit;
         self.mark_dirty();
+        true
     }
 
     /// Set visibility of a cell's internal geometry.
@@ -233,7 +237,7 @@ impl WasmLibrary {
     /// calculations so that selection outlines and zoom-to-fit encompass images.
     ///
     /// Pass `null` or an empty array to clear the image bounds for a cell.
-    pub fn set_cell_image_bounds(&mut self, cell_name: &str, bounds: Option<Vec<f64>>) {
+    pub fn set_cell_image_bounds(&mut self, cell_name: &str, bounds: Option<Vec<f64>>) -> bool {
         match bounds {
             Some(b)
                 if b.len() >= 4
@@ -241,14 +245,22 @@ impl WasmLibrary {
                     && b[0] <= b[2]
                     && b[1] <= b[3] =>
             {
+                let new_bounds = [b[0], b[1], b[2], b[3]];
+                if self.cell_image_bounds.get(cell_name) == Some(&new_bounds) {
+                    return false;
+                }
                 self.cell_image_bounds
-                    .insert(cell_name.to_string(), [b[0], b[1], b[2], b[3]]);
+                    .insert(cell_name.to_string(), new_bounds);
                 self.mark_dirty();
+                true
             }
-            Some(b) if b.len() >= 4 => {}
+            Some(b) if b.len() >= 4 => false,
             _ => {
                 if self.cell_image_bounds.remove(cell_name).is_some() {
                     self.mark_dirty();
+                    true
+                } else {
+                    false
                 }
             }
         }
@@ -406,6 +418,26 @@ mod tests {
         assert_eq!(library.get_cell_path_length("cell"), Some(0.84));
         assert_eq!(library.get_cell_origin(), Some(vec![12.0, -4.0]));
         assert!(library.element_refs.is_empty());
+    }
+
+    #[test]
+    fn render_settings_only_dirty_the_library_when_changed() {
+        let mut library = WasmLibrary::new("test");
+        library.dirty = false;
+
+        assert!(!library.set_hierarchy_depth_limit(0));
+        assert!(!library.dirty);
+        assert!(library.set_hierarchy_depth_limit(2));
+        assert!(library.dirty);
+
+        library.dirty = false;
+        assert!(library.set_cell_image_bounds("cell", Some(vec![1.0, 2.0, 3.0, 4.0])));
+        assert!(library.dirty);
+        library.dirty = false;
+        assert!(!library.set_cell_image_bounds("cell", Some(vec![1.0, 2.0, 3.0, 4.0])));
+        assert!(!library.dirty);
+        assert!(library.set_cell_image_bounds("cell", None));
+        assert!(!library.set_cell_image_bounds("cell", None));
     }
 
     #[test]

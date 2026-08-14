@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useViewportStore } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useSelectionStore } from "@/stores/selection";
@@ -74,29 +75,35 @@ export function InstanceLabels() {
   const isDark = theme === "dark";
 
   // Re-render when library syncs (e.g. during drag moves)
-  useWasmContextStore((s) => s.syncGeneration);
+  const syncGeneration = useWasmContextStore((s) => s.syncGeneration);
   // Re-render when switching cells
-  useExplorerStore((s) => s.activeCell);
+  const activeCell = useExplorerStore((s) => s.activeCell);
   // Subscribe to selection and hover state
   const selectedIds = useSelectionStore((s) => s.selectedIds);
   const hoveredId = useSelectionStore((s) => s.hoveredId);
 
   const activeIds = new Set(selectedIds);
   if (hoveredId) activeIds.add(hoveredId);
-  if (activeIds.size === 0) return null;
+  const hasActiveIds = activeIds.size > 0;
 
-  // Fetch label data
-  let allLabels: InstanceLabel[] = [];
-  if (library) {
+  // Fetch instance metadata only when library content changes. Viewport-only
+  // renders should only recalculate the screen positions below.
+  const allLabels = useMemo<InstanceLabel[]>(() => {
+    void syncGeneration;
+    if (!library || !hasActiveIds) return [];
     try {
+      if (library.active_cell_name() !== activeCell) return [];
       const data = library.get_instance_label_data();
       if (data && Array.isArray(data)) {
-        allLabels = data as InstanceLabel[];
+        return data as InstanceLabel[];
       }
     } catch {
-      return null;
+      return [];
     }
-  }
+    return [];
+  }, [library, syncGeneration, activeCell, hasActiveIds]);
+
+  if (!hasActiveIds) return null;
 
   // Filter to only active instances
   const visibleLabels = allLabels.filter((label) => activeIds.has(label.id));

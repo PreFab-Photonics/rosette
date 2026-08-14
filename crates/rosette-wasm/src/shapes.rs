@@ -88,6 +88,10 @@ pub struct PolygonVertex {
     /// Stored as u32 (maps to WGSL u32). Padded to 8 bytes for alignment.
     pub fill_pattern: u32,
     pub _padding: u32,
+    /// Center of the shape's axis-aligned bbox in world coordinates.
+    pub bbox_center: [f32; 2],
+    /// Size of the shape's axis-aligned bbox in world units.
+    pub bbox_size: [f32; 2],
 }
 
 /// GPU-compatible segment data for outline rendering.
@@ -105,7 +109,7 @@ pub struct OutlineSegment {
 /// Each segment has its own color (for default borders using darkened fill).
 /// Points are in WORLD coordinates - the shader transforms them to screen space.
 /// This allows borders to be computed once when shapes change, not on every pan/zoom.
-/// Layout must match WGSL: p0 (8), p1 (8), color (16) = 32 bytes total.
+/// Layout must match WGSL: p0 (8), p1 (8), color (16), lod_size (4) = 36 bytes total.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ColoredSegment {
@@ -115,6 +119,8 @@ pub struct ColoredSegment {
     pub p1: [f32; 2],
     /// RGBA color for this segment.
     pub color: [f32; 4],
+    /// Largest dimension of the owning shape's bbox in world units.
+    pub lod_size: f32,
 }
 
 /// GPU-compatible uniform data for outline rendering.
@@ -565,6 +571,8 @@ impl ShapeManager {
                 preview.color[2] * 0.7,
                 1.0_f32,
             ];
+            // Interactive previews must remain fully outlined at any size.
+            let lod_size = f32::INFINITY;
             let n = preview.points.len();
             for i in 0..n {
                 let j = (i + 1) % n;
@@ -572,6 +580,7 @@ impl ShapeManager {
                     p0: [preview.points[i][0] as f32, preview.points[i][1] as f32],
                     p1: [preview.points[j][0] as f32, preview.points[j][1] as f32],
                     color: border_color,
+                    lod_size,
                 });
             }
         }
@@ -582,17 +591,20 @@ impl ShapeManager {
             let ox = origin[0] as f32;
             let oy = origin[1] as f32;
             let a = *arm as f32;
+            let lod_size = f32::INFINITY;
             // Horizontal arm
             segments.push(ColoredSegment {
                 p0: [ox - a, oy],
                 p1: [ox + a, oy],
                 color,
+                lod_size,
             });
             // Vertical arm
             segments.push(ColoredSegment {
                 p0: [ox, oy - a],
                 p1: [ox, oy + a],
                 color,
+                lod_size,
             });
         }
 
@@ -614,10 +626,11 @@ impl ShapeManager {
             shape.color[2] * 0.7,
             shape.color[3], // Keep same alpha
         ];
+        let lod_size = ((shape.bbox[2] - shape.bbox[0]).max(shape.bbox[3] - shape.bbox[1])) as f32;
 
         if shape.hole_indices.is_empty() {
             // Simple polygon: one closed ring
-            Self::add_ring_border_segments(&shape.points, border_color, segments);
+            Self::add_ring_border_segments(&shape.points, border_color, lod_size, segments);
         } else {
             // Polygon with holes: draw each ring (exterior + holes) separately
             // to avoid connecting the last exterior vertex to the first hole vertex.
@@ -627,7 +640,7 @@ impl ShapeManager {
 
             for w in ring_starts.windows(2) {
                 let ring = &shape.points[w[0]..w[1]];
-                Self::add_ring_border_segments(ring, border_color, segments);
+                Self::add_ring_border_segments(ring, border_color, lod_size, segments);
             }
         }
     }
@@ -642,6 +655,7 @@ impl ShapeManager {
     fn add_ring_border_segments(
         points: &[[f64; 2]],
         color: [f32; 4],
+        lod_size: f32,
         segments: &mut Vec<ColoredSegment>,
     ) {
         let n = points.len();
@@ -681,6 +695,7 @@ impl ShapeManager {
                 p0: [points[i][0] as f32, points[i][1] as f32],
                 p1: [points[j][0] as f32, points[j][1] as f32],
                 color,
+                lod_size,
             });
         }
     }
@@ -757,7 +772,10 @@ impl ShapeManager {
     /// re-triangulated. Unchanged shapes keep their cached triangulation.
     /// Used to sync from WasmLibrary.
     #[allow(clippy::type_complexity)]
-    pub fn sync_from_polygons(&mut self, polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4], u32)>) {
+    pub fn sync_from_polygons(
+        &mut self,
+        polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4], u32)>,
+    ) -> bool {
         // Build set of incoming IDs for removal detection
         let new_ids: HashSet<String> = polygons.iter().map(|(id, ..)| id.clone()).collect();
 
@@ -778,6 +796,7 @@ impl ShapeManager {
 
         // Preserve incoming order and track changes
         let new_order: Vec<String> = polygons.iter().map(|(id, ..)| id.clone()).collect();
+        let order_changed = self.order != new_order;
 
         // Add or update shapes
         for (id, points, color, fill_pattern) in polygons.into_iter() {
@@ -812,15 +831,27 @@ impl ShapeManager {
         // Always update order to match incoming polygon order
         self.order = new_order;
 
-        if any_dirty {
+        if any_dirty || order_changed {
             self.dirty = true;
         }
 
         // Clear selection/hover state for shapes that no longer exist
+        let selected_count = self.selected_ids.len();
+        let hovered_count = self.hovered_ids.len();
         self.selected_ids.retain(|id| self.shapes.contains_key(id));
         self.hovered_ids.retain(|id| self.shapes.contains_key(id));
-        self.outlines_dirty = true;
-        self.borders_dirty = true; // shape set changed
+        let selection_changed = self.selected_ids.len() != selected_count;
+        let hover_changed = self.hovered_ids.len() != hovered_count;
+        let geometry_changed = any_dirty || order_changed;
+
+        if geometry_changed || selection_changed || hover_changed {
+            self.outlines_dirty = true;
+        }
+        if geometry_changed || selection_changed {
+            self.borders_dirty = true;
+        }
+
+        geometry_changed || selection_changed || hover_changed
     }
 
     /// Set a preview shape (rendered on top, not stored permanently).
@@ -1065,6 +1096,14 @@ impl ShapeManager {
         indices: &mut Vec<u32>,
     ) {
         let base_index = vertices.len() as u32;
+        let bbox_center = [
+            ((shape.bbox[0] + shape.bbox[2]) * 0.5) as f32,
+            ((shape.bbox[1] + shape.bbox[3]) * 0.5) as f32,
+        ];
+        let bbox_size = [
+            (shape.bbox[2] - shape.bbox[0]) as f32,
+            (shape.bbox[3] - shape.bbox[1]) as f32,
+        ];
 
         // Add all vertices (exterior + holes)
         for point in &shape.points {
@@ -1073,6 +1112,8 @@ impl ShapeManager {
                 color: shape.color,
                 fill_pattern: shape.fill_pattern,
                 _padding: 0,
+                bbox_center,
+                bbox_size,
             });
         }
 
@@ -1102,6 +1143,12 @@ impl ShapeManager {
         }
 
         let base_index = vertices.len() as u32;
+        let bbox = compute_bbox(points);
+        let bbox_center = [
+            ((bbox[0] + bbox[2]) * 0.5) as f32,
+            ((bbox[1] + bbox[3]) * 0.5) as f32,
+        ];
+        let bbox_size = [(bbox[2] - bbox[0]) as f32, (bbox[3] - bbox[1]) as f32];
 
         // Add vertices
         for point in points {
@@ -1110,6 +1157,8 @@ impl ShapeManager {
                 color,
                 fill_pattern,
                 _padding: 0,
+                bbox_center,
+                bbox_size,
             });
         }
 
@@ -1142,6 +1191,9 @@ mod tests {
 
         assert_eq!(manager.len(), 1);
         assert!(manager.is_dirty());
+        let borders = manager.get_default_border_segments();
+        assert_eq!(borders.len(), 4);
+        assert!(borders.iter().all(|segment| segment.lod_size == 100.0));
     }
 
     #[test]
@@ -1157,8 +1209,54 @@ mod tests {
 
         // Rectangle has 4 vertices
         assert_eq!(vertices.len(), 4);
+        assert_eq!(vertices[0].bbox_center, [50.0, 25.0]);
+        assert_eq!(vertices[0].bbox_size, [100.0, 50.0]);
         // Rectangle triangulates to 2 triangles = 6 indices
         assert_eq!(indices.len(), 6);
+    }
+
+    #[test]
+    fn identical_polygon_sync_keeps_buffers_clean() {
+        let mut manager = ShapeManager::new();
+        let polygons = || {
+            vec![(
+                "rect1".to_string(),
+                vec![[0.0, 0.0], [100.0, 0.0], [100.0, 50.0], [0.0, 50.0]],
+                [1.0, 0.0, 0.0, 1.0],
+                0,
+            )]
+        };
+
+        assert!(manager.sync_from_polygons(polygons()));
+        manager.triangulate();
+        manager.mark_clean();
+        manager.mark_borders_clean();
+        manager.mark_outlines_clean();
+
+        assert!(!manager.sync_from_polygons(polygons()));
+        assert!(!manager.is_dirty());
+        assert!(!manager.borders_dirty());
+        assert!(!manager.outlines_dirty());
+    }
+
+    #[test]
+    fn polygon_order_change_reassembles_buffers() {
+        let mut manager = ShapeManager::new();
+        let rect = |id: &str, x: f64| {
+            (
+                id.to_string(),
+                vec![[x, 0.0], [x + 1.0, 0.0], [x + 1.0, 1.0], [x, 1.0]],
+                [1.0, 0.0, 0.0, 1.0],
+                0,
+            )
+        };
+
+        manager.sync_from_polygons(vec![rect("a", 0.0), rect("b", 2.0)]);
+        manager.triangulate();
+        manager.mark_clean();
+
+        assert!(manager.sync_from_polygons(vec![rect("b", 2.0), rect("a", 0.0)]));
+        assert!(manager.is_dirty());
     }
 
     #[test]

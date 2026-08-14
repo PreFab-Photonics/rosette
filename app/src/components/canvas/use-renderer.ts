@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useWasm } from "@/hooks/use-wasm";
 import { HOVER_COLORS, SELECTION_COLORS, useUIStore } from "@/stores/ui";
-import { useViewportStore } from "@/stores/viewport";
 import { useViolationsStore } from "@/stores/violations";
 import type { WasmRenderer } from "@/wasm/rosette_wasm";
+import { applyRendererViewport, subscribeRendererToViewport } from "./renderer-viewport";
 
 /**
  * Convert hex color to RGBA floats for WASM.
@@ -32,7 +32,6 @@ export function useRenderer(canvasId: string | null) {
 
   const theme = useUIStore((s) => s.theme);
   const showGrid = useUIStore((s) => s.showGrid);
-  const { zoom, offset } = useViewportStore();
   const violations = useViolationsStore((s) => s.violations);
   const selectedViolation = useViolationsStore((s) => s.selectedIndex);
 
@@ -136,14 +135,13 @@ export function useRenderer(canvasId: string | null) {
     renderer.set_selected_violation(selectedViolation ?? undefined);
   }, [renderer, isReady, selectedViolation]);
 
-  // Update viewport when zoom/offset changes
-  // Scale by devicePixelRatio for HiDPI/retina display support
+  // Update the renderer synchronously with the store. Routing this through a
+  // React effect makes rapid zoom depend on React's commit cadence even though
+  // the renderer already coalesces updates in its requestAnimationFrame loop.
   useEffect(() => {
-    if (renderer && isReady) {
-      const dpr = window.devicePixelRatio || 1;
-      renderer.set_viewport(offset.x * dpr, offset.y * dpr, zoom * dpr);
-    }
-  }, [renderer, isReady, zoom, offset.x, offset.y]);
+    if (!(renderer && isReady)) return;
+    return subscribeRendererToViewport(renderer);
+  }, [renderer, isReady]);
 
   // Render function
   const render = useCallback(() => {
@@ -158,6 +156,7 @@ export function useRenderer(canvasId: string | null) {
       if (renderer && isReady) {
         renderer.set_dpr(window.devicePixelRatio || 1);
         renderer.resize(width, height);
+        applyRendererViewport(renderer);
       }
     },
     [renderer, isReady],

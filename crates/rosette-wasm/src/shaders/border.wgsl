@@ -33,6 +33,7 @@ struct VertexOutput {
     @location(0) local_pos: vec2<f32>,
     @location(1) segment_length: f32,
     @location(2) color: vec4<f32>,
+    @location(3) line_width: f32,
 }
 
 // Quad vertices for thick line segment rendering - centered on edge
@@ -49,6 +50,7 @@ fn vs_main(
     @location(0) seg_p0: vec2<f32>,
     @location(1) seg_p1: vec2<f32>,
     @location(2) seg_color: vec4<f32>,
+    @location(3) shape_lod_size: f32,
 ) -> VertexOutput {
     // Transform world coordinates to screen coordinates
     // screen = world * zoom + offset
@@ -70,7 +72,10 @@ fn vs_main(
     }
 
     let quad_pos = QUAD_VERTICES[vertex_idx];
-    let total_width = border.line_width;
+    // Fixed-width borders dominate fragment work when hundreds of thousands of
+    // tiny shapes are visible. Scale continuously to the normal width; polygon
+    // fills provide the minimum-size low-zoom representation.
+    let total_width = min(border.line_width, shape_lod_size * viewport.zoom);
 
     // Extend at ends for rounded joins/caps
     let extension = total_width * 0.5;
@@ -91,12 +96,13 @@ fn vs_main(
     out.local_pos = vec2<f32>(along, across);
     out.segment_length = segment_length;
     out.color = seg_color;
+    out.line_width = total_width;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let half_width = border.line_width * 0.5;
+    let half_width = in.line_width * 0.5;
 
     // Distance from line center (with rounded caps)
     var dist: f32;
