@@ -14,6 +14,10 @@
 
 /* ── Fumadocs overrides: inject brand purple as the primary accent ───────── */
 
+:root:not(.dark) {
+  --color-fd-background: #ffffff;
+}
+
 :root {
   --color-fd-primary: #4037c1;
   --color-fd-primary-foreground: #ffffff;
@@ -26,18 +30,13 @@
   --color-fd-ring: #5b52d680;
 }
 
-/* ── Dark-mode elevation shadow (DM-ELEVATION-5) ───────────────────────── */
-/* Multi-layered box-shadow for realistic floating-card depth on dark UIs.  */
+/* ── Subtle dark-mode elevation ────────────────────────────────────────── */
 
 @utility shadow-elevation {
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 0 0 1px rgba(0, 0, 0, 0.16),
-    0 1px 1px -0.5px rgba(0, 0, 0, 0.18),
-    0 3px 3px -1.5px rgba(0, 0, 0, 0.18),
-    0 6px 6px -3px rgba(0, 0, 0, 0.18),
-    0 12px 12px -6px rgba(0, 0, 0, 0.18);
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.12),
+    0 6px 12px -8px rgba(0, 0, 0, 0.24);
 }
 
 /* ── Agent flow hero: staggered reveal + typed prompt ───────────────────── */

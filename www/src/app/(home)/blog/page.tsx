@@ -23,7 +23,7 @@ export default function BlogIndex() {
       {featured && (
         <Link
           href={featured.url}
-          className="group block rounded-xl border border-fd-border p-6 shadow-sm transition-colors hover:border-fd-foreground/30 dark:shadow-elevation sm:p-8"
+          className="group block rounded-xl border border-fd-border p-6 shadow-xs transition-colors hover:border-fd-foreground/30 dark:shadow-elevation sm:p-8"
         >
           <div className="flex items-center gap-3">
             <time className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">

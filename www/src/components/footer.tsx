@@ -18,8 +18,8 @@ const footerLinks = [
 
 export function Footer() {
   return (
-    <footer className="border-t border-fd-border bg-fd-card">
-      <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 px-6 py-8 sm:flex-row sm:justify-between">
+    <footer className="border-t border-fd-border bg-fd-background">
+      <div className="mx-auto flex max-w-6xl flex-col items-center gap-4 px-6 py-8 sm:flex-row sm:justify-between">
         <div className="flex items-center gap-2">
           <Image
             src="/prefab-logo-notext.png"

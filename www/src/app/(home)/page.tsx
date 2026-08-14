@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { blog } from "@/lib/source";
-import { AgentFlow } from "./components/agent-flow";
+import { AgentFlow, INIT_COMMAND } from "./components/agent-flow";
+import { CopyButton } from "./components/copy-button";
 import { RedactedText } from "./components/redacted-text";
 
 export const metadata: Metadata = {
@@ -92,7 +93,7 @@ function WhyRosette() {
           Principles
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
+      <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Why Rosette?
       </h2>
 
@@ -133,7 +134,7 @@ function EditorPreview() {
           Editor
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
+      <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Inspect and modify layouts
       </h2>
       <p className="mt-3 max-w-2xl text-sm leading-relaxed text-fd-muted-foreground">
@@ -143,7 +144,7 @@ function EditorPreview() {
       </p>
 
       <div className="mt-10">
-        <div className="relative aspect-[2732/1740] w-full select-none overflow-hidden rounded-xl border border-fd-border shadow-md ring-1 ring-inset ring-fd-accent dark:shadow-elevation">
+        <div className="relative aspect-[2732/1740] w-full select-none overflow-hidden rounded-xl border border-fd-border shadow-sm ring-1 ring-inset ring-fd-accent dark:shadow-elevation">
           {/* Light theme */}
           <Image
             src="/editor-loopback-light.png"
@@ -232,7 +233,7 @@ function WhatsInside() {
           Features
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
+      <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         What&rsquo;s inside
       </h2>
 
@@ -344,7 +345,7 @@ function OpenSource() {
           Open source
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
+      <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Fit Rosette to your process
       </h2>
       <p className="mt-3 max-w-2xl text-sm leading-relaxed text-fd-muted-foreground">
@@ -353,7 +354,7 @@ function OpenSource() {
         and forkable too.
       </p>
 
-      <div className="mt-10 overflow-hidden rounded-xl border border-fd-border shadow-sm dark:shadow-elevation lg:grid lg:grid-cols-[1.05fr_0.95fr]">
+      <div className="mt-10 overflow-hidden rounded-xl border border-fd-border shadow-xs dark:shadow-elevation lg:grid lg:grid-cols-[1.05fr_0.95fr]">
         <div className="border-fd-border border-b bg-fd-muted/25 p-5 sm:p-7 lg:border-r lg:border-b-0">
           <div className="flex items-center justify-between font-[family-name:var(--font-geist-mono)] text-[10px] tracking-widest uppercase sm:text-[11px]">
             <span className="font-medium text-fd-foreground">
@@ -532,7 +533,7 @@ function RecentPosts() {
           Updates
         </span>
       </div>
-      <h2 className="font-[family-name:var(--font-instrument-serif)] text-2xl tracking-tight text-fd-foreground uppercase">
+      <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Latest writing
       </h2>
 
@@ -541,7 +542,7 @@ function RecentPosts() {
           <Link
             key={post.url}
             href={post.url}
-            className="group rounded-xl border border-fd-border p-5 shadow-sm transition-colors hover:border-fd-foreground/30 dark:shadow-elevation sm:p-6"
+            className="group rounded-xl border border-fd-border p-5 shadow-xs transition-colors hover:border-fd-foreground/30 dark:shadow-elevation sm:p-6"
           >
             <div className="flex items-center gap-3">
               <time className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
@@ -609,49 +610,27 @@ function RecentPosts() {
 
 function ClosingCTA() {
   return (
-    <section className="relative">
-      {/* Top divider */}
-      <div className="absolute inset-x-0 top-0 mx-auto max-w-6xl px-6">
-        <div className="h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
-      </div>
+    <section className="relative mx-auto max-w-6xl px-6 py-14">
+      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
-      <div className="mx-auto max-w-6xl px-6 pt-16 pb-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground uppercase sm:text-5xl">
-            Get started in 5 minutes
-          </h2>
-          <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-fd-muted-foreground">
-            Install Rosette and build your first layout today.
-          </p>
-          <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
-            <div className="flex flex-col items-center gap-1.5">
-              <Link
-                href="/docs/getting-started/installation"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-5 text-sm font-medium text-fd-foreground shadow-sm transition-colors hover:border-fd-ring"
-              >
-                Installation
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
-                </svg>
-              </Link>
-              <span className="text-[11px] text-fd-muted-foreground">
-                Quick start
-              </span>
-            </div>
-          </div>
+      <div className="mx-auto max-w-xl">
+        <p className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
+          Start with one command
+        </p>
+        <div className="mt-4 flex min-w-0 items-center border-fd-border border-b pb-3 font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
+          <span className="select-none text-fd-muted-foreground">$</span>
+          <code className="ml-3 min-w-0 flex-1 overflow-x-auto whitespace-nowrap">
+            {INIT_COMMAND}
+          </code>
+          <CopyButton text={INIT_COMMAND} />
         </div>
+        <Link
+          href="/docs/getting-started/installation"
+          className="mt-4 inline-flex items-center gap-1.5 text-xs text-fd-muted-foreground transition-colors hover:text-fd-foreground"
+        >
+          Installation guide
+          <span aria-hidden="true">→</span>
+        </Link>
       </div>
     </section>
   );

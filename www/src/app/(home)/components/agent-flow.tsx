@@ -43,7 +43,7 @@ import { CopyButton } from "./copy-button";
  * component with zero client JS and honors `prefers-reduced-motion`.
  */
 
-const INIT_COMMAND = "uvx --from librosette rosette init my-chip";
+export const INIT_COMMAND = "uvx --from librosette rosette init my-chip";
 const PROMPT = "design a grating coupler loopback";
 
 /** ms per typed character of the prompt. */
@@ -148,7 +148,7 @@ const labelToneClass: Record<Tone, string> = {
 export function AgentFlow() {
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="overflow-hidden rounded-xl border border-fd-border bg-fd-background font-[family-name:var(--font-geist-mono)] text-[11px] leading-relaxed shadow-md ring-1 ring-inset ring-fd-accent dark:shadow-elevation sm:text-xs md:text-sm">
+      <div className="overflow-hidden rounded-xl border border-fd-border bg-fd-background font-[family-name:var(--font-geist-mono)] text-[11px] leading-relaxed shadow-sm ring-1 ring-inset ring-fd-accent dark:shadow-elevation sm:text-xs md:text-sm">
         <div className="px-4 py-4 sm:px-5 sm:py-5">
           <div className="text-[10px] tracking-widest uppercase sm:text-[11px]">
             <span className="font-medium text-fd-foreground">Quickstart</span>
@@ -260,14 +260,14 @@ export function AgentFlow() {
             <button
               type="button"
               aria-describedby="beta-notice"
-              className="cursor-help rounded-full border border-brand-purple/25 bg-brand-purple/5 px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium tracking-widest text-brand-purple uppercase outline-none transition-colors hover:border-brand-purple/40 focus-visible:ring-2 focus-visible:ring-brand-purple/40 dark:text-brand-purple-light"
+              className="cursor-help rounded-md border border-brand-purple/25 bg-brand-purple/5 px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium tracking-widest text-brand-purple uppercase outline-none transition-colors hover:border-brand-purple/40 focus-visible:ring-2 focus-visible:ring-brand-purple/40 dark:text-brand-purple-light"
             >
               Beta
             </button>
             <span
               id="beta-notice"
               role="tooltip"
-              className="pointer-events-none absolute top-full left-1/2 z-10 mt-2 w-64 max-w-[calc(100vw-3rem)] -translate-x-1/2 rounded-lg border border-fd-border bg-fd-background px-3 py-2 text-left text-xs leading-relaxed text-fd-muted-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:shadow-elevation"
+              className="pointer-events-none absolute top-full left-1/2 z-10 mt-2 w-64 max-w-[calc(100vw-3rem)] -translate-x-1/2 rounded-lg border border-fd-border bg-fd-background px-3 py-2 text-left text-xs leading-relaxed text-fd-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:shadow-elevation"
             >
               Features may be unstable or incomplete. Not suitable for
               production use.

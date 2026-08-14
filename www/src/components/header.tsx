@@ -16,8 +16,8 @@ export function Header({ trailing }: { trailing?: ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-fd-border bg-fd-background/90 shadow-sm backdrop-blur-xl dark:shadow-elevation">
-      <nav className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
+    <header className="sticky top-0 z-40 w-full border-b border-fd-border bg-fd-background/90 shadow-xs backdrop-blur-xl dark:shadow-elevation">
+      <nav className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
         <div className="flex items-center gap-6">
           <a
             href="/"
