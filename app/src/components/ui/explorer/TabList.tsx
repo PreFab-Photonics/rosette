@@ -55,11 +55,10 @@ export function TabRow({
       )}
       onClick={onSelect}
       onFocus={onFocus}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-          onSelect();
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
         }
       }}
       onMouseDown={onMiddleClick}

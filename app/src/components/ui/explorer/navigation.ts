@@ -110,3 +110,21 @@ export function findFocusedRowIndex(
   if (!target) return -1;
   return rows.findIndex((row) => focusedItemEquals(focusedItemForRow(row), target));
 }
+
+/** Find the next visible cell whose name starts with a type-ahead query. */
+export function findTypeaheadRow(
+  rows: readonly ExplorerRow[],
+  currentIndex: number,
+  query: string,
+): ExplorerRow | null {
+  if (!query || rows.length === 0) return null;
+  const normalizedQuery = query.toLocaleLowerCase();
+  for (let offset = 1; offset <= rows.length; offset++) {
+    const index = (Math.max(currentIndex, -1) + offset) % rows.length;
+    const row = rows[index];
+    if (row.type === "cell" && row.name.toLocaleLowerCase().startsWith(normalizedQuery)) {
+      return row;
+    }
+  }
+  return null;
+}

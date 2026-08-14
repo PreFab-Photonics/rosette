@@ -336,6 +336,18 @@ describe("panel row structure", () => {
     );
     expect(document.activeElement?.getAttribute("role")).toBe("tab");
 
+    const globalKeyDown = vi.fn();
+    window.addEventListener("keydown", globalKeyDown);
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => document.activeElement?.dispatchEvent(enter));
+    expect(enter.defaultPrevented).toBe(true);
+    expect(globalKeyDown).not.toHaveBeenCalled();
+    window.removeEventListener("keydown", globalKeyDown);
+
     const outside = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "Outside",
     )!;

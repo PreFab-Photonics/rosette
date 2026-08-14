@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { cellOccurrenceId, useExplorerStore, type RawCellNode } from "@/stores/explorer";
-import { findFocusedRowIndex, focusedItemForRow, projectExplorerRows } from "./navigation";
+import {
+  findFocusedRowIndex,
+  findTypeaheadRow,
+  focusedItemForRow,
+  projectExplorerRows,
+} from "./navigation";
 
 const tree: RawCellNode[] = [
   { name: "A", children: [{ name: "shared", children: [{ name: "leaf", children: [] }] }] },
@@ -82,5 +87,26 @@ describe("projectExplorerRows", () => {
     };
     const index = findFocusedRowIndex(rows, target);
     expect(focusedItemForRow(rows[index])).toEqual(target);
+  });
+
+  it("finds the next matching cell by type-ahead while skipping tabs", () => {
+    const rows = project("nested", [{ id: "one" }, { id: "two" }]);
+    const firstShared = rows.findIndex(
+      (row) => row.type === "cell" && row.occurrenceId === cellOccurrenceId(["A", "shared"]),
+    );
+    expect(findTypeaheadRow(rows, firstShared, "SH")).toMatchObject({
+      type: "cell",
+      occurrenceId: cellOccurrenceId(["B", "shared"]),
+      name: "shared",
+    });
+  });
+
+  it("wraps type-ahead to the beginning of visible cells", () => {
+    const rows = project();
+    expect(findTypeaheadRow(rows, rows.length - 1, "a")).toMatchObject({
+      type: "cell",
+      occurrenceId: cellOccurrenceId(["A"]),
+      name: "A",
+    });
   });
 });
