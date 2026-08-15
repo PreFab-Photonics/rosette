@@ -72,6 +72,7 @@ describe("panel row structure", () => {
           isTabStop={false}
           isDark={true}
           depth={1}
+          guideLevels={[]}
           posInSet={1}
           setSize={1}
           hasChildren={true}
@@ -106,6 +107,11 @@ describe("panel row structure", () => {
     });
     act(() => chevron.dispatchEvent(chevronMouseDown));
     expect(chevronMouseDown.defaultPrevented).toBe(true);
+    expect(container.querySelectorAll('[data-hierarchy-guide="branch"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-hierarchy-guide="elbow"]')).toHaveLength(1);
+    expect(
+      container.querySelector<HTMLElement>('[data-hierarchy-guide="branch"]')?.style.bottom,
+    ).toBe("50%");
   });
 
   it("moves Cell row DOM focus with the keyboard cursor", () => {
@@ -122,6 +128,7 @@ describe("panel row structure", () => {
             isTabStop={name === focusedName}
             isDark
             depth={0}
+            guideLevels={[]}
             posInSet={name === "first" ? 1 : 2}
             setSize={2}
             hasChildren={false}
@@ -162,6 +169,7 @@ describe("panel row structure", () => {
               isTabStop={occurrenceId === secondId}
               isDark
               depth={1}
+              guideLevels={[]}
               posInSet={index + 1}
               setSize={2}
               hasChildren={false}
@@ -195,6 +203,7 @@ describe("panel row structure", () => {
           isTabStop
           isDark
           depth={0}
+          guideLevels={[]}
           posInSet={1}
           setSize={1}
           hasChildren={false}
@@ -229,6 +238,7 @@ describe("panel row structure", () => {
           isTabStop
           isDark
           depth={0}
+          guideLevels={[]}
           posInSet={1}
           setSize={1}
           hasChildren={false}
@@ -280,6 +290,7 @@ describe("panel row structure", () => {
           isTabStop
           isDark
           depth={0}
+          guideLevels={[]}
           posInSet={1}
           setSize={1}
           hasChildren={false}

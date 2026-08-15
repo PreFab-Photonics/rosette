@@ -673,6 +673,7 @@ export function Explorer() {
               isTabStop={row.occurrenceId === cellTabStopOccurrenceId}
               isDark={isDark}
               depth={row.depth}
+              guideLevels={row.guideLevels}
               posInSet={row.posInSet}
               setSize={row.setSize}
               hasChildren={row.hasChildren}

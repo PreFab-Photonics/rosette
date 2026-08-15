@@ -62,6 +62,31 @@ describe("projectExplorerRows", () => {
     expect(ids).toContain(cellOccurrenceId(["B", "shared", "leaf"]));
   });
 
+  it("projects ancestor guide levels through branches with following siblings", () => {
+    useExplorerStore.getState().setCellTree(
+      [
+        {
+          name: "top",
+          children: [
+            { name: "branch", children: [{ name: "leaf", children: [] }] },
+            { name: "sibling", children: [] },
+          ],
+        },
+      ],
+      { resetExpansion: true },
+    );
+    const state = useExplorerStore.getState();
+    const rows = projectExplorerRows({
+      tabs: [],
+      cellTree: state.cellTree,
+      cells: state.cells,
+      expandedCells: state.expandedCells,
+      cellListMode: "nested",
+    });
+    const leaf = rows.find((row) => row.type === "cell" && row.name === "leaf");
+    expect(leaf).toMatchObject({ depth: 2, guideLevels: [0] });
+  });
+
   it("projects flat mode as one canonical row per definition", () => {
     const rows = project("flat").filter((row) => row.type === "cell");
     expect(rows.map((row) => row.name)).toEqual(["A", "shared", "leaf", "B"]);

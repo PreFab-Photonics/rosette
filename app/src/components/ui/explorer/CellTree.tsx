@@ -28,6 +28,50 @@ export function ChevronIcon({ expanded, isDark }: { expanded: boolean; isDark: b
   );
 }
 
+function HierarchyGuides({
+  depth,
+  guideLevels,
+  isLastSibling,
+  isDark,
+}: {
+  depth: number;
+  guideLevels: readonly number[];
+  isLastSibling: boolean;
+  isDark: boolean;
+}) {
+  if (depth === 0) return null;
+  const color = isDark ? "bg-white/10" : "bg-black/10";
+  const guideLeft = (level: number) => 12 + level * 10;
+  const branchLevel = depth - 1;
+
+  return (
+    <span aria-hidden="true" className="pointer-events-none absolute inset-0">
+      {guideLevels.map((level) => (
+        <span
+          key={level}
+          data-hierarchy-guide="ancestor"
+          className={cn("absolute w-px", color)}
+          style={{ left: guideLeft(level), top: -2, bottom: -2 }}
+        />
+      ))}
+      <span
+        data-hierarchy-guide="branch"
+        className={cn("absolute w-px", color)}
+        style={{
+          left: guideLeft(branchLevel),
+          top: -2,
+          bottom: isLastSibling ? "50%" : -2,
+        }}
+      />
+      <span
+        data-hierarchy-guide="elbow"
+        className={cn("absolute h-px w-[5px]", color)}
+        style={{ left: guideLeft(branchLevel), top: "50%" }}
+      />
+    </span>
+  );
+}
+
 /**
  * Single cell row in the explorer panel.
  *
@@ -43,6 +87,7 @@ export function CellRow({
   isTabStop,
   isDark,
   depth,
+  guideLevels,
   posInSet,
   setSize,
   hasChildren,
@@ -65,6 +110,7 @@ export function CellRow({
   isTabStop: boolean;
   isDark: boolean;
   depth: number;
+  guideLevels: readonly number[];
   posInSet: number;
   setSize: number;
   hasChildren: boolean;
@@ -240,6 +286,13 @@ export function CellRow({
       onMouseDown={handleCellMouseDown}
       tabIndex={isTabStop ? 0 : -1}
     >
+      <HierarchyGuides
+        depth={depth}
+        guideLevels={guideLevels}
+        isLastSibling={posInSet === setSize}
+        isDark={isDark}
+      />
+
       {/* Expand/collapse chevron (or spacer for leaves) */}
       {hasChildren ? (
         <button

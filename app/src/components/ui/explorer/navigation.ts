@@ -18,6 +18,7 @@ export type ExplorerRow =
       isExpanded: boolean;
       posInSet: number;
       setSize: number;
+      guideLevels: readonly number[];
     };
 
 interface ProjectExplorerRowsOptions {
@@ -53,6 +54,7 @@ export function projectExplorerRows({
         isExpanded: false,
         posInSet: index + 1,
         setSize: cells.length,
+        guideLevels: [],
       });
     }
     return rows;
@@ -62,10 +64,12 @@ export function projectExplorerRows({
     nodes: readonly CellNode[],
     depth: number,
     parentOccurrenceId: CellOccurrenceId | null,
+    guideLevels: readonly number[],
   ) => {
     for (const [index, node] of nodes.entries()) {
       const hasChildren = node.children.length > 0;
       const isExpanded = hasChildren && expandedCells.has(node.occurrenceId);
+      const hasNextSibling = index < nodes.length - 1;
       rows.push({
         type: "cell",
         occurrenceId: node.occurrenceId,
@@ -76,11 +80,16 @@ export function projectExplorerRows({
         isExpanded,
         posInSet: index + 1,
         setSize: nodes.length,
+        guideLevels,
       });
-      if (isExpanded) walk(node.children, depth + 1, node.occurrenceId);
+      if (isExpanded) {
+        const childGuideLevels =
+          depth > 0 && hasNextSibling ? [...guideLevels, depth - 1] : guideLevels;
+        walk(node.children, depth + 1, node.occurrenceId, childGuideLevels);
+      }
     }
   };
-  walk(cellTree, 0, null);
+  walk(cellTree, 0, null, []);
   return rows;
 }
 
