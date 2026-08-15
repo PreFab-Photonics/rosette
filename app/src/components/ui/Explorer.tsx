@@ -416,9 +416,16 @@ export function Explorer() {
           return;
         }
         case " ":
-        case "Enter":
           e.preventDefault();
           activateCurrentRow();
+          return;
+        case "Enter":
+          e.preventDefault();
+          if (currentRow?.type === "tab") {
+            activateCurrentRow();
+          } else if (currentRow?.type === "cell") {
+            useExplorerStore.getState().setEditingCell(currentRow.occurrenceId, currentRow.name);
+          }
           return;
         case "F2":
           e.preventDefault();
