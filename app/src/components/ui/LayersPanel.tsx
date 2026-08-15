@@ -475,7 +475,15 @@ function SectionLabel({ label, isDark }: { label: string; isDark: boolean }) {
  * Allows editing: name, color, layer number, datatype, and fill pattern.
  * All changes go through EditLayerCommand for undo/redo support.
  */
-function LayerEditor({ layer, isDark }: { layer: Layer; isDark: boolean }) {
+function LayerEditor({
+  layer,
+  isDark,
+  onRestoreRowFocus,
+}: {
+  layer: Layer;
+  isDark: boolean;
+  onRestoreRowFocus: () => void;
+}) {
   const library = useWasmContextStore((s) => s.library);
   const renderer = useWasmContextStore((s) => s.renderer);
   const editorRef = useRef<HTMLFieldSetElement>(null);
@@ -507,6 +515,11 @@ function LayerEditor({ layer, isDark }: { layer: Layer; isDark: boolean }) {
     [layer, library, renderer],
   );
 
+  const closeAndRestoreFocus = useCallback(() => {
+    useLayerStore.getState().setExpandedLayerId(null);
+    requestAnimationFrame(onRestoreRowFocus);
+  }, [onRestoreRowFocus]);
+
   // Auto-focus the first field when the editor opens
   useEffect(() => {
     // Small delay to ensure the DOM has rendered
@@ -527,12 +540,12 @@ function LayerEditor({ layer, isDark }: { layer: Layer; isDark: boolean }) {
           return;
         }
         e.preventDefault();
-        useLayerStore.getState().setExpandedLayerId(null);
+        closeAndRestoreFocus();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [closeAndRestoreFocus]);
 
   // Close on click outside the editor
   useEffect(() => {
@@ -546,26 +559,36 @@ function LayerEditor({ layer, isDark }: { layer: Layer; isDark: boolean }) {
   }, []);
 
   // Manage Tab cycling within the editor using data-tab-index attributes
-  const handleEditorKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === "Escape") return; // let Escape bubble for close behavior
+  const handleEditorKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Escape") return; // let Escape bubble for close behavior
 
-    e.stopPropagation(); // block canvas shortcuts
+      e.stopPropagation(); // block canvas shortcuts
 
-    if (e.key !== "Tab" || !editorRef.current) return;
-    e.preventDefault(); // prevent browser default Tab
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (e.target instanceof HTMLButtonElement) e.target.click();
+        closeAndRestoreFocus();
+        return;
+      }
 
-    const tabbables = Array.from(
-      editorRef.current.querySelectorAll<HTMLElement>("[data-tab-index]"),
-    ).sort((a, b) => Number(a.dataset.tabIndex) - Number(b.dataset.tabIndex));
-    if (tabbables.length === 0) return;
+      if (e.key !== "Tab" || !editorRef.current) return;
+      e.preventDefault(); // prevent browser default Tab
 
-    const currentIdx = tabbables.findIndex((el) => el === document.activeElement);
-    const delta = e.shiftKey ? -1 : 1;
-    const nextIdx =
-      currentIdx === -1 ? 0 : (currentIdx + delta + tabbables.length) % tabbables.length;
+      const tabbables = Array.from(
+        editorRef.current.querySelectorAll<HTMLElement>("[data-tab-index]"),
+      ).sort((a, b) => Number(a.dataset.tabIndex) - Number(b.dataset.tabIndex));
+      if (tabbables.length === 0) return;
 
-    tabbables[nextIdx].focus();
-  }, []);
+      const currentIdx = tabbables.findIndex((el) => el === document.activeElement);
+      const delta = e.shiftKey ? -1 : 1;
+      const nextIdx =
+        currentIdx === -1 ? 0 : (currentIdx + delta + tabbables.length) % tabbables.length;
+
+      tabbables[nextIdx].focus();
+    },
+    [closeAndRestoreFocus],
+  );
 
   return (
     // Handlers below are event containment (stopPropagation) and Tab focus
@@ -833,7 +856,9 @@ function LayerRow({
       </div>
 
       {/* Expanded editor */}
-      {isExpanded && <LayerEditor layer={layer} isDark={isDark} />}
+      {isExpanded && (
+        <LayerEditor layer={layer} isDark={isDark} onRestoreRowFocus={onRestoreRowFocus} />
+      )}
     </li>
   );
 }

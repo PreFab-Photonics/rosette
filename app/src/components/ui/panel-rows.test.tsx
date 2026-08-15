@@ -375,7 +375,49 @@ describe("panel row structure", () => {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
 
+    const row = document.activeElement as HTMLButtonElement;
+    expect(row.getAttribute("aria-label")).toBe("silicon");
+    expect(useLayerStore.getState().isFocused).toBe(true);
+
+    act(() => row.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(useLayerStore.getState().isFocused).toBe(false);
+    expect(useKeyboardFocusStore.getState().owns("layers-panel")).toBe(false);
+    expect(document.activeElement).not.toBe(row);
+  });
+
+  it("can leave Layers after rename starts from an unfocused panel", async () => {
+    act(() => root.render(<LayersPanel />));
+    act(() => useLayerStore.getState().setEditingLayerId(1));
+    const input = container.querySelector<HTMLInputElement>('input[value="silicon"]')!;
+    expect(document.activeElement).toBe(input);
+
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    const row = document.activeElement as HTMLButtonElement;
+    expect(row.getAttribute("aria-label")).toBe("silicon");
+    expect(useLayerStore.getState().isFocused).toBe(true);
+
+    act(() => row.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(useLayerStore.getState().isFocused).toBe(false);
+    expect(useKeyboardFocusStore.getState().owns("layers-panel")).toBe(false);
+    expect(document.activeElement).not.toBe(row);
+  });
+
+  it("restores Layer row focus after submitting inline rename", async () => {
+    act(() => root.render(<LayersPanel />));
+    act(() => useLayerStore.getState().setFocused(true));
+    act(() => useLayerStore.getState().setEditingLayerId(1));
+    const input = container.querySelector<HTMLInputElement>('input[value="silicon"]')!;
+
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+
     expect(document.activeElement?.getAttribute("aria-label")).toBe("silicon");
+    expect(useLayerStore.getState().isFocused).toBe(true);
   });
 
   it("keeps focus in the expanded Layer editor when sorting changes", async () => {
@@ -390,6 +432,52 @@ describe("panel row structure", () => {
     act(() => useLayerStore.getState().setLayer({ ...layer, layerNumber: 20 }));
     expect(document.activeElement).toBe(nameInput);
   });
+
+  it("restores the Layer row before leaving the panel after closing its editor", async () => {
+    act(() => root.render(<LayersPanel />));
+    act(() => useLayerStore.getState().setFocused(true));
+    act(() => useLayerStore.getState().setExpandedLayerId(1));
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    const input = container.querySelector<HTMLInputElement>('input[value="silicon"]')!;
+
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(useLayerStore.getState().expandedLayerId).toBe(1);
+    expect(document.activeElement).not.toBe(input);
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    expect(useLayerStore.getState().expandedLayerId).toBeNull();
+    const row = document.activeElement as HTMLButtonElement;
+    expect(row.getAttribute("aria-label")).toBe("silicon");
+
+    act(() => row.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(useLayerStore.getState().isFocused).toBe(false);
+    expect(document.activeElement).not.toBe(row);
+  });
+
+  it.each(Array.from({ length: 12 }, (_, index) => index))(
+    "closes the Layer editor with Enter from keyboard field %i",
+    async (tabIndex) => {
+      act(() => root.render(<LayersPanel />));
+      act(() => useLayerStore.getState().setFocused(true));
+      act(() => useLayerStore.getState().setExpandedLayerId(1));
+      await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      const field = container.querySelector<HTMLElement>(`[data-tab-index="${tabIndex}"]`)!;
+      act(() => field.focus());
+
+      await act(async () => {
+        field.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      });
+
+      expect(useLayerStore.getState().expandedLayerId).toBeNull();
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("silicon");
+    },
+  );
 
   it("restores Layer row focus when the swatch closes its editor", async () => {
     act(() => root.render(<LayersPanel />));
