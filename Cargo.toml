@@ -5,6 +5,7 @@ members = [
     "crates/rosette-core",
     "crates/rosette-dfm",
     "crates/rosette-drc",
+    "crates/rosette-geometry",
     "crates/rosette-io",
     "crates/rosette-python",
     "crates/rosette-raster",
@@ -20,6 +21,7 @@ default-members = [
     "crates/rosette-core",
     "crates/rosette-dfm",
     "crates/rosette-drc",
+    "crates/rosette-geometry",
     "crates/rosette-io",
     "crates/rosette-python",
     "crates/rosette-raster",
@@ -36,6 +38,7 @@ rosette-checks = { path = "crates/rosette-checks" }
 rosette-core = { path = "crates/rosette-core" }
 rosette-dfm = { path = "crates/rosette-dfm" }
 rosette-drc = { path = "crates/rosette-drc" }
+rosette-geometry = { path = "crates/rosette-geometry" }
 rosette-io = { path = "crates/rosette-io" }
 rosette-raster = { path = "crates/rosette-raster" }
 rosette-route = { path = "crates/rosette-route" }

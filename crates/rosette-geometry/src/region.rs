@@ -9,7 +9,7 @@ use geo::{
     MultiPolygon, Polygon as GeoPolygon,
 };
 
-use super::{BBox, Point, Polygon};
+use rosette_core::{BBox, Point, Polygon};
 
 // =============================================================================
 // Conversion: Polygon <-> geo::Polygon

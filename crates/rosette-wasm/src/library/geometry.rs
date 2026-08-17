@@ -372,7 +372,7 @@ impl WasmLibrary {
 
         // Reduce through Region so holes and multi-polygon topology survive
         // until the result is explicitly lowered to layout polygons.
-        use rosette_core::geometry::Region;
+        use rosette_geometry::Region;
 
         let mut result = Region::from_polygon(&polys[0].1);
 

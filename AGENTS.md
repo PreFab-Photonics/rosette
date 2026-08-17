@@ -9,6 +9,7 @@ crates/rosette-core     Geometry, atomic layout types, cell hierarchy
 crates/rosette-checks   Check framework (orchestrates DRC, ...)
 crates/rosette-drc      Design rule checking
 crates/rosette-dfm      Design-for-manufacturing models
+crates/rosette-geometry Boolean and topological geometry operations
 crates/rosette-io       GDS-II and versioned layout JSON reader/writer
 crates/rosette-raster   Rasterization
 crates/rosette-route    Photonic routing algorithms and diagnostics
@@ -23,7 +24,7 @@ www/                    Docs site (Next.js + fumadocs) — see www/AGENTS.md
 designs/                Example design scripts
 ```
 
-Pipeline: `rosette-core` + feature crates such as `rosette-route` -> PyO3 (`rosette-python`) -> `rosette._core` -> Python wrappers (`python/rosette/_api.py`) -> the root facade and public feature modules.
+Pipeline: `rosette-core` + feature crates such as `rosette-geometry` and `rosette-route` -> PyO3 (`rosette-python`) -> `rosette._core` -> Python wrappers (`python/rosette/_api.py`) -> the root facade and public feature modules.
 
 ## Commands
 

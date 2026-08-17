@@ -11,6 +11,7 @@ autobenches = false
 
 [dependencies]
 rosette-core.workspace = true
+rosette-geometry.workspace = true
 thiserror.workspace = true
 geo.workspace = true
 rstar.workspace = true

@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 rosette-core.workspace = true
+rosette-geometry.workspace = true
 rosette-io.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true

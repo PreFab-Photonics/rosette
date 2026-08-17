@@ -14,9 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   editor cascade deletion, and GDS dependency ordering are owned by their
   respective feature layers instead of `Library`.
 - **Rust breaking:** fallible transforms, typed element iterators,
-  `Route::build()`, `Region`, and standard `From` conversions are now the
-  canonical forms; duplicate panic wrappers, count helpers, convenience
-  constructors, and crate-root feature aliases have been removed.
+  `Route::build()`, `rosette_geometry::Region`, and standard `From`
+  conversions are now the canonical forms; duplicate panic wrappers, count
+  helpers, convenience constructors, and crate-root feature aliases have been
+  removed.
 - **Rust breaking:** invariant-bearing `BBox`, `Polygon`, `Port`, `CellRef`,
   `Repetition`, path, text, cell, and route data can now only be created or
   mutated through validated `Result` APIs with typed errors. Their stored
@@ -26,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   invariants.
 - Python, WASM, GDS, and `rosette-layout` V1 behavior remain unchanged while
   their adapters use the narrowed Rust surface.
+- Boolean and topological geometry now live in the `rosette-geometry` feature
+  crate. `rosette-core` retains atomic geometry and layout types without the
+  `geo` dependency, while Python polygon methods and viewer operations keep
+  their existing behavior.
 
 ## [0.5.0] - 2026-08-13
 

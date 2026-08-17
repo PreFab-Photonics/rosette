@@ -1,0 +1,10 @@
+[package]
+name = "rosette-geometry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Boolean and topological geometry operations for Rosette"
+
+[dependencies]
+rosette-core.workspace = true
+geo.workspace = true

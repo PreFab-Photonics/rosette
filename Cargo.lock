@@ -3846,7 +3846,6 @@ dependencies = [
 name = "rosette-core"
 version = "0.5.0"
 dependencies = [
- "geo",
  "proptest",
  "thiserror 1.0.69",
 ]
@@ -3883,8 +3882,17 @@ dependencies = [
  "criterion",
  "geo",
  "rosette-core",
+ "rosette-geometry",
  "rstar",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "rosette-geometry"
+version = "0.5.0"
+dependencies = [
+ "geo",
+ "rosette-core",
 ]
 
 [[package]]
@@ -3907,6 +3915,7 @@ dependencies = [
  "rosette-core",
  "rosette-dfm",
  "rosette-drc",
+ "rosette-geometry",
  "rosette-io",
  "rosette-raster",
  "rosette-route",
@@ -3945,6 +3954,7 @@ dependencies = [
  "js-sys",
  "log",
  "rosette-core",
+ "rosette-geometry",
  "rosette-io",
  "rstar",
  "serde",

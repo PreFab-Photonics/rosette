@@ -14,6 +14,7 @@ rosette-checks.workspace = true
 rosette-core.workspace = true
 rosette-dfm.workspace = true
 rosette-drc.workspace = true
+rosette-geometry.workspace = true
 rosette-io.workspace = true
 rosette-raster.workspace = true
 rosette-route.workspace = true

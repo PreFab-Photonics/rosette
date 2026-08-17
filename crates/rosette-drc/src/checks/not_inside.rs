@@ -9,8 +9,8 @@
 //! Use it to model keep-out zones: regions where a given layer is prohibited
 //! from appearing in full.
 
-use rosette_core::geometry::Region;
 use rosette_core::{Layer, Polygon};
+use rosette_geometry::Region;
 
 use crate::violation::{DrcViolation, RuleType, Severity};
 

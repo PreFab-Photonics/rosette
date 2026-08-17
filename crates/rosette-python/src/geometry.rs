@@ -2,8 +2,9 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rosette_core::geometry::{Region, arc_points, fresnel_c, fresnel_s, path_length};
+use rosette_core::geometry::{arc_points, fresnel_c, fresnel_s, path_length};
 use rosette_core::{BBox, Point, Polygon, Transform, Vector2};
+use rosette_geometry::Region;
 use std::f64::consts::PI;
 
 /// A 2D point representing a position in space.

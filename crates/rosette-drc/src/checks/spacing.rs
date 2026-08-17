@@ -1,7 +1,7 @@
 //! Minimum spacing check with R-tree spatial indexing.
 
-use rosette_core::geometry::Region;
 use rosette_core::{Layer, Polygon};
+use rosette_geometry::Region;
 use rstar::{AABB, RTree};
 
 use super::spatial::IndexedPolygon;
