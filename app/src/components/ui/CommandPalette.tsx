@@ -90,7 +90,9 @@ export function CommandPalette() {
   const isDark = theme === "dark";
 
   const isOpen = useCommandPaletteStore((s) => s.isOpen);
+  const initialSearch = useCommandPaletteStore((s) => s.initialSearch);
   const close = useCommandPaletteStore((s) => s.close);
+  const isInstancePalette = initialSearch === "add instance ";
 
   // Claim keyboard focus to disable canvas shortcuts while palette is open
   useKeyboardFocus("command-palette", isOpen);
@@ -99,8 +101,14 @@ export function CommandPalette() {
   const contentRef = useRef<HTMLDivElement>(null);
 
   // Get commands fresh each time palette opens (dynamic layer entries may change)
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
-  const commands = useMemo(() => getCommands(), [isOpen]);
+  const commands = useMemo(() => {
+    if (!isOpen) return [];
+
+    const availableCommands = getCommands();
+    return availableCommands.filter(
+      (command) => command.id.startsWith("cell-instance-") === isInstancePalette,
+    );
+  }, [isOpen, isInstancePalette]);
   const filteredCommands = useMemo(() => {
     const searchLower = search.toLowerCase();
     return commands.filter((cmd) => cmd.searchableText.toLowerCase().includes(searchLower));
