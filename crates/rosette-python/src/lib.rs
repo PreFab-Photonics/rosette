@@ -26,7 +26,7 @@ use geometry::{
     PyBBox, PyPoint, PyPolygon, PyTransform, PyVector2, py_arc_points, py_fresnel_c, py_fresnel_s,
     py_path_length,
 };
-use layout::{PyCell, PyCellRef, PyLayer, PyLibrary, PyPathEndType, PyPort, py_connect_transform};
+use layout::{PyCell, PyCellRef, PyLayer, PyLibrary, PyPathCap, PyPort, py_connect_transform};
 use render::{PyRenderResult, py_render_png};
 use rosette_core::Layer;
 use route::{PyBendInfo, PyRoute};
@@ -71,7 +71,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCell>()?;
     m.add_class::<PyCellRef>()?;
     m.add_class::<PyLibrary>()?;
-    m.add_class::<PyPathEndType>()?;
+    m.add_class::<PyPathCap>()?;
 
     // Route (core routing infrastructure, not a component)
     m.add_class::<PyRoute>()?;

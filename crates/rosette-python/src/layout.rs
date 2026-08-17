@@ -5,7 +5,7 @@ use crate::geometry::{PyBBox, PyPoint, PyPolygon, PyTransform, PyVector2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rosette_checks::RouteAnnotationMap;
-use rosette_core::cell::PathEndType;
+use rosette_core::cell::PathCap;
 use rosette_core::component::connect_transform;
 use rosette_core::{
     Cell, CellRef, DuplicatePolicy, Layer, Library, LibraryError, Point, Port, Transform, Vector2,
@@ -253,37 +253,37 @@ fn extract_array_dimensions(
     }
 }
 
-/// GDS path end type.
-#[pyclass(name = "PathEndType", from_py_object)]
+/// Geometry applied at both endpoints of a path.
+#[pyclass(name = "PathCap", from_py_object)]
 #[derive(Clone, Copy)]
-pub struct PyPathEndType(pub PathEndType);
+pub struct PyPathCap(pub PathCap);
 
 #[pymethods]
 #[allow(non_snake_case)]
-impl PyPathEndType {
+impl PyPathCap {
     /// Flush (square) ends at path endpoints.
     #[classattr]
     fn FLUSH() -> Self {
-        PyPathEndType(PathEndType::Flush)
+        PyPathCap(PathCap::Flush)
     }
 
     /// Round ends.
     #[classattr]
     fn ROUND() -> Self {
-        PyPathEndType(PathEndType::Round)
+        PyPathCap(PathCap::Round)
     }
 
     /// Square ends extending half-width past endpoints.
     #[classattr]
     fn HALF_WIDTH_EXTENSION() -> Self {
-        PyPathEndType(PathEndType::HalfWidthExtension)
+        PyPathCap(PathCap::HalfWidthExtension)
     }
 
     fn __repr__(&self) -> String {
         match self.0 {
-            PathEndType::Flush => "PathEndType.FLUSH".to_string(),
-            PathEndType::Round => "PathEndType.ROUND".to_string(),
-            PathEndType::HalfWidthExtension => "PathEndType.HALF_WIDTH_EXTENSION".to_string(),
+            PathCap::Flush => "PathCap.FLUSH".to_string(),
+            PathCap::Round => "PathCap.ROUND".to_string(),
+            PathCap::HalfWidthExtension => "PathCap.HALF_WIDTH_EXTENSION".to_string(),
         }
     }
 }
@@ -781,7 +781,7 @@ impl PyCell {
     ///     points: List of Point objects along the path centerline
     ///     width: Width of the path
     ///     layer: Layer number or Layer object
-    ///     end_type: Path end type (default: PathEndType.FLUSH)
+    ///     cap: Path endpoint geometry (default: PathCap.FLUSH)
     ///
     /// Example:
     ///     ```python
@@ -789,16 +789,16 @@ impl PyCell {
     ///         [Point(0, 0), Point(100, 0), Point(100, 50)],
     ///         width=0.5,
     ///         layer=1,
-    ///         end_type=PathEndType.ROUND
+    ///         cap=PathCap.ROUND
     ///     )
     ///     ```
-    #[pyo3(signature = (points, width, layer, end_type=None))]
+    #[pyo3(signature = (points, width, layer, cap=None))]
     fn add_path(
         &mut self,
         points: Vec<PyPoint>,
         width: f64,
         layer: &Bound<'_, PyAny>,
-        end_type: Option<PyPathEndType>,
+        cap: Option<PyPathCap>,
     ) -> PyResult<()> {
         if points.len() < 2 {
             return Err(PyValueError::new_err(
@@ -818,9 +818,9 @@ impl PyCell {
         }
         let layer = extract_layer(layer)?;
         let points: Vec<_> = points.into_iter().map(|p| p.0).collect();
-        let end_type = end_type.map(|e| e.0).unwrap_or(PathEndType::Flush);
+        let cap = cap.map(|value| value.0).unwrap_or(PathCap::Flush);
         self.0
-            .add_path(points, width, layer, end_type)
+            .add_path(points, width, layer, cap)
             .map_err(|_| PyValueError::new_err("Cell path contains invalid geometry"))
     }
 

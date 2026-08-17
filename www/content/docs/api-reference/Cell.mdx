@@ -78,7 +78,7 @@ or a `(number, datatype)` tuple.
 
 </PyFunction>
 
-<PyFunction name={"add_path"} type={"(points, width, layer, end_type=None) -> None"}>
+<PyFunction name={"add_path"} type={"(points, width, layer, cap=None) -> None"}>
 
 Add a path (centerline with width) to the cell.
 
@@ -94,7 +94,7 @@ cell.add_path(
     [Point(0, 0), Point(100, 0), Point(100, 50)],
     width=0.5,
     layer=1,
-    end_type=PathEndType.ROUND
+    cap=PathCap.ROUND
 )
 ```
 
@@ -109,8 +109,8 @@ At least two finite Point objects along the path centerline.
 </PyParameter>
 <PyParameter name={"width"} type={"float"}>
 
-Finite, nonzero width of the path. Negative widths are valid and preserve GDS
-absolute-width semantics: they are not scaled with a reference magnification.
+Finite, nonzero width of the path. Negative widths are absolute: they are not
+scaled with a reference magnification.
 
 </PyParameter>
 <PyParameter name={"layer"} type={"Layer | int | tuple[int, int]"}>
@@ -118,9 +118,9 @@ absolute-width semantics: they are not scaled with a reference magnification.
 Target layer.
 
 </PyParameter>
-<PyParameter name={"end_type"} type={"PathEndType | None"} value={"None"}>
+<PyParameter name={"cap"} type={"PathCap | None"} value={"None"}>
 
-Path end type. Defaults to `PathEndType.FLUSH`.
+Path endpoint geometry. Defaults to `PathCap.FLUSH`.
 
 </PyParameter>
 

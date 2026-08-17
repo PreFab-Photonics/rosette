@@ -380,7 +380,7 @@ _TASK_CONTRACTS: dict[str, tuple[str, ...]] = {
         "BBox",
         "Instance",
         "ArrayCopy",
-        "PathEndType",
+        "PathCap",
         "Layer",
         "Port",
         "Cell",
@@ -429,7 +429,7 @@ _TASK_CONTRACTS: dict[str, tuple[str, ...]] = {
         "Point",
         "Vector2",
         "Polygon",
-        "PathEndType",
+        "PathCap",
         "Layer",
         "Port",
         "Cell",
@@ -439,7 +439,7 @@ _TASK_CONTRACTS: dict[str, tuple[str, ...]] = {
 
 _TASK_IMPORTS = {
     "layout": """\
-    from rosette import BBox, Cell, Instance, Layer, Library, PathEndType, Point, Polygon, Port, Transform, Vector2, connect_transform
+    from rosette import BBox, Cell, Instance, Layer, Library, PathCap, Point, Polygon, Port, Transform, Vector2, connect_transform
     from rosette.geometry import arc_points
     from rosette.io import read_gds, write_gds
     from rosette.layout import ArrayCopy
@@ -454,7 +454,7 @@ _TASK_IMPORTS = {
     from rosette.drc import DrcPolicy, DrcResult, DrcRules, DrcViolation, load_drc_rules, run_drc
     from rosette.render import RenderResult, render_png""",
     "component-authoring": """\
-    from rosette import Cell, Layer, PathEndType, Point, Polygon, Port, Vector2
+    from rosette import Cell, Layer, PathCap, Point, Polygon, Port, Vector2
     from rosette.geometry import arc_points""",
 }
 

@@ -276,7 +276,7 @@ pub fn cell_bbox(library: &Library, name: &str) -> Option<BBox> {
             Element::Path(path) => stroke_path_transformed(
                 path.points(),
                 path.width(),
-                path.end_type(),
+                path.cap(),
                 &placed.placement.transform,
             ),
             Element::Text(_) | Element::CellRef(_) => None,

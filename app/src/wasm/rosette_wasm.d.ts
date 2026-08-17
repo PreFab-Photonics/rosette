@@ -51,6 +51,10 @@ export class NativePathInfo {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * Get the path cap code (0=flush, 1=round, 2=half-width extension).
+     */
+    readonly cap: number;
+    /**
      * Get the centerline as [x0, y0, x1, y1, ...].
      */
     readonly centerline: Float64Array;
@@ -58,10 +62,6 @@ export class NativePathInfo {
      * Get the datatype number.
      */
     readonly datatype: number;
-    /**
-     * Get the GDS path end type (0=flush, 1=round, 2=half-width extension).
-     */
-    readonly end_type: number;
     /**
      * Get the layer number.
      */
@@ -621,9 +621,9 @@ export class WasmLibrary {
      * Restore an imported/native path as a centerline record.
      *
      * Unlike `create_path`, this preserves the path element kind, signed
-     * width, and GDS end type instead of lowering it to a polygon.
+     * width, and cap geometry instead of lowering it to a polygon.
      */
-    restore_native_path(points: Float64Array, width: number, end_type: number, layer: number, datatype: number): string | undefined;
+    restore_native_path(points: Float64Array, width: number, cap: number, layer: number, datatype: number): string | undefined;
     /**
      * Set the active cell by name.
      *
@@ -1100,9 +1100,9 @@ export interface InitOutput {
     readonly elementinfo_datatype: (a: number) => number;
     readonly elementinfo_layer: (a: number) => number;
     readonly elementinfo_vertices: (a: number) => [number, number];
+    readonly nativepathinfo_cap: (a: number) => number;
     readonly nativepathinfo_centerline: (a: number) => [number, number];
     readonly nativepathinfo_datatype: (a: number) => number;
-    readonly nativepathinfo_end_type: (a: number) => number;
     readonly nativepathinfo_layer: (a: number) => number;
     readonly nativepathinfo_width: (a: number) => number;
     readonly wasmlibrary_add_cell_ref: (a: number, b: number, c: number, d: number, e: number) => [number, number];

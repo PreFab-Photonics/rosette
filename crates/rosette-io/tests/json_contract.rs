@@ -1,4 +1,4 @@
-use rosette_core::PathEndType;
+use rosette_core::PathCap;
 use rosette_io::json::{from_string, to_string};
 
 const CURRENT_LIBRARY: &str = include_str!("../../../fixtures/json/current-library.json");
@@ -20,7 +20,7 @@ fn current_json_wire_shape_is_stable() {
     assert_eq!(leaf.paths().count(), 1);
     assert_eq!(leaf.texts().count(), 1);
     assert_eq!(leaf.ports().len(), 1);
-    assert_eq!(leaf.paths().next().unwrap().3, PathEndType::Round);
+    assert_eq!(leaf.paths().next().unwrap().3, PathCap::Round);
 
     let annotations = &document.annotations()["leaf"];
     assert_eq!(annotations.route.path_length, Some(7.25));

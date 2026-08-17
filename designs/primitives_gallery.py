@@ -12,7 +12,7 @@ Primitives covered:
                           and custom vertex lists
 * Boolean operations    - ``subtract``, ``union``, ``intersect``, ``xor``
                           (each returns ``list[Polygon]``)
-* Paths                 - ``add_path`` (centerline + width) with end types
+* Paths                 - ``add_path`` (centerline + width) with caps
 * Cell hierarchy        - ``add_ref`` + the ergonomic ``.at()`` placement
 * Transforms            - ``rotate`` / ``mirror_x`` and the chaining-order
                           rule, plus array placement
@@ -29,7 +29,7 @@ or build it to GDS::
 
 from rosette import (
     Cell,
-    PathEndType,
+    PathCap,
     Point,
     Polygon,
 )
@@ -113,7 +113,7 @@ path_cell.add_path(
     [Point(0, 0), Point(30, 0), Point(50, 20), Point(80, 20)],
     width=2.0,
     layer=silicon,
-    end_type=PathEndType.ROUND,  # rounded caps at the endpoints
+    cap=PathCap.ROUND,  # rounded caps at the endpoints
 )
 
 # =============================================================================

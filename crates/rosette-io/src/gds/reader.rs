@@ -8,7 +8,7 @@ use std::path::Path;
 
 use byteorder::{BigEndian, ReadBytesExt};
 
-use rosette_core::cell::{CellRef, PathEndType, Repetition};
+use rosette_core::cell::{CellRef, PathCap, Repetition};
 use rosette_core::geometry::Vector2;
 use rosette_core::{
     Cell, CellRefError, CellRefValidationReason, CellValidationError, Layer, Library, LibraryError,
@@ -412,10 +412,10 @@ impl<'a> GdsReader<'a> {
                 GdsElementError::ZeroPathWidth,
             ));
         }
-        let end_type = match pathtype {
-            0 => PathEndType::Flush,
-            1 => PathEndType::Round,
-            2 => PathEndType::HalfWidthExtension,
+        let cap = match pathtype {
+            0 => PathCap::Flush,
+            1 => PathCap::Round,
+            2 => PathCap::HalfWidthExtension,
             value => {
                 return Err(invalid_element(
                     cell.name(),
@@ -425,7 +425,7 @@ impl<'a> GdsReader<'a> {
             }
         };
         let layer = parse_layer(cell.name(), element_index, layer, datatype)?;
-        cell.add_path(points, width, layer, end_type)
+        cell.add_path(points, width, layer, cap)
             .map_err(|error| map_cell_element_error(cell.name(), element_index, error))?;
 
         Ok(())
@@ -1484,7 +1484,7 @@ mod tests {
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 2),
-            PathEndType::default(),
+            PathCap::default(),
         )
         .unwrap();
         let mut library = Library::new("test");
@@ -1535,7 +1535,7 @@ mod tests {
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 0),
-            PathEndType::default(),
+            PathCap::default(),
         )
         .unwrap();
         let mut library = Library::new("test");
@@ -1711,7 +1711,7 @@ mod tests {
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 0),
-            PathEndType::default(),
+            PathCap::default(),
         )
         .unwrap();
         let mut library = Library::new("test");
@@ -1892,7 +1892,7 @@ mod tests {
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 0),
-            PathEndType::default(),
+            PathCap::default(),
         )
         .unwrap();
         let mut library = Library::new("test");
@@ -2058,14 +2058,14 @@ mod tests {
 
     #[test]
     fn test_roundtrip_path() {
-        use rosette_core::cell::PathEndType;
+        use rosette_core::cell::PathCap;
 
         let mut cell = Cell::new("TOP");
         cell.add_path(
             vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)],
             0.5,
             Layer::new(2, 0),
-            PathEndType::Round,
+            PathCap::Round,
         )
         .unwrap();
 
@@ -2076,11 +2076,11 @@ mod tests {
         let cell = &result.cells()[0];
         assert_eq!(cell.paths().count(), 1);
 
-        let (points, width, layer, end_type) = cell.paths().next().unwrap();
+        let (points, width, layer, cap) = cell.paths().next().unwrap();
         assert_eq!(points.len(), 2);
         assert!((width - 0.5).abs() < 0.01);
         assert_eq!(layer.number, 2);
-        assert_eq!(end_type, PathEndType::Round);
+        assert_eq!(cap, PathCap::Round);
     }
 
     #[test]
@@ -2361,7 +2361,7 @@ mod tests {
             vec![Point::new(0.0, 10.0), Point::new(100.0, 10.0)],
             0.5,
             Layer::new(2, 0),
-            PathEndType::Flush,
+            PathCap::Flush,
         )
         .unwrap();
         top.add_text_with_height("Label", Point::new(50.0, 15.0), Layer::new(10, 0), 1.0)

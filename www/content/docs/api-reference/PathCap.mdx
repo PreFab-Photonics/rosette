@@ -1,10 +1,10 @@
 ---
-title: PathEndType
+title: PathCap
 ---
 
-GDS path end type.
+Path endpoint geometry.
 
-PathEndType controls how the start and end of a path are rendered. It is
+PathCap controls how the start and end of a path are rendered. It is
 used with `Cell.add_path()` to select the cap style.
 Path corners use miter joins with a four-half-width limit and bevel fallback;
 round caps are approximated with 16 segments per semicircle.
@@ -14,29 +14,29 @@ cell.add_path(
     [Point(0, 0), Point(100, 0)],
     width=0.5,
     layer=Layer(1, 0),
-    end_type=PathEndType.ROUND,
+    cap=PathCap.ROUND,
 )
 ```
 
 ## Variants
 
-<PyAttribute name={"FLUSH"} type={"PathEndType"}>
+<PyAttribute name={"FLUSH"} type={"PathCap"}>
 
 Flush (square) ends at path endpoints. The path terminates exactly at the
 first and last point with no extension. This is the default.
 
 </PyAttribute>
 
-<PyAttribute name={"ROUND"} type={"PathEndType"}>
+<PyAttribute name={"ROUND"} type={"PathCap"}>
 
-Round ends. A semicircle with diameter equal to the path width is drawn
+Round ends. A semicircle with diameter equal to the path width magnitude is drawn
 at each endpoint.
 
 </PyAttribute>
 
-<PyAttribute name={"HALF_WIDTH_EXTENSION"} type={"PathEndType"}>
+<PyAttribute name={"HALF_WIDTH_EXTENSION"} type={"PathCap"}>
 
-Square ends extending half the path width past the endpoints. Each end is
-extended by `width / 2` along the path direction.
+Square ends extending half the path width magnitude past the endpoints. Each
+end is extended by `abs(width) / 2` along the path direction.
 
 </PyAttribute>

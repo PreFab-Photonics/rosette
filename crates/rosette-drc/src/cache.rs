@@ -34,7 +34,7 @@ use crate::violation::DrcViolation;
 /// Content hash of a cell, folding in its transitive sub-cell hashes.
 ///
 /// Excludes the cell name (so a rename is a cache hit). Hashes only the data
-/// DRC detection depends on: polygons, paths (and their layers/width/end-type),
+/// DRC detection depends on: polygons, paths (and their layers/width/cap),
 /// and each `CellRef`'s transform/repetition plus
 /// the content hash of the referenced cell. Ports, text, metadata, and origin
 /// don't affect DRC results and are excluded.
@@ -261,7 +261,7 @@ fn cell_content_hash_inner(
                 1u8.hash(&mut hasher);
                 path.layer().hash(&mut hasher);
                 path.width().to_bits().hash(&mut hasher);
-                (path.end_type() as u8).hash(&mut hasher);
+                path.cap().hash(&mut hasher);
                 hash_points(&mut hasher, path.points());
             }
             Element::CellRef(cell_ref) => {

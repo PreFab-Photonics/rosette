@@ -25,12 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Path and text enum payloads now use validated `PathElement` and `TextElement`
   types, preventing public `Element` construction from bypassing local model
   invariants.
-- Python, WASM, GDS, and `rosette-layout` V1 behavior remain unchanged while
-  their adapters use the narrowed Rust surface.
+- Geometry behavior, GDS output, and `rosette-layout` V1 remain unchanged while
+  Python and WASM adapters use the narrowed Rust surface.
 - Boolean and topological geometry now live in the `rosette-geometry` feature
   crate. `rosette-core` retains atomic geometry and layout types without the
   `geo` dependency, while Python polygon methods and viewer operations keep
   their existing behavior.
+- **Rust/Python breaking:** format-neutral path APIs now use `PathCap` and
+  `cap` instead of `PathEndType` and `end_type`. The WASM editor contract uses
+  the same terminology. GDS `PATHTYPE` records and the `rosette-layout` V1
+  `"end_type"` field remain unchanged through explicit IO mappings.
 
 ## [0.5.0] - 2026-08-13
 

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use rosette_core::cell::Element;
 use rosette_core::{
-    BBox, Cell, CellRef, Layer, Library, PathEndType, Point, Polygon, Port, Repetition, Transform,
+    BBox, Cell, CellRef, Layer, Library, PathCap, Point, Polygon, Port, Repetition, Transform,
     Vector2,
 };
 use serde::{Deserialize, Serialize};
@@ -71,7 +71,8 @@ enum ElementDto {
         layer: LayerDto,
         points: Vec<PointDto>,
         width: f64,
-        end_type: PathEndTypeDto,
+        #[serde(rename = "end_type")]
+        cap: PathCapDto,
     },
     CellRef {
         cell: String,
@@ -88,7 +89,7 @@ enum ElementDto {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum PathEndTypeDto {
+enum PathCapDto {
     Flush,
     Round,
     HalfWidthExtension,
@@ -367,7 +368,7 @@ impl ElementDto {
                 layer: path.layer().into(),
                 points: path.points().iter().copied().map(Into::into).collect(),
                 width: path.width(),
-                end_type: path.end_type().into(),
+                cap: path.cap().into(),
             },
             Element::CellRef(cell_ref) => Self::CellRef {
                 cell: cell_ref.cell_name().to_string(),
@@ -395,7 +396,7 @@ impl ElementDto {
                 layer,
                 points,
                 width,
-                end_type,
+                cap,
             } => {
                 let points: Vec<Point> = points.into_iter().map(Into::into).collect();
                 if points.len() < 2 {
@@ -411,7 +412,7 @@ impl ElementDto {
                         "path width cannot be zero",
                     ));
                 }
-                cell.add_path(points, width, Layer::from(layer), end_type.into())
+                cell.add_path(points, width, Layer::from(layer), cap.into())
                     .map_err(|error| invalid(path, &error.to_string()))?;
             }
             Self::CellRef {
@@ -641,22 +642,22 @@ impl From<Repetition> for RepetitionDto {
     }
 }
 
-impl From<PathEndType> for PathEndTypeDto {
-    fn from(value: PathEndType) -> Self {
+impl From<PathCap> for PathCapDto {
+    fn from(value: PathCap) -> Self {
         match value {
-            PathEndType::Flush => Self::Flush,
-            PathEndType::Round => Self::Round,
-            PathEndType::HalfWidthExtension => Self::HalfWidthExtension,
+            PathCap::Flush => Self::Flush,
+            PathCap::Round => Self::Round,
+            PathCap::HalfWidthExtension => Self::HalfWidthExtension,
         }
     }
 }
 
-impl From<PathEndTypeDto> for PathEndType {
-    fn from(value: PathEndTypeDto) -> Self {
+impl From<PathCapDto> for PathCap {
+    fn from(value: PathCapDto) -> Self {
         match value {
-            PathEndTypeDto::Flush => Self::Flush,
-            PathEndTypeDto::Round => Self::Round,
-            PathEndTypeDto::HalfWidthExtension => Self::HalfWidthExtension,
+            PathCapDto::Flush => Self::Flush,
+            PathCapDto::Round => Self::Round,
+            PathCapDto::HalfWidthExtension => Self::HalfWidthExtension,
         }
     }
 }

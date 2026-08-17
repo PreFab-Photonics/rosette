@@ -995,12 +995,9 @@ impl DrcRunner {
                 (polygon, *layer)
             }
             Element::Path(path) => {
-                let Some(polygon) = stroke_path_transformed(
-                    path.points(),
-                    path.width(),
-                    path.end_type(),
-                    transform,
-                ) else {
+                let Some(polygon) =
+                    stroke_path_transformed(path.points(), path.width(), path.cap(), transform)
+                else {
                     return;
                 };
                 (polygon, path.layer())
@@ -1225,12 +1222,9 @@ impl DrcRunner {
                     }
                 }
                 Element::Path(path) => {
-                    if let Some(ribbon) = stroke_path_transformed(
-                        path.points(),
-                        path.width(),
-                        path.end_type(),
-                        transform,
-                    ) {
+                    if let Some(ribbon) =
+                        stroke_path_transformed(path.points(), path.width(), path.cap(), transform)
+                    {
                         result
                             .entry(path.layer())
                             .or_default()
@@ -1260,8 +1254,7 @@ impl DrcRunner {
                     index += 1;
                 }
                 Element::Path(path) => {
-                    if let Some(ribbon) = stroke_path(path.points(), path.width(), path.end_type())
-                    {
+                    if let Some(ribbon) = stroke_path(path.points(), path.width(), path.cap()) {
                         result
                             .entry(path.layer())
                             .or_default()
@@ -1283,7 +1276,7 @@ impl DrcRunner {
             let representable = match element {
                 Element::Polygon { polygon, .. } => polygon.try_transform(transform).is_ok(),
                 Element::Path(path) => {
-                    stroke_path_transformed(path.points(), path.width(), path.end_type(), transform)
+                    stroke_path_transformed(path.points(), path.width(), path.cap(), transform)
                         .is_some()
                 }
                 Element::CellRef(_) | Element::Text(_) => false,

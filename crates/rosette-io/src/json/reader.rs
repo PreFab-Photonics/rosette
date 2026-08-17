@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn test_round_trip_with_paths() {
-        use rosette_core::cell::PathEndType;
+        use rosette_core::cell::PathCap;
 
         let mut cell = Cell::new("with_path").unwrap();
         cell.add_path(
@@ -88,7 +88,7 @@ mod tests {
             ],
             0.5,
             Layer::new(1, 0),
-            PathEndType::Flush,
+            PathCap::Flush,
         )
         .unwrap();
 
@@ -167,7 +167,7 @@ mod tests {
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 0),
-            rosette_core::PathEndType::default(),
+            rosette_core::PathCap::default(),
         )
         .unwrap();
         let mut library = Library::new("test");

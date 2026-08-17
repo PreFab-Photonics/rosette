@@ -16,6 +16,7 @@ from rosette import (
     Instance,
     Layer,
     Library,
+    PathCap,
     Point,
     Polygon,
     Port,
@@ -970,6 +971,20 @@ class TestLibraryCellBbox:
         assert bb.min.y == pytest.approx(-1.0)
         assert bb.max.x == pytest.approx(10.0)
         assert bb.max.y == pytest.approx(1.0)
+
+    def test_cell_path_cap_keyword_controls_endpoint_geometry(self):
+        cell = Cell("round_path")
+        cell.add_path(
+            [Point(0, 0), Point(10, 0)],
+            2.0,
+            Layer(1, 0),
+            cap=PathCap.ROUND,
+        )
+
+        bb = cell.bbox()
+        assert bb is not None
+        assert bb.min.x == pytest.approx(-1.0)
+        assert bb.max.x == pytest.approx(11.0)
 
     def test_missing_cell_returns_none(self):
         lib = Library("lib")

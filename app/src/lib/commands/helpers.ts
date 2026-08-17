@@ -134,7 +134,7 @@ export function snapshotElements(library: WasmLibrary, ids: Iterable<string>): C
         originalIndex,
         centerline: new Float64Array(nativePath.centerline),
         width: nativePath.width,
-        endType: nativePath.end_type,
+        cap: nativePath.cap,
         layer: nativePath.layer,
         datatype: nativePath.datatype,
       });
@@ -272,7 +272,7 @@ export function restoreSnapshots(
       const id = library.restore_native_path(
         snapshot.centerline,
         snapshot.width,
-        snapshot.endType,
+        snapshot.cap,
         snapshot.layer,
         snapshot.datatype,
       );

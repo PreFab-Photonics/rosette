@@ -2,7 +2,7 @@
 
 use super::{ElementRef, REF_UUID_PREFIX, WasmLibrary, path};
 use rosette_core::cell::Element;
-use rosette_core::{Layer, PathEndType, Point, Polygon};
+use rosette_core::{Layer, PathCap, Point, Polygon};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use uuid::Uuid;
@@ -231,12 +231,12 @@ impl WasmLibrary {
     /// Restore an imported/native path as a centerline record.
     ///
     /// Unlike `create_path`, this preserves the path element kind, signed
-    /// width, and GDS end type instead of lowering it to a polygon.
+    /// width, and cap geometry instead of lowering it to a polygon.
     pub fn restore_native_path(
         &mut self,
         points: &[f64],
         width: f64,
-        end_type: u8,
+        cap: u8,
         layer: u16,
         datatype: u16,
     ) -> Option<String> {
@@ -248,10 +248,10 @@ impl WasmLibrary {
         {
             return None;
         }
-        let end_type = match end_type {
-            0 => PathEndType::Flush,
-            1 => PathEndType::Round,
-            2 => PathEndType::HalfWidthExtension,
+        let cap = match cap {
+            0 => PathCap::Flush,
+            1 => PathCap::Round,
+            2 => PathCap::HalfWidthExtension,
             _ => return None,
         };
         let centerline = points
@@ -263,7 +263,7 @@ impl WasmLibrary {
             .library
             .edit_cell(&cell_name, |cell| {
                 let element_index = cell.elements().len();
-                cell.add_path(centerline, width, Layer::new(layer, datatype), end_type)
+                cell.add_path(centerline, width, Layer::new(layer, datatype), cap)
                     .map(|()| element_index)
             })
             .ok()?;
@@ -660,7 +660,7 @@ mod tests {
         let path = library.get_native_path_info(&path_id).unwrap();
         assert_eq!(path.centerline(), vec![5.0, 6.0, 7.0, 8.0]);
         assert_eq!(path.width(), -9.0);
-        assert_eq!(path.end_type(), 2);
+        assert_eq!(path.cap(), 2);
         assert_eq!((path.layer(), path.datatype()), (10, 11));
 
         let elements = library.library.cell("top").unwrap().elements();

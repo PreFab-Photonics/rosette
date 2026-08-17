@@ -55,7 +55,7 @@ fn convert_element_coordinates(
             if points.iter().any(|point| !point.is_finite()) || !width.is_finite() || width == 0.0 {
                 return Err(JsValue::from_str("path coordinate conversion overflowed"));
             }
-            PathElement::new(points, width, path.layer(), path.end_type())
+            PathElement::new(points, width, path.layer(), path.cap())
                 .map(Element::Path)
                 .map_err(|error| JsValue::from_str(&error.to_string()))
         }
@@ -379,7 +379,7 @@ impl WasmLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::{BBox, Cell, CellRef, Layer, PathEndType, Polygon, Port, Vector2};
+    use rosette_core::{BBox, Cell, CellRef, Layer, PathCap, Polygon, Port, Vector2};
     use rosette_io::json::{BendAnnotation, DrcAnnotations, EditorAnnotations, RouteAnnotations};
 
     const CURRENT_LIBRARY: &str = include_str!("../../../../fixtures/json/current-library.json");
@@ -577,7 +577,7 @@ mod tests {
             vec![Point::new(-1.0, 2.0), Point::new(5.0, -6.0)],
             -2.0,
             Layer::new(3, 4),
-            PathEndType::Round,
+            PathCap::Round,
         )
         .unwrap();
         top.add_ref(

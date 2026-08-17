@@ -10,7 +10,7 @@ use std::path::Path;
 
 use byteorder::{BigEndian, WriteBytesExt};
 
-use rosette_core::cell::{CellRef, Element, PathEndType};
+use rosette_core::cell::{CellRef, Element, PathCap};
 use rosette_core::{Cell, Layer, Library, Point, Polygon, Repetition, Transform};
 
 use super::constants::*;
@@ -174,7 +174,7 @@ impl<W: Write> GdsWriter<W> {
                     }
                 }
                 Element::Path(path) => {
-                    self.write_path(path.points(), path.width(), &path.layer(), path.end_type())?;
+                    self.write_path(path.points(), path.width(), &path.layer(), path.cap())?;
                 }
                 Element::Text(text) => {
                     self.write_text(text.text(), text.position(), &text.layer(), text.height())?;
@@ -366,7 +366,7 @@ impl<W: Write> GdsWriter<W> {
         points: &[Point],
         width: f64,
         layer: &Layer,
-        end_type: PathEndType,
+        cap: PathCap,
     ) -> Result<(), GdsError> {
         // GDS path requires at least 2 points
         if points.len() < 2 {
@@ -388,7 +388,11 @@ impl<W: Write> GdsWriter<W> {
         self.write_record(DATATYPE, INT16, &layer.datatype.to_be_bytes())?;
 
         // PATHTYPE (if not flush/default)
-        let pathtype = end_type as i16;
+        let pathtype: i16 = match cap {
+            PathCap::Flush => 0,
+            PathCap::Round => 1,
+            PathCap::HalfWidthExtension => 2,
+        };
         if pathtype != 0 {
             self.write_record(PATHTYPE, INT16, &pathtype.to_be_bytes())?;
         }
@@ -790,6 +794,21 @@ mod tests {
         fn rect(origin: Point, width: f64, height: f64) -> rosette_core::Polygon {
             rosette_core::Polygon::rect(origin, width, height).unwrap()
         }
+    }
+
+    fn record_payloads(bytes: &[u8], record_type: u8) -> Vec<Vec<u8>> {
+        let mut payloads = Vec::new();
+        let mut offset = 0;
+        while offset + 4 <= bytes.len() {
+            let length = usize::from(u16::from_be_bytes([bytes[offset], bytes[offset + 1]]));
+            assert!(length >= 4 && offset + length <= bytes.len());
+            if bytes[offset + 2] == record_type {
+                payloads.push(bytes[offset + 4..offset + length].to_vec());
+            }
+            offset += length;
+        }
+        assert_eq!(offset, bytes.len());
+        payloads
     }
 
     struct FlushFailWriter;
@@ -1380,7 +1399,7 @@ mod tests {
             vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)],
             0.5,
             Layer::new(1, 0),
-            PathEndType::Flush,
+            PathCap::Flush,
         )
         .unwrap();
 
@@ -1392,6 +1411,7 @@ mod tests {
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
         assert!(!output.is_empty());
+        assert!(record_payloads(&output, PATHTYPE).is_empty());
     }
 
     #[test]
@@ -1406,7 +1426,7 @@ mod tests {
             ],
             1.0,
             Layer::new(1, 0),
-            PathEndType::Flush,
+            PathCap::Flush,
         )
         .unwrap();
 
@@ -1420,13 +1440,13 @@ mod tests {
     }
 
     #[test]
-    fn test_path_end_type_round() {
+    fn test_path_cap_round() {
         let mut cell = Cell::new("TEST");
         cell.add_path(
             vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)],
             2.0,
             Layer::new(1, 0),
-            PathEndType::Round,
+            PathCap::Round,
         )
         .unwrap();
 
@@ -1437,16 +1457,17 @@ mod tests {
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
+        assert_eq!(record_payloads(&output, PATHTYPE), vec![1i16.to_be_bytes()]);
     }
 
     #[test]
-    fn test_path_end_type_half_width_extension() {
+    fn test_path_cap_half_width_extension() {
         let mut cell = Cell::new("TEST");
         cell.add_path(
             vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)],
             2.0,
             Layer::new(1, 0),
-            PathEndType::HalfWidthExtension,
+            PathCap::HalfWidthExtension,
         )
         .unwrap();
 
@@ -1457,6 +1478,7 @@ mod tests {
 
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
+        assert_eq!(record_payloads(&output, PATHTYPE), vec![2i16.to_be_bytes()]);
     }
 
     #[test]
@@ -1465,7 +1487,7 @@ mod tests {
         let points: Vec<Point> = (0..8192).map(|i| Point::new(i as f64, 0.0)).collect();
 
         let mut cell = Cell::new("TEST");
-        cell.add_path(points, 0.5, Layer::new(1, 0), PathEndType::Flush)
+        cell.add_path(points, 0.5, Layer::new(1, 0), PathCap::Flush)
             .unwrap();
 
         let mut output = Vec::new();
@@ -1487,7 +1509,7 @@ mod tests {
     fn rejects_short_paths_during_element_preflight() {
         for points in [vec![], vec![Point::origin()]] {
             assert!(
-                rosette_core::PathElement::new(points, 0.5, Layer::new(1, 0), PathEndType::Flush,)
+                rosette_core::PathElement::new(points, 0.5, Layer::new(1, 0), PathCap::Flush,)
                     .is_err()
             );
         }
@@ -1499,7 +1521,7 @@ mod tests {
         let points: Vec<Point> = (0..8191).map(|i| Point::new(i as f64 * 0.1, 0.0)).collect();
 
         let mut cell = Cell::new("TEST");
-        cell.add_path(points, 0.5, Layer::new(1, 0), PathEndType::Flush)
+        cell.add_path(points, 0.5, Layer::new(1, 0), PathCap::Flush)
             .unwrap();
 
         let mut output = Vec::new();
@@ -1674,7 +1696,7 @@ mod tests {
             vec![Point::new(0.0, 10.0), Point::new(100.0, 10.0)],
             0.5,
             Layer::new(2, 0),
-            PathEndType::Round,
+            PathCap::Round,
         )
         .unwrap();
 
@@ -1741,7 +1763,7 @@ mod tests {
                 vec![Point::origin(), Point::new(f64::NAN, 0.0)],
                 0.5,
                 Layer::new(1, 0),
-                PathEndType::Flush,
+                PathCap::Flush,
             ),
             Err(rosette_core::PathValidationReason::NonFinitePoint { .. })
         ));
@@ -1784,7 +1806,7 @@ mod tests {
             vec![Point::origin(), Point::new(10.0, 0.0)],
             -0.5,
             Layer::new(1, 0),
-            PathEndType::Flush,
+            PathCap::Flush,
         )
         .unwrap();
         let mut library = Library::new("test");

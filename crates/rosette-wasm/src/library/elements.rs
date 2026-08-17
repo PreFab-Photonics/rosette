@@ -229,8 +229,7 @@ impl WasmLibrary {
                 }
                 Element::Path(path) => {
                     // Preserve paths as polygons (ribbon conversion)
-                    if let Some(ribbon) = stroke_path(path.points(), path.width(), path.end_type())
-                    {
+                    if let Some(ribbon) = stroke_path(path.points(), path.width(), path.cap()) {
                         flattened.push(Element::Polygon {
                             polygon: ribbon,
                             layer: path.layer(),

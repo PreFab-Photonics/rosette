@@ -1,5 +1,5 @@
 use super::*;
-use rosette_core::{CellRef, PathEndType, Point};
+use rosette_core::{CellRef, PathCap, Point};
 
 #[test]
 fn test_empty_cell() {
@@ -481,7 +481,7 @@ fn test_flatten_handles_paths() {
         vec![Point::new(0.0, 0.0), Point::new(20.0, 0.0)],
         2.0,
         Layer::new(1, 0),
-        PathEndType::default(),
+        PathCap::default(),
     )
     .unwrap();
 
@@ -500,17 +500,15 @@ fn test_flatten_handles_paths() {
 }
 
 #[test]
-fn test_path_end_type_changes_checked_geometry() {
+fn test_path_cap_changes_checked_geometry() {
     let points = vec![Point::origin(), Point::new(10.0, 0.0)];
     let layer = Layer::new(1, 0);
     let mut flush = Cell::new("flush").unwrap();
     flush
-        .add_path(points.clone(), 2.0, layer, PathEndType::Flush)
+        .add_path(points.clone(), 2.0, layer, PathCap::Flush)
         .unwrap();
     let mut round = Cell::new("round").unwrap();
-    round
-        .add_path(points, 2.0, layer, PathEndType::Round)
-        .unwrap();
+    round.add_path(points, 2.0, layer, PathCap::Round).unwrap();
     let rules = DrcRules::new().min_area(layer, 22.0, None);
 
     assert!(!run_drc(&flush, &rules, None).passed());
@@ -525,7 +523,7 @@ fn test_flatten_path_width_checked() {
         vec![Point::new(0.0, 0.0), Point::new(20.0, 0.0)],
         1.0,
         Layer::new(1, 0),
-        PathEndType::default(),
+        PathCap::default(),
     )
     .unwrap();
 
@@ -2422,6 +2420,29 @@ fn content_hash_changes_on_geometry_edit() {
         cell_content_hash(&a, None, &mut m1),
         cell_content_hash(&b, None, &mut m2),
         "a geometry edit must change the content hash"
+    );
+}
+
+#[test]
+fn content_hash_changes_on_path_cap_edit() {
+    let make = |cap| {
+        let mut cell = Cell::new("path").unwrap();
+        cell.add_path(
+            vec![Point::origin(), Point::new(10.0, 0.0)],
+            2.0,
+            Layer::new(1, 0),
+            cap,
+        )
+        .unwrap();
+        cell
+    };
+    let mut flush_memo = HashMap::new();
+    let mut round_memo = HashMap::new();
+
+    assert_ne!(
+        cell_content_hash(&make(PathCap::Flush), None, &mut flush_memo),
+        cell_content_hash(&make(PathCap::Round), None, &mut round_memo),
+        "changing only the path cap must invalidate cached DRC detection"
     );
 }
 

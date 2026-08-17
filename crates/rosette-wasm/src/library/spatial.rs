@@ -126,7 +126,7 @@ impl WasmLibrary {
                     let Some(uuid) = index_to_uuid.get(&elem_idx) else {
                         continue;
                     };
-                    match stroke_path(path.points(), path.width(), path.end_type()) {
+                    match stroke_path(path.points(), path.width(), path.cap()) {
                         Some(ribbon) => (
                             ribbon.bbox(),
                             IndexedKind::Direct {

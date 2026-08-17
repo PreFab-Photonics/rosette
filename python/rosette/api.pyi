@@ -479,14 +479,14 @@ class ArrayCopy:
 # Layout Types
 # =============================================================================
 
-class PathEndType:
-    """GDS path end type."""
+class PathCap:
+    """Geometry applied at both endpoints of a path."""
 
-    FLUSH: PathEndType
+    FLUSH: PathCap
     """Flush (square) ends at path endpoints."""
-    ROUND: PathEndType
+    ROUND: PathCap
     """Round ends."""
-    HALF_WIDTH_EXTENSION: PathEndType
+    HALF_WIDTH_EXTENSION: PathCap
     """Square ends extending half-width past endpoints."""
     def __repr__(self) -> str: ...
 
@@ -564,7 +564,7 @@ class Cell:
         points: list[Point],
         width: float,
         layer: Layer | int | tuple[int, int],
-        end_type: PathEndType | None = None,
+        cap: PathCap | None = None,
     ) -> None:
         """Add a path (centerline with width) to the cell.
 
@@ -574,17 +574,17 @@ class Cell:
 
         Args:
             points: At least two finite Point objects along the path centerline
-            width: Finite, nonzero width. Negative values preserve GDS
-                absolute-width semantics.
+            width: Finite, nonzero width. Negative values denote absolute
+                widths that are not scaled by reference magnification.
             layer: Layer number or Layer object
-            end_type: Path end type (default: PathEndType.FLUSH)
+            cap: Path endpoint geometry (default: PathCap.FLUSH)
 
         Example:
             cell.add_path(
                 [Point(0, 0), Point(100, 0), Point(100, 50)],
                 width=0.5,
                 layer=1,
-                end_type=PathEndType.ROUND
+                cap=PathCap.ROUND
             )
 
         Raises:

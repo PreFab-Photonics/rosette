@@ -11,7 +11,7 @@ from rosette._api import (
 from rosette._core import (
     BBox,
     Layer,
-    PathEndType,
+    PathCap,
     Point,
     Polygon,
     Port,
@@ -26,7 +26,7 @@ __all__ = [
     "Instance",
     "Layer",
     "Library",
-    "PathEndType",
+    "PathCap",
     "Point",
     "Polygon",
     "Port",

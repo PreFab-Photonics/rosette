@@ -13,16 +13,16 @@ use crate::path::stroke_path;
 use crate::port::Port;
 use std::collections::{HashMap, HashSet};
 
-/// GDS path end type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PathEndType {
+/// Geometry applied at both endpoints of a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PathCap {
     /// Flush (square) ends at path endpoints.
     #[default]
-    Flush = 0,
+    Flush,
     /// Round ends.
-    Round = 1,
+    Round,
     /// Square ends extending half-width past endpoints.
-    HalfWidthExtension = 2,
+    HalfWidthExtension,
 }
 
 /// An element within a cell.
@@ -58,7 +58,7 @@ pub struct PathElement {
     points: Vec<Point>,
     width: f64,
     layer: Layer,
-    end_type: PathEndType,
+    cap: PathCap,
 }
 
 impl PathElement {
@@ -67,13 +67,13 @@ impl PathElement {
         points: Vec<Point>,
         width: f64,
         layer: Layer,
-        end_type: PathEndType,
+        cap: PathCap,
     ) -> Result<Self, PathValidationReason> {
         let path = Self {
             points,
             width,
             layer,
-            end_type,
+            cap,
         };
         path.validate()?;
         Ok(path)
@@ -113,21 +113,21 @@ impl PathElement {
         self.layer
     }
 
-    /// Get the path end type.
-    pub fn end_type(&self) -> PathEndType {
-        self.end_type
+    /// Get the path endpoint geometry.
+    pub fn cap(&self) -> PathCap {
+        self.cap
     }
 
     /// Replace the centerline points.
     pub fn set_points(&mut self, points: Vec<Point>) -> Result<(), PathValidationReason> {
-        let candidate = Self::new(points, self.width, self.layer, self.end_type)?;
+        let candidate = Self::new(points, self.width, self.layer, self.cap)?;
         self.points = candidate.points;
         Ok(())
     }
 
     /// Replace the path width.
     pub fn set_width(&mut self, width: f64) -> Result<(), PathValidationReason> {
-        let candidate = Self::new(self.points.clone(), width, self.layer, self.end_type)?;
+        let candidate = Self::new(self.points.clone(), width, self.layer, self.cap)?;
         self.width = candidate.width;
         Ok(())
     }
@@ -137,9 +137,9 @@ impl PathElement {
         self.layer = layer;
     }
 
-    /// Replace the path end type.
-    pub fn set_end_type(&mut self, end_type: PathEndType) {
-        self.end_type = end_type;
+    /// Replace the path endpoint geometry.
+    pub fn set_cap(&mut self, cap: PathCap) {
+        self.cap = cap;
     }
 }
 
@@ -683,10 +683,10 @@ impl Cell {
         points: Vec<Point>,
         width: f64,
         layer: impl Into<Layer>,
-        end_type: PathEndType,
+        cap: PathCap,
     ) -> Result<(), CellValidationError> {
         let element_index = self.elements.len();
-        let path = PathElement::new(points, width, layer.into(), end_type).map_err(|reason| {
+        let path = PathElement::new(points, width, layer.into(), cap).map_err(|reason| {
             CellValidationError::InvalidPath {
                 element_index,
                 reason,
@@ -754,14 +754,11 @@ impl Cell {
     }
 
     /// Get all paths.
-    pub fn paths(&self) -> impl Iterator<Item = (&[Point], f64, &Layer, PathEndType)> {
+    pub fn paths(&self) -> impl Iterator<Item = (&[Point], f64, &Layer, PathCap)> {
         self.elements.iter().filter_map(|e| match e {
-            Element::Path(path) => Some((
-                path.points.as_slice(),
-                path.width,
-                &path.layer,
-                path.end_type,
-            )),
+            Element::Path(path) => {
+                Some((path.points.as_slice(), path.width, &path.layer, path.cap))
+            }
             _ => None,
         })
     }
@@ -791,8 +788,8 @@ impl Cell {
                 None => poly_bbox,
             });
         }
-        for (points, width, _, end_type) in self.paths() {
-            if let Some(ribbon) = stroke_path(points, width, end_type) {
+        for (points, width, _, cap) in self.paths() {
+            if let Some(ribbon) = stroke_path(points, width, cap) {
                 let path_bbox = ribbon.bbox();
                 result = Some(match result {
                     Some(existing) => existing.merge(&path_bbox),
@@ -1226,7 +1223,7 @@ mod tests {
                 vec![Point::new(x, y), Point::new(x + size, y)],
                 width,
                 1,
-                PathEndType::default(),
+                PathCap::default(),
             ).unwrap();
             cell.add_text_with_height("label", Point::new(x, y), 2, size).unwrap();
             cell.add_port(Port::with_width(
@@ -1256,7 +1253,7 @@ mod tests {
                 vec![Point::origin(), Point::new(1.0, 0.0)],
                 width,
                 1,
-                PathEndType::default(),
+                PathCap::default(),
             ).unwrap();
 
             let result = cell.edit_element(0, |element| {
@@ -1342,7 +1339,7 @@ mod tests {
             points: vec![Point::origin()],
             width: 1.0,
             layer: Layer::new(1, 0),
-            end_type: PathEndType::Flush,
+            cap: PathCap::Flush,
         });
         assert!(matches!(
             cell.validate(),
@@ -1368,7 +1365,7 @@ mod tests {
             points: vec![Point::origin(), Point::new(1.0, 0.0)],
             width: f64::NAN,
             layer: Layer::new(1, 0),
-            end_type: PathEndType::Flush,
+            cap: PathCap::Flush,
         });
         assert!(matches!(
             cell.validate(),
@@ -1538,7 +1535,7 @@ mod tests {
             vec![Point::origin(), Point::new(1.0, 0.0)],
             -1.0,
             1,
-            PathEndType::Flush,
+            PathCap::Flush,
         )
         .unwrap();
         cell.add_text_with_height("", Point::origin(), 1, 1.0)
@@ -1558,7 +1555,7 @@ mod tests {
     fn fallible_cell_mutators_reject_before_committing_invalid_state() {
         let mut cell = Cell::new("test").unwrap();
         assert_eq!(
-            cell.add_path(vec![Point::origin()], 1.0, 1, PathEndType::default()),
+            cell.add_path(vec![Point::origin()], 1.0, 1, PathCap::default()),
             Err(CellValidationError::InvalidPath {
                 element_index: 0,
                 reason: PathValidationReason::TooFewPoints { count: 1 },
@@ -1656,7 +1653,7 @@ mod tests {
             vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0)],
             2.0,
             1,
-            PathEndType::Flush,
+            PathCap::Flush,
         )
         .unwrap();
 
@@ -2228,7 +2225,7 @@ mod tests {
             vec![Point::origin(), Point::new(1.0, 0.0)],
             1.0,
             1,
-            PathEndType::default(),
+            PathCap::default(),
         )
         .unwrap();
         cell.add_text_with_height("label", Point::origin(), 1, 1.0)
@@ -2311,7 +2308,7 @@ mod tests {
             vec![Point::origin(), Point::new(1.0, 0.0)],
             1.0,
             1,
-            PathEndType::default(),
+            PathCap::default(),
         )
         .unwrap();
 
@@ -2397,7 +2394,7 @@ mod tests {
                     points: vec![Point::origin()],
                     width: 1.0,
                     layer: Layer::new(1, 0),
-                    end_type: PathEndType::Flush,
+                    cap: PathCap::Flush,
                 }));
                 Ok::<_, Infallible>(())
             })
@@ -2661,7 +2658,7 @@ mod tests {
             Point::new(10.0, 0.0),
             Point::new(10.0, 10.0),
         ];
-        cell.add_path(points.clone(), 0.5, Layer::new(1, 0), PathEndType::Flush)
+        cell.add_path(points.clone(), 0.5, Layer::new(1, 0), PathCap::Flush)
             .unwrap();
 
         assert_eq!(cell.paths().count(), 1);
@@ -2671,29 +2668,28 @@ mod tests {
         assert_eq!(paths[0].0.len(), 3);
         assert!((paths[0].1 - 0.5).abs() < 1e-10);
         assert_eq!(paths[0].2.number, 1);
-        assert_eq!(paths[0].3, PathEndType::Flush);
+        assert_eq!(paths[0].3, PathCap::Flush);
     }
 
     #[test]
-    fn test_add_path_default_end_type() {
+    fn test_add_path_default_cap() {
         let mut cell = Cell::new("test").unwrap();
         let points = vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)];
-        cell.add_path(points, 1.0, 1, PathEndType::default())
-            .unwrap();
+        cell.add_path(points, 1.0, 1, PathCap::default()).unwrap();
 
         assert_eq!(cell.paths().count(), 1);
     }
 
     #[test]
-    fn test_path_end_types() {
+    fn test_path_caps() {
         let mut cell = Cell::new("test").unwrap();
         let points = vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0)];
 
-        cell.add_path(points.clone(), 0.5, 1, PathEndType::Flush)
+        cell.add_path(points.clone(), 0.5, 1, PathCap::Flush)
             .unwrap();
-        cell.add_path(points.clone(), 0.5, 1, PathEndType::Round)
+        cell.add_path(points.clone(), 0.5, 1, PathCap::Round)
             .unwrap();
-        cell.add_path(points.clone(), 0.5, 1, PathEndType::HalfWidthExtension)
+        cell.add_path(points.clone(), 0.5, 1, PathCap::HalfWidthExtension)
             .unwrap();
 
         assert_eq!(cell.paths().count(), 3);
@@ -2738,7 +2734,7 @@ mod tests {
             vec![Point::origin(), Point::new(10.0, 0.0)],
             0.5,
             1,
-            PathEndType::default(),
+            PathCap::default(),
         )
         .unwrap();
         cell.add_text_with_height("Label", Point::new(5.0, 5.0), 10, 1.0)

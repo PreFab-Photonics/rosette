@@ -37,7 +37,7 @@ pub mod port;
 
 // Re-export primary types at crate root for convenience
 pub use cell::{
-    Cell, CellRef, DuplicatePolicy, Library, PathElement, PathEndType, Repetition, TextElement,
+    Cell, CellRef, DuplicatePolicy, Library, PathCap, PathElement, Repetition, TextElement,
 };
 pub use error::{
     BBoxValidationReason, CellEditError, CellRefError, CellRefValidationReason,

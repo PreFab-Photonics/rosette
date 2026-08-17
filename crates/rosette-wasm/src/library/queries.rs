@@ -6,10 +6,10 @@ use super::{
     ElementInfo, NativePathInfo, REF_UUID_PREFIX, WasmLibrary, array_transforms, layer_key,
     text_bbox,
 };
-use rosette_core::Point;
 use rosette_core::cell::Element;
 use rosette_core::geometry::BBox;
 use rosette_core::path::stroke_path;
+use rosette_core::{PathCap, Point};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -97,7 +97,7 @@ impl WasmLibrary {
                                 }
 
                                 if let Some(ribbon) =
-                                    stroke_path(path.points(), path.width(), path.end_type())
+                                    stroke_path(path.points(), path.width(), path.cap())
                                 {
                                     let bbox = ribbon.bbox();
                                     if ribbon.contains(proxy_point(&bbox)) {
@@ -307,8 +307,7 @@ impl WasmLibrary {
                     text_bbox(text.text(), &position, text.height())
                 }
                 Some(Element::Path(path)) => {
-                    stroke_path(path.points(), path.width(), path.end_type())
-                        .map(|ribbon| ribbon.bbox())
+                    stroke_path(path.points(), path.width(), path.cap()).map(|ribbon| ribbon.bbox())
                 }
                 _ => None,
             };
@@ -404,8 +403,7 @@ impl WasmLibrary {
                     text_bbox(text.text(), &position, text.height())
                 }
                 Some(Element::Path(path)) => {
-                    stroke_path(path.points(), path.width(), path.end_type())
-                        .map(|ribbon| ribbon.bbox())
+                    stroke_path(path.points(), path.width(), path.cap()).map(|ribbon| ribbon.bbox())
                 }
                 _ => None,
             };
@@ -450,7 +448,7 @@ impl WasmLibrary {
             }
             Some(Element::Path(path)) => {
                 // Convert path to ribbon polygon for outline rendering
-                if let Some(ribbon) = stroke_path(path.points(), path.width(), path.end_type()) {
+                if let Some(ribbon) = stroke_path(path.points(), path.width(), path.cap()) {
                     let vertices: Vec<f64> = ribbon
                         .vertices()
                         .iter()
@@ -518,7 +516,7 @@ impl WasmLibrary {
             }
             Some(Element::Path(path)) => {
                 // Convert path centerline to ribbon polygon for selection outlines
-                if let Some(ribbon) = stroke_path(path.points(), path.width(), path.end_type()) {
+                if let Some(ribbon) = stroke_path(path.points(), path.width(), path.cap()) {
                     let vertices: Vec<f64> = ribbon
                         .vertices()
                         .iter()
@@ -577,7 +575,11 @@ impl WasmLibrary {
                 .flat_map(|point| [point.x, point.y])
                 .collect(),
             width: path.width(),
-            end_type: path.end_type() as u8,
+            cap: match path.cap() {
+                PathCap::Flush => 0,
+                PathCap::Round => 1,
+                PathCap::HalfWidthExtension => 2,
+            },
             layer: layer.number,
             datatype: layer.datatype,
         })
@@ -611,9 +613,7 @@ impl WasmLibrary {
 
             let polygon = match cell.elements().get(elem_ref.element_index) {
                 Some(Element::Polygon { polygon, .. }) => Some(polygon.clone()),
-                Some(Element::Path(path)) => {
-                    stroke_path(path.points(), path.width(), path.end_type())
-                }
+                Some(Element::Path(path)) => stroke_path(path.points(), path.width(), path.cap()),
                 _ => None,
             };
             if let Some(polygon) = polygon {

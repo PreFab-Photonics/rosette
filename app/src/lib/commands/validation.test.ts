@@ -114,7 +114,7 @@ describe("validated editor commands", () => {
           ? {
               centerline: new Float64Array([1, 2, 3, 4]),
               width: -5,
-              end_type: 2,
+              cap: 2,
               layer: 6,
               datatype: 7,
               free: vi.fn(),
@@ -143,7 +143,7 @@ describe("validated editor commands", () => {
 
     const snapshots = snapshotElements(library, ["native", "polygon"]);
     expect(snapshots.map((snapshot) => snapshot.type)).toEqual(["native-path", "polygon"]);
-    expect(snapshots[0]).toMatchObject({ width: -5, endType: 2, layer: 6, datatype: 7 });
+    expect(snapshots[0]).toMatchObject({ width: -5, cap: 2, layer: 6, datatype: 7 });
     expect(snapshots.map((snapshot) => snapshot.originalIndex)).toEqual([1, 2]);
     expect(restoreSnapshots(library, snapshots, true)).toEqual([
       "restored-native",
@@ -205,7 +205,7 @@ describe("validated editor commands", () => {
           ? {
               centerline: new Float64Array([0, 0, 1, 0]),
               width: 1,
-              end_type: 0,
+              cap: 0,
               layer: 1,
               datatype: 0,
               free: vi.fn(),

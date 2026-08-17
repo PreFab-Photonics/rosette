@@ -107,10 +107,10 @@ class BBox:
     def contains(self, /, p: Point) -> bool: ...
     def merge(self, /, other: BBox) -> BBox: ...
 
-class PathEndType:
-    FLUSH: PathEndType
-    ROUND: PathEndType
-    HALF_WIDTH_EXTENSION: PathEndType
+class PathCap:
+    FLUSH: PathCap
+    ROUND: PathCap
+    HALF_WIDTH_EXTENSION: PathCap
 
 class Layer:
     def __init__(self, number: int, datatype: int = 0) -> None: ...
@@ -193,11 +193,11 @@ class Cell:
         points: list[Point],
         width: float,
         layer: Layer | int | tuple[int, int],
-        end_type: PathEndType | None = None,
+        cap: PathCap | None = None,
     ) -> None:
         """Add a path with at least two finite points and finite nonzero width.
 
-        Negative widths are valid and retain absolute GDS width semantics.
+        Negative widths are valid and remain absolute under hierarchy scaling.
         """
         ...
     def add_text(

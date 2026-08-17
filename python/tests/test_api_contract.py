@@ -42,7 +42,7 @@ CURRENT_FACADE_EXPORTS = (
     "LayerMetrics",
     "LayerPrediction",
     "Library",
-    "PathEndType",
+    "PathCap",
     "Point",
     "Polygon",
     "Port",
@@ -77,7 +77,7 @@ CURRENT_EXPORTS_BY_KIND = {
         "Instance",
         "Layer",
         "Library",
-        "PathEndType",
+        "PathCap",
         "Point",
         "Polygon",
         "Port",
@@ -139,7 +139,7 @@ TARGET_FACADE_EXPORTS = (
     "Instance",
     "Layer",
     "Library",
-    "PathEndType",
+    "PathCap",
     "Point",
     "Polygon",
     "Port",
@@ -214,7 +214,7 @@ EXTENSION_EXPORTS = {
     "LayerMetrics",
     "LayerPrediction",
     "Library",
-    "PathEndType",
+    "PathCap",
     "Point",
     "Polygon",
     "Port",
@@ -308,6 +308,14 @@ def test_extension_exports_are_stable():
 def test_public_facade_exports_exist_and_are_unique():
     assert tuple(rosette.__all__) == TARGET_FACADE_EXPORTS
     assert {name for name in rosette.__all__ if not hasattr(rosette, name)} == set()
+
+
+def test_path_cap_is_the_only_public_path_endpoint_contract():
+    assert repr(rosette.PathCap.ROUND) == "PathCap.ROUND"
+    assert not hasattr(rosette, "PathEndType")
+    assert not hasattr(core, "PathEndType")
+    assert tuple(inspect.signature(rosette.Cell.add_path).parameters)[-1] == "cap"
+    assert tuple(inspect.signature(core.Cell.add_path).parameters)[-1] == "cap"
 
 
 def test_current_facade_classification_is_complete_and_disjoint():

@@ -98,7 +98,7 @@ pub struct CellRefInfo {
 pub struct NativePathInfo {
     centerline: Vec<f64>,
     width: f64,
-    end_type: u8,
+    cap: u8,
     layer: u16,
     datatype: u16,
 }
@@ -117,10 +117,10 @@ impl NativePathInfo {
         self.width
     }
 
-    /// Get the GDS path end type (0=flush, 1=round, 2=half-width extension).
+    /// Get the path cap code (0=flush, 1=round, 2=half-width extension).
     #[wasm_bindgen(getter)]
-    pub fn end_type(&self) -> u8 {
-        self.end_type
+    pub fn cap(&self) -> u8 {
+        self.cap
     }
 
     /// Get the layer number.
@@ -432,7 +432,7 @@ impl WasmLibrary {
                         if let Some(ribbon) = stroke_path_transformed(
                             path.points(),
                             path.width(),
-                            path.end_type(),
+                            path.cap(),
                             &placed.placement.transform,
                         ) {
                             let layer = path.layer();
@@ -503,7 +503,7 @@ impl WasmLibrary {
                     if let Some(ribbon) = stroke_path_transformed(
                         path.points(),
                         path.width(),
-                        path.end_type(),
+                        path.cap(),
                         &placed.placement.transform,
                     ) {
                         let area = ribbon.area();
@@ -662,7 +662,7 @@ impl WasmLibrary {
                     Element::Path(path) => stroke_path_transformed(
                         path.points(),
                         path.width(),
-                        path.end_type(),
+                        path.cap(),
                         &placed.placement.transform,
                     )
                     .map(|path| path.bbox()),
@@ -817,7 +817,7 @@ impl WasmLibrary {
                     Element::Path(path) => stroke_path_transformed(
                         path.points(),
                         path.width(),
-                        path.end_type(),
+                        path.cap(),
                         &placed.placement.transform,
                     ),
                     Element::CellRef(_) | Element::Text(_) => None,
@@ -907,7 +907,7 @@ impl WasmLibrary {
                     Element::Path(path) => stroke_path_transformed(
                         path.points(),
                         path.width(),
-                        path.end_type(),
+                        path.cap(),
                         &placed.placement.transform,
                     )
                     .map(|polygon| (polygon, path.layer())),
@@ -951,7 +951,7 @@ impl WasmLibrary {
                     let Some(polygon) = stroke_path_transformed(
                         path.points(),
                         path.width(),
-                        path.end_type(),
+                        path.cap(),
                         &placed.placement.transform,
                     ) else {
                         return WalkControl::Continue;
@@ -1101,7 +1101,7 @@ impl WasmLibrary {
                     let Some(polygon) = stroke_path_transformed_with_scale(
                         path.points(),
                         path.width(),
-                        path.end_type(),
+                        path.cap(),
                         &placed.placement.transform,
                         absolute_width_scale,
                     ) else {
@@ -1208,8 +1208,7 @@ impl WasmLibrary {
                     // Render path as polygon ribbon.
                     // In init_from_library mode paths remain as Element::Path.
                     if let Some(uuid) = index_to_uuid.get(&elem_idx)
-                        && let Some(ribbon) =
-                            stroke_path(path.points(), path.width(), path.end_type())
+                        && let Some(ribbon) = stroke_path(path.points(), path.width(), path.cap())
                     {
                         let layer = path.layer();
                         let key = layer_key(layer.number, layer.datatype);

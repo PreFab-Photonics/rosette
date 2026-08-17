@@ -3,7 +3,7 @@
 //! These are pure geometry helpers that generate ribbon polygons from centerlines.
 
 use rosette_core::path::stroke_path;
-use rosette_core::{PathEndType, Point, Polygon};
+use rosette_core::{PathCap, Point, Polygon};
 
 fn stroke_inputs_are_safe(centerline: &[Point], width: f64) -> bool {
     if !width.is_finite() || width == 0.0 || centerline.iter().any(|point| !point.is_finite()) {
@@ -26,7 +26,7 @@ fn validated_stroke(centerline: &[Point], width: f64) -> Option<Polygon> {
     if !stroke_inputs_are_safe(centerline, width) {
         return None;
     }
-    stroke_path(centerline, width, PathEndType::Flush)
+    stroke_path(centerline, width, PathCap::Flush)
         .filter(|polygon| polygon.vertices().iter().all(|vertex| vertex.is_finite()))
 }
 

@@ -139,7 +139,7 @@ pub fn flatten_cell(
         }
         Element::Path(path) => {
             if let Some(polygon) =
-                stroke_path_transformed(path.points(), path.width(), path.end_type(), &placement)
+                stroke_path_transformed(path.points(), path.width(), path.cap(), &placement)
             {
                 result.entry(path.layer()).or_default().push(polygon);
             }
@@ -236,7 +236,7 @@ fn rasterize_polygon(raster: &mut LayerRaster, polygon: &Polygon) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::{CellRef, PathEndType};
+    use rosette_core::{CellRef, PathCap};
 
     #[test]
     fn test_rasterize_simple_rect() {
@@ -282,7 +282,7 @@ mod tests {
                 vec![Point::origin(), Point::new(10.0, 0.0)],
                 2.0,
                 layer,
-                PathEndType::HalfWidthExtension,
+                PathCap::HalfWidthExtension,
             )
             .unwrap();
         let mut top = Cell::new("top").unwrap();

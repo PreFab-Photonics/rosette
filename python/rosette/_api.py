@@ -55,7 +55,7 @@ from rosette._core import (
     GaussianModel,
     # Layout
     Layer,
-    PathEndType,
+    PathCap,
     Point,
     Polygon,
     Port,
@@ -737,7 +737,7 @@ class Cell:
         points: list[Point],
         width: float,
         layer: Layer | int | tuple[int, int],
-        end_type: PathEndType | None = None,
+        cap: PathCap | None = None,
     ) -> None:
         """Add a path (centerline with width) to the cell.
 
@@ -749,17 +749,17 @@ class Cell:
             points: List of Point objects along the path centerline
             width: Width of the path
             layer: Layer number or Layer object
-            end_type: Path end type (default: PathEndType.FLUSH)
+            cap: Path endpoint geometry (default: PathCap.FLUSH)
 
         Example:
             cell.add_path(
                 [Point(0, 0), Point(100, 0), Point(100, 50)],
                 width=0.5,
                 layer=1,
-                end_type=PathEndType.ROUND
+                cap=PathCap.ROUND
             )
         """
-        self._inner.add_path(points, width, layer, end_type)
+        self._inner.add_path(points, width, layer, cap)
 
     def add_text(
         self,

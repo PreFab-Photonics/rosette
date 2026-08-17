@@ -2,7 +2,7 @@
 
 use std::f64::consts::PI;
 
-use crate::{PathEndType, Point, Polygon, Transform, Vector2};
+use crate::{PathCap, Point, Polygon, Transform, Vector2};
 
 const MITER_LIMIT: f64 = 4.0;
 const ROUND_CAP_SEGMENTS: usize = 16;
@@ -12,10 +12,10 @@ const DIRECTION_EPSILON: f64 = 1e-12;
 ///
 /// Consecutive duplicate points are removed. Joins use a miter bounded to
 /// four half-widths, with a bevel fallback for sharper turns. End geometry is
-/// controlled by [`PathEndType`]; round caps use 16 segments per semicircle.
+/// controlled by [`PathCap`]; round caps use 16 segments per semicircle.
 /// Exact reversals are rejected because they cannot be represented as one
 /// simple ribbon polygon. Negative widths use their magnitude.
-pub fn stroke_path(centerline: &[Point], width: f64, end_type: PathEndType) -> Option<Polygon> {
+pub fn stroke_path(centerline: &[Point], width: f64, cap: PathCap) -> Option<Polygon> {
     if !width.is_finite()
         || width == 0.0
         || centerline
@@ -55,7 +55,7 @@ pub fn stroke_path(centerline: &[Point], width: f64, end_type: PathEndType) -> O
         .collect();
     let half_width = width.abs() / 2.0;
 
-    let extension = matches!(end_type, PathEndType::HalfWidthExtension)
+    let extension = matches!(cap, PathCap::HalfWidthExtension)
         .then_some(half_width)
         .unwrap_or(0.0);
     let start_center = points[0] + (-directions[0]) * extension;
@@ -90,7 +90,7 @@ pub fn stroke_path(centerline: &[Point], width: f64, end_type: PathEndType) -> O
     let mut vertices = Vec::with_capacity(
         positive.len()
             + negative.len()
-            + if matches!(end_type, PathEndType::Round) {
+            + if matches!(cap, PathCap::Round) {
                 2 * (ROUND_CAP_SEGMENTS - 1)
             } else {
                 0
@@ -98,13 +98,13 @@ pub fn stroke_path(centerline: &[Point], width: f64, end_type: PathEndType) -> O
     );
     vertices.extend(positive);
 
-    if matches!(end_type, PathEndType::Round) {
+    if matches!(cap, PathCap::Round) {
         append_round_cap(&mut vertices, end_center, end_normal, half_width);
     }
 
     vertices.extend(negative.into_iter().rev());
 
-    if matches!(end_type, PathEndType::Round) {
+    if matches!(cap, PathCap::Round) {
         append_round_cap(&mut vertices, start_center, -normals[0], half_width);
     }
 
@@ -115,25 +115,25 @@ pub fn stroke_path(centerline: &[Point], width: f64, end_type: PathEndType) -> O
 ///
 /// Normal widths are stroked locally before transforming the polygon, which
 /// gives affine scale and reflection explicit geometric meaning. A negative
-/// GDS width denotes an absolute world-space width, so its centerline is
+/// width denotes an absolute world-space width, so its centerline is
 /// transformed first and then stroked using the width magnitude.
 pub fn stroke_path_transformed(
     centerline: &[Point],
     width: f64,
-    end_type: PathEndType,
+    cap: PathCap,
     transform: &Transform,
 ) -> Option<Polygon> {
-    stroke_path_transformed_with_scale(centerline, width, end_type, transform, 1.0)
+    stroke_path_transformed_with_scale(centerline, width, cap, transform, 1.0)
 }
 
-/// Stroke a transformed path while separately scaling absolute GDS widths.
+/// Stroke a transformed path while separately scaling absolute widths.
 ///
 /// `absolute_width_scale` converts the path's stored coordinate unit into the
 /// output unit. It does not include hierarchy magnification.
 pub fn stroke_path_transformed_with_scale(
     centerline: &[Point],
     width: f64,
-    end_type: PathEndType,
+    cap: PathCap,
     transform: &Transform,
     absolute_width_scale: f64,
 ) -> Option<Polygon> {
@@ -142,13 +142,9 @@ pub fn stroke_path_transformed_with_scale(
             .iter()
             .map(|point| transform.apply(*point))
             .collect();
-        stroke_path(
-            &transformed,
-            width.abs() * absolute_width_scale.abs(),
-            end_type,
-        )
+        stroke_path(&transformed, width.abs() * absolute_width_scale.abs(), cap)
     } else {
-        stroke_path(centerline, width, end_type)
+        stroke_path(centerline, width, cap)
             .and_then(|polygon| polygon.try_transform(transform).ok())
     }
 }
@@ -190,11 +186,11 @@ mod tests {
     }
 
     #[test]
-    fn end_types_have_distinct_geometry() {
+    fn caps_have_distinct_geometry() {
         let points = [Point::origin(), Point::new(10.0, 0.0)];
-        let flush = stroke_path(&points, 2.0, PathEndType::Flush).unwrap();
-        let round = stroke_path(&points, 2.0, PathEndType::Round).unwrap();
-        let extended = stroke_path(&points, 2.0, PathEndType::HalfWidthExtension).unwrap();
+        let flush = stroke_path(&points, 2.0, PathCap::Flush).unwrap();
+        let round = stroke_path(&points, 2.0, PathCap::Round).unwrap();
+        let extended = stroke_path(&points, 2.0, PathCap::HalfWidthExtension).unwrap();
 
         assert_eq!(bounds(&flush), (0.0, -1.0, 10.0, 1.0));
         assert_eq!(bounds(&round), (-1.0, -1.0, 11.0, 1.0));
@@ -213,7 +209,7 @@ mod tests {
                 Point::new(10.0, 10.0),
             ],
             2.0,
-            PathEndType::Flush,
+            PathCap::Flush,
         )
         .unwrap();
         assert!(polygon.vertices().contains(&Point::new(9.0, 1.0)));
@@ -230,13 +226,11 @@ mod tests {
                 Point::new(0.001, 0.001),
             ],
             2.0,
-            PathEndType::Flush,
+            PathCap::Flush,
         )
         .unwrap();
         assert!(polygon.vertices().iter().all(|point| point.x.abs() < 12.0));
-        assert!(
-            stroke_path(&[Point::origin(), Point::origin()], 2.0, PathEndType::Flush).is_none()
-        );
+        assert!(stroke_path(&[Point::origin(), Point::origin()], 2.0, PathCap::Flush).is_none());
     }
 
     #[test]
@@ -245,7 +239,7 @@ mod tests {
             stroke_path(
                 &[Point::origin(), Point::new(1.0, 0.0)],
                 0.0,
-                PathEndType::Flush
+                PathCap::Flush
             )
             .is_none()
         );
@@ -253,7 +247,7 @@ mod tests {
             stroke_path(
                 &[Point::origin(), Point::new(f64::MAX, 0.0)],
                 f64::MAX,
-                PathEndType::HalfWidthExtension,
+                PathCap::HalfWidthExtension,
             )
             .is_none()
         );
@@ -261,7 +255,7 @@ mod tests {
             stroke_path(
                 &[Point::new(f64::MAX, 0.0), Point::new(-f64::MAX, 0.0),],
                 1.0,
-                PathEndType::Flush,
+                PathCap::Flush,
             )
             .is_none()
         );
@@ -269,7 +263,7 @@ mod tests {
             stroke_path(
                 &[Point::origin(), Point::new(f64::NAN, 0.0)],
                 1.0,
-                PathEndType::Flush
+                PathCap::Flush
             )
             .is_none()
         );
@@ -277,7 +271,7 @@ mod tests {
             stroke_path(
                 &[Point::origin(), Point::new(1.0, 0.0)],
                 f64::INFINITY,
-                PathEndType::Flush
+                PathCap::Flush
             )
             .is_none()
         );
@@ -285,7 +279,7 @@ mod tests {
             stroke_path(
                 &[Point::origin(), Point::new(10.0, 0.0), Point::origin()],
                 2.0,
-                PathEndType::Flush,
+                PathCap::Flush,
             )
             .is_none()
         );
@@ -296,7 +290,7 @@ mod tests {
         let polygon = stroke_path_transformed(
             &[Point::origin(), Point::new(10.0, 0.0)],
             -2.0,
-            PathEndType::HalfWidthExtension,
+            PathCap::HalfWidthExtension,
             &Transform::scale(2.0, 3.0),
         )
         .unwrap();
@@ -308,7 +302,7 @@ mod tests {
         let polygon = stroke_path_transformed_with_scale(
             &[Point::origin(), Point::new(10.0, 0.0)],
             -2.0,
-            PathEndType::HalfWidthExtension,
+            PathCap::HalfWidthExtension,
             &Transform::scale(1000.0, -1000.0),
             1000.0,
         )
@@ -322,7 +316,7 @@ mod tests {
             stroke_path_transformed(
                 &[Point::new(1.0, 0.0), Point::new(2.0, 0.0)],
                 1.0,
-                PathEndType::Flush,
+                PathCap::Flush,
                 &Transform::scale_uniform(f64::MAX),
             )
             .is_none()
@@ -331,7 +325,7 @@ mod tests {
             stroke_path_transformed(
                 &[Point::new(1.0, 0.0), Point::new(2.0, 0.0)],
                 -1.0,
-                PathEndType::Flush,
+                PathCap::Flush,
                 &Transform::scale_uniform(f64::MAX),
             )
             .is_none()

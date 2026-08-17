@@ -42,15 +42,15 @@ export interface PathSnapshot extends OriginalElementPosition {
   datatype: number;
 }
 
-/** Snapshot of an imported native GDS path record. */
+/** Snapshot of an imported native path record. */
 export interface NativePathSnapshot extends OriginalElementPosition {
   type: "native-path";
   /** Exact centerline coordinates [x0, y0, x1, y1, ...]. */
   centerline: Float64Array;
-  /** Signed GDS width. Negative widths are absolute-width paths. */
+  /** Signed width. Negative widths are absolute-width paths. */
   width: number;
-  /** GDS path end type (0=flush, 1=round, 2=half-width extension). */
-  endType: number;
+  /** Path cap code (0=flush, 1=round, 2=half-width extension). */
+  cap: number;
   layer: number;
   datatype: number;
 }

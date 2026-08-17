@@ -196,7 +196,7 @@ fn flatten_placed_cell(
                 if let Some(ribbon) = stroke_path_transformed_with_scale(
                     path.points(),
                     path.width(),
-                    path.end_type(),
+                    path.cap(),
                     &placed.placement.transform,
                     absolute_width_scale,
                 ) {
@@ -212,7 +212,7 @@ fn flatten_placed_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::{Cell, CellRef, Layer, Library, PathEndType, Point, Polygon};
+    use rosette_core::{Cell, CellRef, Layer, Library, PathCap, Point, Polygon};
 
     fn flat_bbox(vertices: &[f64]) -> (f64, f64, f64, f64) {
         let mut min_x = f64::INFINITY;
@@ -434,20 +434,15 @@ mod tests {
     }
 
     #[test]
-    fn test_flatten_path_end_types_have_distinct_geometry() {
+    fn test_flatten_path_caps_have_distinct_geometry() {
         let points = vec![Point::origin(), Point::new(10.0, 0.0)];
         let mut cell = Cell::new("paths").unwrap();
-        cell.add_path(points.clone(), 2.0, Layer::new(1, 0), PathEndType::Flush)
+        cell.add_path(points.clone(), 2.0, Layer::new(1, 0), PathCap::Flush)
             .unwrap();
-        cell.add_path(points.clone(), 2.0, Layer::new(2, 0), PathEndType::Round)
+        cell.add_path(points.clone(), 2.0, Layer::new(2, 0), PathCap::Round)
             .unwrap();
-        cell.add_path(
-            points,
-            2.0,
-            Layer::new(3, 0),
-            PathEndType::HalfWidthExtension,
-        )
-        .unwrap();
+        cell.add_path(points, 2.0, Layer::new(3, 0), PathCap::HalfWidthExtension)
+            .unwrap();
         let mut library = Library::new("paths");
         library.add_cell(cell).unwrap();
 
@@ -479,7 +474,7 @@ mod tests {
                 ],
                 2.0,
                 Layer::new(1, 0),
-                rosette_core::PathEndType::default(),
+                rosette_core::PathCap::default(),
             )
             .unwrap();
         let mut top = Cell::new("top").unwrap();
@@ -502,7 +497,7 @@ mod tests {
                 vec![Point::origin(), Point::new(10.0, 0.0)],
                 2.0,
                 Layer::new(1, 0),
-                rosette_core::PathEndType::default(),
+                rosette_core::PathCap::default(),
             )
             .unwrap();
         let mut top = Cell::new("top").unwrap();
@@ -526,7 +521,7 @@ mod tests {
                 vec![Point::origin(), Point::new(10.0, 0.0)],
                 2.0,
                 Layer::new(1, 0),
-                rosette_core::PathEndType::default(),
+                rosette_core::PathCap::default(),
             )
             .unwrap();
         let mut top = Cell::new("top").unwrap();
@@ -549,14 +544,14 @@ mod tests {
     }
 
     #[test]
-    fn test_negative_gds_path_width_is_absolute() {
+    fn test_negative_path_width_is_absolute() {
         let mut child = Cell::new("path").unwrap();
         child
             .add_path(
                 vec![Point::origin(), Point::new(10.0, 0.0)],
                 -2.0,
                 Layer::new(1, 0),
-                rosette_core::PathEndType::default(),
+                rosette_core::PathCap::default(),
             )
             .unwrap();
         let mut top = Cell::new("top").unwrap();

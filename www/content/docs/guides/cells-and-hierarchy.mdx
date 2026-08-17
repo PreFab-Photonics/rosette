@@ -181,7 +181,7 @@ instance, reference list, or tracked child set:
   and optional positive finite widths. Directions are normalized, and names
   are unique within each cell.
 - Paths require at least two finite points and a finite nonzero width. Negative
-  widths retain GDS absolute-width semantics.
+  widths remain absolute under reference magnification.
 - Text positions must be finite and text heights must be positive and finite.
 - Instance and native reference transforms must be finite and invertible;
   scale factors must be nonzero. Array counts are `[1, 32767]`, and lattice
