@@ -14,14 +14,9 @@ import { getUndoRedoIntent, isEditableTarget } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useTabsStore, switchTab } from "@/stores/tabs";
-import {
-  findFocusedRowIndex,
-  findTypeaheadRow,
-  focusedItemForRow,
-  projectExplorerRows,
-} from "./explorer/navigation";
+import { findFocusedRowIndex, focusedItemForRow, projectExplorerRows } from "./explorer/navigation";
 import { HamburgerMenu } from "./explorer/HamburgerMenu";
-import { CellRow } from "./explorer/CellTree";
+import { CellRow, cellRowDomId } from "./explorer/CellTree";
 import { TabList } from "./explorer/TabList";
 
 const CONTAINED_EXPLORER_KEYS = new Set([
@@ -49,7 +44,7 @@ function CollapsedExplorer({ isDark, onExpand }: { isDark: boolean; onExpand: ()
   return (
     <div
       className={cn(
-        "fixed top-4 left-4 z-40 flex w-[38px] flex-col items-center gap-1 rounded-xl border pt-[4.5px] pb-[5px]",
+        "fixed top-4 left-4 z-40 flex w-[38px] flex-col items-center gap-1 rounded-xl border pt-1 pb-[5px]",
         isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
       )}
     >
@@ -82,6 +77,7 @@ function CollapsedExplorer({ isDark, onExpand }: { isDark: boolean; onExpand: ()
       {/* Expand button */}
       <button
         type="button"
+        aria-label="Expand Explorer"
         onClick={onExpand}
         className={cn(
           "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
@@ -149,13 +145,16 @@ export function Explorer() {
   const setHierarchyLevelLimit = useExplorerStore((s) => s.setHierarchyLevelLimit);
   const maxTreeDepth = useExplorerStore((s) => s.maxTreeDepth);
   const hiddenCells = useExplorerStore((s) => s.hiddenCells);
+  const toggleCellVisibility = useExplorerStore((s) => s.toggleCellVisibility);
   const cellListMode = useExplorerStore((s) => s.cellListMode);
   const isFocused = useExplorerStore((s) => s.isFocused);
   const focusedItem = useExplorerStore((s) => s.focusedItem);
   const setFocused = useExplorerStore((s) => s.setFocused);
   const setFocusedItem = useExplorerStore((s) => s.setFocusedItem);
   const tabs = useTabsStore((s) => s.tabs);
-  const activeTabId = useTabsStore((s) => s.activeTabId);
+  const [isCellFilterOpen, setIsCellFilterOpen] = useState(false);
+  const [cellFilter, setCellFilter] = useState("");
+  const filterQuery = cellFilter.trim();
 
   const rows = projectExplorerRows({
     tabs,
@@ -163,19 +162,30 @@ export function Explorer() {
     cells,
     expandedCells,
     cellListMode,
+    filterQuery,
   });
   const cellRows = rows.filter((row) => row.type === "cell");
   const ariaSelectedOccurrenceId = cellRows.find((row) => row.name === activeCell)?.occurrenceId;
+  const cellFilterCursorRow = isCellFilterOpen
+    ? (cellRows.find(
+        (row) => focusedItem?.type === "cell" && row.occurrenceId === focusedItem.occurrenceId,
+      ) ?? cellRows[0])
+    : null;
   const cellTabStopOccurrenceId =
     isFocused && focusedItem?.type === "cell"
       ? focusedItem.occurrenceId
-      : !isFocused
+      : !isFocused && !isCellFilterOpen
         ? (cellRows.find((row) => row.name === activeCell)?.occurrenceId ??
           cellRows[0]?.occurrenceId)
         : null;
 
   useEffect(() => {
-    if (!isFocused || !focusedItem || rows.length === 0) return;
+    if (!isFocused) return;
+    if (rows.length === 0) {
+      setFocused(false);
+      return;
+    }
+    if (!focusedItem) return;
     if (findFocusedRowIndex(rows, focusedItem) >= 0) return;
 
     let fallback = null;
@@ -190,23 +200,142 @@ export function Explorer() {
     fallback ??= rows.find((row) => row.type === "cell" && row.name === activeCell);
     fallback ??= rows[0];
     setFocusedItem(focusedItemForRow(fallback));
-  }, [activeCell, focusedItem, isFocused, rows, setFocusedItem]);
+  }, [activeCell, focusedItem, isFocused, rows, setFocused, setFocusedItem]);
 
   // Claim keyboard focus when Explorer is keyboard-navigating
   useKeyboardFocus("explorer-panel", isFocused);
+  useKeyboardFocus("explorer-filter", isCellFilterOpen);
 
   // On sm, the expanded Explorer is an overlay — track if it was manually opened
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
-  const typeaheadRef = useRef({ query: "", timestamp: 0 });
+  const cellFilterRef = useRef<HTMLInputElement>(null);
+  const cellFilterButtonRef = useRef<HTMLButtonElement>(null);
+  const cellFilterReturnFocusRef = useRef<HTMLElement>(null);
+  const cellFilterReturnItemRef = useRef<typeof focusedItem>(null);
+
+  const openCellFilter = useCallback(() => {
+    const activeElement = document.activeElement;
+    cellFilterReturnFocusRef.current =
+      activeElement instanceof HTMLElement && drawerRef.current?.contains(activeElement)
+        ? activeElement
+        : null;
+    const explorerState = useExplorerStore.getState();
+    cellFilterReturnItemRef.current = explorerState.isFocused ? explorerState.focusedItem : null;
+    setIsCellFilterOpen(true);
+    setFocused(false);
+    requestAnimationFrame(() => cellFilterRef.current?.focus());
+  }, [setFocused]);
+
+  const dismissCellFilter = useCallback(() => {
+    cellFilterReturnFocusRef.current = null;
+    cellFilterReturnItemRef.current = null;
+    setCellFilter("");
+    setIsCellFilterOpen(false);
+  }, []);
+
+  const closeCellFilter = useCallback(() => {
+    const returnFocus = cellFilterReturnFocusRef.current;
+    const returnItem = cellFilterReturnItemRef.current;
+    dismissCellFilter();
+    requestAnimationFrame(() => {
+      if (returnItem) {
+        useExplorerStore.setState({ isFocused: true, focusedItem: returnItem });
+      } else if (returnFocus?.isConnected) {
+        returnFocus.focus();
+      } else {
+        cellFilterButtonRef.current?.focus();
+      }
+    });
+  }, [dismissCellFilter]);
+
+  const handleCellFilterKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (!isCellFilterOpen) return;
+      if (!useKeyboardFocusStore.getState().owns("explorer-filter")) {
+        event.preventDefault();
+        return;
+      }
+      if (event.nativeEvent.isComposing) return;
+      if (event.key === "Tab") {
+        event.preventDefault();
+        event.stopPropagation();
+        cellFilterRef.current?.focus();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (cellFilter) {
+          setCellFilter("");
+          requestAnimationFrame(() => cellFilterRef.current?.focus());
+        } else {
+          closeCellFilter();
+        }
+        return;
+      }
+      if (event.target !== cellFilterRef.current || !cellFilterCursorRow) return;
+
+      const cursorIndex = cellRows.findIndex(
+        (row) => row.occurrenceId === cellFilterCursorRow.occurrenceId,
+      );
+      let nextRow = null;
+      switch (event.key) {
+        case "ArrowDown":
+          nextRow = cellRows[(cursorIndex + 1) % cellRows.length];
+          break;
+        case "ArrowUp":
+          nextRow = cellRows[(cursorIndex - 1 + cellRows.length) % cellRows.length];
+          break;
+        case "Home":
+          nextRow = cellRows[0];
+          break;
+        case "End":
+          nextRow = cellRows[cellRows.length - 1];
+          break;
+        case "Enter": {
+          event.preventDefault();
+          event.stopPropagation();
+          const state = useExplorerStore.getState();
+          if (cellFilterCursorRow.name === state.activeCell) {
+            if (state.cells.length > 1) state.setActiveCell(null);
+          } else {
+            state.setActiveCell(cellFilterCursorRow.name);
+          }
+          cellFilterReturnItemRef.current = focusedItemForRow(cellFilterCursorRow);
+          closeCellFilter();
+          return;
+        }
+        default:
+          return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setFocusedItem(focusedItemForRow(nextRow));
+    },
+    [cellFilter, cellFilterCursorRow, cellRows, closeCellFilter, isCellFilterOpen, setFocusedItem],
+  );
+
+  const handlePanelPointerDownCapture = useCallback(
+    (event: React.PointerEvent) => {
+      if (!isCellFilterOpen || !(event.target instanceof Element)) return;
+      if (
+        event.target.closest("#explorer-cell-filter") ||
+        event.target.closest("#explorer-cell-tree") ||
+        event.target.closest("[data-explorer-filter-toggle]")
+      ) {
+        return;
+      }
+      dismissCellFilter();
+    },
+    [dismissCellFilter, isCellFilterOpen],
+  );
 
   useEffect(() => {
-    typeaheadRef.current = { query: "", timestamp: 0 };
-  }, [activeTabId, isFocused]);
-
-  useEffect(() => {
-    if (collapsed && !(isSm && drawerOpen) && isFocused) setFocused(false);
-  }, [collapsed, drawerOpen, isFocused, isSm, setFocused]);
+    if (!collapsed || (isSm && drawerOpen)) return;
+    if (isFocused) setFocused(false);
+    if (isCellFilterOpen) dismissCellFilter();
+  }, [collapsed, dismissCellFilter, drawerOpen, isCellFilterOpen, isFocused, isSm, setFocused]);
   const cellListRef = useCallback(
     (node: HTMLUListElement | null) => {
       if (!node) return;
@@ -237,11 +366,12 @@ export function Explorer() {
     const handler = (e: MouseEvent) => {
       if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) {
         setDrawerOpen(false);
+        dismissCellFilter();
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [isSm, drawerOpen]);
+  }, [dismissCellFilter, isSm, drawerOpen]);
 
   // Local state for the level input (kept in sync with store, allows partial typing).
   const displayLimit = (limit: number, depth: number) =>
@@ -330,6 +460,19 @@ export function Explorer() {
   const handleExplorerKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!isFocused || !useKeyboardFocusStore.getState().owns("explorer-panel")) return;
+      if (
+        e.target instanceof Element &&
+        e.target.closest("[data-explorer-row-action]") &&
+        (e.key === "Enter" || e.key === " ")
+      ) {
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f" && !isEditableTarget(e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        openCellFilter();
+        return;
+      }
       if (isEditableTarget(e.target) || e.isComposing) return;
 
       const state = useExplorerStore.getState();
@@ -341,6 +484,7 @@ export function Explorer() {
         cells: state.cells,
         expandedCells: state.expandedCells,
         cellListMode: state.cellListMode,
+        filterQuery,
       });
       if (projectedRows.length === 0) return;
 
@@ -405,7 +549,7 @@ export function Explorer() {
         case "ArrowLeft": {
           e.preventDefault();
           if (currentRow?.type !== "cell" || state.cellListMode !== "nested") return;
-          if (currentRow.hasChildren && currentRow.isExpanded) {
+          if (currentRow.hasChildren && currentRow.isExpanded && !filterQuery) {
             toggleExpanded(currentRow.occurrenceId);
           } else if (currentRow.parentOccurrenceId) {
             const parent = projectedRows.find(
@@ -448,6 +592,7 @@ export function Explorer() {
                 cells: freshState.cells,
                 expandedCells: freshState.expandedCells,
                 cellListMode: freshState.cellListMode,
+                filterQuery,
               });
               const row = freshRows[Math.min(closedIndex, freshRows.length - 1)];
               useExplorerStore.setState(
@@ -472,6 +617,7 @@ export function Explorer() {
             cells: freshState.cells,
             expandedCells: freshState.expandedCells,
             cellListMode: freshState.cellListMode,
+            filterQuery,
           });
           const row = freshRows[Math.min(deletedIndex, freshRows.length - 1)];
           setFocusedItem(row ? focusedItemForRow(row) : null);
@@ -479,7 +625,6 @@ export function Explorer() {
         }
         case "Escape":
           e.preventDefault();
-          typeaheadRef.current = { query: "", timestamp: 0 };
           (e.target as HTMLElement).blur();
           setFocused(false);
           return;
@@ -500,22 +645,20 @@ export function Explorer() {
       }
 
       if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey || !e.key.trim()) return;
-      const now = Date.now();
-      const previous = typeaheadRef.current;
-      let query = now - previous.timestamp < 500 ? previous.query + e.key : e.key;
-      let match = findTypeaheadRow(projectedRows, currentIndex, query);
-      if (!match && query.length > 1) {
-        query = e.key;
-        match = findTypeaheadRow(projectedRows, currentIndex, query);
-      }
-      typeaheadRef.current = { query, timestamp: now };
-      if (match) {
-        e.preventDefault();
-        e.stopPropagation();
-        setFocusedItem(focusedItemForRow(match));
-      }
+      e.preventDefault();
+      e.stopPropagation();
+      setCellFilter(e.key);
+      openCellFilter();
     },
-    [isFocused, setActiveCell, setFocused, setFocusedItem, toggleExpanded],
+    [
+      filterQuery,
+      isFocused,
+      openCellFilter,
+      setActiveCell,
+      setFocused,
+      setFocusedItem,
+      toggleExpanded,
+    ],
   );
 
   const setDrawerNode = useCallback(
@@ -542,6 +685,7 @@ export function Explorer() {
 
   const handleCollapse = useCallback(() => {
     setFocused(false);
+    dismissCellFilter();
     if (
       document.activeElement instanceof HTMLElement &&
       drawerRef.current?.contains(document.activeElement)
@@ -549,7 +693,7 @@ export function Explorer() {
       document.activeElement.blur();
     }
     toggleCollapsed();
-  }, [setFocused, toggleCollapsed]);
+  }, [dismissCellFilter, setFocused, toggleCollapsed]);
 
   // Show collapsed rail when collapsed (and not in sm drawer-open state)
   if (collapsed && !(isSm && drawerOpen)) {
@@ -565,6 +709,7 @@ export function Explorer() {
       {isOverlay && <div className="fixed inset-0 z-39" />}
       <div
         ref={setDrawerNode}
+        onPointerDownCapture={handlePanelPointerDownCapture}
         className={cn(
           "fixed top-4 left-4 z-40 rounded-xl border transition-opacity duration-200",
           cellsLoaded ? "opacity-100" : "pointer-events-none opacity-0",
@@ -576,7 +721,7 @@ export function Explorer() {
         {/* Invisible resize handle on the right edge */}
         <div {...resizeHandleProps} />
         {/* Header bar — editable project name, matches Sidebar tab bar height */}
-        <div className="flex items-center gap-1 px-1 pt-1 pb-[3px]">
+        <div data-explorer-header className="flex items-center px-1 pt-1 pb-[3px]">
           {/* Icon — same size as Sidebar tab buttons */}
           <div className="flex-shrink-0 p-1">
             <img
@@ -594,6 +739,7 @@ export function Explorer() {
               <input
                 ref={inputRef}
                 type="text"
+                aria-label="Project name"
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
                 onBlur={handleSubmit}
@@ -607,6 +753,7 @@ export function Explorer() {
             ) : (
               <button
                 type="button"
+                aria-label="Rename project"
                 className={cn(
                   "absolute inset-0 cursor-text truncate border-0 bg-transparent p-0 text-left text-xs font-medium leading-5 select-none focus:outline-none",
                   isDark ? "text-white/60" : "text-black/60",
@@ -621,26 +768,164 @@ export function Explorer() {
             )}
           </div>
 
+          <button
+            ref={cellFilterButtonRef}
+            type="button"
+            data-explorer-filter-toggle
+            aria-label={isCellFilterOpen ? "Close cell filter" : "Filter cells"}
+            aria-controls={isCellFilterOpen ? "explorer-cell-filter" : undefined}
+            aria-expanded={isCellFilterOpen}
+            onKeyDown={handleCellFilterKeyDown}
+            onClick={isCellFilterOpen ? closeCellFilter : openCellFilter}
+            className={cn(
+              "flex-shrink-0 cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none focus-visible:ring-1",
+              isDark
+                ? "hover:bg-[rgb(54,54,54)] focus-visible:ring-white/30"
+                : "hover:bg-[rgb(217,217,217)] focus-visible:ring-black/30",
+            )}
+          >
+            {isCellFilterOpen ? (
+              <svg
+                aria-hidden="true"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                className={isDark ? "text-white/60" : "text-black/60"}
+              >
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg
+                aria-hidden="true"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                className={isDark ? "text-white/60" : "text-black/60"}
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-4-4" />
+              </svg>
+            )}
+          </button>
+
+          {/* Hamburger menu */}
+          <HamburgerMenu isDark={isDark} />
+
           {/* Collapse button (not shown on sm — use drawer dismiss instead) */}
           {!isSm && (
             <button
               type="button"
+              aria-label="Collapse Explorer"
               onClick={handleCollapse}
               className={cn(
-                "flex-shrink-0 cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
+                "ml-1 flex h-7 w-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors focus:outline-none",
                 isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
               )}
             >
-              <NavArrowLeft className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")} />
+              <NavArrowLeft
+                strokeWidth={2}
+                className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")}
+              />
             </button>
           )}
-
-          {/* Hamburger menu */}
-          <HamburgerMenu isDark={isDark} />
         </div>
 
         {/* Divider */}
         <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+
+        {isCellFilterOpen && (
+          <div data-explorer-filter-row className="px-1 pt-1.5 pb-1">
+            <div
+              id="explorer-cell-filter"
+              className={cn(
+                "flex h-6 items-center gap-1.5 rounded-lg border px-1.5 transition-colors focus-within:ring-1",
+                isDark
+                  ? "border-white/10 bg-white/5 text-white/40 focus-within:border-white/20 focus-within:ring-white/10"
+                  : "border-black/10 bg-black/5 text-black/40 focus-within:border-black/20 focus-within:ring-black/10",
+              )}
+            >
+              <svg
+                aria-hidden="true"
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                className="flex-shrink-0"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-4-4" />
+              </svg>
+              <input
+                ref={cellFilterRef}
+                type="search"
+                role="combobox"
+                aria-label="Filter cells"
+                aria-controls="explorer-cell-tree"
+                aria-autocomplete="list"
+                aria-expanded="true"
+                aria-haspopup="tree"
+                aria-activedescendant={
+                  cellFilterCursorRow ? cellRowDomId(cellFilterCursorRow.occurrenceId) : undefined
+                }
+                value={cellFilter}
+                onChange={(event) => setCellFilter(event.target.value)}
+                onFocus={() => {
+                  const state = useExplorerStore.getState();
+                  if (state.isFocused) state.setFocused(false);
+                }}
+                onKeyDown={handleCellFilterKeyDown}
+                placeholder="Filter cells"
+                className={cn(
+                  "min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-xs leading-5 outline-none [&::-webkit-search-cancel-button]:hidden",
+                  isDark
+                    ? "text-white/90 placeholder:text-white/30"
+                    : "text-black/90 placeholder:text-black/30",
+                )}
+              />
+              {cellFilter && (
+                <button
+                  type="button"
+                  aria-label="Clear cell filter"
+                  onKeyDown={handleCellFilterKeyDown}
+                  onClick={() => {
+                    setCellFilter("");
+                    requestAnimationFrame(() => cellFilterRef.current?.focus());
+                  }}
+                  className={cn(
+                    "flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0",
+                    isDark
+                      ? "text-white/40 hover:text-white/80"
+                      : "text-black/40 hover:text-black/80",
+                  )}
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  >
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Vertical tab list (shown when 2+ tabs are open) */}
         <TabList
@@ -651,12 +936,15 @@ export function Explorer() {
 
         {/* Cell tree / list */}
         <ul
+          id="explorer-cell-tree"
           ref={cellListRef}
           role="tree"
           aria-label="Cells"
           tabIndex={-1}
           className="m-0 flex list-none flex-col gap-0.5 overflow-y-auto p-0 py-1"
-          style={{ maxHeight: "calc(100vh - 176px)" }}
+          style={{
+            maxHeight: isCellFilterOpen ? "calc(100vh - 210px)" : "calc(100vh - 176px)",
+          }}
         >
           {cellRows.map((row) => (
             <CellRow
@@ -666,9 +954,10 @@ export function Explorer() {
               isActive={row.name === activeCell}
               isAriaSelected={row.occurrenceId === ariaSelectedOccurrenceId}
               isFocused={
-                isFocused &&
-                focusedItem?.type === "cell" &&
-                focusedItem.occurrenceId === row.occurrenceId
+                (isFocused &&
+                  focusedItem?.type === "cell" &&
+                  focusedItem.occurrenceId === row.occurrenceId) ||
+                cellFilterCursorRow?.occurrenceId === row.occurrenceId
               }
               isTabStop={row.occurrenceId === cellTabStopOccurrenceId}
               isDark={isDark}
@@ -678,17 +967,76 @@ export function Explorer() {
               setSize={row.setSize}
               hasChildren={row.hasChildren}
               isExpanded={row.isExpanded}
+              isExpansionLocked={Boolean(filterQuery)}
               isHidden={hiddenCells.has(row.name)}
               onToggleExpand={() => toggleExpanded(row.occurrenceId)}
-              onSelect={() => handleSelectCell(row.name)}
-              onRename={(newName) => handleRenameCell(row.name, newName)}
+              onToggleVisibility={() => {
+                toggleCellVisibility(row.name);
+                if (isCellFilterOpen) {
+                  requestAnimationFrame(() => {
+                    cellFilterRef.current?.focus();
+                    useExplorerStore.getState().setFocusedItem(focusedItemForRow(row));
+                  });
+                }
+              }}
+              onSelect={() => {
+                handleSelectCell(row.name);
+                if (isCellFilterOpen) {
+                  cellFilterReturnItemRef.current = focusedItemForRow(row);
+                  closeCellFilter();
+                }
+              }}
+              onRename={(newName) => {
+                const returnItem = cellFilterReturnItemRef.current;
+                handleRenameCell(row.name, newName);
+                if (isCellFilterOpen && returnItem?.type === "cell") {
+                  const path = cellOccurrencePath(returnItem.occurrenceId).map((segment) =>
+                    segment === row.name ? newName : segment,
+                  );
+                  cellFilterReturnItemRef.current = {
+                    type: "cell",
+                    occurrenceId: cellOccurrenceId(path),
+                    name: returnItem.name === row.name ? newName : returnItem.name,
+                  };
+                }
+              }}
               startEditing={
                 editingCellName === row.name && editingCellOccurrenceId === row.occurrenceId
               }
               canDrag={row.name !== activeCell}
+              filterQuery={filterQuery}
+              moveDomFocusOnFocus={!isCellFilterOpen}
+              isActionTabStop={
+                isFocused &&
+                focusedItem?.type === "cell" &&
+                focusedItem.occurrenceId === row.occurrenceId
+              }
+              onRestoreFocusAfterRename={
+                isCellFilterOpen ? () => cellFilterRef.current?.focus() : undefined
+              }
+              claimPanelFocusOnInteraction={!isCellFilterOpen}
+              onDragStart={
+                isCellFilterOpen
+                  ? () => {
+                      cellFilterReturnItemRef.current = focusedItemForRow(row);
+                      closeCellFilter();
+                    }
+                  : undefined
+              }
+              onContextMenuOpen={isCellFilterOpen ? dismissCellFilter : undefined}
             />
           ))}
         </ul>
+        {filterQuery && cellRows.length === 0 && (
+          <output
+            className={cn(
+              "block px-3 py-5 text-center text-xs",
+              isDark ? "text-white/40" : "text-black/40",
+            )}
+          >
+            No cells match &ldquo;{filterQuery}&rdquo;
+          </output>
+        )}
 
         {/* Hierarchy level footer — controls rendering depth on canvas */}
         <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />

@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { cellOccurrenceId, useExplorerStore, type RawCellNode } from "@/stores/explorer";
-import {
-  findFocusedRowIndex,
-  findTypeaheadRow,
-  focusedItemForRow,
-  projectExplorerRows,
-} from "./navigation";
+import { findFocusedRowIndex, focusedItemForRow, projectExplorerRows } from "./navigation";
 
 const tree: RawCellNode[] = [
   { name: "A", children: [{ name: "shared", children: [{ name: "leaf", children: [] }] }] },
@@ -27,7 +22,11 @@ describe("projectExplorerRows", () => {
     useExplorerStore.getState().setCellTree(tree);
   });
 
-  function project(mode: "nested" | "flat" = "nested", tabs: { id: string }[] = []) {
+  function project(
+    mode: "nested" | "flat" = "nested",
+    tabs: { id: string }[] = [],
+    filterQuery = "",
+  ) {
     const state = useExplorerStore.getState();
     return projectExplorerRows({
       tabs,
@@ -35,6 +34,7 @@ describe("projectExplorerRows", () => {
       cells: state.cells,
       expandedCells: state.expandedCells,
       cellListMode: mode,
+      filterQuery,
     });
   }
 
@@ -95,6 +95,45 @@ describe("projectExplorerRows", () => {
     );
   });
 
+  it("reveals nested matching paths without changing saved expansion", () => {
+    const savedExpansion = new Set([cellOccurrenceId(["A"])]);
+    useExplorerStore.setState({ expandedCells: savedExpansion });
+
+    const rows = project("nested", [], "LEAF").filter((row) => row.type === "cell");
+    expect(rows.map((row) => row.occurrenceId)).toEqual([
+      cellOccurrenceId(["A"]),
+      cellOccurrenceId(["A", "shared"]),
+      cellOccurrenceId(["A", "shared", "leaf"]),
+      cellOccurrenceId(["B"]),
+      cellOccurrenceId(["B", "shared"]),
+      cellOccurrenceId(["B", "shared", "leaf"]),
+    ]);
+    expect(rows.filter((row) => row.hasChildren).every((row) => row.isExpanded)).toBe(true);
+    expect(useExplorerStore.getState().expandedCells).toBe(savedExpansion);
+  });
+
+  it("keeps matching ancestors but filters unrelated descendants", () => {
+    const rows = project("nested", [], "shared").filter((row) => row.type === "cell");
+    expect(rows.map((row) => row.name)).toEqual(["A", "shared", "B", "shared"]);
+    expect(rows.filter((row) => row.name === "shared")).toMatchObject([
+      { hasChildren: false, depth: 1 },
+      { hasChildren: false, depth: 1 },
+    ]);
+  });
+
+  it("filters flat cells by case-insensitive substring", () => {
+    const rows = project("flat", [], "HA").filter((row) => row.type === "cell");
+    expect(rows.map((row) => row.name)).toEqual(["shared"]);
+    expect(rows[0]).toMatchObject({ posInSet: 1, setSize: 1 });
+  });
+
+  it("keeps tabs navigable when no cells match", () => {
+    expect(project("nested", [{ id: "one" }, { id: "two" }], "missing")).toEqual([
+      { type: "tab", id: "one" },
+      { type: "tab", id: "two" },
+    ]);
+  });
+
   it("includes tabs only when multiple tabs are visible", () => {
     expect(project("nested", [{ id: "one" }])[0].type).toBe("cell");
     expect(project("nested", [{ id: "one" }, { id: "two" }]).slice(0, 2)).toEqual([
@@ -112,26 +151,5 @@ describe("projectExplorerRows", () => {
     };
     const index = findFocusedRowIndex(rows, target);
     expect(focusedItemForRow(rows[index])).toEqual(target);
-  });
-
-  it("finds the next matching cell by type-ahead while skipping tabs", () => {
-    const rows = project("nested", [{ id: "one" }, { id: "two" }]);
-    const firstShared = rows.findIndex(
-      (row) => row.type === "cell" && row.occurrenceId === cellOccurrenceId(["A", "shared"]),
-    );
-    expect(findTypeaheadRow(rows, firstShared, "SH")).toMatchObject({
-      type: "cell",
-      occurrenceId: cellOccurrenceId(["B", "shared"]),
-      name: "shared",
-    });
-  });
-
-  it("wraps type-ahead to the beginning of visible cells", () => {
-    const rows = project();
-    expect(findTypeaheadRow(rows, rows.length - 1, "a")).toMatchObject({
-      type: "cell",
-      occurrenceId: cellOccurrenceId(["A"]),
-      name: "A",
-    });
   });
 });

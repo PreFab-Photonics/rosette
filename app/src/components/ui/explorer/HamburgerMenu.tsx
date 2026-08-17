@@ -93,8 +93,8 @@ export function FlyoutSubmenu({
     <div
       ref={menuRef}
       className={cn(
-        "absolute -top-1 z-50 ml-1 min-w-[170px] rounded-xl border py-1",
-        openLeft ? "right-full mr-1" : "left-full",
+        "absolute -top-px z-50 min-w-[170px] rounded-xl border py-1",
+        openLeft ? "right-full mr-1" : "left-full ml-1",
         isDark
           ? "border-white/10 bg-[rgb(29,29,29)] text-white/90"
           : "border-black/10 bg-[rgb(241,241,241)] text-black/90",
@@ -534,23 +534,23 @@ export function HamburgerMenu({ isDark }: { isDark: boolean }) {
   ];
 
   return (
-    <div ref={menuRef} className="relative ml-auto flex-shrink-0">
+    <div ref={menuRef} className="relative flex-shrink-0">
       {/* Hamburger button — matches Sidebar tab button style */}
       <button
         type="button"
+        aria-label="Explorer menu"
+        aria-expanded={isOpen}
         onClick={() => {
           setIsOpen((prev) => !prev);
           setActiveSubmenu(null);
         }}
         className={cn(
-          "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
+          "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg transition-colors focus:outline-none",
           isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
           isOpen && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
         )}
       >
-        <div className="flex h-4 w-4 items-center justify-center">
-          <Menu className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")} />
-        </div>
+        <Menu className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")} />
       </button>
 
       {/* Dropdown menu */}
@@ -564,7 +564,7 @@ export function HamburgerMenu({ isDark }: { isDark: boolean }) {
           )}
         >
           {menus.map((menu) => (
-            <div key={menu.id} className="relative">
+            <div key={menu.id}>
               <button
                 type="button"
                 className={cn(

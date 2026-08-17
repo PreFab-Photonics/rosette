@@ -27,6 +27,18 @@ interface ProjectExplorerRowsOptions {
   cells: readonly string[];
   expandedCells: ReadonlySet<CellOccurrenceId>;
   cellListMode: CellListMode;
+  filterQuery?: string;
+}
+
+function filterCellTree(nodes: readonly CellNode[], normalizedQuery: string): CellNode[] {
+  const filtered: CellNode[] = [];
+  for (const node of nodes) {
+    const children = filterCellTree(node.children, normalizedQuery);
+    if (node.name.toLowerCase().includes(normalizedQuery) || children.length > 0) {
+      filtered.push({ ...node, children });
+    }
+  }
+  return filtered;
 }
 
 /** Build the authoritative visible row order for tabs and cells. */
@@ -36,14 +48,20 @@ export function projectExplorerRows({
   cells,
   expandedCells,
   cellListMode,
+  filterQuery = "",
 }: ProjectExplorerRowsOptions): ExplorerRow[] {
   const rows: ExplorerRow[] = [];
+  const normalizedQuery = filterQuery.trim().toLowerCase();
+  const isFiltering = normalizedQuery.length > 0;
   if (tabs.length > 1) {
     for (const tab of tabs) rows.push({ type: "tab", id: tab.id });
   }
 
   if (cellListMode === "flat" || !cellTree) {
-    for (const [index, name] of cells.entries()) {
+    const visibleCells = isFiltering
+      ? cells.filter((name) => name.toLowerCase().includes(normalizedQuery))
+      : cells;
+    for (const [index, name] of visibleCells.entries()) {
       rows.push({
         type: "cell",
         occurrenceId: cellOccurrenceId([name]),
@@ -53,7 +71,7 @@ export function projectExplorerRows({
         hasChildren: false,
         isExpanded: false,
         posInSet: index + 1,
-        setSize: cells.length,
+        setSize: visibleCells.length,
         guideLevels: [],
       });
     }
@@ -68,7 +86,7 @@ export function projectExplorerRows({
   ) => {
     for (const [index, node] of nodes.entries()) {
       const hasChildren = node.children.length > 0;
-      const isExpanded = hasChildren && expandedCells.has(node.occurrenceId);
+      const isExpanded = hasChildren && (isFiltering || expandedCells.has(node.occurrenceId));
       const hasNextSibling = index < nodes.length - 1;
       rows.push({
         type: "cell",
@@ -89,7 +107,8 @@ export function projectExplorerRows({
       }
     }
   };
-  walk(cellTree, 0, null, []);
+  const projectedTree = isFiltering ? filterCellTree(cellTree, normalizedQuery) : cellTree;
+  walk(projectedTree, 0, null, []);
   return rows;
 }
 
@@ -118,22 +137,4 @@ export function findFocusedRowIndex(
 ): number {
   if (!target) return -1;
   return rows.findIndex((row) => focusedItemEquals(focusedItemForRow(row), target));
-}
-
-/** Find the next visible cell whose name starts with a type-ahead query. */
-export function findTypeaheadRow(
-  rows: readonly ExplorerRow[],
-  currentIndex: number,
-  query: string,
-): ExplorerRow | null {
-  if (!query || rows.length === 0) return null;
-  const normalizedQuery = query.toLocaleLowerCase();
-  for (let offset = 1; offset <= rows.length; offset++) {
-    const index = (Math.max(currentIndex, -1) + offset) % rows.length;
-    const row = rows[index];
-    if (row.type === "cell" && row.name.toLocaleLowerCase().startsWith(normalizedQuery)) {
-      return row;
-    }
-  }
-  return null;
 }
