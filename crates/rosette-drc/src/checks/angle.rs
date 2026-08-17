@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn test_manhattan_rect() {
-        let poly = Polygon::rect(Point::origin(), 10.0, 5.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 5.0).unwrap();
         let violations = check_angles(&poly, Layer::new(1, 0), &[0.0, 90.0], None);
         assert!(violations.is_empty());
     }
@@ -104,7 +104,8 @@ mod tests {
             Point::new(1.0, 0.0),
             Point::new(0.0, -1.0),
             Point::new(-1.0, 0.0),
-        ]);
+        ])
+        .unwrap();
 
         // Only allow manhattan
         let violations = check_angles(&poly, Layer::new(1, 0), &[0.0, 90.0], None);

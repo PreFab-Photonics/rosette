@@ -18,8 +18,8 @@
 //! use rosette_core::{Cell, Layer, Point, Polygon};
 //! use rosette_drc::{DrcRules, run_drc};
 //!
-//! let mut cell = Cell::new("test");
-//! cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), Layer::new(1, 0));
+//! let mut cell = Cell::new("test").unwrap();
+//! cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0).unwrap(), Layer::new(1, 0));
 //!
 //! let rules = DrcRules::new()
 //!     .min_width(Layer::new(1, 0), 0.1, Some("M1.W.1"))

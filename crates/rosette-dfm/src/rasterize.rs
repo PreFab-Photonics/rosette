@@ -52,7 +52,7 @@ pub struct LayerRaster {
 impl LayerRaster {
     /// Create a new empty raster covering the given bounding box.
     pub fn from_bbox(bbox: &BBox, config: &RasterConfig) -> Self {
-        let padded = bbox.expand_by(config.padding);
+        let padded = bbox.expand_by(config.padding).unwrap_or(*bbox);
         let width = ((padded.width()) / config.resolution).ceil() as usize + 1;
         let height = ((padded.height()) / config.resolution).ceil() as usize + 1;
 
@@ -133,21 +133,18 @@ pub fn flatten_cell(
 
     let mut add_element = |element: &Element, placement: Transform| match element {
         Element::Polygon { polygon, layer } => {
-            if let Some(polygon) = polygon.try_transform(&placement) {
+            if let Ok(polygon) = polygon.try_transform(&placement) {
                 result.entry(*layer).or_default().push(polygon);
             }
         }
-        Element::Path {
-            points,
-            width,
-            layer,
-            end_type,
-        } => {
-            if let Some(polygon) = stroke_path_transformed(points, *width, *end_type, &placement) {
-                result.entry(*layer).or_default().push(polygon);
+        Element::Path(path) => {
+            if let Some(polygon) =
+                stroke_path_transformed(path.points(), path.width(), path.end_type(), &placement)
+            {
+                result.entry(path.layer()).or_default().push(polygon);
             }
         }
-        Element::Text { .. } | Element::CellRef(_) => {}
+        Element::Text(_) | Element::CellRef(_) => {}
     };
 
     if let Some(library) = library {
@@ -249,7 +246,7 @@ mod tests {
         };
 
         // 4x4 rectangle at origin
-        let poly = Polygon::rect(Point::new(0.0, 0.0), 4.0, 4.0);
+        let poly = Polygon::rect(Point::new(0.0, 0.0), 4.0, 4.0).unwrap();
         let bbox = poly.bbox();
         let mut raster = LayerRaster::from_bbox(&bbox, &config);
         rasterize_polygons(&mut raster, &[poly]);
@@ -268,7 +265,7 @@ mod tests {
             resolution: 0.1,
             padding: 0.0,
         };
-        let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(1.0, 1.0));
+        let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(1.0, 1.0)).unwrap();
         let raster = LayerRaster::from_bbox(&bbox, &config);
 
         let center = raster.pixel_center(0, 0);
@@ -279,16 +276,21 @@ mod tests {
     #[test]
     fn flatten_expands_arefs_and_strokes_before_transforming() {
         let layer = Layer::new(1, 0);
-        let mut child = Cell::new("child");
-        child.add_path(
-            vec![Point::origin(), Point::new(10.0, 0.0)],
-            2.0,
-            layer,
-            PathEndType::HalfWidthExtension,
-        );
-        let mut top = Cell::new("top");
+        let mut child = Cell::new("child").unwrap();
+        child
+            .add_path(
+                vec![Point::origin(), Point::new(10.0, 0.0)],
+                2.0,
+                layer,
+                PathEndType::HalfWidthExtension,
+            )
+            .unwrap();
+        let mut top = Cell::new("top").unwrap();
         top.add_ref(
-            CellRef::with_transform("child", Transform::scale(2.0, 3.0)).array(2, 1, 20.0, 0.0),
+            CellRef::with_transform("child", Transform::scale(2.0, 3.0))
+                .unwrap()
+                .array(2, 1, 20.0, 0.0)
+                .unwrap(),
         );
         let mut library = Library::new("test");
         library.add_cell(child).unwrap();
@@ -317,9 +319,9 @@ mod tests {
     #[test]
     fn flatten_stops_at_cycles() {
         let layer = Layer::new(1, 0);
-        let mut cell = Cell::new("cycle");
-        cell.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), layer);
-        cell.add_ref(CellRef::new("cycle"));
+        let mut cell = Cell::new("cycle").unwrap();
+        cell.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(), layer);
+        cell.add_ref(CellRef::new("cycle").unwrap());
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
 
@@ -335,13 +337,19 @@ mod tests {
     fn flatten_skips_polygon_transform_overflow() {
         let kept_layer = Layer::new(1, 0);
         let skipped_layer = Layer::new(2, 0);
-        let mut leaf = Cell::new("leaf");
-        leaf.add_polygon(Polygon::rect(Point::new(2.0, 0.0), 1.0, 1.0), skipped_layer);
-        let mut middle = Cell::new("middle");
-        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
-        let mut top = Cell::new("top");
-        top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), kept_layer);
-        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        let mut leaf = Cell::new("leaf").unwrap();
+        leaf.add_polygon(
+            Polygon::rect(Point::new(2.0, 0.0), 1.0, 1.0).unwrap(),
+            skipped_layer,
+        );
+        let mut middle = Cell::new("middle").unwrap();
+        middle.add_ref(CellRef::new("leaf").unwrap().scale(f64::MAX).unwrap());
+        let mut top = Cell::new("top").unwrap();
+        top.add_polygon(
+            Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(),
+            kept_layer,
+        );
+        top.add_ref(CellRef::new("middle").unwrap().scale(f64::MAX).unwrap());
         let mut library = Library::new("test");
         library.add_cell(leaf).unwrap();
         library.add_cell(middle).unwrap();

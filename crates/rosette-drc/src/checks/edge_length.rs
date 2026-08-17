@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn test_rectangle_passes() {
         // 10x5 rectangle — shortest edge is 5.0
-        let poly = Polygon::rect(Point::origin(), 10.0, 5.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 5.0).unwrap();
         let violations = check_edge_length(&poly, Layer::new(1, 0), 4.0, None);
         assert!(violations.is_empty());
     }
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn test_rectangle_fails() {
         // 10x0.05 rectangle — short edges are 0.05
-        let poly = Polygon::rect(Point::origin(), 10.0, 0.05);
+        let poly = Polygon::rect(Point::origin(), 10.0, 0.05).unwrap();
         let violations = check_edge_length(&poly, Layer::new(1, 0), 0.1, Some("EDGE_LEN"));
         assert_eq!(violations.len(), 2); // Two short edges (top and bottom height)
 
@@ -89,7 +89,8 @@ mod tests {
             Point::new(5.01, 5.0), // tiny jog edge: 0.01 long
             Point::new(5.0, 5.0),
             Point::new(0.0, 5.0),
-        ]);
+        ])
+        .unwrap();
 
         let violations = check_edge_length(&poly, Layer::new(1, 0), 0.05, None);
         assert_eq!(violations.len(), 1); // Only the 0.01 edge
@@ -104,7 +105,8 @@ mod tests {
             Point::new(10.0, 0.0), // duplicate point = zero-length edge
             Point::new(10.0, 5.0),
             Point::new(0.0, 5.0),
-        ]);
+        ])
+        .unwrap();
 
         let violations = check_edge_length(&poly, Layer::new(1, 0), 0.1, None);
         // Zero-length edge is below threshold but also below 1e-10, so skipped

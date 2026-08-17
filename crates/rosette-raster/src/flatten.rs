@@ -188,27 +188,22 @@ fn flatten_placed_cell(
             .and_then(|step| groups.get(&step.element_index).copied());
         match placed.element {
             Element::Polygon { polygon, layer } => {
-                if let Some(transformed) = polygon.try_transform(&placed.placement.transform) {
+                if let Ok(transformed) = polygon.try_transform(&placed.placement.transform) {
                     result.add_polygon(&transformed, layer, group);
                 }
             }
-            Element::Path {
-                points,
-                width,
-                layer,
-                end_type,
-            } => {
+            Element::Path(path) => {
                 if let Some(ribbon) = stroke_path_transformed_with_scale(
-                    points,
-                    *width,
-                    *end_type,
+                    path.points(),
+                    path.width(),
+                    path.end_type(),
                     &placed.placement.transform,
                     absolute_width_scale,
                 ) {
-                    result.add_polygon(&ribbon, layer, group);
+                    result.add_polygon(&ribbon, &path.layer(), group);
                 }
             }
-            Element::Text { .. } | Element::CellRef(_) => {}
+            Element::Text(_) | Element::CellRef(_) => {}
         }
         WalkControl::Continue
     });
@@ -235,8 +230,11 @@ mod tests {
 
     #[test]
     fn test_flatten_simple() {
-        let mut cell = Cell::new("test");
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(),
+            Layer::new(1, 0),
+        );
 
         let mut library = Library::new("test_lib");
         library.add_cell(cell).unwrap();
@@ -251,16 +249,19 @@ mod tests {
 
     #[test]
     fn flatten_skips_polygon_transform_overflow() {
-        let mut leaf = Cell::new("leaf");
+        let mut leaf = Cell::new("leaf").unwrap();
         leaf.add_polygon(
-            Polygon::rect(Point::new(2.0, 0.0), 1.0, 1.0),
+            Polygon::rect(Point::new(2.0, 0.0), 1.0, 1.0).unwrap(),
             Layer::new(2, 0),
         );
-        let mut middle = Cell::new("middle");
-        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
-        let mut top = Cell::new("top");
-        top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
-        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        let mut middle = Cell::new("middle").unwrap();
+        middle.add_ref(CellRef::new("leaf").unwrap().scale(f64::MAX).unwrap());
+        let mut top = Cell::new("top").unwrap();
+        top.add_polygon(
+            Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(),
+            Layer::new(1, 0),
+        );
+        top.add_ref(CellRef::new("middle").unwrap().scale(f64::MAX).unwrap());
         let mut library = Library::new("test");
         library.add_cell(leaf).unwrap();
         library.add_cell(middle).unwrap();
@@ -273,8 +274,11 @@ mod tests {
 
     #[test]
     fn test_flatten_with_scale() {
-        let mut cell = Cell::new("test");
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(),
+            Layer::new(1, 0),
+        );
 
         let mut library = Library::new("test_lib");
         library.add_cell(cell).unwrap();
@@ -290,17 +294,20 @@ mod tests {
 
     #[test]
     fn multi_root_flattening_includes_all_roots_unless_top_is_selected() {
-        let mut child_a = Cell::new("child_a");
-        child_a.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
-        let mut child_b = Cell::new("child_b");
+        let mut child_a = Cell::new("child_a").unwrap();
+        child_a.add_polygon(
+            Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(),
+            Layer::new(1, 0),
+        );
+        let mut child_b = Cell::new("child_b").unwrap();
         child_b.add_polygon(
-            Polygon::rect(Point::new(10.0, 0.0), 1.0, 1.0),
+            Polygon::rect(Point::new(10.0, 0.0), 1.0, 1.0).unwrap(),
             Layer::new(2, 0),
         );
-        let mut root_a = Cell::new("root_a");
-        root_a.add_ref(CellRef::new("child_a"));
-        let mut root_b = Cell::new("root_b");
-        root_b.add_ref(CellRef::new("child_b"));
+        let mut root_a = Cell::new("root_a").unwrap();
+        root_a.add_ref(CellRef::new("child_a").unwrap());
+        let mut root_b = Cell::new("root_b").unwrap();
+        root_b.add_ref(CellRef::new("child_b").unwrap());
         let mut library = Library::new("multi");
         library.add_cell(child_a).unwrap();
         library.add_cell(child_b).unwrap();
@@ -326,12 +333,15 @@ mod tests {
     #[test]
     fn test_flatten_hierarchy() {
         // Create child cell
-        let mut child = Cell::new("child");
-        child.add_polygon(Polygon::rect(Point::origin(), 5.0, 5.0), Layer::new(1, 0));
+        let mut child = Cell::new("child").unwrap();
+        child.add_polygon(
+            Polygon::rect(Point::origin(), 5.0, 5.0).unwrap(),
+            Layer::new(1, 0),
+        );
 
         // Create top cell with reference
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("child").at(10.0, 20.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("child").unwrap().at(10.0, 20.0).unwrap());
 
         let mut library = Library::new("test_lib");
         library.add_cell(child).unwrap();
@@ -357,19 +367,22 @@ mod tests {
         // to applying the pitch in the parent frame, i.e. the old bug).
         use rosette_core::CellRef;
 
-        let mut child = Cell::new("dot");
+        let mut child = Cell::new("dot").unwrap();
         // A small rectangle centered on the origin so we can read back the
         // approximate placement from vertex extents.
         child.add_polygon(
-            Polygon::rect(Point::new(-0.5, -0.5), 1.0, 1.0),
+            Polygon::rect(Point::new(-0.5, -0.5), 1.0, 1.0).unwrap(),
             Layer::new(1, 0),
         );
 
-        let mut top = Cell::new("top");
+        let mut top = Cell::new("top").unwrap();
         top.add_ref(
             CellRef::new("dot")
+                .unwrap()
                 .rotate(std::f64::consts::FRAC_PI_2)
-                .array(2, 1, 10.0, 0.0),
+                .unwrap()
+                .array(2, 1, 10.0, 0.0)
+                .unwrap(),
         );
 
         let mut library = Library::new("lib");
@@ -423,15 +436,18 @@ mod tests {
     #[test]
     fn test_flatten_path_end_types_have_distinct_geometry() {
         let points = vec![Point::origin(), Point::new(10.0, 0.0)];
-        let mut cell = Cell::new("paths");
-        cell.add_path(points.clone(), 2.0, Layer::new(1, 0), PathEndType::Flush);
-        cell.add_path(points.clone(), 2.0, Layer::new(2, 0), PathEndType::Round);
+        let mut cell = Cell::new("paths").unwrap();
+        cell.add_path(points.clone(), 2.0, Layer::new(1, 0), PathEndType::Flush)
+            .unwrap();
+        cell.add_path(points.clone(), 2.0, Layer::new(2, 0), PathEndType::Round)
+            .unwrap();
         cell.add_path(
             points,
             2.0,
             Layer::new(3, 0),
             PathEndType::HalfWidthExtension,
-        );
+        )
+        .unwrap();
         let mut library = Library::new("paths");
         library.add_cell(cell).unwrap();
 
@@ -453,19 +469,21 @@ mod tests {
 
     #[test]
     fn test_flatten_reflected_path_characterization() {
-        let mut child = Cell::new("path");
-        child.add_path(
-            vec![
-                Point::origin(),
-                Point::new(10.0, 0.0),
-                Point::new(10.0, 10.0),
-            ],
-            2.0,
-            Layer::new(1, 0),
-            rosette_core::PathEndType::default(),
-        );
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("path").mirror_x());
+        let mut child = Cell::new("path").unwrap();
+        child
+            .add_path(
+                vec![
+                    Point::origin(),
+                    Point::new(10.0, 0.0),
+                    Point::new(10.0, 10.0),
+                ],
+                2.0,
+                Layer::new(1, 0),
+                rosette_core::PathEndType::default(),
+            )
+            .unwrap();
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("path").unwrap().mirror_x());
         let mut library = Library::new("reflected");
         library.add_cell(child).unwrap();
         library.add_cell(top).unwrap();
@@ -478,15 +496,17 @@ mod tests {
 
     #[test]
     fn test_flatten_uniform_path_scale_scales_width() {
-        let mut child = Cell::new("path");
-        child.add_path(
-            vec![Point::origin(), Point::new(10.0, 0.0)],
-            2.0,
-            Layer::new(1, 0),
-            rosette_core::PathEndType::default(),
-        );
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("path").scale(2.0));
+        let mut child = Cell::new("path").unwrap();
+        child
+            .add_path(
+                vec![Point::origin(), Point::new(10.0, 0.0)],
+                2.0,
+                Layer::new(1, 0),
+                rosette_core::PathEndType::default(),
+            )
+            .unwrap();
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("path").unwrap().scale(2.0).unwrap());
         let mut library = Library::new("scaled");
         library.add_cell(child).unwrap();
         library.add_cell(top).unwrap();
@@ -500,15 +520,17 @@ mod tests {
 
     #[test]
     fn test_nonuniform_path_scale_matches_bbox() {
-        let mut child = Cell::new("path");
-        child.add_path(
-            vec![Point::origin(), Point::new(10.0, 0.0)],
-            2.0,
-            Layer::new(1, 0),
-            rosette_core::PathEndType::default(),
-        );
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::with_transform("path", Transform::scale(2.0, 3.0)));
+        let mut child = Cell::new("path").unwrap();
+        child
+            .add_path(
+                vec![Point::origin(), Point::new(10.0, 0.0)],
+                2.0,
+                Layer::new(1, 0),
+                rosette_core::PathEndType::default(),
+            )
+            .unwrap();
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::with_transform("path", Transform::scale(2.0, 3.0)).unwrap());
         let mut library = Library::new("scaled");
         library.add_cell(child).unwrap();
         library.add_cell(top).unwrap();
@@ -528,15 +550,17 @@ mod tests {
 
     #[test]
     fn test_negative_gds_path_width_is_absolute() {
-        let mut child = Cell::new("path");
-        child.add_path(
-            vec![Point::origin(), Point::new(10.0, 0.0)],
-            -2.0,
-            Layer::new(1, 0),
-            rosette_core::PathEndType::default(),
-        );
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("path").scale(3.0));
+        let mut child = Cell::new("path").unwrap();
+        child
+            .add_path(
+                vec![Point::origin(), Point::new(10.0, 0.0)],
+                -2.0,
+                Layer::new(1, 0),
+                rosette_core::PathEndType::default(),
+            )
+            .unwrap();
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("path").unwrap().scale(3.0).unwrap());
         let mut library = Library::new("scaled");
         library.add_cell(child).unwrap();
         library.add_cell(top).unwrap();
@@ -556,9 +580,12 @@ mod tests {
 
     #[test]
     fn test_flatten_cycle_stops_at_back_edge() {
-        let mut cell = Cell::new("cycle");
-        cell.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
-        cell.add_ref(CellRef::new("cycle").at(10.0, 0.0));
+        let mut cell = Cell::new("cycle").unwrap();
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(),
+            Layer::new(1, 0),
+        );
+        cell.add_ref(CellRef::new("cycle").unwrap().at(10.0, 0.0).unwrap());
         let mut library = Library::new("cycle");
         library.add_cell(cell).unwrap();
 

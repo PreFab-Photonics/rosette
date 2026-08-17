@@ -113,8 +113,8 @@ mod tests {
     #[test]
     fn inner_fully_inside_outer_violates() {
         // Outer: 20x20. Inner: 5x5 centered inside it.
-        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0);
-        let inner = Polygon::rect(Point::new(7.5, 7.5), 5.0, 5.0);
+        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0).unwrap();
+        let inner = Polygon::rect(Point::new(7.5, 7.5), 5.0, 5.0).unwrap();
 
         let v = check_not_inside(
             &[p(inner)],
@@ -132,8 +132,8 @@ mod tests {
     #[test]
     fn inner_partially_outside_does_not_violate() {
         // Inner straddles the boundary of outer.
-        let outer = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let inner = Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0); // crosses out
+        let outer = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let inner = Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0).unwrap(); // crosses out
 
         let v = check_not_inside(
             &[p(inner)],
@@ -147,8 +147,8 @@ mod tests {
 
     #[test]
     fn inner_entirely_outside_does_not_violate() {
-        let outer = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let inner = Polygon::rect(Point::new(50.0, 50.0), 5.0, 5.0);
+        let outer = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let inner = Polygon::rect(Point::new(50.0, 50.0), 5.0, 5.0).unwrap();
 
         let v = check_not_inside(
             &[p(inner)],
@@ -165,8 +165,8 @@ mod tests {
         // Inner's top-right corner touches outer's top-right corner.
         // Full-containment semantics should still flag this — the inner
         // polygon's area is entirely covered by outer.
-        let outer = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let inner = Polygon::rect(Point::new(5.0, 5.0), 5.0, 5.0);
+        let outer = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let inner = Polygon::rect(Point::new(5.0, 5.0), 5.0, 5.0).unwrap();
 
         let v = check_not_inside(
             &[p(inner)],
@@ -182,10 +182,10 @@ mod tests {
     fn union_of_two_outers_contains_inner() {
         // Two abutting outer rectangles together cover an inner rectangle
         // that neither alone contains.
-        let outer_a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let outer_b = Polygon::rect(Point::new(10.0, 0.0), 10.0, 10.0);
+        let outer_a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let outer_b = Polygon::rect(Point::new(10.0, 0.0), 10.0, 10.0).unwrap();
         // Inner straddles the seam between the two outers.
-        let inner = Polygon::rect(Point::new(5.0, 2.0), 10.0, 6.0);
+        let inner = Polygon::rect(Point::new(5.0, 2.0), 10.0, 6.0).unwrap();
 
         let v = check_not_inside(
             &[p(inner)],
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn no_outer_polygons_is_trivially_fine() {
         // Without any exclusion region, there's nothing to be inside of.
-        let inner = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
+        let inner = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap();
         let v = check_not_inside(&[p(inner)], Layer::new(1, 0), &[], Layer::new(2, 0), None);
         assert!(v.is_empty());
     }
@@ -212,10 +212,10 @@ mod tests {
     #[test]
     fn mixed_inners_reports_only_contained_ones() {
         // Three inners: one inside, one outside, one straddling.
-        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0);
-        let inside = Polygon::rect(Point::new(5.0, 5.0), 3.0, 3.0);
-        let outside = Polygon::rect(Point::new(100.0, 100.0), 3.0, 3.0);
-        let straddling = Polygon::rect(Point::new(18.0, 5.0), 5.0, 3.0);
+        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0).unwrap();
+        let inside = Polygon::rect(Point::new(5.0, 5.0), 3.0, 3.0).unwrap();
+        let outside = Polygon::rect(Point::new(100.0, 100.0), 3.0, 3.0).unwrap();
+        let straddling = Polygon::rect(Point::new(18.0, 5.0), 5.0, 3.0).unwrap();
 
         let v = check_not_inside(
             &[p(inside), p(outside), p(straddling)],
@@ -236,7 +236,7 @@ mod tests {
         //
         // The outer polygon is far away from the inner, so a correct
         // implementation cannot possibly find the inner "contained".
-        let outer = Polygon::rect(Point::new(100.0, 100.0), 10.0, 10.0);
+        let outer = Polygon::rect(Point::new(100.0, 100.0), 10.0, 10.0).unwrap();
 
         // Tiny sliver: a triangle with area 5e-11 at the origin.
         // Base 1e-5, height 1e-5 → area = 0.5 * 1e-5 * 1e-5 = 5e-11.
@@ -244,7 +244,8 @@ mod tests {
             Point::new(0.0, 0.0),
             Point::new(1e-5, 0.0),
             Point::new(0.0, 1e-5),
-        ]);
+        ])
+        .unwrap();
 
         let v = check_not_inside(
             &[p(sliver)],

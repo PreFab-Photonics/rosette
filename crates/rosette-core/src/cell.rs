@@ -4,8 +4,8 @@
 //! enabling hierarchical layout design.
 
 use crate::error::{
-    CellRefValidationReason, CellValidationError, LibraryError, PathValidationReason,
-    PolygonValidationReason, RepetitionValidationReason, TextValidationReason,
+    CellEditError, CellRefError, CellRefValidationReason, CellValidationError, LibraryEditError,
+    LibraryError, PathValidationReason, RepetitionValidationReason, TextValidationReason,
 };
 use crate::geometry::{BBox, Point, Polygon, Transform, Vector2};
 use crate::layer::Layer;
@@ -33,27 +33,9 @@ pub enum Element {
     /// A reference to another cell.
     CellRef(CellRef),
     /// A path (centerline with width) on a specific layer.
-    Path {
-        /// Points along the path centerline.
-        points: Vec<Point>,
-        /// Width of the path.
-        width: f64,
-        /// Layer for the path.
-        layer: Layer,
-        /// Path end type.
-        end_type: PathEndType,
-    },
+    Path(PathElement),
     /// A text label on a specific layer.
-    Text {
-        /// The text string.
-        text: String,
-        /// Position of the text.
-        position: Point,
-        /// Layer for the text.
-        layer: Layer,
-        /// Text height in user units (default: 1.0).
-        height: f64,
-    },
+    Text(TextElement),
 }
 
 impl Element {
@@ -63,10 +45,194 @@ impl Element {
     pub fn layer(&self) -> Option<Layer> {
         match self {
             Element::Polygon { layer, .. }
-            | Element::Path { layer, .. }
-            | Element::Text { layer, .. } => Some(*layer),
+            | Element::Path(PathElement { layer, .. })
+            | Element::Text(TextElement { layer, .. }) => Some(*layer),
             Element::CellRef(_) => None,
         }
+    }
+}
+
+/// A validated path element payload.
+#[derive(Debug, Clone)]
+pub struct PathElement {
+    points: Vec<Point>,
+    width: f64,
+    layer: Layer,
+    end_type: PathEndType,
+}
+
+impl PathElement {
+    /// Create a path element from centerline points and width.
+    pub fn new(
+        points: Vec<Point>,
+        width: f64,
+        layer: Layer,
+        end_type: PathEndType,
+    ) -> Result<Self, PathValidationReason> {
+        let path = Self {
+            points,
+            width,
+            layer,
+            end_type,
+        };
+        path.validate()?;
+        Ok(path)
+    }
+
+    /// Validate the stored path fields.
+    pub fn validate(&self) -> Result<(), PathValidationReason> {
+        if self.points.len() < 2 {
+            return Err(PathValidationReason::TooFewPoints {
+                count: self.points.len(),
+            });
+        }
+        if let Some(point_index) = self.points.iter().position(|point| !point.is_finite()) {
+            return Err(PathValidationReason::NonFinitePoint { point_index });
+        }
+        if !self.width.is_finite() {
+            return Err(PathValidationReason::NonFiniteWidth);
+        }
+        if self.width == 0.0 {
+            return Err(PathValidationReason::ZeroWidth);
+        }
+        Ok(())
+    }
+
+    /// Get the centerline points.
+    pub fn points(&self) -> &[Point] {
+        &self.points
+    }
+
+    /// Get the signed path width.
+    pub fn width(&self) -> f64 {
+        self.width
+    }
+
+    /// Get the path layer.
+    pub fn layer(&self) -> Layer {
+        self.layer
+    }
+
+    /// Get the path end type.
+    pub fn end_type(&self) -> PathEndType {
+        self.end_type
+    }
+
+    /// Replace the centerline points.
+    pub fn set_points(&mut self, points: Vec<Point>) -> Result<(), PathValidationReason> {
+        let candidate = Self::new(points, self.width, self.layer, self.end_type)?;
+        self.points = candidate.points;
+        Ok(())
+    }
+
+    /// Replace the path width.
+    pub fn set_width(&mut self, width: f64) -> Result<(), PathValidationReason> {
+        let candidate = Self::new(self.points.clone(), width, self.layer, self.end_type)?;
+        self.width = candidate.width;
+        Ok(())
+    }
+
+    /// Replace the path layer.
+    pub fn set_layer(&mut self, layer: Layer) {
+        self.layer = layer;
+    }
+
+    /// Replace the path end type.
+    pub fn set_end_type(&mut self, end_type: PathEndType) {
+        self.end_type = end_type;
+    }
+}
+
+/// A validated text element payload.
+#[derive(Debug, Clone)]
+pub struct TextElement {
+    text: String,
+    position: Point,
+    layer: Layer,
+    height: f64,
+}
+
+impl TextElement {
+    /// Create a text element.
+    pub fn new(
+        text: impl Into<String>,
+        position: Point,
+        layer: Layer,
+        height: f64,
+    ) -> Result<Self, TextValidationReason> {
+        let text = Self {
+            text: text.into(),
+            position,
+            layer,
+            height,
+        };
+        text.validate()?;
+        Ok(text)
+    }
+
+    /// Validate the stored text fields.
+    pub fn validate(&self) -> Result<(), TextValidationReason> {
+        if !self.position.is_finite() {
+            return Err(TextValidationReason::NonFinitePosition);
+        }
+        if !self.height.is_finite() {
+            return Err(TextValidationReason::NonFiniteHeight);
+        }
+        if self.height <= 0.0 {
+            return Err(TextValidationReason::NonPositiveHeight);
+        }
+        Ok(())
+    }
+
+    /// Get the label text.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Get the label position.
+    pub fn position(&self) -> Point {
+        self.position
+    }
+
+    /// Get the label layer.
+    pub fn layer(&self) -> Layer {
+        self.layer
+    }
+
+    /// Get the label height.
+    pub fn height(&self) -> f64 {
+        self.height
+    }
+
+    /// Replace the label text.
+    pub fn set_text(&mut self, text: impl Into<String>) {
+        self.text = text.into();
+    }
+
+    /// Replace the label position.
+    pub fn set_position(&mut self, position: Point) -> Result<(), TextValidationReason> {
+        if !position.is_finite() {
+            return Err(TextValidationReason::NonFinitePosition);
+        }
+        self.position = position;
+        Ok(())
+    }
+
+    /// Replace the label layer.
+    pub fn set_layer(&mut self, layer: Layer) {
+        self.layer = layer;
+    }
+
+    /// Replace the label height.
+    pub fn set_height(&mut self, height: f64) -> Result<(), TextValidationReason> {
+        if !height.is_finite() {
+            return Err(TextValidationReason::NonFiniteHeight);
+        }
+        if height <= 0.0 {
+            return Err(TextValidationReason::NonPositiveHeight);
+        }
+        self.height = height;
+        Ok(())
     }
 }
 
@@ -97,33 +263,28 @@ impl Element {
 /// lays copies out along local −X rather than local +X.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Repetition {
-    /// Number of columns (copies along `col_vector`). Must be >= 1.
-    pub columns: u16,
-    /// Number of rows (copies along `row_vector`). Must be >= 1.
-    pub rows: u16,
-    /// Column displacement vector: local-space pitch between adjacent
-    /// copies along the column direction.
-    pub col_vector: Vector2,
-    /// Row displacement vector: local-space pitch between adjacent
-    /// copies along the row direction.
-    pub row_vector: Vector2,
+    columns: u16,
+    rows: u16,
+    col_vector: Vector2,
+    row_vector: Vector2,
 }
 
 impl Repetition {
-    pub(crate) fn validation_error(&self) -> Option<RepetitionValidationReason> {
+    /// Validate the stored repetition fields.
+    pub fn validate(&self) -> Result<(), RepetitionValidationReason> {
         if self.columns == 0 {
-            return Some(RepetitionValidationReason::ZeroColumns);
+            return Err(RepetitionValidationReason::ZeroColumns);
         }
         if self.rows == 0 {
-            return Some(RepetitionValidationReason::ZeroRows);
+            return Err(RepetitionValidationReason::ZeroRows);
         }
         if !self.col_vector.is_finite() {
-            return Some(RepetitionValidationReason::NonFiniteColumnVector);
+            return Err(RepetitionValidationReason::NonFiniteColumnVector);
         }
         if !self.row_vector.is_finite() {
-            return Some(RepetitionValidationReason::NonFiniteRowVector);
+            return Err(RepetitionValidationReason::NonFiniteRowVector);
         }
-        None
+        Ok(())
     }
 
     /// Create a new axis-aligned rectangular grid repetition.
@@ -131,7 +292,12 @@ impl Repetition {
     /// Equivalent to
     /// [`new_vectors`](Self::new_vectors)`(columns, rows,
     /// Vector2::new(col_spacing, 0.0), Vector2::new(0.0, row_spacing))`.
-    pub fn new(columns: u16, rows: u16, col_spacing: f64, row_spacing: f64) -> Self {
+    pub fn new(
+        columns: u16,
+        rows: u16,
+        col_spacing: f64,
+        row_spacing: f64,
+    ) -> Result<Self, RepetitionValidationReason> {
         Self::new_vectors(
             columns,
             rows,
@@ -144,18 +310,40 @@ impl Repetition {
     ///
     /// Use this for hex packings or any skewed / non-orthogonal lattice.
     /// Vectors are defined in the CellRef's local (pre-transform) space.
-    pub fn new_vectors(columns: u16, rows: u16, col_vector: Vector2, row_vector: Vector2) -> Self {
+    pub fn new_vectors(
+        columns: u16,
+        rows: u16,
+        col_vector: Vector2,
+        row_vector: Vector2,
+    ) -> Result<Self, RepetitionValidationReason> {
         let repetition = Self {
             columns,
             rows,
             col_vector,
             row_vector,
         };
-        assert!(
-            repetition.validation_error().is_none(),
-            "Repetition dimensions must be nonzero and vectors must be finite"
-        );
-        repetition
+        repetition.validate()?;
+        Ok(repetition)
+    }
+
+    /// Get the number of columns.
+    pub fn columns(&self) -> u16 {
+        self.columns
+    }
+
+    /// Get the number of rows.
+    pub fn rows(&self) -> u16 {
+        self.rows
+    }
+
+    /// Get the column pitch vector.
+    pub fn col_vector(&self) -> Vector2 {
+        self.col_vector
+    }
+
+    /// Get the row pitch vector.
+    pub fn row_vector(&self) -> Vector2 {
+        self.row_vector
     }
 
     /// Whether this is a trivial (non-arrayed) single instance.
@@ -178,121 +366,120 @@ impl Repetition {
 /// A reference to another cell with transformation.
 #[derive(Debug, Clone)]
 pub struct CellRef {
-    /// Name of the referenced cell.
-    pub cell_name: String,
-    /// Transformation applied to the referenced cell.
-    pub transform: Transform,
-    /// Optional array repetition. When `None`, this is a single instance (SREF).
-    /// When `Some`, this is an array reference (AREF) with grid repetition.
-    pub repetition: Option<Repetition>,
+    cell_name: String,
+    transform: Transform,
+    repetition: Option<Repetition>,
 }
 
 impl CellRef {
-    pub(crate) fn validation_error(&self) -> Option<CellRefValidationReason> {
+    /// Validate the stored reference fields.
+    pub fn validate(&self) -> Result<(), CellRefError> {
         if self.cell_name.is_empty() {
-            return Some(CellRefValidationReason::EmptyTarget);
+            return Err(CellRefValidationReason::EmptyTarget.into());
         }
         if !self.transform.is_finite() {
-            return Some(CellRefValidationReason::NonFiniteTransform);
+            return Err(CellRefValidationReason::NonFiniteTransform.into());
         }
         if !self.transform.is_invertible() {
-            return Some(CellRefValidationReason::SingularTransform);
+            return Err(CellRefValidationReason::SingularTransform.into());
         }
-        None
-    }
-
-    fn assert_valid(&self) {
-        assert!(
-            self.validation_error().is_none(),
-            "CellRef requires a nonempty target and a finite, invertible transform"
-        );
-        assert!(
-            self.repetition
-                .is_none_or(|repetition| repetition.validation_error().is_none()),
-            "CellRef repetition must have nonzero dimensions and finite vectors"
-        );
+        if let Some(repetition) = self.repetition {
+            repetition.validate()?;
+        }
+        Ok(())
     }
 
     /// Create a new cell reference.
-    pub fn new(cell_name: impl Into<String>) -> Self {
+    pub fn new(cell_name: impl Into<String>) -> Result<Self, CellRefError> {
         let cell_ref = Self {
             cell_name: cell_name.into(),
             transform: Transform::identity(),
             repetition: None,
         };
-        cell_ref.assert_valid();
-        cell_ref
+        cell_ref.validate()?;
+        Ok(cell_ref)
     }
 
     /// Create a cell reference with transformation.
-    pub fn with_transform(cell_name: impl Into<String>, transform: Transform) -> Self {
+    pub fn with_transform(
+        cell_name: impl Into<String>,
+        transform: Transform,
+    ) -> Result<Self, CellRefError> {
         let cell_ref = Self {
             cell_name: cell_name.into(),
             transform,
             repetition: None,
         };
-        cell_ref.assert_valid();
-        cell_ref
+        cell_ref.validate()?;
+        Ok(cell_ref)
+    }
+
+    /// Get the referenced cell name.
+    pub fn cell_name(&self) -> &str {
+        &self.cell_name
+    }
+
+    /// Get the reference transform.
+    pub fn transform(&self) -> Transform {
+        self.transform
+    }
+
+    /// Get the optional array repetition.
+    pub fn repetition(&self) -> Option<Repetition> {
+        self.repetition
+    }
+
+    /// Replace the reference transform.
+    pub fn set_transform(&mut self, transform: Transform) -> Result<(), CellRefError> {
+        let candidate = Self {
+            cell_name: self.cell_name.clone(),
+            transform,
+            repetition: self.repetition,
+        };
+        candidate.validate()?;
+        self.transform = transform;
+        Ok(())
+    }
+
+    /// Set or clear the optional array repetition.
+    pub fn set_repetition(&mut self, repetition: Option<Repetition>) {
+        self.repetition = repetition;
     }
 
     /// Set the position (translation).
-    pub fn at(mut self, x: f64, y: f64) -> Self {
-        self.assert_valid();
-        assert!(
-            x.is_finite() && y.is_finite(),
-            "CellRef position must be finite"
-        );
-        self.transform = Transform::translate(x, y).then(&self.transform);
-        self.assert_valid();
-        self
+    pub fn at(mut self, x: f64, y: f64) -> Result<Self, CellRefError> {
+        self.set_transform(Transform::translate(x, y).then(&self.transform))?;
+        Ok(self)
     }
 
     /// Rotate by angle (in radians).
     ///
     /// Rotation is applied after any previous transformations.
-    pub fn rotate(mut self, angle: f64) -> Self {
-        self.assert_valid();
-        assert!(angle.is_finite(), "CellRef rotation must be finite");
-        self.transform = Transform::rotate(angle).then(&self.transform);
-        self.assert_valid();
-        self
+    pub fn rotate(mut self, angle: f64) -> Result<Self, CellRefError> {
+        self.set_transform(Transform::rotate(angle).then(&self.transform))?;
+        Ok(self)
     }
 
     /// Mirror across X axis.
     pub fn mirror_x(mut self) -> Self {
-        self.assert_valid();
         self.transform = Transform::mirror_x().then(&self.transform);
-        self.assert_valid();
         self
     }
 
     /// Mirror across Y axis.
     pub fn mirror_y(mut self) -> Self {
-        self.assert_valid();
         self.transform = Transform::mirror_y().then(&self.transform);
-        self.assert_valid();
         self
     }
 
     /// Scale uniformly.
-    pub fn scale(mut self, s: f64) -> Self {
-        self.assert_valid();
-        assert!(
-            s.is_finite() && s != 0.0,
-            "CellRef scale must be finite and nonzero"
-        );
-        self.transform = Transform::scale_uniform(s).then(&self.transform);
-        self.assert_valid();
-        self
+    pub fn scale(mut self, scale: f64) -> Result<Self, CellRefError> {
+        self.set_transform(Transform::scale_uniform(scale).then(&self.transform))?;
+        Ok(self)
     }
 
     /// Set or clear the optional array repetition.
     pub fn with_repetition(mut self, repetition: Option<Repetition>) -> Self {
-        self.assert_valid();
-        assert!(
-            repetition.is_none_or(|repetition| repetition.validation_error().is_none()),
-            "CellRef repetition must have nonzero dimensions and finite vectors"
-        );
         self.repetition = repetition;
         self
     }
@@ -310,14 +497,20 @@ impl CellRef {
     ///
     /// For hex or skewed lattices use
     /// [`array_vectors`](Self::array_vectors) instead.
-    pub fn array(mut self, columns: u16, rows: u16, col_spacing: f64, row_spacing: f64) -> Self {
+    pub fn array(
+        mut self,
+        columns: u16,
+        rows: u16,
+        col_spacing: f64,
+        row_spacing: f64,
+    ) -> Result<Self, CellRefError> {
         self = self.with_repetition(Some(Repetition::new(
             columns,
             rows,
             col_spacing,
             row_spacing,
-        )));
-        self
+        )?));
+        Ok(self)
     }
 
     /// Set array repetition parameters (GDS AREF) from arbitrary column
@@ -332,11 +525,11 @@ impl CellRef {
         rows: u16,
         col_vector: Vector2,
         row_vector: Vector2,
-    ) -> Self {
+    ) -> Result<Self, CellRefError> {
         self = self.with_repetition(Some(Repetition::new_vectors(
             columns, rows, col_vector, row_vector,
-        )));
-        self
+        )?));
+        Ok(self)
     }
 }
 
@@ -354,112 +547,60 @@ pub struct Cell {
 fn validate_element(element_index: usize, element: &Element) -> Result<(), CellValidationError> {
     match element {
         Element::Polygon { polygon, .. } => {
-            if polygon.vertices().len() < 3 {
-                return Err(CellValidationError::InvalidPolygon {
+            polygon
+                .validate()
+                .map_err(|reason| CellValidationError::InvalidPolygon {
                     element_index,
-                    reason: PolygonValidationReason::TooFewVertices {
-                        count: polygon.vertices().len(),
-                    },
-                });
-            }
-            if let Some(vertex_index) = polygon
-                .vertices()
-                .iter()
-                .position(|vertex| !vertex.is_finite())
-            {
-                return Err(CellValidationError::InvalidPolygon {
-                    element_index,
-                    reason: PolygonValidationReason::NonFiniteVertex { vertex_index },
-                });
-            }
+                    reason,
+                })?;
         }
-        Element::Path { points, width, .. } => {
-            if points.len() < 2 {
-                return Err(CellValidationError::InvalidPath {
+        Element::Path(path) => {
+            path.validate()
+                .map_err(|reason| CellValidationError::InvalidPath {
                     element_index,
-                    reason: PathValidationReason::TooFewPoints {
-                        count: points.len(),
-                    },
-                });
-            }
-            if let Some(point_index) = points.iter().position(|point| !point.is_finite()) {
-                return Err(CellValidationError::InvalidPath {
-                    element_index,
-                    reason: PathValidationReason::NonFinitePoint { point_index },
-                });
-            }
-            if !width.is_finite() {
-                return Err(CellValidationError::InvalidPath {
-                    element_index,
-                    reason: PathValidationReason::NonFiniteWidth,
-                });
-            }
-            if *width == 0.0 {
-                return Err(CellValidationError::InvalidPath {
-                    element_index,
-                    reason: PathValidationReason::ZeroWidth,
-                });
-            }
+                    reason,
+                })?;
         }
         Element::CellRef(cell_ref) => {
-            if let Some(reason) = cell_ref.validation_error() {
-                return Err(CellValidationError::InvalidCellRef {
+            cell_ref.validate().map_err(|error| match error {
+                CellRefError::Reference(reason) => CellValidationError::InvalidCellRef {
                     element_index,
                     reason,
-                });
-            }
-            if let Some(reason) = cell_ref
-                .repetition
-                .as_ref()
-                .and_then(Repetition::validation_error)
-            {
-                return Err(CellValidationError::InvalidRepetition {
+                },
+                CellRefError::Repetition(reason) => CellValidationError::InvalidRepetition {
                     element_index,
                     reason,
-                });
-            }
+                },
+            })?;
         }
-        Element::Text {
-            position, height, ..
-        } => {
-            if !position.is_finite() {
-                return Err(CellValidationError::InvalidText {
+        Element::Text(text) => {
+            text.validate()
+                .map_err(|reason| CellValidationError::InvalidText {
                     element_index,
-                    reason: TextValidationReason::NonFinitePosition,
-                });
-            }
-            if !height.is_finite() {
-                return Err(CellValidationError::InvalidText {
-                    element_index,
-                    reason: TextValidationReason::NonFiniteHeight,
-                });
-            }
-            if *height <= 0.0 {
-                return Err(CellValidationError::InvalidText {
-                    element_index,
-                    reason: TextValidationReason::NonPositiveHeight,
-                });
-            }
+                    reason,
+                })?;
         }
     }
     Ok(())
 }
 
 fn validate_port(port_index: usize, port: &Port) -> Result<(), CellValidationError> {
-    match port.validation_error() {
-        Some(reason) => Err(CellValidationError::InvalidPort { port_index, reason }),
-        None => Ok(()),
-    }
+    port.validate()
+        .map_err(|reason| CellValidationError::InvalidPort { port_index, reason })
 }
 
 impl Cell {
     /// Create a new empty cell.
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
+    pub fn new(name: impl Into<String>) -> Result<Self, CellValidationError> {
+        let name = name.into();
+        if name.is_empty() {
+            return Err(CellValidationError::EmptyCellName);
+        }
+        Ok(Self {
+            name,
             elements: Vec::new(),
             ports: Vec::new(),
-        }
+        })
     }
 
     /// Validate all local invariants without resolving hierarchy references.
@@ -477,9 +618,9 @@ impl Cell {
         let mut port_names = HashMap::with_capacity(self.ports.len());
         for (port_index, port) in self.ports.iter().enumerate() {
             validate_port(port_index, port)?;
-            if let Some(first_index) = port_names.insert(port.name.as_str(), port_index) {
+            if let Some(first_index) = port_names.insert(port.name(), port_index) {
                 return Err(CellValidationError::DuplicatePortName {
-                    name: port.name.clone(),
+                    name: port.name().to_string(),
                     first_index,
                     duplicate_index: port_index,
                 });
@@ -516,24 +657,20 @@ impl Cell {
 
     /// Get a port by name.
     pub fn port(&self, name: &str) -> Option<&Port> {
-        self.ports.iter().find(|p| p.name == name)
+        self.ports.iter().find(|port| port.name() == name)
     }
 
     /// Add a polygon to the cell.
     pub fn add_polygon(&mut self, polygon: Polygon, layer: impl Into<Layer>) {
-        let element = Element::Polygon {
+        self.elements.push(Element::Polygon {
             polygon,
             layer: layer.into(),
-        };
-        validate_element(self.elements.len(), &element).expect("invalid polygon element");
-        self.elements.push(element);
+        });
     }
 
     /// Add a cell reference.
     pub fn add_ref(&mut self, cell_ref: CellRef) {
-        let element = Element::CellRef(cell_ref);
-        validate_element(self.elements.len(), &element).expect("invalid cell reference");
-        self.elements.push(element);
+        self.elements.push(Element::CellRef(cell_ref));
     }
 
     /// Add a path (centerline with width) to the cell.
@@ -547,15 +684,16 @@ impl Cell {
         width: f64,
         layer: impl Into<Layer>,
         end_type: PathEndType,
-    ) {
-        let element = Element::Path {
-            points,
-            width,
-            layer: layer.into(),
-            end_type,
-        };
-        validate_element(self.elements.len(), &element).expect("invalid path element");
-        self.elements.push(element);
+    ) -> Result<(), CellValidationError> {
+        let element_index = self.elements.len();
+        let path = PathElement::new(points, width, layer.into(), end_type).map_err(|reason| {
+            CellValidationError::InvalidPath {
+                element_index,
+                reason,
+            }
+        })?;
+        self.elements.push(Element::Path(path));
+        Ok(())
     }
 
     /// Add a text label with specified height.
@@ -568,25 +706,35 @@ impl Cell {
         position: Point,
         layer: impl Into<Layer>,
         height: f64,
-    ) {
-        let element = Element::Text {
-            text: text.into(),
-            position,
-            layer: layer.into(),
-            height,
-        };
-        validate_element(self.elements.len(), &element).expect("invalid text element");
-        self.elements.push(element);
+    ) -> Result<(), CellValidationError> {
+        let element_index = self.elements.len();
+        let text = TextElement::new(text, position, layer.into(), height).map_err(|reason| {
+            CellValidationError::InvalidText {
+                element_index,
+                reason,
+            }
+        })?;
+        self.elements.push(Element::Text(text));
+        Ok(())
     }
 
     /// Add a port.
-    pub fn add_port(&mut self, port: Port) {
-        validate_port(self.ports.len(), &port).expect("invalid port");
-        assert!(
-            self.ports.iter().all(|existing| existing.name != port.name),
-            "Port names must be unique within a cell"
-        );
+    pub fn add_port(&mut self, port: Port) -> Result<(), CellValidationError> {
+        let port_index = self.ports.len();
+        validate_port(port_index, &port)?;
+        if let Some(first_index) = self
+            .ports
+            .iter()
+            .position(|existing| existing.name() == port.name())
+        {
+            return Err(CellValidationError::DuplicatePortName {
+                name: port.name().to_string(),
+                first_index,
+                duplicate_index: port_index,
+            });
+        }
         self.ports.push(port);
+        Ok(())
     }
 
     /// Get all polygons (without cell references).
@@ -606,14 +754,14 @@ impl Cell {
     }
 
     /// Get all paths.
-    pub fn paths(&self) -> impl Iterator<Item = (&Vec<Point>, f64, &Layer, PathEndType)> {
+    pub fn paths(&self) -> impl Iterator<Item = (&[Point], f64, &Layer, PathEndType)> {
         self.elements.iter().filter_map(|e| match e {
-            Element::Path {
-                points,
-                width,
-                layer,
-                end_type,
-            } => Some((points, *width, layer, *end_type)),
+            Element::Path(path) => Some((
+                path.points.as_slice(),
+                path.width,
+                &path.layer,
+                path.end_type,
+            )),
             _ => None,
         })
     }
@@ -621,12 +769,9 @@ impl Cell {
     /// Get all text labels.
     pub fn texts(&self) -> impl Iterator<Item = (&str, Point, &Layer, f64)> {
         self.elements.iter().filter_map(|e| match e {
-            Element::Text {
-                text,
-                position,
-                layer,
-                height,
-            } => Some((text.as_str(), *position, layer, *height)),
+            Element::Text(text) => {
+                Some((text.text.as_str(), text.position, &text.layer, text.height))
+            }
             _ => None,
         })
     }
@@ -674,20 +819,22 @@ impl Cell {
     ///
     /// The original element is left untouched if validation fails or `edit`
     /// panics.
-    pub fn edit_element<R>(
+    pub fn edit_element<R, E>(
         &mut self,
         index: usize,
-        edit: impl FnOnce(&mut Element) -> R,
-    ) -> Result<R, CellValidationError> {
+        edit: impl FnOnce(&mut Element) -> Result<R, E>,
+    ) -> Result<R, CellEditError<E>> {
         let Some(element) = self.elements.get(index) else {
-            return Err(CellValidationError::ElementIndexOutOfBounds {
-                index,
-                len: self.elements.len(),
-            });
+            return Err(CellEditError::Validation(
+                CellValidationError::ElementIndexOutOfBounds {
+                    index,
+                    len: self.elements.len(),
+                },
+            ));
         };
         let mut candidate = element.clone();
-        let result = edit(&mut candidate);
-        validate_element(index, &candidate)?;
+        let result = edit(&mut candidate).map_err(CellEditError::Callback)?;
+        validate_element(index, &candidate).map_err(CellEditError::Validation)?;
         self.elements[index] = candidate;
         Ok(result)
     }
@@ -695,14 +842,14 @@ impl Cell {
     /// Transactionally edit all elements without changing their cardinality.
     ///
     /// The originals are left untouched if validation fails or `edit` panics.
-    pub fn edit_elements<R>(
+    pub fn edit_elements<R, E>(
         &mut self,
-        edit: impl FnOnce(&mut [Element]) -> R,
-    ) -> Result<R, CellValidationError> {
+        edit: impl FnOnce(&mut [Element]) -> Result<R, E>,
+    ) -> Result<R, CellEditError<E>> {
         let mut candidates = self.elements.clone();
-        let result = edit(&mut candidates);
+        let result = edit(&mut candidates).map_err(CellEditError::Callback)?;
         for (element_index, element) in candidates.iter().enumerate() {
-            validate_element(element_index, element)?;
+            validate_element(element_index, element).map_err(CellEditError::Validation)?;
         }
         self.elements = candidates;
         Ok(result)
@@ -712,21 +859,23 @@ impl Cell {
     ///
     /// The originals are left untouched if any candidate is invalid or if
     /// the edit creates duplicate names.
-    pub fn edit_ports<R>(
+    pub fn edit_ports<R, E>(
         &mut self,
-        edit: impl FnOnce(&mut [Port]) -> R,
-    ) -> Result<R, CellValidationError> {
+        edit: impl FnOnce(&mut [Port]) -> Result<R, E>,
+    ) -> Result<R, CellEditError<E>> {
         let mut candidates = self.ports.clone();
-        let result = edit(&mut candidates);
+        let result = edit(&mut candidates).map_err(CellEditError::Callback)?;
         let mut names = HashMap::with_capacity(candidates.len());
         for (port_index, port) in candidates.iter().enumerate() {
-            validate_port(port_index, port)?;
-            if let Some(first_index) = names.insert(port.name.as_str(), port_index) {
-                return Err(CellValidationError::DuplicatePortName {
-                    name: port.name.clone(),
-                    first_index,
-                    duplicate_index: port_index,
-                });
+            validate_port(port_index, port).map_err(CellEditError::Validation)?;
+            if let Some(first_index) = names.insert(port.name(), port_index) {
+                return Err(CellEditError::Validation(
+                    CellValidationError::DuplicatePortName {
+                        name: port.name().to_string(),
+                        first_index,
+                        duplicate_index: port_index,
+                    },
+                ));
             }
         }
         self.ports = candidates;
@@ -785,11 +934,14 @@ impl Library {
     ///
     /// Cell identities are restored after each edit. No changes are committed
     /// if any candidate is invalid or `edit` panics.
-    pub fn edit_cells(&mut self, mut edit: impl FnMut(&mut Cell)) -> Result<(), LibraryError> {
+    pub fn edit_cells<E>(
+        &mut self,
+        mut edit: impl FnMut(&mut Cell) -> Result<(), E>,
+    ) -> Result<(), LibraryEditError<E>> {
         let mut candidates = self.cells.clone();
         for candidate in &mut candidates {
             let identity = candidate.name.clone();
-            edit(candidate);
+            edit(candidate).map_err(LibraryEditError::Callback)?;
             candidate.set_name_unchecked(identity);
         }
         for candidate in &candidates {
@@ -798,14 +950,15 @@ impl Library {
                 .map_err(|source| LibraryError::InvalidCell {
                     name: candidate.name.clone(),
                     source,
-                })?;
+                })
+                .map_err(LibraryEditError::Validation)?;
         }
         let mut names = HashSet::with_capacity(candidates.len());
         for candidate in &candidates {
             if !names.insert(candidate.name()) {
-                return Err(LibraryError::AlreadyExists {
+                return Err(LibraryEditError::Validation(LibraryError::AlreadyExists {
                     name: candidate.name().to_string(),
-                });
+                }));
             }
         }
         self.cells = candidates;
@@ -861,28 +1014,31 @@ impl Library {
     ///
     /// The original is left untouched if the candidate is invalid or `edit`
     /// panics.
-    pub fn edit_cell<R>(
+    pub fn edit_cell<R, E>(
         &mut self,
         name: &str,
-        edit: impl FnOnce(&mut Cell) -> R,
-    ) -> Result<R, LibraryError> {
+        edit: impl FnOnce(&mut Cell) -> Result<R, E>,
+    ) -> Result<R, LibraryEditError<E>> {
         let index = self
             .cells
             .iter()
             .position(|cell| cell.name() == name)
-            .ok_or_else(|| LibraryError::CellNotFound {
-                name: name.to_string(),
+            .ok_or_else(|| {
+                LibraryEditError::Validation(LibraryError::CellNotFound {
+                    name: name.to_string(),
+                })
             })?;
         let identity = self.cells[index].name.clone();
         let mut candidate = self.cells[index].clone();
-        let result = edit(&mut candidate);
+        let result = edit(&mut candidate).map_err(LibraryEditError::Callback)?;
         candidate.set_name_unchecked(identity.clone());
         candidate
             .validate()
             .map_err(|source| LibraryError::InvalidCell {
                 name: identity,
                 source,
-            })?;
+            })
+            .map_err(LibraryEditError::Validation)?;
         self.cells[index] = candidate;
         Ok(result)
     }
@@ -1047,9 +1203,10 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::LibraryError;
+    use crate::error::{LibraryError, PolygonValidationReason};
     use crate::geometry::{Point, Vector2};
     use proptest::prelude::*;
+    use std::convert::Infallible;
 
     proptest! {
         #[test]
@@ -1063,26 +1220,30 @@ mod tests {
             absolute_width in any::<bool>(),
         ) {
             let width = if absolute_width { -size } else { size };
-            let mut cell = Cell::new("generated");
-            cell.add_polygon(Polygon::rect(Point::new(x, y), size, size), 1);
+            let mut cell = Cell::new("generated").unwrap();
+            cell.add_polygon(Polygon::rect(Point::new(x, y), size, size).unwrap(), 1);
             cell.add_path(
                 vec![Point::new(x, y), Point::new(x + size, y)],
                 width,
                 1,
                 PathEndType::default(),
-            );
-            cell.add_text_with_height("label", Point::new(x, y), 2, size);
+            ).unwrap();
+            cell.add_text_with_height("label", Point::new(x, y), 2, size).unwrap();
             cell.add_port(Port::with_width(
                 "port",
                 Point::new(x, y),
                 Vector2::new(angle.cos(), angle.sin()),
                 size,
-            ));
+            ).unwrap()).unwrap();
             cell.add_ref(
                 CellRef::new("child")
+                    .unwrap()
                     .at(x, y)
+                    .unwrap()
                     .rotate(angle)
-                    .array(columns, rows, size, -size),
+                    .unwrap()
+                    .array(columns, rows, size, -size)
+                    .unwrap(),
             );
 
             prop_assert_eq!(cell.validate(), Ok(()));
@@ -1090,23 +1251,29 @@ mod tests {
 
         #[test]
         fn invalid_element_edits_are_atomic(width in 1.0e-6_f64..1.0e6) {
-            let mut cell = Cell::new("generated");
+            let mut cell = Cell::new("generated").unwrap();
             cell.add_path(
                 vec![Point::origin(), Point::new(1.0, 0.0)],
                 width,
                 1,
                 PathEndType::default(),
-            );
+            ).unwrap();
 
             let result = cell.edit_element(0, |element| {
-                let Element::Path { width, .. } = element else {
+                let Element::Path(path) = element else {
                     unreachable!();
                 };
-                *width = 0.0;
+                path.width = 0.0;
+                Ok::<_, Infallible>(())
             });
 
-            let rejected = matches!(result, Err(CellValidationError::InvalidPath { .. }));
-            prop_assert!(rejected);
+            prop_assert_eq!(
+                result,
+                Err(CellEditError::Validation(CellValidationError::InvalidPath {
+                    element_index: 0,
+                    reason: PathValidationReason::ZeroWidth,
+                }))
+            );
             prop_assert_eq!(cell.paths().next().unwrap().1, width);
             prop_assert_eq!(cell.validate(), Ok(()));
         }
@@ -1114,9 +1281,9 @@ mod tests {
         #[test]
         fn duplicate_library_insertions_are_atomic(name in "[A-Za-z][A-Za-z0-9_]{0,31}") {
             let mut library = Library::new("generated");
-            library.add_cell(Cell::new(name.clone())).unwrap();
+            library.add_cell(Cell::new(name.clone()).unwrap()).unwrap();
 
-            let result = library.add_cell(Cell::new(name.clone()));
+            let result = library.add_cell(Cell::new(name.clone()).unwrap());
 
             let rejected = matches!(result, Err(LibraryError::AlreadyExists { .. }));
             prop_assert!(rejected);
@@ -1128,14 +1295,18 @@ mod tests {
 
     #[test]
     fn test_cell_new() {
-        let cell = Cell::new("test_cell");
+        let cell = Cell::new("test_cell").unwrap();
         assert_eq!(cell.name(), "test_cell");
         assert!(cell.elements().is_empty());
     }
 
     #[test]
     fn cell_validation_reports_polygon_and_path_reasons() {
-        let mut cell = Cell::new("");
+        let mut cell = Cell {
+            name: String::new(),
+            elements: Vec::new(),
+            ports: Vec::new(),
+        };
         assert_eq!(cell.validate(), Err(CellValidationError::EmptyCellName));
 
         cell.name = "bad_polygon".to_string();
@@ -1167,12 +1338,12 @@ mod tests {
             })
         ));
 
-        cell.elements[0] = Element::Path {
+        cell.elements[0] = Element::Path(PathElement {
             points: vec![Point::origin()],
             width: 1.0,
             layer: Layer::new(1, 0),
             end_type: PathEndType::Flush,
-        };
+        });
         assert!(matches!(
             cell.validate(),
             Err(CellValidationError::InvalidPath {
@@ -1181,10 +1352,10 @@ mod tests {
             })
         ));
 
-        let Element::Path { points, .. } = &mut cell.elements[0] else {
+        let Element::Path(path) = &mut cell.elements[0] else {
             unreachable!();
         };
-        points.push(Point::new(f64::INFINITY, 0.0));
+        path.points.push(Point::new(f64::INFINITY, 0.0));
         assert!(matches!(
             cell.validate(),
             Err(CellValidationError::InvalidPath {
@@ -1193,12 +1364,12 @@ mod tests {
             })
         ));
 
-        cell.elements[0] = Element::Path {
+        cell.elements[0] = Element::Path(PathElement {
             points: vec![Point::origin(), Point::new(1.0, 0.0)],
             width: f64::NAN,
             layer: Layer::new(1, 0),
             end_type: PathEndType::Flush,
-        };
+        });
         assert!(matches!(
             cell.validate(),
             Err(CellValidationError::InvalidPath {
@@ -1206,10 +1377,10 @@ mod tests {
                 ..
             })
         ));
-        let Element::Path { width, .. } = &mut cell.elements[0] else {
+        let Element::Path(path) = &mut cell.elements[0] else {
             unreachable!();
         };
-        *width = 0.0;
+        path.width = 0.0;
         assert!(matches!(
             cell.validate(),
             Err(CellValidationError::InvalidPath {
@@ -1221,7 +1392,7 @@ mod tests {
 
     #[test]
     fn cell_validation_reports_reference_repetition_and_text_reasons() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         cell.elements.push(Element::CellRef(CellRef {
             cell_name: String::new(),
             transform: Transform::identity(),
@@ -1295,12 +1466,12 @@ mod tests {
             })
         ));
 
-        cell.elements[0] = Element::Text {
+        cell.elements[0] = Element::Text(TextElement {
             text: String::new(),
             position: Point::new(f64::NAN, 0.0),
             layer: Layer::new(1, 0),
             height: 1.0,
-        };
+        });
         assert!(matches!(
             cell.validate(),
             Err(CellValidationError::InvalidText {
@@ -1308,14 +1479,11 @@ mod tests {
                 ..
             })
         ));
-        let Element::Text {
-            position, height, ..
-        } = &mut cell.elements[0]
-        else {
+        let Element::Text(text) = &mut cell.elements[0] else {
             unreachable!();
         };
-        *position = Point::origin();
-        *height = f64::INFINITY;
+        text.position = Point::origin();
+        text.height = f64::INFINITY;
         assert!(matches!(
             cell.validate(),
             Err(CellValidationError::InvalidText {
@@ -1323,10 +1491,10 @@ mod tests {
                 ..
             })
         ));
-        let Element::Text { height, .. } = &mut cell.elements[0] else {
+        let Element::Text(text) = &mut cell.elements[0] else {
             unreachable!();
         };
-        *height = 0.0;
+        text.height = 0.0;
         assert!(matches!(
             cell.validate(),
             Err(CellValidationError::InvalidText {
@@ -1337,89 +1505,24 @@ mod tests {
     }
 
     #[test]
-    fn cell_validation_reports_port_reasons() {
-        let mut cell = Cell::new("test");
-        cell.ports.push(Port {
-            name: String::new(),
-            position: Point::origin(),
-            direction: Vector2::unit_x(),
-            width: None,
-        });
-        assert!(matches!(
-            cell.validate(),
-            Err(CellValidationError::InvalidPort {
-                port_index: 0,
-                reason: crate::error::PortValidationReason::EmptyName
-            })
-        ));
-
-        cell.ports[0].name = "p".to_string();
-        cell.ports[0].position.x = f64::NAN;
-        assert!(matches!(
-            cell.validate(),
-            Err(CellValidationError::InvalidPort {
-                reason: crate::error::PortValidationReason::NonFinitePosition,
-                ..
-            })
-        ));
-        cell.ports[0].position = Point::origin();
-        cell.ports[0].direction = Vector2::new(f64::NAN, 0.0);
-        assert!(matches!(
-            cell.validate(),
-            Err(CellValidationError::InvalidPort {
-                reason: crate::error::PortValidationReason::NonFiniteDirection,
-                ..
-            })
-        ));
-        cell.ports[0].direction = Vector2::new(0.0, 0.0);
-        assert!(matches!(
-            cell.validate(),
-            Err(CellValidationError::InvalidPort {
-                reason: crate::error::PortValidationReason::ZeroDirection,
-                ..
-            })
-        ));
-        cell.ports[0].direction = Vector2::new(2.0, 0.0);
-        assert!(matches!(
-            cell.validate(),
-            Err(CellValidationError::InvalidPort {
-                reason: crate::error::PortValidationReason::DirectionNotUnit,
-                ..
-            })
-        ));
-        cell.ports[0].direction = Vector2::unit_x();
-        cell.ports[0].width = Some(f64::NAN);
-        assert!(matches!(
-            cell.validate(),
-            Err(CellValidationError::InvalidPort {
-                reason: crate::error::PortValidationReason::NonFiniteWidth,
-                ..
-            })
-        ));
-        cell.ports[0].width = Some(0.0);
-        assert!(matches!(
-            cell.validate(),
-            Err(CellValidationError::InvalidPort {
-                reason: crate::error::PortValidationReason::NonPositiveWidth,
-                ..
-            })
-        ));
-
-        cell.ports[0].width = Some(1.0);
+    fn cell_validation_reports_duplicate_ports() {
+        let mut cell = Cell::new("test").unwrap();
+        cell.ports
+            .push(Port::new("p", Point::origin(), Vector2::unit_x()).unwrap());
         cell.ports.push(cell.ports[0].clone());
-        assert!(matches!(
+        assert_eq!(
             cell.validate(),
             Err(CellValidationError::DuplicatePortName {
+                name: "p".to_string(),
                 first_index: 0,
                 duplicate_index: 1,
-                ..
             })
-        ));
+        );
     }
 
     #[test]
     fn cell_validation_accepts_intentionally_degenerate_local_geometry() {
-        let mut cell = Cell::new("valid");
+        let mut cell = Cell::new("valid").unwrap();
         cell.add_polygon(
             Polygon::new(vec![
                 Point::origin(),
@@ -1427,7 +1530,8 @@ mod tests {
                 Point::new(1.0, 1.0),
                 Point::new(0.0, 1.0),
                 Point::new(1.0, 0.0),
-            ]),
+            ])
+            .unwrap(),
             1,
         );
         cell.add_path(
@@ -1435,80 +1539,51 @@ mod tests {
             -1.0,
             1,
             PathEndType::Flush,
+        )
+        .unwrap();
+        cell.add_text_with_height("", Point::origin(), 1, 1.0)
+            .unwrap();
+        cell.add_ref(
+            CellRef::new("missing")
+                .unwrap()
+                .array_vectors(1, 1, Vector2::new(0.0, 0.0), Vector2::new(-1.0, 0.0))
+                .unwrap(),
         );
-        cell.add_text_with_height("", Point::origin(), 1, 1.0);
-        cell.add_ref(CellRef::new("missing").array_vectors(
-            1,
-            1,
-            Vector2::new(0.0, 0.0),
-            Vector2::new(-1.0, 0.0),
-        ));
 
         assert!(cell.validate().is_ok());
-        assert!(Cell::new("empty_but_valid").validate().is_ok());
+        assert!(Cell::new("empty_but_valid").unwrap().validate().is_ok());
     }
 
     #[test]
-    fn cell_mutators_reject_before_committing_invalid_state() {
-        let mut cell = Cell::new("test");
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.add_polygon(
-                    Polygon::new_unchecked(vec![
-                        Point::origin(),
-                        Point::new(1.0, 0.0),
-                        Point::new(f64::NAN, 1.0),
-                    ]),
-                    1,
-                );
-            }))
-            .is_err()
+    fn fallible_cell_mutators_reject_before_committing_invalid_state() {
+        let mut cell = Cell::new("test").unwrap();
+        assert_eq!(
+            cell.add_path(vec![Point::origin()], 1.0, 1, PathEndType::default()),
+            Err(CellValidationError::InvalidPath {
+                element_index: 0,
+                reason: PathValidationReason::TooFewPoints { count: 1 },
+            })
         );
         assert!(cell.elements().is_empty());
 
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.add_path(vec![Point::origin()], 1.0, 1, PathEndType::default());
-            }))
-            .is_err()
-        );
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.add_text_with_height("", Point::origin(), 1, 0.0);
-            }))
-            .is_err()
-        );
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.add_ref(CellRef {
-                    cell_name: String::new(),
-                    transform: Transform::identity(),
-                    repetition: None,
-                });
-            }))
-            .is_err()
+        assert_eq!(
+            cell.add_text_with_height("", Point::origin(), 1, 0.0),
+            Err(CellValidationError::InvalidText {
+                element_index: 0,
+                reason: TextValidationReason::NonPositiveHeight,
+            })
         );
         assert!(cell.elements().is_empty());
 
-        let invalid_port = Port {
-            name: "p".to_string(),
-            position: Point::origin(),
-            direction: Vector2::new(0.0, 0.0),
-            width: None,
-        };
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.add_port(invalid_port);
-            }))
-            .is_err()
-        );
-        assert!(cell.ports().is_empty());
-        cell.add_port(Port::new("p", Point::origin(), Vector2::unit_x()));
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.add_port(Port::new("p", Point::origin(), Vector2::unit_y()));
-            }))
-            .is_err()
+        cell.add_port(Port::new("p", Point::origin(), Vector2::unit_x()).unwrap())
+            .unwrap();
+        assert_eq!(
+            cell.add_port(Port::new("p", Point::origin(), Vector2::unit_y()).unwrap()),
+            Err(CellValidationError::DuplicatePortName {
+                name: "p".to_string(),
+                first_index: 0,
+                duplicate_index: 1,
+            })
         );
         assert_eq!(cell.ports().len(), 1);
         assert!(cell.validate().is_ok());
@@ -1516,27 +1591,30 @@ mod tests {
 
     #[test]
     fn test_add_polygon() {
-        let mut cell = Cell::new("test");
-        let rect = Polygon::rect(Point::origin(), 10.0, 5.0);
+        let mut cell = Cell::new("test").unwrap();
+        let rect = Polygon::rect(Point::origin(), 10.0, 5.0).unwrap();
         cell.add_polygon(rect, Layer::new(1, 0));
         assert_eq!(cell.polygons().count(), 1);
     }
 
     #[test]
     fn test_add_ref() {
-        let mut cell = Cell::new("top");
-        cell.add_ref(CellRef::new("sub_cell").at(10.0, 20.0));
+        let mut cell = Cell::new("top").unwrap();
+        cell.add_ref(CellRef::new("sub_cell").unwrap().at(10.0, 20.0).unwrap());
         assert_eq!(cell.cell_refs().count(), 1);
     }
 
     #[test]
     fn test_cell_ref_transform() {
         let cell_ref = CellRef::new("test")
+            .unwrap()
             .at(10.0, 0.0)
-            .rotate(std::f64::consts::PI / 2.0);
+            .unwrap()
+            .rotate(std::f64::consts::PI / 2.0)
+            .unwrap();
 
         // Check that transform is properly composed
-        let p = cell_ref.transform.apply(Point::origin());
+        let p = cell_ref.transform().apply(Point::origin());
         // After translate(10,0) then rotate(90deg): (10,0) -> (0,10)
         assert!((p.x - 0.0).abs() < 1e-10);
         assert!((p.y - 10.0).abs() < 1e-10);
@@ -1544,9 +1622,11 @@ mod tests {
 
     #[test]
     fn test_add_port() {
-        let mut cell = Cell::new("test");
-        cell.add_port(Port::new("in", Point::origin(), Vector2::unit_x()));
-        cell.add_port(Port::new("out", Point::new(10.0, 0.0), Vector2::unit_x()));
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_port(Port::new("in", Point::origin(), Vector2::unit_x()).unwrap())
+            .unwrap();
+        cell.add_port(Port::new("out", Point::new(10.0, 0.0), Vector2::unit_x()).unwrap())
+            .unwrap();
 
         assert_eq!(cell.ports().len(), 2);
         assert!(cell.port("in").is_some());
@@ -1556,9 +1636,9 @@ mod tests {
 
     #[test]
     fn test_bbox() {
-        let mut cell = Cell::new("test");
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), 1);
-        cell.add_polygon(Polygon::rect(Point::new(20.0, 0.0), 5.0, 10.0), 1);
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(), 1);
+        cell.add_polygon(Polygon::rect(Point::new(20.0, 0.0), 5.0, 10.0).unwrap(), 1);
 
         let bbox = cell.bbox().unwrap();
         assert!((bbox.min().x - 0.0).abs() < 1e-10);
@@ -1571,13 +1651,14 @@ mod tests {
     fn test_bbox_includes_paths() {
         // A cell with only a path should have a non-None bbox and cover the
         // full ribbon extent (centerline width / 2 on each side).
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         cell.add_path(
             vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0)],
             2.0,
             1,
             PathEndType::Flush,
-        );
+        )
+        .unwrap();
 
         let bbox = cell.bbox().unwrap();
         assert!((bbox.min().x - 0.0).abs() < 1e-10);
@@ -1590,11 +1671,11 @@ mod tests {
     fn test_library_cell_bbox_sref() {
         // Parent with a single SREF to a child should report the child's
         // transformed bbox — NOT None, which was the pre-fix behavior.
-        let mut child = Cell::new("child");
-        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), 1);
+        let mut child = Cell::new("child").unwrap();
+        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(), 1);
 
-        let mut parent = Cell::new("parent");
-        parent.add_ref(CellRef::new("child").at(20.0, 0.0));
+        let mut parent = Cell::new("parent").unwrap();
+        parent.add_ref(CellRef::new("child").unwrap().at(20.0, 0.0).unwrap());
 
         let mut lib = Library::new("lib");
         lib.add_cell(child).unwrap();
@@ -1611,11 +1692,16 @@ mod tests {
     fn test_library_cell_bbox_aref() {
         // A 5x3 AREF of a 10x10 child at pitch (20, 20) should cover the
         // union of every copy, not just the prototype.
-        let mut child = Cell::new("unit");
-        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
+        let mut child = Cell::new("unit").unwrap();
+        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0).unwrap(), 1);
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("unit").array(5, 3, 20.0, 20.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(
+            CellRef::new("unit")
+                .unwrap()
+                .array(5, 3, 20.0, 20.0)
+                .unwrap(),
+        );
 
         let mut lib = Library::new("lib");
         lib.add_cell(child).unwrap();
@@ -1636,7 +1722,7 @@ mod tests {
         // −X / −Y direction. copy_offset() must produce correspondingly
         // negative displacements, and the resolved bbox must extend into
         // the negative quadrant.
-        let rep = Repetition::new(3, 2, -10.0, -15.0);
+        let rep = Repetition::new(3, 2, -10.0, -15.0).unwrap();
         // Corner copy at (col=2, row=1) → (−20, −15).
         let off = rep.copy_offset(2, 1);
         assert!((off.x - (-20.0)).abs() < 1e-12);
@@ -1644,11 +1730,16 @@ mod tests {
 
         // End-to-end: same geometry as test_library_cell_bbox_aref but with
         // negated pitches — bbox should be the mirror image about the origin.
-        let mut child = Cell::new("unit");
-        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
+        let mut child = Cell::new("unit").unwrap();
+        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0).unwrap(), 1);
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("unit").array(5, 3, -20.0, -20.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(
+            CellRef::new("unit")
+                .unwrap()
+                .array(5, 3, -20.0, -20.0)
+                .unwrap(),
+        );
 
         let mut lib = Library::new("lib");
         lib.add_cell(child).unwrap();
@@ -1665,63 +1756,77 @@ mod tests {
 
     #[test]
     fn repetition_and_cell_ref_constructors_reject_invalid_inputs() {
-        assert!(std::panic::catch_unwind(|| Repetition::new(0, 1, 1.0, 1.0)).is_err());
-        assert!(std::panic::catch_unwind(|| Repetition::new(1, 0, 1.0, 1.0)).is_err());
-        assert!(std::panic::catch_unwind(|| Repetition::new(1, 1, f64::NAN, 1.0)).is_err());
-        assert!(
-            std::panic::catch_unwind(|| {
-                Repetition::new_vectors(1, 1, Vector2::unit_x(), Vector2::new(0.0, f64::INFINITY));
-            })
-            .is_err()
+        assert_eq!(
+            Repetition::new(0, 1, 1.0, 1.0),
+            Err(RepetitionValidationReason::ZeroColumns)
+        );
+        assert_eq!(
+            Repetition::new(1, 0, 1.0, 1.0),
+            Err(RepetitionValidationReason::ZeroRows)
+        );
+        assert_eq!(
+            Repetition::new(1, 1, f64::NAN, 1.0),
+            Err(RepetitionValidationReason::NonFiniteColumnVector)
+        );
+        assert_eq!(
+            Repetition::new_vectors(1, 1, Vector2::unit_x(), Vector2::new(0.0, f64::INFINITY),),
+            Err(RepetitionValidationReason::NonFiniteRowVector)
         );
 
-        let repetition = Repetition::new(2, 3, 0.0, -4.0);
-        assert_eq!(repetition.columns, 2);
-        assert_eq!(repetition.rows, 3);
-        assert_eq!(repetition.col_vector, Vector2::new(0.0, 0.0));
-        assert_eq!(repetition.row_vector, Vector2::new(0.0, -4.0));
+        let repetition = Repetition::new(2, 3, 0.0, -4.0).unwrap();
+        assert_eq!(repetition.columns(), 2);
+        assert_eq!(repetition.rows(), 3);
+        assert_eq!(repetition.col_vector(), Vector2::new(0.0, 0.0));
+        assert_eq!(repetition.row_vector(), Vector2::new(0.0, -4.0));
 
-        assert!(std::panic::catch_unwind(|| CellRef::new("")).is_err());
-        assert!(
-            std::panic::catch_unwind(|| {
-                CellRef::with_transform("target", Transform::scale(0.0, 1.0));
-            })
-            .is_err()
+        assert_eq!(
+            CellRef::new("").unwrap_err(),
+            CellRefError::Reference(CellRefValidationReason::EmptyTarget)
         );
-        assert!(
-            std::panic::catch_unwind(|| {
-                CellRef::with_transform("target", Transform::translate(f64::NAN, 0.0));
-            })
-            .is_err()
+        assert_eq!(
+            CellRef::with_transform("target", Transform::scale(0.0, 1.0)).unwrap_err(),
+            CellRefError::Reference(CellRefValidationReason::SingularTransform)
         );
-        assert!(std::panic::catch_unwind(|| CellRef::new("target").scale(0.0)).is_err());
-        assert!(std::panic::catch_unwind(|| CellRef::new("target").scale(f64::NAN)).is_err());
-        assert!(
+        assert_eq!(
+            CellRef::with_transform("target", Transform::translate(f64::NAN, 0.0)).unwrap_err(),
+            CellRefError::Reference(CellRefValidationReason::NonFiniteTransform)
+        );
+        assert_eq!(
+            CellRef::new("target").unwrap().scale(0.0).unwrap_err(),
+            CellRefError::Reference(CellRefValidationReason::SingularTransform)
+        );
+        assert_eq!(
+            CellRef::new("target").unwrap().scale(f64::NAN).unwrap_err(),
+            CellRefError::Reference(CellRefValidationReason::NonFiniteTransform)
+        );
+        assert_eq!(
             CellRef::new("target")
+                .unwrap()
                 .scale(1e-8)
-                .validation_error()
-                .is_none()
+                .unwrap()
+                .validate(),
+            Ok(())
         );
-        assert!(std::panic::catch_unwind(|| CellRef::new("target").at(f64::NAN, 0.0)).is_err());
-        assert!(std::panic::catch_unwind(|| CellRef::new("target").rotate(f64::NAN)).is_err());
-
-        let invalid_repetition = Repetition {
-            columns: 0,
-            rows: 1,
-            col_vector: Vector2::new(0.0, 0.0),
-            row_vector: Vector2::new(0.0, 0.0),
-        };
-        assert!(
-            std::panic::catch_unwind(|| {
-                CellRef::new("target").with_repetition(Some(invalid_repetition));
-            })
-            .is_err()
+        assert_eq!(
+            CellRef::new("target")
+                .unwrap()
+                .at(f64::NAN, 0.0)
+                .unwrap_err(),
+            CellRefError::Reference(CellRefValidationReason::NonFiniteTransform)
+        );
+        assert_eq!(
+            CellRef::new("target")
+                .unwrap()
+                .rotate(f64::NAN)
+                .unwrap_err(),
+            CellRefError::Reference(CellRefValidationReason::NonFiniteTransform)
         );
         assert!(
             CellRef::new("target")
+                .unwrap()
                 .with_repetition(Some(repetition))
                 .with_repetition(None)
-                .repetition
+                .repetition()
                 .is_none()
         );
     }
@@ -1731,21 +1836,25 @@ mod tests {
         for columns in 1..=4 {
             for rows in 1..=4 {
                 for pitch in [-10.0, -0.0, 0.0, 0.25, 10.0] {
-                    let repetition = Repetition::new(columns, rows, pitch, -pitch);
-                    assert!(repetition.validation_error().is_none());
+                    let repetition = Repetition::new(columns, rows, pitch, -pitch).unwrap();
+                    assert_eq!(repetition.validate(), Ok(()));
                 }
             }
         }
 
-        let polygon = Polygon::rect(Point::new(-2.0, -1.0), 4.0, 2.0);
+        let polygon = Polygon::rect(Point::new(-2.0, -1.0), 4.0, 2.0).unwrap();
         for angle in [-3.0, -0.5, 0.0, 0.5, 3.0] {
             for scale in [-10.0, -0.25, 0.25, 10.0] {
                 let cell_ref = CellRef::new("target")
+                    .unwrap()
                     .at(angle, scale)
+                    .unwrap()
                     .rotate(angle)
-                    .scale(scale);
-                assert!(cell_ref.validation_error().is_none());
-                let transformed = polygon.try_transform(&cell_ref.transform).unwrap();
+                    .unwrap()
+                    .scale(scale)
+                    .unwrap();
+                assert_eq!(cell_ref.validate(), Ok(()));
+                let transformed = polygon.try_transform(&cell_ref.transform()).unwrap();
                 assert!(transformed.vertices().iter().all(|point| point.is_finite()));
             }
         }
@@ -1756,11 +1865,16 @@ mod tests {
         // Rotating an asymmetric child 90° should rotate the bbox too.
         // Child: 20x5 rect at origin → bbox (0,0)-(20,5).
         // Rotate 90° about origin → bbox (-5,0)-(0,20).
-        let mut child = Cell::new("asym");
-        child.add_polygon(Polygon::rect(Point::origin(), 20.0, 5.0), 1);
+        let mut child = Cell::new("asym").unwrap();
+        child.add_polygon(Polygon::rect(Point::origin(), 20.0, 5.0).unwrap(), 1);
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("asym").rotate(std::f64::consts::FRAC_PI_2));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(
+            CellRef::new("asym")
+                .unwrap()
+                .rotate(std::f64::consts::FRAC_PI_2)
+                .unwrap(),
+        );
 
         let mut lib = Library::new("lib");
         lib.add_cell(child).unwrap();
@@ -1775,15 +1889,12 @@ mod tests {
 
     #[test]
     fn library_cell_bbox_skips_polygon_transform_overflow() {
-        let mut child = Cell::new("child");
-        child.add_polygon(Polygon::rect(Point::new(1.0, 0.0), 1.0, 1.0), 1);
+        let mut child = Cell::new("child").unwrap();
+        child.add_polygon(Polygon::rect(Point::new(1.0, 0.0), 1.0, 1.0).unwrap(), 1);
 
-        let mut top = Cell::new("top");
-        top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), 1);
-        top.add_ref(CellRef::with_transform(
-            "child",
-            Transform::scale_uniform(f64::MAX),
-        ));
+        let mut top = Cell::new("top").unwrap();
+        top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(), 1);
+        top.add_ref(CellRef::with_transform("child", Transform::scale_uniform(f64::MAX)).unwrap());
 
         let mut library = Library::new("library");
         library.add_cell(child).unwrap();
@@ -1797,14 +1908,19 @@ mod tests {
     #[test]
     fn test_library_cell_bbox_nested() {
         // Nested hierarchy: unit < group (2x1 array of unit) < top (SREF of group at offset)
-        let mut unit = Cell::new("unit");
-        unit.add_polygon(Polygon::rect(Point::origin(), 5.0, 5.0), 1);
+        let mut unit = Cell::new("unit").unwrap();
+        unit.add_polygon(Polygon::rect(Point::origin(), 5.0, 5.0).unwrap(), 1);
 
-        let mut group = Cell::new("group");
-        group.add_ref(CellRef::new("unit").array(2, 1, 10.0, 0.0));
+        let mut group = Cell::new("group").unwrap();
+        group.add_ref(
+            CellRef::new("unit")
+                .unwrap()
+                .array(2, 1, 10.0, 0.0)
+                .unwrap(),
+        );
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("group").at(100.0, 50.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("group").unwrap().at(100.0, 50.0).unwrap());
 
         let mut lib = Library::new("lib");
         lib.add_cell(unit).unwrap();
@@ -1822,12 +1938,12 @@ mod tests {
     #[test]
     fn test_library_cell_bbox_mixed_local_and_ref() {
         // A cell that has both its own polygon and a ref should union them.
-        let mut child = Cell::new("child");
-        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
+        let mut child = Cell::new("child").unwrap();
+        child.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0).unwrap(), 1);
 
-        let mut top = Cell::new("top");
-        top.add_polygon(Polygon::rect(Point::new(-5.0, -5.0), 5.0, 5.0), 1);
-        top.add_ref(CellRef::new("child").at(20.0, 0.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_polygon(Polygon::rect(Point::new(-5.0, -5.0), 5.0, 5.0).unwrap(), 1);
+        top.add_ref(CellRef::new("child").unwrap().at(20.0, 0.0).unwrap());
 
         let mut lib = Library::new("lib");
         lib.add_cell(child).unwrap();
@@ -1864,14 +1980,17 @@ mod tests {
         // If the translation were applied in the parent frame (the old buggy
         // behavior), copy 1 would land at parent (10, 0) and the bbox would
         // extend to x=10, which is what this test guards against.
-        let mut unit = Cell::new("unit");
-        unit.add_polygon(Polygon::rect(Point::origin(), 5.0, 5.0), 1);
+        let mut unit = Cell::new("unit").unwrap();
+        unit.add_polygon(Polygon::rect(Point::origin(), 5.0, 5.0).unwrap(), 1);
 
-        let mut top = Cell::new("top");
+        let mut top = Cell::new("top").unwrap();
         top.add_ref(
             CellRef::new("unit")
+                .unwrap()
                 .rotate(std::f64::consts::FRAC_PI_2)
-                .array(2, 1, 10.0, 0.0),
+                .unwrap()
+                .array(2, 1, 10.0, 0.0)
+                .unwrap(),
         );
 
         let mut lib = Library::new("lib");
@@ -1918,19 +2037,24 @@ mod tests {
         //   (2,1)→(25,       8.6603 )
         // Each unit cell occupies (0,0)-(1,1), so the union bbox is
         //   (0, 0) .. (26, 9.6603).
-        let mut unit = Cell::new("unit");
-        unit.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), 1);
+        let mut unit = Cell::new("unit").unwrap();
+        unit.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(), 1);
 
         let pitch: f64 = 10.0;
         let row_y = pitch * (3.0_f64).sqrt() / 2.0;
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("unit").array_vectors(
-            3,
-            2,
-            Vector2::new(pitch, 0.0),
-            Vector2::new(pitch / 2.0, row_y),
-        ));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(
+            CellRef::new("unit")
+                .unwrap()
+                .array_vectors(
+                    3,
+                    2,
+                    Vector2::new(pitch, 0.0),
+                    Vector2::new(pitch / 2.0, row_y),
+                )
+                .unwrap(),
+        );
 
         let mut lib = Library::new("lib");
         lib.add_cell(unit).unwrap();
@@ -1969,9 +2093,9 @@ mod tests {
     fn test_library_cell_bbox_ref_to_missing_child() {
         // A CellRef to a cell not in the library is silently skipped (matches
         // the existing flatten.rs behavior).
-        let mut top = Cell::new("top");
-        top.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
-        top.add_ref(CellRef::new("nonexistent"));
+        let mut top = Cell::new("top").unwrap();
+        top.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0).unwrap(), 1);
+        top.add_ref(CellRef::new("nonexistent").unwrap());
 
         let mut lib = Library::new("lib");
         lib.add_cell(top).unwrap();
@@ -1984,9 +2108,9 @@ mod tests {
     fn test_library_cell_bbox_cycle_guard() {
         // A cell that references itself should not cause infinite recursion;
         // cycle-breaking returns the bbox of the non-cyclic geometry.
-        let mut cell = Cell::new("self_ref");
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), 1);
-        cell.add_ref(CellRef::new("self_ref").at(50.0, 0.0));
+        let mut cell = Cell::new("self_ref").unwrap();
+        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0).unwrap(), 1);
+        cell.add_ref(CellRef::new("self_ref").unwrap().at(50.0, 0.0).unwrap());
 
         let mut lib = Library::new("lib");
         lib.add_cell(cell).unwrap();
@@ -2002,11 +2126,11 @@ mod tests {
 
     #[test]
     fn roots_and_top_are_independent_of_insertion_order() {
-        let mut child = Cell::new("child");
-        child.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), 1);
-        let mut parent = Cell::new("parent");
-        parent.add_ref(CellRef::new("child"));
-        let independent = Cell::new("independent");
+        let mut child = Cell::new("child").unwrap();
+        child.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(), 1);
+        let mut parent = Cell::new("parent").unwrap();
+        parent.add_ref(CellRef::new("child").unwrap());
+        let independent = Cell::new("independent").unwrap();
 
         let mut library = Library::new("test");
         library.add_cell(parent).unwrap();
@@ -2032,11 +2156,11 @@ mod tests {
 
     #[test]
     fn unique_root_is_inferred_and_explicit_top_tracks_rename() {
-        let mut child = Cell::new("child");
-        child.add_ref(CellRef::new("leaf"));
+        let mut child = Cell::new("child").unwrap();
+        child.add_ref(CellRef::new("leaf").unwrap());
         let mut library = Library::new("test");
         library.add_cell(child).unwrap();
-        library.add_cell(Cell::new("leaf")).unwrap();
+        library.add_cell(Cell::new("leaf").unwrap()).unwrap();
 
         assert_eq!(library.top_cell().unwrap().name(), "child");
         library.set_top_cell("leaf").unwrap();
@@ -2051,15 +2175,21 @@ mod tests {
     #[test]
     fn controlled_edits_preserve_library_identities() {
         let mut library = Library::new("test");
-        library.add_cell(Cell::new("A")).unwrap();
-        library.add_cell(Cell::new("B")).unwrap();
+        library.add_cell(Cell::new("A").unwrap()).unwrap();
+        library.add_cell(Cell::new("B").unwrap()).unwrap();
         library.set_top_cell("A").unwrap();
 
         library
-            .edit_cell("A", |cell| *cell = Cell::new("B"))
+            .edit_cell("A", |cell| {
+                *cell = Cell::new("B").unwrap();
+                Ok::<_, Infallible>(())
+            })
             .unwrap();
         library
-            .edit_cells(|cell| *cell = Cell::new("replacement"))
+            .edit_cells(|cell| {
+                *cell = Cell::new("replacement").unwrap();
+                Ok::<_, Infallible>(())
+            })
             .unwrap();
 
         assert_eq!(
@@ -2077,11 +2207,11 @@ mod tests {
     #[test]
     fn controlled_edits_restore_identity_during_unwind() {
         let mut library = Library::new("test");
-        library.add_cell(Cell::new("original")).unwrap();
+        library.add_cell(Cell::new("original").unwrap()).unwrap();
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = library.edit_cell("original", |cell| {
-                *cell = Cell::new("replacement");
+            let _ = library.edit_cell("original", |cell| -> Result<(), Infallible> {
+                *cell = Cell::new("replacement").unwrap();
                 panic!("stop edit");
             });
         }));
@@ -2093,38 +2223,41 @@ mod tests {
 
     #[test]
     fn cell_element_edits_are_transactional() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         cell.add_path(
             vec![Point::origin(), Point::new(1.0, 0.0)],
             1.0,
             1,
             PathEndType::default(),
-        );
-        cell.add_text_with_height("label", Point::origin(), 1, 1.0);
+        )
+        .unwrap();
+        cell.add_text_with_height("label", Point::origin(), 1, 1.0)
+            .unwrap();
 
         let error = cell
             .edit_element(0, |element| {
-                let Element::Path { width, .. } = element else {
+                let Element::Path(path) = element else {
                     unreachable!();
                 };
-                *width = 0.0;
+                path.width = 0.0;
+                Ok::<_, Infallible>(())
             })
             .unwrap_err();
         assert!(matches!(
             error,
-            CellValidationError::InvalidPath {
+            CellEditError::Validation(CellValidationError::InvalidPath {
                 element_index: 0,
                 reason: PathValidationReason::ZeroWidth
-            }
+            })
         ));
         assert_eq!(cell.paths().next().unwrap().1, 1.0);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = cell.edit_element(0, |element| {
-                let Element::Path { width, .. } = element else {
+            let _ = cell.edit_element(0, |element| -> Result<(), Infallible> {
+                let Element::Path(path) = element else {
                     unreachable!();
                 };
-                *width = 2.0;
+                path.width = 2.0;
                 panic!("abort");
             });
         }));
@@ -2133,89 +2266,153 @@ mod tests {
 
         let error = cell
             .edit_elements(|elements| {
-                let Element::Path { width, .. } = &mut elements[0] else {
+                let Element::Path(path) = &mut elements[0] else {
                     unreachable!();
                 };
-                *width = 3.0;
-                let Element::Text { height, .. } = &mut elements[1] else {
+                path.width = 3.0;
+                let Element::Text(text) = &mut elements[1] else {
                     unreachable!();
                 };
-                *height = -1.0;
+                text.height = -1.0;
+                Ok::<_, Infallible>(())
             })
             .unwrap_err();
-        assert!(matches!(error, CellValidationError::InvalidText { .. }));
+        assert!(matches!(
+            error,
+            CellEditError::Validation(CellValidationError::InvalidText { .. })
+        ));
         assert_eq!(cell.paths().next().unwrap().1, 1.0);
         assert_eq!(cell.texts().next().unwrap().3, 1.0);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = cell.edit_elements(|elements| {
+            let _ = cell.edit_elements(|elements| -> Result<(), Infallible> {
                 elements.swap(0, 1);
                 panic!("abort");
             });
         }));
         assert!(panic.is_err());
-        assert!(matches!(cell.elements()[0], Element::Path { .. }));
+        assert!(matches!(cell.elements()[0], Element::Path(_)));
         assert_eq!(cell.elements().len(), 2);
 
         assert_eq!(
-            cell.edit_element(5, |_| {}),
-            Err(CellValidationError::ElementIndexOutOfBounds { index: 5, len: 2 })
+            cell.edit_element(5, |_| Ok::<_, Infallible>(())),
+            Err(CellEditError::Validation(
+                CellValidationError::ElementIndexOutOfBounds { index: 5, len: 2 }
+            ))
         );
         cell.clear_elements();
         assert!(cell.elements().is_empty());
     }
 
     #[test]
+    fn callback_errors_roll_back_element_edits() {
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_path(
+            vec![Point::origin(), Point::new(1.0, 0.0)],
+            1.0,
+            1,
+            PathEndType::default(),
+        )
+        .unwrap();
+
+        let error = cell
+            .edit_element(0, |element| {
+                let Element::Path(path) = element else {
+                    unreachable!();
+                };
+                path.width = 2.0;
+                Err::<(), _>("abort")
+            })
+            .unwrap_err();
+        assert_eq!(error, CellEditError::Callback("abort"));
+        assert_eq!(cell.paths().next().unwrap().1, 1.0);
+
+        let error = cell
+            .edit_elements(|elements| {
+                let Element::Path(path) = &mut elements[0] else {
+                    unreachable!();
+                };
+                path.width = 3.0;
+                Err::<(), _>("abort")
+            })
+            .unwrap_err();
+        assert_eq!(error, CellEditError::Callback("abort"));
+        assert_eq!(cell.paths().next().unwrap().1, 1.0);
+    }
+
+    #[test]
     fn port_edits_are_transactional() {
-        let mut cell = Cell::new("test");
-        cell.add_port(Port::new("in", Point::origin(), Vector2::unit_x()));
-        cell.add_port(Port::new("out", Point::new(1.0, 0.0), Vector2::unit_x()));
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_port(Port::new("in", Point::origin(), Vector2::unit_x()).unwrap())
+            .unwrap();
+        cell.add_port(Port::new("out", Point::new(1.0, 0.0), Vector2::unit_x()).unwrap())
+            .unwrap();
 
         let error = cell
-            .edit_ports(|ports| ports[0].direction = Vector2::new(0.0, 0.0))
+            .edit_ports(|ports| {
+                ports[1].set_name("in").unwrap();
+                Ok::<_, Infallible>(())
+            })
             .unwrap_err();
-        assert!(matches!(error, CellValidationError::InvalidPort { .. }));
-        assert_eq!(cell.ports()[0].direction, Vector2::unit_x());
-
-        let error = cell
-            .edit_ports(|ports| ports[1].name = "in".to_string())
-            .unwrap_err();
-        assert!(matches!(
+        assert_eq!(
             error,
-            CellValidationError::DuplicatePortName { .. }
-        ));
-        assert_eq!(cell.ports()[1].name, "out");
+            CellEditError::Validation(CellValidationError::DuplicatePortName {
+                name: "in".to_string(),
+                first_index: 0,
+                duplicate_index: 1,
+            })
+        );
+        assert_eq!(cell.ports()[1].name(), "out");
+    }
+
+    #[test]
+    fn callback_errors_roll_back_port_edits() {
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_port(Port::new("in", Point::origin(), Vector2::unit_x()).unwrap())
+            .unwrap();
+
+        let error = cell
+            .edit_ports(|ports| {
+                ports[0].set_name("renamed").unwrap();
+                Err::<(), _>("abort")
+            })
+            .unwrap_err();
+
+        assert_eq!(error, CellEditError::Callback("abort"));
+        assert_eq!(cell.ports()[0].name(), "in");
     }
 
     #[test]
     fn library_edits_roll_back_validation_failures_and_panics() {
-        let mut a = Cell::new("A");
-        a.add_text_with_height("original", Point::origin(), 1, 1.0);
+        let mut a = Cell::new("A").unwrap();
+        a.add_text_with_height("original", Point::origin(), 1, 1.0)
+            .unwrap();
         let mut library = Library::new("test");
         library.add_cell(a).unwrap();
-        library.add_cell(Cell::new("B")).unwrap();
+        library.add_cell(Cell::new("B").unwrap()).unwrap();
 
         let error = library
             .edit_cell("A", |cell| {
-                cell.elements.push(Element::Path {
+                cell.elements.push(Element::Path(PathElement {
                     points: vec![Point::origin()],
                     width: 1.0,
                     layer: Layer::new(1, 0),
                     end_type: PathEndType::Flush,
-                });
+                }));
+                Ok::<_, Infallible>(())
             })
             .unwrap_err();
         assert!(matches!(
             error,
-            LibraryError::InvalidCell {
+            LibraryEditError::Validation(LibraryError::InvalidCell {
                 name,
                 source: CellValidationError::InvalidPath { .. }
-            } if name == "A"
+            }) if name == "A"
         ));
         assert_eq!(library.cell("A").unwrap().elements().len(), 1);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = library.edit_cell("A", |cell| {
+            let _ = library.edit_cell("A", |cell| -> Result<(), Infallible> {
                 cell.clear_elements();
                 panic!("abort");
             });
@@ -2225,61 +2422,106 @@ mod tests {
 
         let error = library
             .edit_cells(|cell| {
-                cell.add_text_with_height("candidate-only", Point::origin(), 1, 1.0);
+                cell.add_text_with_height("candidate-only", Point::origin(), 1, 1.0)
+                    .unwrap();
                 if cell.name() == "B" {
-                    cell.elements.push(Element::Text {
+                    cell.elements.push(Element::Text(TextElement {
                         text: String::new(),
                         position: Point::origin(),
                         layer: Layer::new(1, 0),
                         height: 0.0,
-                    });
+                    }));
                 }
+                Ok::<_, Infallible>(())
             })
             .unwrap_err();
-        assert!(matches!(error, LibraryError::InvalidCell { name, .. } if name == "B"));
+        assert!(matches!(
+            error,
+            LibraryEditError::Validation(LibraryError::InvalidCell { name, .. }) if name == "B"
+        ));
         assert_eq!(library.cell("A").unwrap().texts().count(), 1);
         assert_eq!(library.cell("B").unwrap().texts().count(), 0);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = library.edit_cells(|cell| {
+            let _ = library.edit_cells(|cell| -> Result<(), Infallible> {
                 cell.clear_elements();
                 if cell.name() == "B" {
                     panic!("abort");
                 }
+                Ok(())
             });
         }));
         assert!(panic.is_err());
         assert_eq!(library.cell("A").unwrap().texts().count(), 1);
 
         assert!(matches!(
-            library.edit_cell("missing", |_| {}).unwrap_err(),
-            LibraryError::CellNotFound { name } if name == "missing"
+            library
+                .edit_cell("missing", |_| Ok::<_, Infallible>(()))
+                .unwrap_err(),
+            LibraryEditError::Validation(LibraryError::CellNotFound { name }) if name == "missing"
         ));
     }
 
     #[test]
+    fn callback_errors_roll_back_library_edits() {
+        let mut library = Library::new("test");
+        library.add_cell(Cell::new("A").unwrap()).unwrap();
+        library.add_cell(Cell::new("B").unwrap()).unwrap();
+
+        let error = library
+            .edit_cell("A", |cell| {
+                cell.add_text_with_height("candidate", Point::origin(), 1, 1.0)
+                    .unwrap();
+                Err::<(), _>("abort")
+            })
+            .unwrap_err();
+        assert_eq!(error, LibraryEditError::Callback("abort"));
+        assert_eq!(library.cell("A").unwrap().texts().count(), 0);
+
+        let error = library
+            .edit_cells(|cell| {
+                cell.add_text_with_height("candidate", Point::origin(), 1, 1.0)
+                    .unwrap();
+                if cell.name() == "B" {
+                    return Err("abort");
+                }
+                Ok(())
+            })
+            .unwrap_err();
+        assert_eq!(error, LibraryEditError::Callback("abort"));
+        assert_eq!(library.cell("A").unwrap().texts().count(), 0);
+        assert_eq!(library.cell("B").unwrap().texts().count(), 0);
+    }
+
+    #[test]
     fn library_validation_is_local_and_insertions_are_atomic() {
-        let mut a = Cell::new("A");
-        a.add_ref(CellRef::new("B"));
-        let mut b = Cell::new("B");
-        b.add_ref(CellRef::new("A"));
-        b.add_ref(CellRef::new("missing"));
+        let mut a = Cell::new("A").unwrap();
+        a.add_ref(CellRef::new("B").unwrap());
+        let mut b = Cell::new("B").unwrap();
+        b.add_ref(CellRef::new("A").unwrap());
+        b.add_ref(CellRef::new("missing").unwrap());
         let mut library = Library::new("test");
         library.add_cell(a).unwrap();
         library.add_cell(b).unwrap();
         assert!(library.validate().is_ok());
 
-        let error = library.add_cell(Cell::new("")).unwrap_err();
-        assert!(matches!(
+        let error = library
+            .add_cell(Cell {
+                name: String::new(),
+                elements: Vec::new(),
+                ports: Vec::new(),
+            })
+            .unwrap_err();
+        assert_eq!(
             error,
             LibraryError::InvalidCell {
-                name,
-                source: CellValidationError::EmptyCellName
-            } if name.is_empty()
-        ));
+                name: String::new(),
+                source: CellValidationError::EmptyCellName,
+            }
+        );
         assert_eq!(library.cells().len(), 2);
 
-        library.cells.push(Cell::new("A"));
+        library.cells.push(Cell::new("A").unwrap());
         assert!(matches!(
             library.validate(),
             Err(LibraryError::AlreadyExists { name }) if name == "A"
@@ -2289,8 +2531,8 @@ mod tests {
 
     #[test]
     fn renaming_a_missing_identity_does_not_rewrite_dangling_refs() {
-        let mut cell = Cell::new("parent");
-        cell.add_ref(CellRef::new("missing"));
+        let mut cell = Cell::new("parent").unwrap();
+        cell.add_ref(CellRef::new("missing").unwrap());
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
 
@@ -2302,7 +2544,7 @@ mod tests {
                 .cell_refs()
                 .next()
                 .unwrap()
-                .cell_name,
+                .cell_name(),
             "missing"
         );
     }
@@ -2312,17 +2554,17 @@ mod tests {
         let mut library = Library::new("test");
         assert!(
             library
-                .insert_cell(Cell::new("cell"), DuplicatePolicy::Error)
+                .insert_cell(Cell::new("cell").unwrap(), DuplicatePolicy::Error)
                 .unwrap()
         );
         assert!(
             !library
-                .insert_cell(Cell::new("cell"), DuplicatePolicy::KeepExisting)
+                .insert_cell(Cell::new("cell").unwrap(), DuplicatePolicy::KeepExisting)
                 .unwrap()
         );
         assert!(matches!(
             library
-                .insert_cell(Cell::new("cell"), DuplicatePolicy::Error)
+                .insert_cell(Cell::new("cell").unwrap(), DuplicatePolicy::Error)
                 .unwrap_err(),
             LibraryError::AlreadyExists { .. }
         ));
@@ -2331,9 +2573,9 @@ mod tests {
 
     #[test]
     fn removal_rejects_dangling_references() {
-        let child = Cell::new("child");
-        let mut parent = Cell::new("parent");
-        parent.add_ref(CellRef::new("child"));
+        let child = Cell::new("child").unwrap();
+        let mut parent = Cell::new("parent").unwrap();
+        parent.add_ref(CellRef::new("child").unwrap());
         let mut library = Library::new("test");
         library.add_cell(child).unwrap();
         library.add_cell(parent).unwrap();
@@ -2348,11 +2590,11 @@ mod tests {
     fn test_library() {
         let mut lib = Library::new("test_lib");
 
-        let mut cell1 = Cell::new("cell1");
-        cell1.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), 1);
+        let mut cell1 = Cell::new("cell1").unwrap();
+        cell1.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(), 1);
 
-        let mut cell2 = Cell::new("cell2");
-        cell2.add_ref(CellRef::new("cell1"));
+        let mut cell2 = Cell::new("cell2").unwrap();
+        cell2.add_ref(CellRef::new("cell1").unwrap());
 
         lib.add_cell(cell1).unwrap();
         lib.add_cell(cell2).unwrap();
@@ -2366,15 +2608,15 @@ mod tests {
     #[test]
     fn test_add_cell_duplicate_rejected() {
         let mut lib = Library::new("test_lib");
-        lib.add_cell(Cell::new("cell1")).unwrap();
-        let err = lib.add_cell(Cell::new("cell1")).unwrap_err();
+        lib.add_cell(Cell::new("cell1").unwrap()).unwrap();
+        let err = lib.add_cell(Cell::new("cell1").unwrap()).unwrap_err();
         assert!(matches!(err, LibraryError::AlreadyExists { .. }));
     }
 
     #[test]
     fn test_add_cell_accepts_format_neutral_name() {
         let mut lib = Library::new("test_lib");
-        let cell = Cell::new("has space");
+        let cell = Cell::new("has space").unwrap();
         lib.add_cell(cell).unwrap();
         assert!(lib.contains("has space"));
     }
@@ -2382,7 +2624,7 @@ mod tests {
     #[test]
     fn test_rename_cell_enforces_nonempty_identity() {
         let mut lib = Library::new("test_lib");
-        lib.add_cell(Cell::new("cell1")).unwrap();
+        lib.add_cell(Cell::new("cell1").unwrap()).unwrap();
 
         // Valid rename
         assert!(lib.rename_cell("cell1", "cell2").unwrap());
@@ -2395,8 +2637,8 @@ mod tests {
     #[test]
     fn test_rename_cell_duplicate_rejected() {
         let mut lib = Library::new("test_lib");
-        lib.add_cell(Cell::new("cell1")).unwrap();
-        lib.add_cell(Cell::new("cell2")).unwrap();
+        lib.add_cell(Cell::new("cell1").unwrap()).unwrap();
+        lib.add_cell(Cell::new("cell2").unwrap()).unwrap();
 
         let err = lib.rename_cell("cell1", "cell2").unwrap_err();
         assert!(matches!(err, LibraryError::AlreadyExists { .. }));
@@ -2405,7 +2647,7 @@ mod tests {
     #[test]
     fn test_rename_cell_same_name_ok() {
         let mut lib = Library::new("test_lib");
-        lib.add_cell(Cell::new("cell1")).unwrap();
+        lib.add_cell(Cell::new("cell1").unwrap()).unwrap();
 
         // Renaming to same name should succeed (no-op)
         assert!(lib.rename_cell("cell1", "cell1").unwrap());
@@ -2413,13 +2655,14 @@ mod tests {
 
     #[test]
     fn test_add_path() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let points = vec![
             Point::new(0.0, 0.0),
             Point::new(10.0, 0.0),
             Point::new(10.0, 10.0),
         ];
-        cell.add_path(points.clone(), 0.5, Layer::new(1, 0), PathEndType::Flush);
+        cell.add_path(points.clone(), 0.5, Layer::new(1, 0), PathEndType::Flush)
+            .unwrap();
 
         assert_eq!(cell.paths().count(), 1);
 
@@ -2433,29 +2676,34 @@ mod tests {
 
     #[test]
     fn test_add_path_default_end_type() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let points = vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)];
-        cell.add_path(points, 1.0, 1, PathEndType::default());
+        cell.add_path(points, 1.0, 1, PathEndType::default())
+            .unwrap();
 
         assert_eq!(cell.paths().count(), 1);
     }
 
     #[test]
     fn test_path_end_types() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let points = vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0)];
 
-        cell.add_path(points.clone(), 0.5, 1, PathEndType::Flush);
-        cell.add_path(points.clone(), 0.5, 1, PathEndType::Round);
-        cell.add_path(points.clone(), 0.5, 1, PathEndType::HalfWidthExtension);
+        cell.add_path(points.clone(), 0.5, 1, PathEndType::Flush)
+            .unwrap();
+        cell.add_path(points.clone(), 0.5, 1, PathEndType::Round)
+            .unwrap();
+        cell.add_path(points.clone(), 0.5, 1, PathEndType::HalfWidthExtension)
+            .unwrap();
 
         assert_eq!(cell.paths().count(), 3);
     }
 
     #[test]
     fn test_add_text_default_height() {
-        let mut cell = Cell::new("test");
-        cell.add_text_with_height("Hello", Point::new(5.0, 5.0), Layer::new(10, 0), 1.0);
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_text_with_height("Hello", Point::new(5.0, 5.0), Layer::new(10, 0), 1.0)
+            .unwrap();
 
         assert_eq!(cell.texts().count(), 1);
 
@@ -2470,8 +2718,9 @@ mod tests {
 
     #[test]
     fn test_add_text_with_height() {
-        let mut cell = Cell::new("test");
-        cell.add_text_with_height("Big", Point::new(0.0, 0.0), Layer::new(10, 0), 5.0);
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_text_with_height("Big", Point::new(0.0, 0.0), Layer::new(10, 0), 5.0)
+            .unwrap();
 
         let texts: Vec<_> = cell.texts().collect();
         assert_eq!(texts.len(), 1);
@@ -2480,18 +2729,20 @@ mod tests {
 
     #[test]
     fn test_mixed_elements() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
 
         // Add various element types
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), 1);
-        cell.add_ref(CellRef::new("other"));
+        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(), 1);
+        cell.add_ref(CellRef::new("other").unwrap());
         cell.add_path(
             vec![Point::origin(), Point::new(10.0, 0.0)],
             0.5,
             1,
             PathEndType::default(),
-        );
-        cell.add_text_with_height("Label", Point::new(5.0, 5.0), 10, 1.0);
+        )
+        .unwrap();
+        cell.add_text_with_height("Label", Point::new(5.0, 5.0), 10, 1.0)
+            .unwrap();
 
         assert_eq!(cell.polygons().count(), 1);
         assert_eq!(cell.cell_refs().count(), 1);
@@ -2502,10 +2753,10 @@ mod tests {
 
     #[test]
     fn test_remove_element() {
-        let mut cell = Cell::new("test");
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), 1);
-        cell.add_polygon(Polygon::rect(Point::new(20.0, 0.0), 5.0, 5.0), 1);
-        cell.add_polygon(Polygon::rect(Point::new(30.0, 0.0), 3.0, 3.0), 1);
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(), 1);
+        cell.add_polygon(Polygon::rect(Point::new(20.0, 0.0), 5.0, 5.0).unwrap(), 1);
+        cell.add_polygon(Polygon::rect(Point::new(30.0, 0.0), 3.0, 3.0).unwrap(), 1);
 
         assert_eq!(cell.polygons().count(), 3);
 

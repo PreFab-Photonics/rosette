@@ -94,10 +94,14 @@ pub fn check_enclosure_bulk(
         // away from the inner bbox and therefore cannot satisfy the rule or
         // provide a useful near-miss (we already keep the best near-miss, so
         // only closer candidates matter).
-        let search_bbox = inner_poly.bbox().expand_by(min_enclosure);
-        let search_envelope = AABB::from_corners(
-            [search_bbox.min().x, search_bbox.min().y],
-            [search_bbox.max().x, search_bbox.max().y],
+        let search_envelope = inner_poly.bbox().expand_by(min_enclosure).map_or_else(
+            |_| AABB::from_corners([f64::MIN, f64::MIN], [f64::MAX, f64::MAX]),
+            |search_bbox| {
+                AABB::from_corners(
+                    [search_bbox.min().x, search_bbox.min().y],
+                    [search_bbox.max().x, search_bbox.max().y],
+                )
+            },
         );
 
         // Lazily converted — only allocate when we actually have a candidate
@@ -342,8 +346,8 @@ mod tests {
     #[test]
     fn test_enclosure_pass() {
         // Outer: 20x20 at origin, Inner: 10x10 centered
-        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0);
-        let inner = Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0);
+        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0).unwrap();
+        let inner = Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0).unwrap();
 
         let result = check_enclosure(
             &inner,
@@ -359,8 +363,8 @@ mod tests {
     #[test]
     fn test_enclosure_fail_margin() {
         // Outer: 20x20, Inner: 10x10 with only 2.0 margin
-        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0);
-        let inner = Polygon::rect(Point::new(2.0, 2.0), 16.0, 16.0);
+        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0).unwrap();
+        let inner = Polygon::rect(Point::new(2.0, 2.0), 16.0, 16.0).unwrap();
 
         let result = check_enclosure(
             &inner,
@@ -379,8 +383,8 @@ mod tests {
     #[test]
     fn test_enclosure_fail_outside() {
         // Inner extends outside outer
-        let outer = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let inner = Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0);
+        let outer = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let inner = Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0).unwrap();
 
         let result = check_enclosure(
             &inner,
@@ -407,7 +411,7 @@ mod tests {
         let inners: Vec<(Polygon, usize)> = (0..10)
             .map(|i| {
                 (
-                    Polygon::rect(Point::new(i as f64 * 50.0 + 5.0, 5.0), 10.0, 10.0),
+                    Polygon::rect(Point::new(i as f64 * 50.0 + 5.0, 5.0), 10.0, 10.0).unwrap(),
                     i,
                 )
             })
@@ -415,7 +419,7 @@ mod tests {
         let outers: Vec<(Polygon, usize)> = (0..10)
             .map(|i| {
                 (
-                    Polygon::rect(Point::new(i as f64 * 50.0, 0.0), 20.0, 20.0),
+                    Polygon::rect(Point::new(i as f64 * 50.0, 0.0), 20.0, 20.0).unwrap(),
                     i,
                 )
             })
@@ -436,8 +440,8 @@ mod tests {
         let inner_layer = Layer::new(2, 0);
         let outer_layer = Layer::new(1, 0);
 
-        let inners = vec![(Polygon::rect(Point::new(2.0, 2.0), 16.0, 16.0), 0)];
-        let outers = vec![(Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0), 0)];
+        let inners = vec![(Polygon::rect(Point::new(2.0, 2.0), 16.0, 16.0).unwrap(), 0)];
+        let outers = vec![(Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0).unwrap(), 0)];
 
         let violations =
             check_enclosure_bulk(&inners, inner_layer, &outers, outer_layer, 3.0, Some("ENC"));
@@ -457,7 +461,12 @@ mod tests {
         let outer_layer = Layer::new(1, 0);
 
         let inners: Vec<(Polygon, usize)> = (0..3)
-            .map(|i| (Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0), i))
+            .map(|i| {
+                (
+                    Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0).unwrap(),
+                    i,
+                )
+            })
             .collect();
         let outers: Vec<(Polygon, usize)> = Vec::new();
 
@@ -476,8 +485,11 @@ mod tests {
         let inner_layer = Layer::new(2, 0);
         let outer_layer = Layer::new(1, 0);
 
-        let inners = vec![(Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0), 0)];
-        let outers = vec![(Polygon::rect(Point::new(1000.0, 1000.0), 5.0, 5.0), 0)];
+        let inners = vec![(Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(), 0)];
+        let outers = vec![(
+            Polygon::rect(Point::new(1000.0, 1000.0), 5.0, 5.0).unwrap(),
+            0,
+        )];
 
         let violations =
             check_enclosure_bulk(&inners, inner_layer, &outers, outer_layer, 0.5, None);
@@ -493,12 +505,15 @@ mod tests {
         let outer_layer = Layer::new(1, 0);
 
         // Inner at (0,0) 10x10 → bbox [0..10, 0..10]
-        let inners = vec![(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), 0)];
+        let inners = vec![(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap(), 0)];
         // Outer A: encloses fully but only 0.5 margin, fails enclosure=1.0.
         // Outer B: partially overlaps the inner (inner sticks out) → actual=0.
         let outers = vec![
-            (Polygon::rect(Point::new(-0.5, -0.5), 11.0, 11.0), 0),
-            (Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0), 1),
+            (
+                Polygon::rect(Point::new(-0.5, -0.5), 11.0, 11.0).unwrap(),
+                0,
+            ),
+            (Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0).unwrap(), 1),
         ];
 
         let violations =
@@ -520,12 +535,12 @@ mod tests {
         let inner_layer = Layer::new(2, 0);
         let outer_layer = Layer::new(1, 0);
 
-        let inners = vec![(Polygon::rect(Point::new(5.0, 5.0), 2.0, 2.0), 0)];
+        let inners = vec![(Polygon::rect(Point::new(5.0, 5.0), 2.0, 2.0).unwrap(), 0)];
         let outers = vec![
             // Partial overlap → fails
-            (Polygon::rect(Point::new(4.0, 4.0), 2.0, 2.0), 0),
+            (Polygon::rect(Point::new(4.0, 4.0), 2.0, 2.0).unwrap(), 0),
             // Fully encloses with margin 3.0
-            (Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0), 1),
+            (Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0).unwrap(), 1),
         ];
 
         let violations =

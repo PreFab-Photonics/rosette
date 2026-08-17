@@ -138,6 +138,10 @@ pub fn py_render_png(
     fill_alpha: u8,
     palette: Option<HashMap<u16, String>>,
 ) -> PyResult<PyRenderResult> {
+    let bbox = bbox
+        .map(PyBBox::to_core)
+        .transpose()
+        .map_err(|_| PyValueError::new_err("bbox must have finite, ordered corners"))?;
     let background = parse_hex_rgba(bg).ok_or_else(|| {
         PyValueError::new_err(format!(
             "invalid bg color '{bg}', expected '#RRGGBB' or '#RRGGBBAA'"
@@ -161,7 +165,7 @@ pub fn py_render_png(
     };
 
     let opts = RenderOptions {
-        bbox: bbox.map(|b| b.0),
+        bbox,
         cell,
         layers,
         width_px: width,
@@ -186,7 +190,8 @@ fn map_render_error(e: RenderError) -> PyErr {
     match e {
         RenderError::CellNotFound(_)
         | RenderError::EmptyDesign
-        | RenderError::InvalidCanvas { .. } => PyValueError::new_err(e.to_string()),
+        | RenderError::InvalidCanvas { .. }
+        | RenderError::InvalidView(_) => PyValueError::new_err(e.to_string()),
         RenderError::Raster(_) | RenderError::Encode(_) => PyRuntimeError::new_err(e.to_string()),
     }
 }

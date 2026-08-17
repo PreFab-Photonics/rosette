@@ -218,7 +218,9 @@ fn validate_rect_inputs(origin: Point, width: f64, height: f64, centered: bool) 
 impl PyPolygon {
     fn from_transformed_points(points: Vec<Point>) -> PyResult<Self> {
         validate_polygon_points(&points, "Polygon transformation")?;
-        Ok(Self(Polygon::new(points)))
+        Polygon::new(points)
+            .map(Self)
+            .map_err(|_| PyValueError::new_err("Polygon transformation contains invalid geometry"))
     }
 }
 
@@ -234,21 +236,27 @@ impl PyPolygon {
         }
         let points: Vec<Point> = vertices.into_iter().map(|p| p.0).collect();
         validate_polygon_points(&points, "Polygon")?;
-        Ok(PyPolygon(Polygon::new(points)))
+        Polygon::new(points)
+            .map(PyPolygon)
+            .map_err(|_| PyValueError::new_err("Polygon contains invalid geometry"))
     }
 
     /// Create a rectangle from origin, width, and height.
     #[staticmethod]
     fn rect(origin: &PyPoint, width: f64, height: f64) -> PyResult<Self> {
         validate_rect_inputs(origin.0, width, height, false)?;
-        Ok(PyPolygon(Polygon::rect(origin.0, width, height)))
+        Polygon::rect(origin.0, width, height)
+            .map(PyPolygon)
+            .map_err(|_| PyValueError::new_err("Rectangle coordinates must remain finite"))
     }
 
     /// Create a centered rectangle.
     #[staticmethod]
     fn rect_centered(center: &PyPoint, width: f64, height: f64) -> PyResult<Self> {
         validate_rect_inputs(center.0, width, height, true)?;
-        Ok(PyPolygon(Polygon::rect_centered(center.0, width, height)))
+        Polygon::rect_centered(center.0, width, height)
+            .map(PyPolygon)
+            .map_err(|_| PyValueError::new_err("Rectangle coordinates must remain finite"))
     }
 
     /// Create a regular polygon with n sides.
@@ -286,7 +294,9 @@ impl PyPolygon {
                 "Regular polygon coordinates must remain finite",
             ));
         }
-        Ok(PyPolygon(Polygon::regular(center.0, radius, sides)))
+        Polygon::regular(center.0, radius, sides)
+            .map(PyPolygon)
+            .map_err(|_| PyValueError::new_err("Regular polygon coordinates must remain finite"))
     }
 
     /// Get the vertices as a list of points.
@@ -311,7 +321,7 @@ impl PyPolygon {
 
     /// Calculate the bounding box.
     fn bbox(&self) -> PyBBox {
-        PyBBox(self.0.bbox())
+        PyBBox::from_core(self.0.bbox())
     }
 
     /// Translate by a vector.
@@ -553,65 +563,93 @@ impl PyTransform {
 /// An axis-aligned bounding box.
 #[pyclass(name = "BBox", from_py_object)]
 #[derive(Clone)]
-pub struct PyBBox(pub BBox);
+pub struct PyBBox {
+    min: Point,
+    max: Point,
+}
+
+impl PyBBox {
+    pub(crate) fn from_core(bbox: BBox) -> Self {
+        Self {
+            min: bbox.min(),
+            max: bbox.max(),
+        }
+    }
+
+    pub(crate) fn to_core(&self) -> Result<BBox, rosette_core::BBoxValidationReason> {
+        BBox::new(self.min, self.max)
+    }
+}
 
 #[pymethods]
 impl PyBBox {
     /// Create a bounding box from min and max points.
     #[new]
     fn new(min: &PyPoint, max: &PyPoint) -> Self {
-        PyBBox(BBox::new(min.0, max.0))
+        Self {
+            min: min.0,
+            max: max.0,
+        }
     }
 
     /// Minimum corner.
     #[getter]
     fn min(&self) -> PyPoint {
-        PyPoint(self.0.min())
+        PyPoint(self.min)
     }
 
     /// Maximum corner.
     #[getter]
     fn max(&self) -> PyPoint {
-        PyPoint(self.0.max())
+        PyPoint(self.max)
     }
 
     /// Width of the bounding box.
     fn width(&self) -> f64 {
-        self.0.width()
+        self.max.x - self.min.x
     }
 
     /// Height of the bounding box.
     fn height(&self) -> f64 {
-        self.0.height()
+        self.max.y - self.min.y
     }
 
     /// Center point.
     fn center(&self) -> PyPoint {
-        PyPoint(self.0.center())
+        let center = self.to_core().map_or_else(
+            |_| {
+                Point::new(
+                    (self.min.x + self.max.x) / 2.0,
+                    (self.min.y + self.max.y) / 2.0,
+                )
+            },
+            |bbox| bbox.center(),
+        );
+        PyPoint(center)
     }
 
     /// Area of the bounding box.
     fn area(&self) -> f64 {
-        self.0.area()
+        self.width() * self.height()
     }
 
     /// Check if the bounding box contains a point.
     fn contains(&self, p: &PyPoint) -> bool {
-        self.0.contains(p.0)
+        p.0.x >= self.min.x && p.0.x <= self.max.x && p.0.y >= self.min.y && p.0.y <= self.max.y
     }
 
     /// Merge with another bounding box.
     fn merge(&self, other: &PyBBox) -> Self {
-        PyBBox(self.0.merge(&other.0))
+        Self {
+            min: Point::new(self.min.x.min(other.min.x), self.min.y.min(other.min.y)),
+            max: Point::new(self.max.x.max(other.max.x), self.max.y.max(other.max.y)),
+        }
     }
 
     fn __repr__(&self) -> String {
         format!(
             "BBox(min=({}, {}), max=({}, {}))",
-            self.0.min().x,
-            self.0.min().y,
-            self.0.max().x,
-            self.0.max().y
+            self.min.x, self.min.y, self.max.x, self.max.y
         )
     }
 }

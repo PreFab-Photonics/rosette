@@ -218,7 +218,7 @@ fn collect_skipped_roots(
     for element in cell.elements() {
         if let Element::CellRef(cell_ref) = element
             && let Some(lib) = library
-            && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
+            && let Some(ref_cell) = lib.cell(cell_ref.cell_name())
         {
             collect_skipped_roots(ref_cell, Some(lib), policy, roots, visited);
         }
@@ -233,7 +233,7 @@ fn expand_subtree(cell: &Cell, library: &Library, closure: &mut HashSet<String>)
     }
     for element in cell.elements() {
         if let Element::CellRef(cell_ref) = element
-            && let Some(ref_cell) = library.cell(&cell_ref.cell_name)
+            && let Some(ref_cell) = library.cell(cell_ref.cell_name())
         {
             expand_subtree(ref_cell, library, closure);
         }
@@ -264,7 +264,7 @@ fn collect_waiver_regions(top: &Cell, library: Option<&Library>, policy: &DrcPol
                     policy
                         .waiver_regions(placement.cell.name())
                         .iter()
-                        .filter_map(|region| region.try_transform(&placement.transform)),
+                        .filter_map(|region| region.try_transform(&placement.transform).ok()),
                 );
             }
             WalkControl::Continue
@@ -770,7 +770,7 @@ impl DrcRunner {
             // Emit one violation per rigid instance with transformed location.
             for template in cached.iter() {
                 let mut v = template.clone();
-                let Some(location) = v.location.try_transform(transform) else {
+                let Ok(location) = v.location.try_transform(transform) else {
                     continue;
                 };
                 v.location = location;
@@ -867,7 +867,7 @@ impl DrcRunner {
             });
             for template in cached.iter() {
                 let mut v = template.clone();
-                let Some(location) = v.location.try_transform(transform) else {
+                let Ok(location) = v.location.try_transform(transform) else {
                     continue;
                 };
                 v.location = location;
@@ -987,26 +987,25 @@ impl DrcRunner {
     ) {
         let (polygon, layer) = match element {
             Element::Polygon { polygon, layer } => {
-                let Some(polygon) = polygon.try_transform(transform) else {
+                let Ok(polygon) = polygon.try_transform(transform) else {
                     // A finite local placement can become unrepresentable after
                     // hierarchy transforms accumulate; omit that placement.
                     return;
                 };
                 (polygon, *layer)
             }
-            Element::Path {
-                points,
-                width,
-                layer,
-                end_type,
-            } => {
-                let Some(polygon) = stroke_path_transformed(points, *width, *end_type, transform)
-                else {
+            Element::Path(path) => {
+                let Some(polygon) = stroke_path_transformed(
+                    path.points(),
+                    path.width(),
+                    path.end_type(),
+                    transform,
+                ) else {
                     return;
                 };
-                (polygon, *layer)
+                (polygon, path.layer())
             }
-            Element::CellRef(_) | Element::Text { .. } => return,
+            Element::CellRef(_) | Element::Text(_) => return,
         };
         let polygon_bbox = polygon.bbox();
         *bbox = Some(match bbox.take() {
@@ -1116,11 +1115,11 @@ impl DrcRunner {
                 _ => continue,
             };
 
-            let expanded_i = group_i.bbox.expand_by(min_spacing);
-
             for group_j in &groups[i + 1..] {
                 // Instance-level bbox culling: skip if expanded bboxes don't overlap
-                if !expanded_i.overlaps(&group_j.bbox) {
+                if let Ok(expanded_i) = group_i.bbox.expand_by(min_spacing)
+                    && !expanded_i.overlaps(&group_j.bbox)
+                {
                     continue;
                 }
 
@@ -1220,21 +1219,22 @@ impl DrcRunner {
         for element in cell.elements() {
             match element {
                 Element::Polygon { polygon, layer } => {
-                    if let Some(transformed) = polygon.try_transform(transform) {
+                    if let Ok(transformed) = polygon.try_transform(transform) {
                         result.entry(*layer).or_default().push((transformed, index));
                         index += 1;
                     }
                 }
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    end_type,
-                } => {
-                    if let Some(ribbon) =
-                        stroke_path_transformed(points, *width, *end_type, transform)
-                    {
-                        result.entry(*layer).or_default().push((ribbon, index));
+                Element::Path(path) => {
+                    if let Some(ribbon) = stroke_path_transformed(
+                        path.points(),
+                        path.width(),
+                        path.end_type(),
+                        transform,
+                    ) {
+                        result
+                            .entry(path.layer())
+                            .or_default()
+                            .push((ribbon, index));
                         index += 1;
                     }
                 }
@@ -1259,14 +1259,13 @@ impl DrcRunner {
                         .push((polygon.clone(), index));
                     index += 1;
                 }
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    end_type,
-                } => {
-                    if let Some(ribbon) = stroke_path(points, *width, *end_type) {
-                        result.entry(*layer).or_default().push((ribbon, index));
+                Element::Path(path) => {
+                    if let Some(ribbon) = stroke_path(path.points(), path.width(), path.end_type())
+                    {
+                        result
+                            .entry(path.layer())
+                            .or_default()
+                            .push((ribbon, index));
                         index += 1;
                     }
                 }
@@ -1282,14 +1281,12 @@ impl DrcRunner {
         let mut count = 0_usize;
         let mut count_element = |element: &Element, transform: &Transform| {
             let representable = match element {
-                Element::Polygon { polygon, .. } => polygon.try_transform(transform).is_some(),
-                Element::Path {
-                    points,
-                    width,
-                    end_type,
-                    ..
-                } => stroke_path_transformed(points, *width, *end_type, transform).is_some(),
-                Element::CellRef(_) | Element::Text { .. } => false,
+                Element::Polygon { polygon, .. } => polygon.try_transform(transform).is_ok(),
+                Element::Path(path) => {
+                    stroke_path_transformed(path.points(), path.width(), path.end_type(), transform)
+                        .is_some()
+                }
+                Element::CellRef(_) | Element::Text(_) => false,
             };
             if representable {
                 count = count.saturating_add(1);

@@ -245,8 +245,13 @@ mod tests {
     #[test]
     fn direct_cell_route_sidecar_participates_in_bend_checks() {
         let cell = PyCell::from_parts(
-            Cell::new("route"),
-            RouteAnnotations::new(None, vec![BendInfo::new(2.0, Point::origin())], Vec::new()),
+            Cell::new("route").unwrap(),
+            RouteAnnotations::new(
+                None,
+                vec![BendInfo::new(2.0, Point::origin()).unwrap()],
+                Vec::new(),
+            )
+            .unwrap(),
         );
         let config = PyChecksConfig(ChecksConfig::new().with_min_bend_radius(5.0));
 
@@ -262,7 +267,7 @@ mod tests {
             CheckViolationType::BendRadiusUncheckable,
             "route",
             "route",
-            rosette_core::BBox::new(Point::origin(), Point::origin()),
+            rosette_core::BBox::new(Point::origin(), Point::origin()).unwrap(),
             "Bend cannot be checked",
             Severity::Error,
         );

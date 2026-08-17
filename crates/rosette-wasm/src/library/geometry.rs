@@ -3,6 +3,8 @@
 use super::{ElementRef, REF_UUID_PREFIX, WasmLibrary, path};
 use rosette_core::cell::Element;
 use rosette_core::{Layer, PathEndType, Point, Polygon};
+use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
@@ -33,7 +35,7 @@ impl WasmLibrary {
         }
         let cell_name = self.active_cell.clone()?;
 
-        let polygon = Polygon::rect(Point::new(x, y), width, height);
+        let polygon = Polygon::rect(Point::new(x, y), width, height).ok()?;
         let layer_spec = Layer::new(layer, datatype);
 
         let element_index = self
@@ -42,7 +44,7 @@ impl WasmLibrary {
                 cell.add_polygon(polygon, layer_spec);
                 // Use actual element index, not polygon_count(), because the cell
                 // may contain mixed element types (CellRef, Path, etc.).
-                cell.elements().len() - 1
+                Ok::<_, Infallible>(cell.elements().len() - 1)
             })
             .ok()?;
         let uuid = Uuid::new_v4().to_string();
@@ -78,7 +80,7 @@ impl WasmLibrary {
             .map(|chunk| Point::new(chunk[0], chunk[1]))
             .collect();
 
-        let polygon = Polygon::new(vertices);
+        let polygon = Polygon::new(vertices).ok()?;
         let layer_spec = Layer::new(layer, datatype);
 
         let element_index = self
@@ -87,7 +89,7 @@ impl WasmLibrary {
                 cell.add_polygon(polygon, layer_spec);
                 // Use actual element index, not polygon_count(), because the cell
                 // may contain mixed element types (CellRef, Path, etc.).
-                cell.elements().len() - 1
+                Ok::<_, Infallible>(cell.elements().len() - 1)
             })
             .ok()?;
         let uuid = Uuid::new_v4().to_string();
@@ -149,7 +151,7 @@ impl WasmLibrary {
             .library
             .edit_cell(&cell_name, |cell| {
                 cell.add_polygon(polygon, layer_spec);
-                cell.elements().len() - 1
+                Ok::<_, Infallible>(cell.elements().len() - 1)
             })
             .ok()?;
         let uuid = Uuid::new_v4().to_string();
@@ -209,7 +211,7 @@ impl WasmLibrary {
             .library
             .edit_cell(&cell_name, |cell| {
                 cell.add_polygon(polygon, layer_spec);
-                cell.elements().len() - 1
+                Ok::<_, Infallible>(cell.elements().len() - 1)
             })
             .ok()?;
         let uuid = Uuid::new_v4().to_string();
@@ -260,8 +262,9 @@ impl WasmLibrary {
         let element_index = self
             .library
             .edit_cell(&cell_name, |cell| {
-                cell.add_path(centerline, width, Layer::new(layer, datatype), end_type);
-                cell.elements().len() - 1
+                let element_index = cell.elements().len();
+                cell.add_path(centerline, width, Layer::new(layer, datatype), end_type)
+                    .map(|()| element_index)
             })
             .ok()?;
         let uuid = Uuid::new_v4().to_string();
@@ -387,23 +390,94 @@ impl WasmLibrary {
         // Convert back to keyholed rosette polygons.
         let accumulated = result.to_keyholed_polygons();
 
-        // Remove input elements
-        let input_ids: Vec<String> = polys.iter().map(|(id, _, _, _)| id.clone()).collect();
-        self.remove_elements(input_ids);
+        let Some(active_cell) = self.active_cell.clone() else {
+            return Vec::new();
+        };
+        if self.library.cell(&active_cell).is_none() {
+            return Vec::new();
+        }
 
-        // Add result polygons
-        let mut new_ids: Vec<String> = Vec::new();
-        for result_poly in &accumulated {
-            let flat: Vec<f64> = result_poly
-                .vertices()
-                .iter()
-                .flat_map(|p| [p.x, p.y])
-                .collect();
-            if let Some(uuid) = self.add_polygon(&flat, result_layer, result_datatype) {
-                new_ids.push(uuid);
+        // Stage removals and additions together so a validation failure cannot
+        // leave the editor with deleted inputs and only part of the result.
+        let mut removals: HashMap<String, Vec<(String, usize)>> = HashMap::new();
+        let mut seen = HashSet::new();
+        for (id, _, _, _) in &polys {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            let Some(element_ref) = self.element_refs.get(id) else {
+                return Vec::new();
+            };
+            removals
+                .entry(element_ref.cell_name.clone())
+                .or_default()
+                .push((id.clone(), element_ref.element_index));
+        }
+
+        let mut candidate_library = self.library.clone();
+        for (cell_name, entries) in &mut removals {
+            entries.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+            let removed = candidate_library
+                .edit_cell(cell_name, |cell| {
+                    Ok::<_, Infallible>(
+                        entries
+                            .iter()
+                            .all(|(_, index)| cell.remove_element(*index).is_some()),
+                    )
+                })
+                .ok();
+            if removed != Some(true) {
+                return Vec::new();
             }
         }
 
+        let first_result_index = candidate_library
+            .cell(&active_cell)
+            .map(|cell| cell.elements().len())
+            .unwrap_or(0);
+        if candidate_library
+            .edit_cell(&active_cell, |cell| {
+                for polygon in &accumulated {
+                    cell.add_polygon(polygon.clone(), Layer::new(result_layer, result_datatype));
+                }
+                Ok::<_, Infallible>(())
+            })
+            .is_err()
+        {
+            return Vec::new();
+        }
+
+        let mut candidate_refs = self.element_refs.clone();
+        for (cell_name, entries) in &removals {
+            for (id, _) in entries.iter() {
+                candidate_refs.remove(id);
+            }
+            for element_ref in candidate_refs.values_mut() {
+                if element_ref.cell_name == *cell_name {
+                    element_ref.element_index -= entries
+                        .iter()
+                        .filter(|(_, index)| *index < element_ref.element_index)
+                        .count();
+                }
+            }
+        }
+
+        let mut new_ids = Vec::with_capacity(accumulated.len());
+        for offset in 0..accumulated.len() {
+            let uuid = Uuid::new_v4().to_string();
+            candidate_refs.insert(
+                uuid.clone(),
+                ElementRef {
+                    cell_name: active_cell.clone(),
+                    element_index: first_result_index + offset,
+                },
+            );
+            new_ids.push(uuid);
+        }
+
+        self.library = candidate_library;
+        self.element_refs = candidate_refs;
+        self.mark_dirty();
         new_ids
     }
 }
@@ -467,6 +541,76 @@ mod tests {
     }
 
     #[test]
+    fn rejected_geometry_keeps_ids_dirty_state_and_spatial_cache() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("top").unwrap();
+        let id = library.add_rectangle(0.0, 0.0, 2.0, 2.0, 1, 0).unwrap();
+        assert_eq!(library.hit_test(1.0, 1.0), Some(id.clone()));
+        assert!(library.spatial_index.borrow().is_some());
+        library.mark_clean();
+
+        let ids = library.get_all_ids();
+        assert!(
+            library
+                .add_polygon(&[0.0, 0.0, 1.0, 0.0, f64::NAN, 1.0], 1, 0)
+                .is_none()
+        );
+        assert!(
+            library
+                .add_rectangle(f64::MAX, 0.0, f64::MAX, 1.0, 1, 0)
+                .is_none()
+        );
+        assert!(
+            library
+                .restore_native_path(&[0.0, 0.0, 1.0, 0.0], 0.0, 0, 1, 0)
+                .is_none()
+        );
+
+        assert_eq!(library.get_all_ids(), ids);
+        assert!(!library.is_dirty());
+        assert!(library.spatial_index.borrow().is_some());
+    }
+
+    #[test]
+    fn rejected_boolean_operation_is_atomic() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("top").unwrap();
+        let first = library.add_rectangle(0.0, 0.0, 2.0, 2.0, 1, 0).unwrap();
+        let second = library.add_rectangle(1.0, 1.0, 2.0, 2.0, 1, 0).unwrap();
+        assert!(library.hit_test(0.5, 0.5).is_some());
+        library.mark_clean();
+
+        let ids = library.get_all_ids();
+        assert!(
+            library
+                .boolean_operation(vec![first, second], "invalid", "")
+                .is_empty()
+        );
+
+        assert_eq!(library.get_all_ids(), ids);
+        assert!(!library.is_dirty());
+        assert!(library.spatial_index.borrow().is_some());
+    }
+
+    #[test]
+    fn boolean_union_replaces_inputs_and_reindexes_survivors() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("top").unwrap();
+        let first = library.add_rectangle(0.0, 0.0, 2.0, 2.0, 1, 0).unwrap();
+        let second = library.add_rectangle(1.0, 0.0, 2.0, 2.0, 1, 0).unwrap();
+        let text = library.add_text("label", 4.0, 0.0, 1.0, 2, 0).unwrap();
+
+        let result = library.boolean_operation(vec![first.clone(), second.clone()], "union", "");
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(library.get_element_index(&first), -1);
+        assert_eq!(library.get_element_index(&second), -1);
+        assert_eq!(library.get_element_index(&text), 0);
+        assert_eq!(library.get_element_index(&result[0]), 1);
+        assert_eq!(library.get_all_ids(), vec![text, result[0].clone()]);
+    }
+
+    #[test]
     fn synthetic_polygon_ids_ignore_text_elements() {
         let mut library = WasmLibrary::new("test");
         library.add_cell("child").unwrap();
@@ -522,8 +666,8 @@ mod tests {
         let elements = library.library.cell("top").unwrap().elements();
         assert!(matches!(elements[0], Element::Polygon { .. }));
         assert!(matches!(elements[1], Element::CellRef(_)));
-        assert!(matches!(elements[2], Element::Path { .. }));
-        assert!(matches!(elements[3], Element::Text { .. }));
+        assert!(matches!(elements[2], Element::Path(_)));
+        assert!(matches!(elements[3], Element::Text(_)));
     }
 
     #[test]

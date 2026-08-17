@@ -11,11 +11,14 @@
 //! use rosette_core::{Cell, Layer, Point, Polygon, Library};
 //! use rosette_io::json;
 //!
-//! let mut cell = Cell::new("top");
-//! cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
+//! let mut cell = Cell::new("top").unwrap();
+//! cell.add_polygon(
+//!     Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(),
+//!     Layer::new(1, 0),
+//! );
 //!
 //! let mut library = Library::new("design");
-//! library.add_cell(cell);
+//! library.add_cell(cell).unwrap();
 //!
 //! // Write to file
 //! let document = json::LayoutDocument::from_library(library).unwrap();

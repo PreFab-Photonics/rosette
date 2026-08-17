@@ -17,8 +17,8 @@
 //! use rosette_core::{Cell, Layer, Point, Polygon};
 //! use rosette_dfm::{DfmConfig, GaussianModel, run_dfm};
 //!
-//! let mut cell = Cell::new("test");
-//! cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 2.0), Layer::new(1, 0));
+//! let mut cell = Cell::new("test").unwrap();
+//! cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 2.0).unwrap(), Layer::new(1, 0));
 //!
 //! let model = GaussianModel::from_design_units(0.08, 0.01);
 //! let config = DfmConfig::default();
@@ -270,9 +270,12 @@ mod tests {
 
     #[test]
     fn test_run_dfm_simple() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let layer = Layer::new(1, 0);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), layer);
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap(),
+            layer,
+        );
 
         let model = GaussianModel::new(0.0); // No blur — passthrough
         let config = DfmConfig {
@@ -308,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_run_dfm_empty_layer() {
-        let cell = Cell::new("empty");
+        let cell = Cell::new("empty").unwrap();
         let model = GaussianModel::new(1.0);
         let config = DfmConfig::default();
 
@@ -325,13 +328,19 @@ mod tests {
     fn run_dfm_skips_overflowed_hierarchy_geometry() {
         let kept_layer = Layer::new(1, 0);
         let skipped_layer = Layer::new(2, 0);
-        let mut leaf = Cell::new("leaf");
-        leaf.add_polygon(Polygon::rect(Point::new(2.0, 0.0), 1.0, 1.0), skipped_layer);
-        let mut middle = Cell::new("middle");
-        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
-        let mut top = Cell::new("top");
-        top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), kept_layer);
-        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        let mut leaf = Cell::new("leaf").unwrap();
+        leaf.add_polygon(
+            Polygon::rect(Point::new(2.0, 0.0), 1.0, 1.0).unwrap(),
+            skipped_layer,
+        );
+        let mut middle = Cell::new("middle").unwrap();
+        middle.add_ref(CellRef::new("leaf").unwrap().scale(f64::MAX).unwrap());
+        let mut top = Cell::new("top").unwrap();
+        top.add_polygon(
+            Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(),
+            kept_layer,
+        );
+        top.add_ref(CellRef::new("middle").unwrap().scale(f64::MAX).unwrap());
         let mut library = Library::new("test");
         library.add_cell(leaf).unwrap();
         library.add_cell(middle).unwrap();
@@ -357,9 +366,12 @@ mod tests {
 
     #[test]
     fn test_run_dfm_keep_raster() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let layer = Layer::new(1, 0);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0), layer);
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
+            layer,
+        );
 
         let model = GaussianModel::new(1.0);
         let config = DfmConfig {
@@ -382,10 +394,13 @@ mod tests {
 
     #[test]
     fn test_run_dfm_with_blur() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let layer = Layer::new(1, 0);
         // A narrow waveguide — blur should affect its shape
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 20.0, 0.5), layer);
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 20.0, 0.5).unwrap(),
+            layer,
+        );
 
         let model = GaussianModel::new(2.0);
         let config = DfmConfig {
@@ -408,11 +423,11 @@ mod tests {
 
     #[test]
     fn test_run_dfm_multiple_layers() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let l1 = Layer::new(1, 0);
         let l2 = Layer::new(2, 0);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0), l1);
-        cell.add_polygon(Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0), l2);
+        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(), l1);
+        cell.add_polygon(Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0).unwrap(), l2);
 
         let model = GaussianModel::new(0.0);
         let config = DfmConfig {
@@ -437,9 +452,12 @@ mod tests {
 
     #[test]
     fn test_run_dfm_with_tolerances_pass() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let layer = Layer::new(1, 0);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), layer);
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap(),
+            layer,
+        );
 
         let model = GaussianModel::new(0.0); // No blur
         let config = DfmConfig {
@@ -463,10 +481,13 @@ mod tests {
 
     #[test]
     fn test_run_dfm_with_tolerances_fail() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let layer = Layer::new(1, 0);
         // Narrow feature that blur will heavily affect
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 20.0, 0.3), layer);
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 20.0, 0.3).unwrap(),
+            layer,
+        );
 
         let model = GaussianModel::new(3.0); // Strong blur
         let config = DfmConfig {
@@ -491,9 +512,12 @@ mod tests {
 
     #[test]
     fn test_run_dfm_warnings_still_pass() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let layer = Layer::new(1, 0);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 20.0, 0.3), layer);
+        cell.add_polygon(
+            Polygon::rect(Point::new(0.0, 0.0), 20.0, 0.3).unwrap(),
+            layer,
+        );
 
         let model = GaussianModel::new(3.0);
         let config = DfmConfig {
@@ -519,11 +543,11 @@ mod tests {
 
     #[test]
     fn test_run_dfm_per_layer_config() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let l1 = Layer::new(1, 0);
         let l2 = Layer::new(2, 0);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), l1);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), l2);
+        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap(), l1);
+        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap(), l2);
 
         let model = GaussianModel::new(0.0); // Global: no blur
 
@@ -563,11 +587,11 @@ mod tests {
 
     #[test]
     fn test_run_dfm_per_layer_tolerance() {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         let l1 = Layer::new(1, 0);
         let l2 = Layer::new(2, 0);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.3), l1);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.3), l2);
+        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.3).unwrap(), l1);
+        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.3).unwrap(), l2);
 
         let model = GaussianModel::new(3.0); // Strong blur
 

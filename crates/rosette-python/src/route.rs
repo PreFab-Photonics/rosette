@@ -8,7 +8,6 @@ use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
 use rosette_route::{BendInfo, BendProfile, Route, RouteBuildError, RouteResult};
 use std::f64::consts::PI;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn positive_finite(name: &str, value: f64) -> PyResult<()> {
     let max_safe_value = f64::MAX.sqrt() / 4.0;
@@ -43,14 +42,16 @@ fn angle_radians(angle: f64) -> PyResult<f64> {
 }
 
 fn validate_port(port: &PyPort) -> PyResult<()> {
-    finite_position(port.0.position.x, port.0.position.y)?;
-    let direction_length = port.0.direction.length();
-    if !port.0.direction.is_finite() || direction_length == 0.0 || !direction_length.is_finite() {
+    let position = port.0.position();
+    finite_position(position.x, position.y)?;
+    let direction = port.0.direction();
+    let direction_length = direction.length();
+    if !direction.is_finite() || direction_length == 0.0 || !direction_length.is_finite() {
         return Err(PyValueError::new_err(
             "Route port direction must be finite and nonzero",
         ));
     }
-    if let Some(width) = port.0.width {
+    if let Some(width) = port.0.width() {
         positive_finite("Route port width", width)?;
     }
     Ok(())
@@ -61,10 +62,11 @@ fn route_generation_error() -> PyErr {
 }
 
 fn generated_route(route: &Route) -> PyResult<Option<RouteResult>> {
-    match catch_unwind(AssertUnwindSafe(|| route.build())).map_err(|_| route_generation_error())? {
-        Ok(result) => Ok(Some(result)),
-        Err(RouteBuildError::InsufficientPoints { .. }) => Ok(None),
+    let result = route.build();
+    if matches!(&result, Err(RouteBuildError::InsufficientPoints { .. })) {
+        return Ok(None);
     }
+    result.map(Some).map_err(|_| route_generation_error())
 }
 
 fn build_route(route: &Route) -> PyResult<RouteResult> {
@@ -180,7 +182,9 @@ impl PyRoute {
 
         let route = Route::new(layer)
             .with_width(width)
+            .map_err(|_| route_generation_error())?
             .with_bend_radius(bend_radius)
+            .map_err(|_| route_generation_error())?
             .with_bend_profile(profile);
 
         Ok(PyRoute { route })
@@ -197,7 +201,9 @@ impl PyRoute {
         finite_position(x, y)?;
         let angle_rad = angle_radians(angle)?;
         let mut route = self.route.clone();
-        route.start_at(x, y, angle_rad);
+        route
+            .start_at(x, y, angle_rad)
+            .map_err(|_| route_generation_error())?;
         validate_generated_route(&route)?;
         self.route = route;
         Ok(())
@@ -233,7 +239,9 @@ impl PyRoute {
             positive_finite("bend_radius", bend_radius)?;
         }
         let mut route = self.route.clone();
-        route.to_full(x, y, width, bend_radius);
+        route
+            .to_full(x, y, width, bend_radius)
+            .map_err(|_| route_generation_error())?;
         validate_generated_route(&route)?;
         self.route = route;
         Ok(())
@@ -250,7 +258,9 @@ impl PyRoute {
         finite_position(x, y)?;
         let angle_rad = angle_radians(angle)?;
         let mut route = self.route.clone();
-        route.end_at(x, y, angle_rad);
+        route
+            .end_at(x, y, angle_rad)
+            .map_err(|_| route_generation_error())?;
         validate_generated_route(&route)?;
         self.route = route;
         Ok(())
@@ -274,7 +284,9 @@ impl PyRoute {
     /// Returns:
     ///     Cell containing the route geometry
     fn to_cell(&self, name: &str) -> PyResult<PyCell> {
-        let (cell, annotations) = build_route(&self.route)?.into_cell_with_annotations(name);
+        let (cell, annotations) = build_route(&self.route)?
+            .into_cell_with_annotations(name)
+            .map_err(|_| route_generation_error())?;
         cell.validate().map_err(|_| route_generation_error())?;
         Ok(PyCell::from_parts(cell, annotations))
     }
@@ -346,7 +358,9 @@ impl PyRoute {
 
         let mut route = Route::new(layer_val)
             .with_width(width)
+            .map_err(|_| route_generation_error())?
             .with_bend_radius(bend_radius)
+            .map_err(|_| route_generation_error())?
             .with_bend_profile(profile);
 
         let items: Vec<Bound<'_, PyAny>> = waypoints.iter().collect();
@@ -370,7 +384,10 @@ impl PyRoute {
                     route.end_at_port(&port.0);
                 } else {
                     // Intermediate port - just use position as waypoint
-                    route.to(port.0.position.x, port.0.position.y);
+                    let position = port.0.position();
+                    route
+                        .to(position.x, position.y)
+                        .map_err(|_| route_generation_error())?;
                 }
                 continue;
             }
@@ -380,12 +397,18 @@ impl PyRoute {
                 finite_position(point.0.x, point.0.y)?;
                 if is_first {
                     // First point without angle - use 0
-                    route.start_at(point.0.x, point.0.y, 0.0);
+                    route
+                        .start_at(point.0.x, point.0.y, 0.0)
+                        .map_err(|_| route_generation_error())?;
                 } else if is_last {
                     // Last point without angle - use the incoming direction
-                    route.end_at(point.0.x, point.0.y, 0.0);
+                    route
+                        .end_at(point.0.x, point.0.y, 0.0)
+                        .map_err(|_| route_generation_error())?;
                 } else {
-                    route.to(point.0.x, point.0.y);
+                    route
+                        .to(point.0.x, point.0.y)
+                        .map_err(|_| route_generation_error())?;
                 }
                 continue;
             }
@@ -404,11 +427,15 @@ impl PyRoute {
                     };
 
                     if is_first {
-                        route.start_at(x, y, angle);
+                        route
+                            .start_at(x, y, angle)
+                            .map_err(|_| route_generation_error())?;
                     } else if is_last {
-                        route.end_at(x, y, angle);
+                        route
+                            .end_at(x, y, angle)
+                            .map_err(|_| route_generation_error())?;
                     } else {
-                        route.to(x, y);
+                        route.to(x, y).map_err(|_| route_generation_error())?;
                     }
                     continue;
                 }
@@ -428,11 +455,15 @@ impl PyRoute {
                     };
 
                     if is_first {
-                        route.start_at(x, y, angle);
+                        route
+                            .start_at(x, y, angle)
+                            .map_err(|_| route_generation_error())?;
                     } else if is_last {
-                        route.end_at(x, y, angle);
+                        route
+                            .end_at(x, y, angle)
+                            .map_err(|_| route_generation_error())?;
                     } else {
-                        route.to(x, y);
+                        route.to(x, y).map_err(|_| route_generation_error())?;
                     }
                     continue;
                 }
@@ -461,9 +492,9 @@ mod tests {
     #[test]
     fn route_cell_and_bends_share_generated_annotations() {
         let mut route = Route::new(Layer::from(1));
-        route.start_at(0.0, 0.0, 0.0);
-        route.to(10.0, 0.0);
-        route.end_at(10.0, 10.0, PI / 2.0);
+        route.start_at(0.0, 0.0, 0.0).unwrap();
+        route.to(10.0, 0.0).unwrap();
+        route.end_at(10.0, 10.0, PI / 2.0).unwrap();
         let route = PyRoute { route };
 
         let bends = route.bends().unwrap();

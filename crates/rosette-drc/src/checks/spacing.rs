@@ -42,10 +42,14 @@ pub fn check_spacing(
 
     for (poly1, orig_idx1) in polygons1 {
         // Expand bbox by spacing to find candidates
-        let search_bbox = poly1.bbox().expand_by(min_spacing);
-        let search_envelope = AABB::from_corners(
-            [search_bbox.min().x, search_bbox.min().y],
-            [search_bbox.max().x, search_bbox.max().y],
+        let search_envelope = poly1.bbox().expand_by(min_spacing).map_or_else(
+            |_| AABB::from_corners([f64::MIN, f64::MIN], [f64::MAX, f64::MAX]),
+            |search_bbox| {
+                AABB::from_corners(
+                    [search_bbox.min().x, search_bbox.min().y],
+                    [search_bbox.max().x, search_bbox.max().y],
+                )
+            },
         );
 
         let region1 = Region::from_polygon(poly1);
@@ -110,8 +114,8 @@ mod tests {
 
     #[test]
     fn test_spacing_pass() {
-        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
-        let poly2 = Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0);
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap();
+        let poly2 = Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0).unwrap();
 
         let polys1 = vec![(poly1, 0)];
         let polys2 = vec![(poly2, 1)];
@@ -134,8 +138,8 @@ mod tests {
         // poly1: 5x5 rectangle at origin (0,0) to (5,5)
         // poly2: 5x5 rectangle at (6,0) to (11,5)
         // Gap between them: 1.0 (from x=5 to x=6)
-        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
-        let poly2 = Polygon::rect(Point::new(6.0, 0.0), 5.0, 5.0);
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap();
+        let poly2 = Polygon::rect(Point::new(6.0, 0.0), 5.0, 5.0).unwrap();
 
         let polys1 = vec![(poly1, 0)];
         let polys2 = vec![(poly2, 1)];
@@ -161,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_same_layer_no_self_compare() {
-        let poly = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
+        let poly = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap();
         let polys = vec![(poly, 0)];
 
         // Same layer — should not compare against itself
@@ -182,8 +186,8 @@ mod tests {
     fn test_touching_polygons_not_flagged() {
         // Two rectangles sharing an edge (abutting at x=5). Distance = 0.
         // These represent connected waveguides and should NOT be flagged.
-        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 2.0);
-        let poly2 = Polygon::rect(Point::new(5.0, 0.0), 5.0, 2.0);
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 2.0).unwrap();
+        let poly2 = Polygon::rect(Point::new(5.0, 0.0), 5.0, 2.0).unwrap();
 
         let polys1 = vec![(poly1, 0)];
         let polys2 = vec![(poly2, 1)];
@@ -208,8 +212,8 @@ mod tests {
     fn test_overlapping_polygons_not_flagged() {
         // Two overlapping rectangles. Distance = 0 (negative overlap).
         // Connected geometry should NOT produce spacing violations.
-        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 2.0);
-        let poly2 = Polygon::rect(Point::new(4.0, 0.0), 5.0, 2.0);
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 2.0).unwrap();
+        let poly2 = Polygon::rect(Point::new(4.0, 0.0), 5.0, 2.0).unwrap();
 
         let polys1 = vec![(poly1, 0)];
         let polys2 = vec![(poly2, 1)];
@@ -233,8 +237,8 @@ mod tests {
     #[test]
     fn test_near_but_not_touching_still_fails() {
         // Two rectangles with tiny gap (0.01). Should still fail min_spacing=0.15.
-        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 2.0);
-        let poly2 = Polygon::rect(Point::new(5.01, 0.0), 5.0, 2.0);
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 2.0).unwrap();
+        let poly2 = Polygon::rect(Point::new(5.01, 0.0), 5.0, 2.0).unwrap();
 
         let polys1 = vec![(poly1, 0)];
         let polys2 = vec![(poly2, 1)];

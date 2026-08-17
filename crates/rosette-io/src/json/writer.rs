@@ -90,8 +90,11 @@ mod tests {
 
     #[test]
     fn test_to_string_simple() {
-        let mut cell = Cell::new("test");
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(),
+            Layer::new(1, 0),
+        );
 
         let mut library = Library::new("test_lib");
         library.add_cell(cell).unwrap();
@@ -104,20 +107,17 @@ mod tests {
 
     #[test]
     fn test_to_string_with_ports() {
-        let mut cell = Cell::new("with_ports");
-        cell.add_polygon(Polygon::rect(Point::origin(), 100.0, 0.5), Layer::new(1, 0));
-        cell.add_port(Port::with_width(
-            "in",
-            Point::origin(),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        cell.add_port(Port::with_width(
-            "out",
-            Point::new(100.0, 0.0),
-            Vector2::unit_x(),
-            0.5,
-        ));
+        let mut cell = Cell::new("with_ports").unwrap();
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 100.0, 0.5).unwrap(),
+            Layer::new(1, 0),
+        );
+        cell.add_port(Port::with_width("in", Point::origin(), -Vector2::unit_x(), 0.5).unwrap())
+            .unwrap();
+        cell.add_port(
+            Port::with_width("out", Point::new(100.0, 0.0), Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
 
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
@@ -129,8 +129,11 @@ mod tests {
 
     #[test]
     fn test_to_string_compact() {
-        let mut cell = Cell::new("test");
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
+        let mut cell = Cell::new("test").unwrap();
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(),
+            Layer::new(1, 0),
+        );
 
         let mut library = Library::new("test_lib");
         library.add_cell(cell).unwrap();

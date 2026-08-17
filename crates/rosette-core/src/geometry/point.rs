@@ -32,7 +32,7 @@ impl Point {
     pub fn distance_to(self, other: Point) -> f64 {
         let dx = other.x - self.x;
         let dy = other.y - self.y;
-        (dx * dx + dy * dy).sqrt()
+        dx.hypot(dy)
     }
 
     /// Translate by a vector.

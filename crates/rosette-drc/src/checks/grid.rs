@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn test_on_grid_rectangle() {
         // 1nm grid (0.001 um). Rectangle with integer-nm coords.
-        let poly = Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.5);
+        let poly = Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.5).unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.001, None);
         assert!(violations.is_empty());
     }
@@ -101,7 +101,8 @@ mod tests {
             Point::new(0.5, 0.0),
             Point::new(0.5, 0.25),
             Point::new(0.0, 0.25),
-        ]);
+        ])
+        .unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.005, None);
         assert!(violations.is_empty());
     }
@@ -114,7 +115,8 @@ mod tests {
             Point::new(0.5, 0.0),
             Point::new(0.5, 0.003),
             Point::new(0.0, 0.003),
-        ]);
+        ])
+        .unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.005, None);
         // Two vertices have y=0.003 which is off the 5nm grid
         assert_eq!(violations.len(), 2);
@@ -131,7 +133,8 @@ mod tests {
             Point::new(0.0, 0.0),
             Point::new(0.01, 0.0),
             Point::new(0.003, 0.007),
-        ]);
+        ])
+        .unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.005, None);
         // (0.003, 0.007) has both x and y off-grid → 1 violation for that vertex
         // (0.01, 0.0) is on-grid (0.01 / 0.005 = 2)
@@ -147,7 +150,8 @@ mod tests {
             Point::new(0.123, 0.456),
             Point::new(0.789, 0.012),
             Point::new(0.345, 0.678),
-        ]);
+        ])
+        .unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.001, None);
         assert!(violations.is_empty());
     }
@@ -159,7 +163,8 @@ mod tests {
             Point::new(0.0, 0.0),
             Point::new(0.1234, 0.0),
             Point::new(0.0, 0.1),
-        ]);
+        ])
+        .unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.001, None);
         assert_eq!(violations.len(), 1);
     }
@@ -170,7 +175,8 @@ mod tests {
             Point::new(0.0, 0.0),
             Point::new(0.003, 0.0),
             Point::new(0.0, 0.01),
-        ]);
+        ])
+        .unwrap();
         let violations =
             check_snap_to_grid(&poly, Layer::new(1, 0), 0.005, Some("L1.snap_to_grid"));
         assert!(!violations.is_empty());
@@ -186,7 +192,8 @@ mod tests {
             Point::new(0.0, 0.0),
             Point::new(x, 0.0),
             Point::new(0.0, 0.001),
-        ]);
+        ])
+        .unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.001, None);
         assert!(violations.is_empty(), "Should tolerate f64 rounding");
     }
@@ -194,14 +201,14 @@ mod tests {
     #[test]
     fn test_large_coordinates_on_grid() {
         // Large coords that are on-grid (common in real layouts).
-        let poly = Polygon::rect(Point::new(1000.0, 2000.0), 500.0, 300.0);
+        let poly = Polygon::rect(Point::new(1000.0, 2000.0), 500.0, 300.0).unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.001, None);
         assert!(violations.is_empty());
     }
 
     #[test]
     fn test_negative_coordinates_on_grid() {
-        let poly = Polygon::rect(Point::new(-5.0, -3.0), 2.0, 1.5);
+        let poly = Polygon::rect(Point::new(-5.0, -3.0), 2.0, 1.5).unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.001, None);
         assert!(violations.is_empty());
     }
@@ -212,7 +219,8 @@ mod tests {
             Point::new(-0.003, 0.0),
             Point::new(0.01, 0.0),
             Point::new(0.0, 0.01),
-        ]);
+        ])
+        .unwrap();
         let violations = check_snap_to_grid(&poly, Layer::new(1, 0), 0.005, None);
         assert_eq!(violations.len(), 1);
     }
@@ -220,14 +228,14 @@ mod tests {
     #[test]
     #[should_panic(expected = "grid_pitch must be positive")]
     fn test_zero_grid_pitch_panics() {
-        let poly = Polygon::rect(Point::origin(), 1.0, 1.0);
+        let poly = Polygon::rect(Point::origin(), 1.0, 1.0).unwrap();
         check_snap_to_grid(&poly, Layer::new(1, 0), 0.0, None);
     }
 
     #[test]
     #[should_panic(expected = "grid_pitch must be positive")]
     fn test_negative_grid_pitch_panics() {
-        let poly = Polygon::rect(Point::origin(), 1.0, 1.0);
+        let poly = Polygon::rect(Point::origin(), 1.0, 1.0).unwrap();
         check_snap_to_grid(&poly, Layer::new(1, 0), -0.001, None);
     }
 }

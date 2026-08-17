@@ -119,13 +119,14 @@ fn signed_area(pts: &[[f64; 2]]) -> f64 {
 }
 
 /// Convert a contour to a single-ring layout polygon.
-fn contour_to_polygon(points: &[[f64; 2]]) -> Polygon {
+fn contour_to_polygon(points: &[[f64; 2]]) -> Option<Polygon> {
     Polygon::new(
         points
             .iter()
             .map(|point| Point::new(point[0], point[1]))
             .collect(),
     )
+    .ok()
 }
 
 /// Explicitly lower a hole-preserving region into flat layout polygons.
@@ -149,6 +150,9 @@ fn region_to_flat(region: &Region) -> Vec<Vec<f64>> {
 /// * `x`, `y` — world-space position of the text anchor (bottom-left)
 /// * `height` — visual cap-height in world units
 pub fn text_to_polygon_contours(text: &str, x: f64, y: f64, height: f64) -> Vec<Vec<f64>> {
+    if !x.is_finite() || !y.is_finite() || !height.is_finite() || height <= 0.0 {
+        return Vec::new();
+    }
     let face = match Face::parse(FONT_DATA, 0) {
         Ok(f) => f,
         Err(_) => return Vec::new(),
@@ -241,15 +245,20 @@ pub fn text_to_polygon_contours(text: &str, x: f64, y: f64, height: f64) -> Vec<
                     }
                 } else {
                     // Boolean subtract holes from the union of outers.
-                    let outer_polygons: Vec<_> = outers
+                    let Some(outer_polygons): Option<Vec<_>> = outers
                         .iter()
                         .map(|outer| contour_to_polygon(outer))
-                        .collect();
+                        .collect()
+                    else {
+                        return Vec::new();
+                    };
                     let mut outer_region = Region::from_polygons(&outer_polygons);
 
                     for hole in &holes {
-                        outer_region =
-                            outer_region.subtract(&Region::from_polygon(&contour_to_polygon(hole)));
+                        let Some(hole) = contour_to_polygon(hole) else {
+                            return Vec::new();
+                        };
+                        outer_region = outer_region.subtract(&Region::from_polygon(&hole));
                     }
 
                     let polys = region_to_flat(&outer_region);

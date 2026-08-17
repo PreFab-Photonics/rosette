@@ -36,8 +36,15 @@ pub mod path;
 pub mod port;
 
 // Re-export primary types at crate root for convenience
-pub use cell::{Cell, CellRef, DuplicatePolicy, Library, PathEndType, Repetition};
-pub use error::{CellValidationError, LibraryError};
+pub use cell::{
+    Cell, CellRef, DuplicatePolicy, Library, PathElement, PathEndType, Repetition, TextElement,
+};
+pub use error::{
+    BBoxValidationReason, CellEditError, CellRefError, CellRefValidationReason,
+    CellValidationError, LibraryEditError, LibraryError, PathValidationReason,
+    PolygonValidationReason, PortValidationReason, RepetitionValidationReason,
+    TextValidationReason,
+};
 pub use geometry::{BBox, Point, Polygon, Transform, Vector2};
 pub use layer::Layer;
 pub use port::Port;

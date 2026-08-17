@@ -179,15 +179,8 @@ impl BendAnnotation {
 }
 
 impl DrcAnnotations {
-    fn validate(&self, path: &str) -> Result<(), JsonError> {
-        for (index, region) in self.waive_regions.iter().enumerate() {
-            if !region.is_valid() {
-                return Err(invalid(
-                    &format!("{path}.waive_regions[{index}]"),
-                    "bounding-box corners must be finite and ordered",
-                ));
-            }
-        }
+    fn validate(&self, _path: &str) -> Result<(), JsonError> {
+        // BBox construction enforces finite, ordered corners.
         Ok(())
     }
 }
@@ -227,7 +220,7 @@ mod tests {
     #[test]
     fn from_library_builds_v1_defaults_for_every_cell() {
         let mut library = Library::new("test");
-        library.add_cell(Cell::new("cell")).unwrap();
+        library.add_cell(Cell::new("cell").unwrap()).unwrap();
 
         let document = LayoutDocument::from_library(library).unwrap();
         assert_eq!(
@@ -243,7 +236,7 @@ mod tests {
     #[test]
     fn from_parts_validates_keys_and_values() {
         let mut library = Library::new("test");
-        library.add_cell(Cell::new("cell")).unwrap();
+        library.add_cell(Cell::new("cell").unwrap()).unwrap();
 
         assert!(matches!(
             LayoutDocument::from_parts(library.clone(), HashMap::new()),

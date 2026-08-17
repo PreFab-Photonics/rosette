@@ -1,5 +1,22 @@
 //! Format-neutral errors for the core layout model.
 
+use std::error::Error;
+use std::fmt;
+
+/// Reason that an axis-aligned bounding box is invalid.
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+pub enum BBoxValidationReason {
+    /// Bounds cannot be inferred without at least one point.
+    #[error("expected at least 1 point")]
+    EmptyPoints,
+    /// Every point used to construct bounds must be finite.
+    #[error("point {point_index} is not finite")]
+    NonFinitePoint { point_index: usize },
+    /// Minimum coordinates must not exceed maximum coordinates.
+    #[error("minimum corner exceeds maximum corner")]
+    UnorderedCorners,
+}
+
 /// Reason that a polygon element is invalid.
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum PolygonValidationReason {
@@ -57,6 +74,17 @@ pub enum RepetitionValidationReason {
     /// The row pitch vector must be finite.
     #[error("row vector is not finite")]
     NonFiniteRowVector,
+}
+
+/// Error constructing or updating a cell reference.
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+pub enum CellRefError {
+    /// The reference target or transform is invalid.
+    #[error(transparent)]
+    Reference(#[from] CellRefValidationReason),
+    /// The optional array repetition is invalid.
+    #[error(transparent)]
+    Repetition(#[from] RepetitionValidationReason),
 }
 
 /// Reason that a text element is invalid.
@@ -153,6 +181,33 @@ pub enum CellValidationError {
     ElementIndexOutOfBounds { index: usize, len: usize },
 }
 
+/// Error returned by a transactional cell edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CellEditError<E> {
+    /// The edit callback rejected the candidate.
+    Callback(E),
+    /// The edited candidate violates a cell invariant.
+    Validation(CellValidationError),
+}
+
+impl<E: fmt::Display> fmt::Display for CellEditError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Callback(error) => write!(formatter, "cell edit failed: {error}"),
+            Self::Validation(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl<E: Error + 'static> Error for CellEditError<E> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Callback(error) => Some(error),
+            Self::Validation(error) => Some(error),
+        }
+    }
+}
+
 /// Errors that preserve library identity and uniqueness invariants.
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum LibraryError {
@@ -182,4 +237,31 @@ pub enum LibraryError {
         name: String,
         referenced_by: Vec<String>,
     },
+}
+
+/// Error returned by a transactional library edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LibraryEditError<E> {
+    /// The edit callback rejected the candidate.
+    Callback(E),
+    /// The edited candidate violates a library invariant.
+    Validation(LibraryError),
+}
+
+impl<E: fmt::Display> fmt::Display for LibraryEditError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Callback(error) => write!(formatter, "library edit failed: {error}"),
+            Self::Validation(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl<E: Error + 'static> Error for LibraryEditError<E> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Callback(error) => Some(error),
+            Self::Validation(error) => Some(error),
+        }
+    }
 }

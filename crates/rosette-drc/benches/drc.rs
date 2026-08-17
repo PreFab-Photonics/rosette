@@ -399,15 +399,16 @@ fn bench_incremental(c: &mut Criterion) {
                 let dy = if toggle { 0.5 } else { 0.0 };
                 let _ = lib.edit_cell(&leaf_name, |leaf| {
                     *leaf = {
-                        let mut c = rosette_core::Cell::new(&leaf_name);
+                        let mut c = rosette_core::Cell::new(&leaf_name).unwrap();
                         for p in 0..polys_per_cell {
                             c.add_polygon(
-                                Polygon::rect(Point::new(p as f64 * 2.0, dy), 1.0, 1.0),
+                                Polygon::rect(Point::new(p as f64 * 2.0, dy), 1.0, 1.0).unwrap(),
                                 Layer::new(1, 0),
                             );
                         }
                         c
                     };
+                    Ok::<_, std::convert::Infallible>(())
                 });
                 let top = lib.cell(&top_name).expect("top").clone();
                 runner.check_cached(black_box(&top), Some(&lib), &mut cache)

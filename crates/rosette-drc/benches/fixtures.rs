@@ -39,7 +39,7 @@ pub const L3: Layer = Layer {
 ///
 /// Rect side length is fixed at 1.0 to keep bbox math simple.
 pub fn build_flat_grid(n: usize, pitch: f64) -> Cell {
-    let mut cell = Cell::new("flat_grid");
+    let mut cell = Cell::new("flat_grid").unwrap();
     let side = 1.0_f64;
     let cols = (n as f64).sqrt().ceil() as usize;
     for i in 0..n {
@@ -47,7 +47,7 @@ pub fn build_flat_grid(n: usize, pitch: f64) -> Cell {
         let row = i / cols;
         let x = col as f64 * pitch;
         let y = row as f64 * pitch;
-        cell.add_polygon(Polygon::rect(Point::new(x, y), side, side), L1);
+        cell.add_polygon(Polygon::rect(Point::new(x, y), side, side).unwrap(), L1);
     }
     cell
 }
@@ -67,7 +67,7 @@ pub fn build_flat_grid(n: usize, pitch: f64) -> Cell {
 /// Used for `require_overlap`, `forbid_overlap` (with pitch chosen so no cross
 /// overlap exists), and `enclosure`.
 pub fn build_paired_layers(n: usize, pitch: f64) -> Cell {
-    let mut cell = Cell::new("paired");
+    let mut cell = Cell::new("paired").unwrap();
     let inner_side = 1.0;
     let outer_side = 3.0;
     let cols = (n as f64).sqrt().ceil() as usize;
@@ -78,12 +78,12 @@ pub fn build_paired_layers(n: usize, pitch: f64) -> Cell {
         let cy = row as f64 * pitch;
         // outer rect on layer 2, centered on (cx, cy)
         cell.add_polygon(
-            Polygon::rect_centered(Point::new(cx, cy), outer_side, outer_side),
+            Polygon::rect_centered(Point::new(cx, cy), outer_side, outer_side).unwrap(),
             L2,
         );
         // inner rect on layer 1, same center
         cell.add_polygon(
-            Polygon::rect_centered(Point::new(cx, cy), inner_side, inner_side),
+            Polygon::rect_centered(Point::new(cx, cy), inner_side, inner_side).unwrap(),
             L1,
         );
     }
@@ -103,7 +103,7 @@ pub fn build_paired_layers(n: usize, pitch: f64) -> Cell {
 ///
 /// Returns a single flat `Cell`. Used for the `very_dense` overlap benches.
 pub fn build_overlap_cluster(n: usize, pitch: f64) -> Cell {
-    let mut cell = Cell::new("overlap_cluster");
+    let mut cell = Cell::new("overlap_cluster").unwrap();
     let side = 1.0_f64;
     let cols = (n as f64).sqrt().ceil() as usize;
     for i in 0..n {
@@ -112,11 +112,11 @@ pub fn build_overlap_cluster(n: usize, pitch: f64) -> Cell {
         let x = col as f64 * pitch;
         let y = row as f64 * pitch;
         // Layer 1 on the grid.
-        cell.add_polygon(Polygon::rect(Point::new(x, y), side, side), L1);
+        cell.add_polygon(Polygon::rect(Point::new(x, y), side, side).unwrap(), L1);
         // Layer 2 offset by half a pitch on each axis so it straddles four
         // layer-1 squares.
         cell.add_polygon(
-            Polygon::rect(Point::new(x + pitch * 0.5, y + pitch * 0.5), side, side),
+            Polygon::rect(Point::new(x + pitch * 0.5, y + pitch * 0.5), side, side).unwrap(),
             L2,
         );
     }
@@ -126,8 +126,11 @@ pub fn build_overlap_cluster(n: usize, pitch: f64) -> Cell {
 /// Build a single cell containing one regular polygon with `vertices` sides on
 /// layer 1. Used for per-polygon checks (width, self-intersection, edge length).
 pub fn build_high_vertex_polygon(vertices: usize) -> Cell {
-    let mut cell = Cell::new("high_vertex");
-    cell.add_polygon(Polygon::regular(Point::origin(), 10.0, vertices), L1);
+    let mut cell = Cell::new("high_vertex").unwrap();
+    cell.add_polygon(
+        Polygon::regular(Point::origin(), 10.0, vertices).unwrap(),
+        L1,
+    );
     cell
 }
 
@@ -138,18 +141,35 @@ pub fn build_high_vertex_polygon(vertices: usize) -> Cell {
 /// The child is on layer 1. Returns `(library, top_cell_name)`. Use
 /// `library.cell(&top_name).unwrap()` to get the top-level `&Cell`.
 pub fn build_aref(rows: u16, cols: u16, pitch: f64) -> (Library, String) {
-    let mut child = Cell::new("aref_unit");
+    let mut child = Cell::new("aref_unit").unwrap();
     // Five small rects in a plus pattern — gives the child a non-trivial bbox
     // and enough geometry that per-cell dedup measurably matters.
     let s = 0.5;
-    child.add_polygon(Polygon::rect_centered(Point::origin(), s, s), L1);
-    child.add_polygon(Polygon::rect_centered(Point::new(-1.0, 0.0), s, s), L1);
-    child.add_polygon(Polygon::rect_centered(Point::new(1.0, 0.0), s, s), L1);
-    child.add_polygon(Polygon::rect_centered(Point::new(0.0, -1.0), s, s), L1);
-    child.add_polygon(Polygon::rect_centered(Point::new(0.0, 1.0), s, s), L1);
+    child.add_polygon(Polygon::rect_centered(Point::origin(), s, s).unwrap(), L1);
+    child.add_polygon(
+        Polygon::rect_centered(Point::new(-1.0, 0.0), s, s).unwrap(),
+        L1,
+    );
+    child.add_polygon(
+        Polygon::rect_centered(Point::new(1.0, 0.0), s, s).unwrap(),
+        L1,
+    );
+    child.add_polygon(
+        Polygon::rect_centered(Point::new(0.0, -1.0), s, s).unwrap(),
+        L1,
+    );
+    child.add_polygon(
+        Polygon::rect_centered(Point::new(0.0, 1.0), s, s).unwrap(),
+        L1,
+    );
 
-    let mut top = Cell::new("aref_top");
-    top.add_ref(CellRef::new("aref_unit").array(cols, rows, pitch, pitch));
+    let mut top = Cell::new("aref_top").unwrap();
+    top.add_ref(
+        CellRef::new("aref_unit")
+            .unwrap()
+            .array(cols, rows, pitch, pitch)
+            .unwrap(),
+    );
 
     let mut lib = Library::new("aref_bench");
     lib.add_cell(child).unwrap();
@@ -168,27 +188,37 @@ pub fn build_aref(rows: u16, cols: u16, pitch: f64) -> (Library, String) {
 /// - Top cell `bench_top` with 25 `row` references, for a total of
 ///   10 * 4 * 25 = 1000 polygons after flattening.
 pub fn build_realistic() -> (Library, String) {
-    let mut tile = Cell::new("tile");
+    let mut tile = Cell::new("tile").unwrap();
     // Waveguide-ish rect on layer 1.
-    tile.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.5), L1);
+    tile.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.5).unwrap(), L1);
     // Via marker on layer 2.
-    tile.add_polygon(Polygon::rect(Point::new(0.8, 0.15), 0.4, 0.2), L2);
+    tile.add_polygon(Polygon::rect(Point::new(0.8, 0.15), 0.4, 0.2).unwrap(), L2);
     // Metal patch on layer 3.
-    tile.add_polygon(Polygon::rect(Point::new(0.5, -0.4), 1.0, 0.3), L3);
+    tile.add_polygon(Polygon::rect(Point::new(0.5, -0.4), 1.0, 0.3).unwrap(), L3);
     // Extra shape on layer 1 (taper-ish). Offset by 0.1 from the waveguide
     // end so `min_spacing(L1, L1)` doesn't flag a touching-edge violation on
     // every tile — we want the realistic bench to time the non-violating
     // path, not the violation-collection path.
-    tile.add_polygon(Polygon::rect(Point::new(2.1, 0.15), 0.5, 0.2), L1);
+    tile.add_polygon(Polygon::rect(Point::new(2.1, 0.15), 0.5, 0.2).unwrap(), L1);
 
-    let mut row = Cell::new("row");
+    let mut row = Cell::new("row").unwrap();
     for i in 0..10 {
-        row.add_ref(CellRef::new("tile").at(i as f64 * 3.0, 0.0));
+        row.add_ref(
+            CellRef::new("tile")
+                .unwrap()
+                .at(i as f64 * 3.0, 0.0)
+                .unwrap(),
+        );
     }
 
-    let mut top = Cell::new("bench_top");
+    let mut top = Cell::new("bench_top").unwrap();
     for j in 0..25 {
-        top.add_ref(CellRef::new("row").at(0.0, j as f64 * 2.0));
+        top.add_ref(
+            CellRef::new("row")
+                .unwrap()
+                .at(0.0, j as f64 * 2.0)
+                .unwrap(),
+        );
     }
 
     let mut lib = Library::new("bench_realistic");
@@ -210,20 +240,28 @@ pub fn build_realistic() -> (Library, String) {
 /// fetch and mutate it to simulate a single-cell edit.
 pub fn build_distinct_leaves(n_cells: usize, polys_per_cell: usize) -> (Library, String, String) {
     let mut lib = Library::new("bench_incremental");
-    let mut top = Cell::new("inc_top");
+    let mut top = Cell::new("inc_top").unwrap();
     let pitch = (polys_per_cell as f64) * 2.0 + 4.0;
 
     for c in 0..n_cells {
         let name = format!("leaf_{c}");
-        let mut leaf = Cell::new(&name);
+        let mut leaf = Cell::new(&name).unwrap();
         for p in 0..polys_per_cell {
             // Comfortably-passing width so the bench times the non-violating
             // path, not violation collection.
-            leaf.add_polygon(Polygon::rect(Point::new(p as f64 * 2.0, 0.0), 1.0, 1.0), L1);
+            leaf.add_polygon(
+                Polygon::rect(Point::new(p as f64 * 2.0, 0.0), 1.0, 1.0).unwrap(),
+                L1,
+            );
         }
         lib.add_cell(leaf).unwrap();
         // Lay leaves out on a line, well separated so Phase-3 does little work.
-        top.add_ref(CellRef::new(&name).at(0.0, c as f64 * pitch));
+        top.add_ref(
+            CellRef::new(&name)
+                .unwrap()
+                .at(0.0, c as f64 * pitch)
+                .unwrap(),
+        );
     }
 
     lib.add_cell(top).unwrap();

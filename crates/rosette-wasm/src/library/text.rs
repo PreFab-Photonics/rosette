@@ -2,7 +2,8 @@
 
 use super::{ElementRef, WasmLibrary};
 use rosette_core::cell::Element;
-use rosette_core::{Layer, Point};
+use rosette_core::{Layer, Point, Polygon};
+use std::convert::Infallible;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
@@ -31,8 +32,9 @@ impl WasmLibrary {
         let element_index = self
             .library
             .edit_cell(&cell_name, |cell| {
-                cell.add_text_with_height(text, position, layer_spec, height);
-                cell.elements().len() - 1
+                let element_index = cell.elements().len();
+                cell.add_text_with_height(text, position, layer_spec, height)
+                    .map(|()| element_index)
             })
             .ok()?;
         let uuid = Uuid::new_v4().to_string();
@@ -65,13 +67,7 @@ impl WasmLibrary {
         };
 
         for (elem_idx, element) in cell.elements().iter().enumerate() {
-            if let Element::Text {
-                text,
-                position,
-                layer,
-                height,
-            } = element
-            {
+            if let Element::Text(text) = element {
                 // Find the UUID for this element
                 let uuid = self
                     .element_refs
@@ -86,10 +82,13 @@ impl WasmLibrary {
 
                 let obj = js_sys::Object::new();
                 js_sys::Reflect::set(&obj, &"id".into(), &JsValue::from_str(id)).ok();
-                js_sys::Reflect::set(&obj, &"text".into(), &JsValue::from_str(text)).ok();
+                let position = text.position();
+                let layer = text.layer();
+                js_sys::Reflect::set(&obj, &"text".into(), &JsValue::from_str(text.text())).ok();
                 js_sys::Reflect::set(&obj, &"x".into(), &JsValue::from_f64(position.x)).ok();
                 js_sys::Reflect::set(&obj, &"y".into(), &JsValue::from_f64(position.y)).ok();
-                js_sys::Reflect::set(&obj, &"height".into(), &JsValue::from_f64(*height)).ok();
+                js_sys::Reflect::set(&obj, &"height".into(), &JsValue::from_f64(text.height()))
+                    .ok();
                 js_sys::Reflect::set(
                     &obj,
                     &"layer".into(),
@@ -122,15 +121,14 @@ impl WasmLibrary {
             .library
             .edit_cell(&elem_ref.cell_name, |cell| {
                 cell.edit_element(elem_ref.element_index, |element| {
-                    let Element::Text { text, .. } = element else {
-                        return false;
+                    let Element::Text(text) = element else {
+                        return Ok::<_, Infallible>(false);
                     };
-                    *text = new_text.to_string();
-                    true
+                    text.set_text(new_text);
+                    Ok(true)
                 })
             })
             .ok()
-            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -153,18 +151,14 @@ impl WasmLibrary {
             None => return JsValue::NULL,
         };
 
-        if let Some(Element::Text {
-            text,
-            position,
-            layer,
-            height,
-        }) = cell.elements().get(elem_ref.element_index)
-        {
+        if let Some(Element::Text(text)) = cell.elements().get(elem_ref.element_index) {
+            let position = text.position();
+            let layer = text.layer();
             let obj = js_sys::Object::new();
-            js_sys::Reflect::set(&obj, &"text".into(), &JsValue::from_str(text)).ok();
+            js_sys::Reflect::set(&obj, &"text".into(), &JsValue::from_str(text.text())).ok();
             js_sys::Reflect::set(&obj, &"x".into(), &JsValue::from_f64(position.x)).ok();
             js_sys::Reflect::set(&obj, &"y".into(), &JsValue::from_f64(position.y)).ok();
-            js_sys::Reflect::set(&obj, &"height".into(), &JsValue::from_f64(*height)).ok();
+            js_sys::Reflect::set(&obj, &"height".into(), &JsValue::from_f64(text.height())).ok();
             js_sys::Reflect::set(
                 &obj,
                 &"layer".into(),
@@ -199,15 +193,13 @@ impl WasmLibrary {
             .library
             .edit_cell(&elem_ref.cell_name, |cell| {
                 cell.edit_element(elem_ref.element_index, |element| {
-                    let Element::Text { position, .. } = element else {
-                        return false;
+                    let Element::Text(text) = element else {
+                        return Ok(false);
                     };
-                    *position = Point::new(x, y);
-                    true
+                    text.set_position(Point::new(x, y)).map(|()| true)
                 })
             })
             .ok()
-            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -231,15 +223,13 @@ impl WasmLibrary {
             .library
             .edit_cell(&elem_ref.cell_name, |cell| {
                 cell.edit_element(elem_ref.element_index, |element| {
-                    let Element::Text { height, .. } = element else {
-                        return false;
+                    let Element::Text(text) = element else {
+                        return Ok(false);
                     };
-                    *height = new_height;
-                    true
+                    text.set_height(new_height).map(|()| true)
                 })
             })
             .ok()
-            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -259,7 +249,7 @@ impl WasmLibrary {
         };
         matches!(
             cell.elements().get(elem_ref.element_index),
-            Some(Element::Text { .. })
+            Some(Element::Text(_))
         )
     }
 
@@ -283,18 +273,16 @@ impl WasmLibrary {
         };
         let (text, position, layer_num, datatype, height) =
             match cell.elements().get(elem_ref.element_index) {
-                Some(Element::Text {
-                    text,
-                    position,
-                    layer,
-                    height,
-                }) => (
-                    text.clone(),
-                    *position,
-                    layer.number,
-                    layer.datatype,
-                    *height,
-                ),
+                Some(Element::Text(text)) => {
+                    let layer = text.layer();
+                    (
+                        text.text().to_string(),
+                        text.position(),
+                        layer.number,
+                        layer.datatype,
+                        text.height(),
+                    )
+                }
                 _ => return Vec::new(),
             };
 
@@ -304,18 +292,76 @@ impl WasmLibrary {
             return Vec::new();
         }
 
-        // Remove the original text element.
-        self.remove_element(id);
+        let Some(active_cell) = self.active_cell.clone() else {
+            return Vec::new();
+        };
+        let polygons: Result<Vec<_>, _> = contours
+            .iter()
+            .map(|vertices| {
+                Polygon::new(
+                    vertices
+                        .chunks_exact(2)
+                        .map(|point| Point::new(point[0], point[1]))
+                        .collect(),
+                )
+            })
+            .collect();
+        let Ok(polygons) = polygons else {
+            return Vec::new();
+        };
 
-        // Add each contour as a polygon on the same layer.
-        // Contours are keyholed single-ring polygons (holes bridged in).
-        let mut new_ids: Vec<String> = Vec::new();
-        for flat_verts in &contours {
-            if let Some(uuid) = self.add_polygon(flat_verts, layer_num, datatype) {
-                new_ids.push(uuid);
+        let mut candidate_library = self.library.clone();
+        let removed = candidate_library
+            .edit_cell(&elem_ref.cell_name, |cell| {
+                Ok::<_, Infallible>(cell.remove_element(elem_ref.element_index).is_some())
+            })
+            .ok();
+        if removed != Some(true) {
+            return Vec::new();
+        }
+        let Some(first_result_index) = candidate_library
+            .cell(&active_cell)
+            .map(|cell| cell.elements().len())
+        else {
+            return Vec::new();
+        };
+        if candidate_library
+            .edit_cell(&active_cell, |cell| {
+                for polygon in &polygons {
+                    cell.add_polygon(polygon.clone(), Layer::new(layer_num, datatype));
+                }
+                Ok::<_, Infallible>(())
+            })
+            .is_err()
+        {
+            return Vec::new();
+        }
+
+        let mut candidate_refs = self.element_refs.clone();
+        candidate_refs.remove(id);
+        for element_ref in candidate_refs.values_mut() {
+            if element_ref.cell_name == elem_ref.cell_name
+                && element_ref.element_index > elem_ref.element_index
+            {
+                element_ref.element_index -= 1;
             }
         }
 
+        let mut new_ids = Vec::with_capacity(polygons.len());
+        for offset in 0..polygons.len() {
+            let uuid = Uuid::new_v4().to_string();
+            candidate_refs.insert(
+                uuid.clone(),
+                ElementRef {
+                    cell_name: active_cell.clone(),
+                    element_index: first_result_index + offset,
+                },
+            );
+            new_ids.push(uuid);
+        }
+
+        self.library = candidate_library;
+        self.element_refs = candidate_refs;
         self.mark_dirty();
         new_ids
     }
@@ -345,5 +391,24 @@ mod tests {
         assert!(library.set_text_position(&id, 7.0, 8.0));
         assert!(library.set_text_height(&id, 9.0));
         assert_eq!(library.get_element_index(&id), 0);
+    }
+
+    #[test]
+    fn text_conversion_replaces_the_label_and_reindexes_survivors() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("top").unwrap();
+        let text = library.add_text("A", 0.0, 0.0, 10.0, 1, 0).unwrap();
+        let trailing = library
+            .add_polygon(&[20.0, 0.0, 21.0, 0.0, 21.0, 1.0], 2, 0)
+            .unwrap();
+
+        let polygons = library.text_to_polygons(&text);
+
+        assert!(!polygons.is_empty());
+        assert_eq!(library.get_element_index(&text), -1);
+        assert_eq!(library.get_element_index(&trailing), 0);
+        for (offset, id) in polygons.iter().enumerate() {
+            assert_eq!(library.get_element_index(id), (offset + 1) as i32);
+        }
     }
 }

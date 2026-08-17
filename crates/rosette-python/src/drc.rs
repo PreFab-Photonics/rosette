@@ -29,12 +29,12 @@ impl PyDrcPolicy {
 
     /// Add a waiver region in a cell's local coordinate frame.
     fn waive_region(&mut self, cell_name: String, region: &PyBBox) -> PyResult<()> {
-        if !region.0.is_valid() {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+        let region = region.to_core().map_err(|_| {
+            pyo3::exceptions::PyValueError::new_err(
                 "DRC waiver region must have finite, ordered corners",
-            ));
-        }
-        self.0.waive_region(cell_name, region.0);
+            )
+        })?;
+        self.0.waive_region(cell_name, region);
         Ok(())
     }
 
@@ -49,7 +49,7 @@ impl PyDrcPolicy {
             .waiver_regions(cell_name)
             .iter()
             .copied()
-            .map(PyBBox)
+            .map(PyBBox::from_core)
             .collect()
     }
 }
@@ -613,7 +613,7 @@ mod tests {
     #[test]
     fn python_policy_wraps_explicit_drc_policy() {
         let mut policy = PyDrcPolicy::new();
-        let region = PyBBox(BBox::new(Point::origin(), Point::new(2.0, 3.0)));
+        let region = PyBBox::from_core(BBox::new(Point::origin(), Point::new(2.0, 3.0)).unwrap());
 
         policy.skip_cell("trusted".to_string());
         policy.waive_region("trusted".to_string(), &region).unwrap();

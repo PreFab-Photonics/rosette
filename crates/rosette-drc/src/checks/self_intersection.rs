@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn test_simple_rectangle_no_intersection() {
-        let poly = Polygon::rect(Point::origin(), 10.0, 5.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 5.0).unwrap();
         let result = check_self_intersection(&poly, Layer::new(1, 0), None);
         assert!(result.is_none());
     }
@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn test_convex_polygon_no_intersection() {
         // Regular hexagon
-        let poly = Polygon::regular(Point::origin(), 5.0, 6);
+        let poly = Polygon::regular(Point::origin(), 5.0, 6).unwrap();
         let result = check_self_intersection(&poly, Layer::new(1, 0), None);
         assert!(result.is_none());
     }
@@ -103,7 +103,8 @@ mod tests {
             Point::new(2.0, 2.0),
             Point::new(2.0, 10.0),
             Point::new(0.0, 10.0),
-        ]);
+        ])
+        .unwrap();
         let result = check_self_intersection(&poly, Layer::new(1, 0), None);
         assert!(result.is_none());
     }
@@ -119,7 +120,8 @@ mod tests {
             Point::new(10.0, 5.0),
             Point::new(10.0, 0.0),
             Point::new(0.0, 5.0),
-        ]);
+        ])
+        .unwrap();
 
         let result = check_self_intersection(&poly, Layer::new(1, 0), Some("NO_SELF_X"));
         assert!(result.is_some());
@@ -142,7 +144,8 @@ mod tests {
             Point::new(10.0, 0.0),
             Point::new(0.0, 5.0),
             Point::new(10.0, 5.0),
-        ]);
+        ])
+        .unwrap();
 
         let result = check_self_intersection(&poly, Layer::new(1, 0), None);
         assert!(result.is_some(), "Twisted quad should self-intersect");
@@ -154,7 +157,8 @@ mod tests {
             Point::new(0.0, 0.0),
             Point::new(10.0, 0.0),
             Point::new(5.0, 5.0),
-        ]);
+        ])
+        .unwrap();
         let result = check_self_intersection(&poly, Layer::new(1, 0), None);
         assert!(result.is_none());
     }
@@ -166,7 +170,7 @@ mod tests {
         // costed several seconds at this scale (extrapolated from the 44 ms
         // measured at V=1000); the sweep-line implementation should be in
         // the low milliseconds.
-        let poly = Polygon::regular(Point::origin(), 10.0, 10_000);
+        let poly = Polygon::regular(Point::origin(), 10.0, 10_000).unwrap();
         let result = check_self_intersection(&poly, Layer::new(1, 0), None);
         assert!(
             result.is_none(),
@@ -180,10 +184,11 @@ mod tests {
         // Construct it from a regular polygon with two vertices swapped to
         // introduce exactly one X-crossing.
         let mut verts = Polygon::regular(Point::origin(), 10.0, 10_000)
+            .unwrap()
             .vertices()
             .to_vec();
         verts.swap(1, 2_000);
-        let poly = Polygon::new(verts);
+        let poly = Polygon::new(verts).unwrap();
 
         let result = check_self_intersection(&poly, Layer::new(1, 0), None);
         assert!(

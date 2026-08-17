@@ -25,7 +25,6 @@ impl DrcPolicy {
 
     /// Add a waiver region in a cell's local coordinate frame.
     pub fn waive_region(&mut self, cell_name: impl Into<String>, region: BBox) {
-        assert!(region.is_valid(), "DRC waiver region must be a valid BBox");
         self.waiver_regions
             .entry(cell_name.into())
             .or_default()
@@ -84,22 +83,23 @@ mod tests {
     fn stores_explicit_cell_annotations() {
         let mut policy = DrcPolicy::new();
         policy.skip_cell("child");
-        policy.waive_region("child", BBox::new(Point::origin(), Point::new(1.0, 2.0)));
+        policy.waive_region(
+            "child",
+            BBox::new(Point::origin(), Point::new(1.0, 2.0)).unwrap(),
+        );
         assert!(policy.skips("child"));
         assert_eq!(policy.waiver_regions("child").len(), 1);
     }
 
     #[test]
-    #[should_panic(expected = "DRC waiver region must be a valid BBox")]
-    fn rejects_invalid_waiver_regions() {
-        let mut policy = DrcPolicy::new();
-        policy.waive_region("child", BBox::new(Point::new(1.0, 0.0), Point::origin()));
+    fn bbox_constructor_rejects_invalid_waiver_regions() {
+        assert!(BBox::new(Point::new(1.0, 0.0), Point::origin()).is_err());
     }
 
     #[test]
     fn fingerprint_is_order_independent() {
-        let first = BBox::new(Point::origin(), Point::new(1.0, 2.0));
-        let second = BBox::new(Point::new(3.0, 4.0), Point::new(5.0, 6.0));
+        let first = BBox::new(Point::origin(), Point::new(1.0, 2.0)).unwrap();
+        let second = BBox::new(Point::new(3.0, 4.0), Point::new(5.0, 6.0)).unwrap();
         let mut a = DrcPolicy::new();
         a.skip_cell("a");
         a.skip_cell("b");

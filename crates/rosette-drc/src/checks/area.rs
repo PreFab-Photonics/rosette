@@ -44,14 +44,14 @@ mod tests {
 
     #[test]
     fn test_area_pass() {
-        let poly = Polygon::rect(Point::origin(), 10.0, 10.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 10.0).unwrap();
         let result = check_area(&poly, Layer::new(1, 0), 50.0, None);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_area_fail() {
-        let poly = Polygon::rect(Point::origin(), 2.0, 2.0);
+        let poly = Polygon::rect(Point::origin(), 2.0, 2.0).unwrap();
         let result = check_area(&poly, Layer::new(1, 0), 50.0, Some("MIN_AREA"));
         assert!(result.is_some());
 

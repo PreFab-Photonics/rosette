@@ -42,7 +42,7 @@ fn flatten_ports(cell: &Cell, library: Option<&Library>) -> Vec<FlatPort> {
                 // accumulate. Such placements have no representable ports.
                 result.extend(placement.cell.ports().iter().filter_map(|port| {
                     Some(FlatPort {
-                        port: port.try_transform(&placement.transform)?,
+                        port: port.try_transform(&placement.transform).ok()?,
                         cell_path: path.clone(),
                         is_top_level: placement.depth == 0,
                     })
@@ -64,7 +64,7 @@ fn flatten_ports(cell: &Cell, library: Option<&Library>) -> Vec<FlatPort> {
 /// Compute the angular deviation between two ports from perfect anti-parallel
 /// alignment. Returns the deviation in degrees (0 = perfectly anti-parallel).
 fn angle_deviation_deg(a: &Port, b: &Port) -> f64 {
-    let dot = a.direction.dot(b.direction);
+    let dot = a.direction().dot(b.direction());
     let dot_clamped = dot.clamp(-1.0, 1.0);
     let theta_deg = dot_clamped.acos().to_degrees();
     (180.0 - theta_deg).abs()
@@ -73,10 +73,12 @@ fn angle_deviation_deg(a: &Port, b: &Port) -> f64 {
 /// Make a point-sized BBox centred on a port position for violation location.
 fn port_bbox(port: &Port) -> BBox {
     let half = 0.05; // 50nm box for visibility
+    let position = port.position();
     BBox::new(
-        Point::new(port.position.x - half, port.position.y - half),
-        Point::new(port.position.x + half, port.position.y + half),
+        Point::new(position.x - half, position.y - half),
+        Point::new(position.x + half, position.y + half),
     )
+    .expect("validated port position produces valid bounds")
 }
 
 /// Connectivity check statistics.
@@ -145,8 +147,8 @@ pub fn check_connectivity(
         .enumerate()
         .map(|(i, fp)| IndexedPort {
             index: i,
-            x: fp.port.position.x,
-            y: fp.port.position.y,
+            x: fp.port.position().x,
+            y: fp.port.position().y,
         })
         .collect();
     let tree = RTree::bulk_load(indexed);
@@ -156,7 +158,7 @@ pub fn check_connectivity(
     let tol_sq = tol * tol;
 
     for i in 0..n {
-        let pos = flat_ports[i].port.position;
+        let pos = flat_ports[i].port.position();
         // Query all ports within `position_tolerance` of this one. Use a
         // bbox envelope (not nearest-neighbour) so we visit every candidate
         // in the window; the distance² filter below prunes the corners.
@@ -171,16 +173,16 @@ pub fn check_connectivity(
                 continue;
             }
 
-            let dx = flat_ports[j].port.position.x - pos.x;
-            let dy = flat_ports[j].port.position.y - pos.y;
+            let dx = flat_ports[j].port.position().x - pos.x;
+            let dy = flat_ports[j].port.position().y - pos.y;
             if dx * dx + dy * dy > tol_sq {
                 continue;
             }
 
             let dot = flat_ports[i]
                 .port
-                .direction
-                .dot(flat_ports[j].port.direction);
+                .direction()
+                .dot(flat_ports[j].port.direction());
 
             if dot < -0.99 {
                 // Anti-parallel (opposite directions) = a real connection
@@ -204,15 +206,15 @@ pub fn check_connectivity(
         if matched[i] || flat_ports[i].is_top_level {
             continue;
         }
-        let pos = flat_ports[i].port.position;
+        let pos = flat_ports[i].port.position();
         let envelope = AABB::from_corners([pos.x - tol, pos.y - tol], [pos.x + tol, pos.y + tol]);
         for candidate in tree.locate_in_envelope(&envelope) {
             let j = candidate.index;
             if j == i || !flat_ports[j].is_top_level {
                 continue;
             }
-            let dx = flat_ports[j].port.position.x - pos.x;
-            let dy = flat_ports[j].port.position.y - pos.y;
+            let dx = flat_ports[j].port.position().x - pos.x;
+            let dy = flat_ports[j].port.position().y - pos.y;
             if dx * dx + dy * dy <= tol_sq {
                 matched[i] = true;
                 break;
@@ -227,19 +229,19 @@ pub fn check_connectivity(
 
         // Width mismatch check
         if config.check_widths
-            && let (Some(wa), Some(wb)) = (a.port.width, b.port.width)
+            && let (Some(wa), Some(wb)) = (a.port.width(), b.port.width())
             && (wa - wb).abs() > 1e-6
         {
             let msg = format!(
                 "Width mismatch: \"{}\"{} has {:.3} \u{00b5}m, \"{}\"{} has {:.3} \u{00b5}m",
-                a.port.name,
+                a.port.name(),
                 if a.cell_path.is_empty() {
                     String::new()
                 } else {
                     format!(" on {}", a.cell_path)
                 },
                 wa,
-                b.port.name,
+                b.port.name(),
                 if b.cell_path.is_empty() {
                     String::new()
                 } else {
@@ -253,13 +255,13 @@ pub fn check_connectivity(
                         width_a: wa,
                         width_b: wb,
                     },
-                    a.port.name.clone(),
+                    a.port.name().to_string(),
                     a.cell_path.clone(),
                     port_bbox(&a.port),
                     msg,
                     config.severity,
                 )
-                .with_partner(b.port.name.clone(), b.cell_path.clone()),
+                .with_partner(b.port.name().to_string(), b.cell_path.clone()),
             );
         }
 
@@ -269,13 +271,13 @@ pub fn check_connectivity(
             let msg = format!(
                 "Angle deviation {:.2}\u{00b0} between \"{}\"{} and \"{}\"{} exceeds tolerance {:.2}\u{00b0}",
                 deviation,
-                a.port.name,
+                a.port.name(),
                 if a.cell_path.is_empty() {
                     String::new()
                 } else {
                     format!(" on {}", a.cell_path)
                 },
-                b.port.name,
+                b.port.name(),
                 if b.cell_path.is_empty() {
                     String::new()
                 } else {
@@ -289,7 +291,7 @@ pub fn check_connectivity(
                         deviation_deg: deviation,
                         tolerance_deg: config.angle_tolerance,
                     },
-                    a.port.name.clone(),
+                    a.port.name().to_string(),
                     a.cell_path.clone(),
                     port_bbox(&a.port),
                     msg,
@@ -297,7 +299,7 @@ pub fn check_connectivity(
                     // already enforces a coarse anti-parallel check.
                     Severity::Warning,
                 )
-                .with_partner(b.port.name.clone(), b.cell_path.clone()),
+                .with_partner(b.port.name().to_string(), b.cell_path.clone()),
             );
         }
     }
@@ -307,7 +309,7 @@ pub fn check_connectivity(
         if !matched[i] && !fp.is_top_level {
             let msg = format!(
                 "Port \"{}\" on {} has no connection",
-                fp.port.name,
+                fp.port.name(),
                 if fp.cell_path.is_empty() {
                     "top cell"
                 } else {
@@ -316,7 +318,7 @@ pub fn check_connectivity(
             );
             violations.push(CheckViolation::new(
                 CheckViolationType::UnconnectedPort,
-                fp.port.name.clone(),
+                fp.port.name().to_string(),
                 fp.cell_path.clone(),
                 port_bbox(&fp.port),
                 msg,
@@ -340,23 +342,31 @@ mod tests {
     use rosette_core::{CellRef, Layer, Point, Polygon, Vector2};
 
     fn make_component(name: &str, length: f64, width: f64) -> Cell {
-        let mut cell = Cell::new(name);
+        let mut cell = Cell::new(name).unwrap();
         cell.add_polygon(
-            Polygon::rect(Point::origin(), length, width),
+            Polygon::rect(Point::origin(), length, width).unwrap(),
             Layer::new(1, 0),
         );
-        cell.add_port(Port::with_width(
-            "in",
-            Point::new(0.0, width / 2.0),
-            -Vector2::unit_x(),
-            width,
-        ));
-        cell.add_port(Port::with_width(
-            "out",
-            Point::new(length, width / 2.0),
-            Vector2::unit_x(),
-            width,
-        ));
+        cell.add_port(
+            Port::with_width(
+                "in",
+                Point::new(0.0, width / 2.0),
+                -Vector2::unit_x(),
+                width,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        cell.add_port(
+            Port::with_width(
+                "out",
+                Point::new(length, width / 2.0),
+                Vector2::unit_x(),
+                width,
+            )
+            .unwrap(),
+        )
+        .unwrap();
         cell
     }
 
@@ -373,21 +383,17 @@ mod tests {
         lib.add_cell(wg1);
         lib.add_cell(wg2);
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("wg1"));
-        top.add_ref(CellRef::new("wg2").at(10.0, 0.0));
-        top.add_port(Port::with_width(
-            "in",
-            Point::new(0.0, 0.25),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        top.add_port(Port::with_width(
-            "out",
-            Point::new(20.0, 0.25),
-            Vector2::unit_x(),
-            0.5,
-        ));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("wg1").unwrap());
+        top.add_ref(CellRef::new("wg2").unwrap().at(10.0, 0.0).unwrap());
+        top.add_port(
+            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
+        top.add_port(
+            Port::with_width("out", Point::new(20.0, 0.25), Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
 
         lib.add_cell(top);
 
@@ -410,14 +416,12 @@ mod tests {
         let mut lib = Library::new("test");
         lib.add_cell(wg);
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("wg"));
-        top.add_port(Port::with_width(
-            "in",
-            Point::new(0.0, 0.25),
-            -Vector2::unit_x(),
-            0.5,
-        ));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("wg").unwrap());
+        top.add_port(
+            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
 
         lib.add_cell(top);
 
@@ -441,21 +445,17 @@ mod tests {
         lib.add_cell(wg1);
         lib.add_cell(wg2);
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("wg1"));
-        top.add_ref(CellRef::new("wg2").at(10.0, 0.05));
-        top.add_port(Port::with_width(
-            "in",
-            Point::new(0.0, 0.25),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        top.add_port(Port::with_width(
-            "out",
-            Point::new(20.0, 0.25),
-            Vector2::unit_x(),
-            0.4,
-        ));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("wg1").unwrap());
+        top.add_ref(CellRef::new("wg2").unwrap().at(10.0, 0.05).unwrap());
+        top.add_port(
+            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
+        top.add_port(
+            Port::with_width("out", Point::new(20.0, 0.25), Vector2::unit_x(), 0.4).unwrap(),
+        )
+        .unwrap();
 
         lib.add_cell(top);
 
@@ -475,19 +475,13 @@ mod tests {
 
     #[test]
     fn test_top_level_ports_exempt() {
-        let mut top = Cell::new("top");
-        top.add_port(Port::with_width(
-            "in",
-            Point::origin(),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        top.add_port(Port::with_width(
-            "out",
-            Point::new(100.0, 0.0),
-            Vector2::unit_x(),
-            0.5,
-        ));
+        let mut top = Cell::new("top").unwrap();
+        top.add_port(Port::with_width("in", Point::origin(), -Vector2::unit_x(), 0.5).unwrap())
+            .unwrap();
+        top.add_port(
+            Port::with_width("out", Point::new(100.0, 0.0), Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
 
         let (violations, stats) = check_connectivity(&top, &default_config(), None);
 
@@ -498,7 +492,7 @@ mod tests {
 
     #[test]
     fn test_empty_cell() {
-        let cell = Cell::new("empty");
+        let cell = Cell::new("empty").unwrap();
         let (violations, stats) = check_connectivity(&cell, &default_config(), None);
 
         assert!(violations.is_empty());
@@ -508,17 +502,15 @@ mod tests {
 
     #[test]
     fn transform_overflow_skips_unrepresentable_ports() {
-        let mut leaf = Cell::new("leaf");
-        leaf.add_port(Port::new(
-            "overflow",
-            Point::new(2.0, 0.0),
-            Vector2::unit_x(),
-        ));
-        let mut middle = Cell::new("middle");
-        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
-        let mut top = Cell::new("top");
-        top.add_port(Port::new("external", Point::origin(), Vector2::unit_x()));
-        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        let mut leaf = Cell::new("leaf").unwrap();
+        leaf.add_port(Port::new("overflow", Point::new(2.0, 0.0), Vector2::unit_x()).unwrap())
+            .unwrap();
+        let mut middle = Cell::new("middle").unwrap();
+        middle.add_ref(CellRef::new("leaf").unwrap().scale(f64::MAX).unwrap());
+        let mut top = Cell::new("top").unwrap();
+        top.add_port(Port::new("external", Point::origin(), Vector2::unit_x()).unwrap())
+            .unwrap();
+        top.add_ref(CellRef::new("middle").unwrap().scale(f64::MAX).unwrap());
         let mut library = Library::new("test");
         library.add_cell(leaf).unwrap();
         library.add_cell(middle).unwrap();
@@ -537,36 +529,28 @@ mod tests {
     fn test_with_hierarchy() {
         let wg = make_component("wg", 10.0, 0.5);
 
-        let mut arm = Cell::new("arm");
-        arm.add_ref(CellRef::new("wg"));
-        arm.add_port(Port::with_width(
-            "in",
-            Point::new(0.0, 0.25),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        arm.add_port(Port::with_width(
-            "out",
-            Point::new(10.0, 0.25),
-            Vector2::unit_x(),
-            0.5,
-        ));
+        let mut arm = Cell::new("arm").unwrap();
+        arm.add_ref(CellRef::new("wg").unwrap());
+        arm.add_port(
+            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
+        arm.add_port(
+            Port::with_width("out", Point::new(10.0, 0.25), Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("arm"));
-        top.add_ref(CellRef::new("arm").at(10.0, 0.0));
-        top.add_port(Port::with_width(
-            "in",
-            Point::new(0.0, 0.25),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        top.add_port(Port::with_width(
-            "out",
-            Point::new(20.0, 0.25),
-            Vector2::unit_x(),
-            0.5,
-        ));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("arm").unwrap());
+        top.add_ref(CellRef::new("arm").unwrap().at(10.0, 0.0).unwrap());
+        top.add_port(
+            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
+        top.add_port(
+            Port::with_width("out", Point::new(20.0, 0.25), Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
 
         let mut lib = Library::new("test");
         lib.add_cell(wg);
@@ -586,15 +570,17 @@ mod tests {
 
     #[test]
     fn test_aref_copies_have_distinct_ports_and_paths() {
-        let mut child = Cell::new("child");
-        child.add_port(Port::with_width(
-            "port",
-            Point::origin(),
-            Vector2::unit_x(),
-            0.5,
-        ));
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("child").array(3, 1, 10.0, 0.0));
+        let mut child = Cell::new("child").unwrap();
+        child
+            .add_port(Port::with_width("port", Point::origin(), Vector2::unit_x(), 0.5).unwrap())
+            .unwrap();
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(
+            CellRef::new("child")
+                .unwrap()
+                .array(3, 1, 10.0, 0.0)
+                .unwrap(),
+        );
         let mut library = Library::new("test");
         library.add_cell(child);
         library.add_cell(top);
@@ -629,21 +615,17 @@ mod tests {
         lib.add_cell(wg1);
         lib.add_cell(wg2);
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("wg1"));
-        top.add_ref(CellRef::new("wg2").at(10.0, 0.05));
-        top.add_port(Port::with_width(
-            "in",
-            Point::new(0.0, 0.25),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        top.add_port(Port::with_width(
-            "out",
-            Point::new(20.0, 0.25),
-            Vector2::unit_x(),
-            0.4,
-        ));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("wg1").unwrap());
+        top.add_ref(CellRef::new("wg2").unwrap().at(10.0, 0.05).unwrap());
+        top.add_port(
+            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
+        top.add_port(
+            Port::with_width("out", Point::new(20.0, 0.25), Vector2::unit_x(), 0.4).unwrap(),
+        )
+        .unwrap();
 
         lib.add_cell(top);
 

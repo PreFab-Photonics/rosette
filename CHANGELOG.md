@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `Route::build()`, `Region`, and standard `From` conversions are now the
   canonical forms; duplicate panic wrappers, count helpers, convenience
   constructors, and crate-root feature aliases have been removed.
+- **Rust breaking:** invariant-bearing `BBox`, `Polygon`, `Port`, `CellRef`,
+  `Repetition`, path, text, cell, and route data can now only be created or
+  mutated through validated `Result` APIs with typed errors. Their stored
+  fields are private and exposed through read-only accessors.
+- Path and text enum payloads now use validated `PathElement` and `TextElement`
+  types, preventing public `Element` construction from bypassing local model
+  invariants.
 - Python, WASM, GDS, and `rosette-layout` V1 behavior remain unchanged while
   their adapters use the narrowed Rust surface.
 

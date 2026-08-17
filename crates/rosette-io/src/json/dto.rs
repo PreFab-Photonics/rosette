@@ -305,7 +305,8 @@ impl CellDto {
             return Err(invalid(&cell_path, "cell name cannot be empty"));
         }
 
-        let mut cell = Cell::new(self.name);
+        let mut cell =
+            Cell::new(self.name).map_err(|error| invalid(&cell_path, &error.to_string()))?;
         for (element_index, element) in self.elements.into_iter().enumerate() {
             element.add_to_cell(&mut cell, &format!("{cell_path}.elements[{element_index}]"))?;
         }
@@ -316,7 +317,8 @@ impl CellDto {
             if !port_names.insert(port.name.clone()) {
                 return Err(invalid(&path, "port name must be unique within its cell"));
             }
-            cell.add_port(port.into_port(&path)?);
+            cell.add_port(port.into_port(&path)?)
+                .map_err(|error| invalid(&path, &error.to_string()))?;
         }
 
         if let Some(path_length) = self.route.path_length {
@@ -361,32 +363,22 @@ impl ElementDto {
                 layer: (*layer).into(),
                 vertices: polygon.vertices().iter().copied().map(Into::into).collect(),
             },
-            Element::Path {
-                points,
-                width,
-                layer,
-                end_type,
-            } => Self::Path {
-                layer: (*layer).into(),
-                points: points.iter().copied().map(Into::into).collect(),
-                width: *width,
-                end_type: (*end_type).into(),
+            Element::Path(path) => Self::Path {
+                layer: path.layer().into(),
+                points: path.points().iter().copied().map(Into::into).collect(),
+                width: path.width(),
+                end_type: path.end_type().into(),
             },
             Element::CellRef(cell_ref) => Self::CellRef {
-                cell: cell_ref.cell_name.clone(),
-                transform: cell_ref.transform.into(),
-                repetition: cell_ref.repetition.map(Into::into),
+                cell: cell_ref.cell_name().to_string(),
+                transform: cell_ref.transform().into(),
+                repetition: cell_ref.repetition().map(Into::into),
             },
-            Element::Text {
-                text,
-                position,
-                layer,
-                height,
-            } => Self::Text {
-                layer: (*layer).into(),
-                text: text.clone(),
-                position: (*position).into(),
-                height: *height,
+            Element::Text(text) => Self::Text {
+                layer: text.layer().into(),
+                text: text.text().to_string(),
+                position: text.position().into(),
+                height: text.height(),
             },
         }
     }
@@ -395,8 +387,8 @@ impl ElementDto {
         match self {
             Self::Polygon { layer, vertices } => {
                 let vertices: Vec<Point> = vertices.into_iter().map(Into::into).collect();
-                let polygon = Polygon::try_new(vertices)
-                    .ok_or_else(|| invalid(path, "polygon requires at least 3 finite vertices"))?;
+                let polygon = Polygon::new(vertices)
+                    .map_err(|_| invalid(path, "polygon requires at least 3 finite vertices"))?;
                 cell.add_polygon(polygon, Layer::from(layer));
             }
             Self::Path {
@@ -419,7 +411,8 @@ impl ElementDto {
                         "path width cannot be zero",
                     ));
                 }
-                cell.add_path(points, width, Layer::from(layer), end_type.into());
+                cell.add_path(points, width, Layer::from(layer), end_type.into())
+                    .map_err(|error| invalid(path, &error.to_string()))?;
             }
             Self::CellRef {
                 cell: target,
@@ -442,9 +435,10 @@ impl ElementDto {
                 let repetition = repetition
                     .map(|value| value.into_repetition(&format!("{path}.repetition")))
                     .transpose()?;
-                cell.add_ref(
-                    CellRef::with_transform(target, transform).with_repetition(repetition),
-                );
+                let cell_ref = CellRef::with_transform(target, transform)
+                    .map_err(|error| invalid(path, &error.to_string()))?
+                    .with_repetition(repetition);
+                cell.add_ref(cell_ref);
             }
             Self::Text {
                 layer,
@@ -461,7 +455,8 @@ impl ElementDto {
                         "text height must be positive",
                     ));
                 }
-                cell.add_text_with_height(text, position, Layer::from(layer), height);
+                cell.add_text_with_height(text, position, Layer::from(layer), height)
+                    .map_err(|error| invalid(path, &error.to_string()))?;
             }
         }
         Ok(())
@@ -471,10 +466,10 @@ impl ElementDto {
 impl PortDto {
     fn from_port(port: &Port) -> Self {
         Self {
-            name: port.name.clone(),
-            position: port.position.into(),
-            direction: port.direction.into(),
-            width: port.width,
+            name: port.name().to_string(),
+            position: port.position().into(),
+            direction: port.direction().into(),
+            width: port.width(),
         }
     }
 
@@ -509,9 +504,11 @@ impl PortDto {
                     "port width must be positive",
                 ));
             }
-            Ok(Port::with_width(self.name, position, direction, width))
+            Port::with_width(self.name, position, direction, width)
+                .map_err(|error| invalid(path, &error.to_string()))
         } else {
-            Ok(Port::new(self.name, position, direction))
+            Port::new(self.name, position, direction)
+                .map_err(|error| invalid(path, &error.to_string()))
         }
     }
 }
@@ -550,12 +547,8 @@ impl RepetitionDto {
         if !column_vector.is_finite() || !row_vector.is_finite() {
             return Err(invalid(path, "repetition vectors must be finite"));
         }
-        Ok(Repetition::new_vectors(
-            self.columns,
-            self.rows,
-            column_vector,
-            row_vector,
-        ))
+        Repetition::new_vectors(self.columns, self.rows, column_vector, row_vector)
+            .map_err(|error| invalid(path, &error.to_string()))
     }
 }
 
@@ -568,14 +561,8 @@ impl BBoxDto {
     }
 
     fn into_bbox(self, path: &str) -> Result<BBox, JsonError> {
-        let bbox = BBox::new(self.min.into(), self.max.into());
-        if !bbox.is_valid() {
-            return Err(invalid(
-                path,
-                "bounding-box corners must be finite and ordered",
-            ));
-        }
-        Ok(bbox)
+        BBox::new(self.min.into(), self.max.into())
+            .map_err(|_| invalid(path, "bounding-box corners must be finite and ordered"))
     }
 }
 
@@ -646,10 +633,10 @@ impl From<TransformDto> for Transform {
 impl From<Repetition> for RepetitionDto {
     fn from(value: Repetition) -> Self {
         Self {
-            columns: value.columns,
-            rows: value.rows,
-            column_vector: value.col_vector.into(),
-            row_vector: value.row_vector.into(),
+            columns: value.columns(),
+            rows: value.rows(),
+            column_vector: value.col_vector().into(),
+            row_vector: value.row_vector().into(),
         }
     }
 }

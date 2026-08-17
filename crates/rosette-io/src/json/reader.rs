@@ -44,18 +44,17 @@ mod tests {
     #[test]
     fn test_round_trip() {
         // Create a library
-        let mut cell = Cell::new("test_cell");
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
+        let mut cell = Cell::new("test_cell").unwrap();
         cell.add_polygon(
-            Polygon::rect(Point::new(20.0, 0.0), 5.0, 10.0),
+            Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(),
+            Layer::new(1, 0),
+        );
+        cell.add_polygon(
+            Polygon::rect(Point::new(20.0, 0.0), 5.0, 10.0).unwrap(),
             Layer::new(2, 1),
         );
-        cell.add_port(Port::with_width(
-            "opt1",
-            Point::origin(),
-            -Vector2::unit_x(),
-            0.5,
-        ));
+        cell.add_port(Port::with_width("opt1", Point::origin(), -Vector2::unit_x(), 0.5).unwrap())
+            .unwrap();
 
         let mut library = Library::new("test_lib");
         library.add_cell(cell).unwrap();
@@ -73,14 +72,14 @@ mod tests {
         let cell = restored.library().cell("test_cell").unwrap();
         assert_eq!(cell.polygons().count(), 2);
         assert_eq!(cell.ports().len(), 1);
-        assert_eq!(cell.ports()[0].name, "opt1");
+        assert_eq!(cell.ports()[0].name(), "opt1");
     }
 
     #[test]
     fn test_round_trip_with_paths() {
         use rosette_core::cell::PathEndType;
 
-        let mut cell = Cell::new("with_path");
+        let mut cell = Cell::new("with_path").unwrap();
         cell.add_path(
             vec![
                 Point::origin(),
@@ -90,7 +89,8 @@ mod tests {
             0.5,
             Layer::new(1, 0),
             PathEndType::Flush,
-        );
+        )
+        .unwrap();
 
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
@@ -107,12 +107,15 @@ mod tests {
         use rosette_core::CellRef;
 
         // Child cell
-        let mut child = Cell::new("child");
-        child.add_polygon(Polygon::rect(Point::origin(), 5.0, 5.0), Layer::new(1, 0));
+        let mut child = Cell::new("child").unwrap();
+        child.add_polygon(
+            Polygon::rect(Point::origin(), 5.0, 5.0).unwrap(),
+            Layer::new(1, 0),
+        );
 
         // Parent cell with reference
-        let mut parent = Cell::new("parent");
-        parent.add_ref(CellRef::new("child").at(10.0, 20.0));
+        let mut parent = Cell::new("parent").unwrap();
+        parent.add_ref(CellRef::new("child").unwrap().at(10.0, 20.0).unwrap());
 
         let mut library = Library::new("test");
         library.add_cell(child).unwrap();
@@ -132,7 +135,7 @@ mod tests {
     #[test]
     fn rejects_empty_and_duplicate_cell_identities() {
         let mut library = Library::new("test");
-        library.add_cell(Cell::new("cell")).unwrap();
+        library.add_cell(Cell::new("cell").unwrap()).unwrap();
         let value: serde_json::Value =
             serde_json::from_str(&to_string(&document(library)).unwrap()).unwrap();
 
@@ -159,13 +162,14 @@ mod tests {
 
     #[test]
     fn rejects_locally_invalid_cell_contents_after_deserialization() {
-        let mut cell = Cell::new("cell");
+        let mut cell = Cell::new("cell").unwrap();
         cell.add_path(
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 0),
             rosette_core::PathEndType::default(),
-        );
+        )
+        .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut value: serde_json::Value =

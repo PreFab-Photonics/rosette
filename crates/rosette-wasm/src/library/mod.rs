@@ -273,11 +273,11 @@ fn text_bbox(text: &str, position: &Point, height: f64) -> Option<BBox> {
     if !em_size.is_finite() || !width.is_finite() || !total_height.is_finite() {
         return None;
     }
-    let bbox = BBox::new(
+    BBox::new(
         Point::new(position.x, position.y - total_height),
         Point::new(position.x + width, position.y),
-    );
-    bbox.is_valid().then_some(bbox)
+    )
+    .ok()
 }
 
 /// Parse a synthetic ref UUID without resolving it against library state.
@@ -402,7 +402,7 @@ impl WasmLibrary {
                 };
                 match placed.element {
                     Element::Polygon { polygon, layer } => {
-                        let Some(transformed) = polygon.try_transform(&placed.placement.transform)
+                        let Ok(transformed) = polygon.try_transform(&placed.placement.transform)
                         else {
                             *poly_counter += 1;
                             return WalkControl::Continue;
@@ -428,18 +428,14 @@ impl WasmLibrary {
                         *poly_counter += 1;
                         result.push((uuid, vertices, color, fill_pattern));
                     }
-                    Element::Path {
-                        points,
-                        width,
-                        layer,
-                        end_type,
-                    } => {
+                    Element::Path(path) => {
                         if let Some(ribbon) = stroke_path_transformed(
-                            points,
-                            *width,
-                            *end_type,
+                            path.points(),
+                            path.width(),
+                            path.end_type(),
                             &placed.placement.transform,
                         ) {
+                            let layer = path.layer();
                             let key = layer_key(layer.number, layer.datatype);
                             let color = self
                                 .layer_colors
@@ -462,7 +458,7 @@ impl WasmLibrary {
                         }
                         *poly_counter += 1;
                     }
-                    Element::CellRef(_) | Element::Text { .. } => {}
+                    Element::CellRef(_) | Element::Text(_) => {}
                 }
                 WalkControl::Continue
             },
@@ -503,23 +499,18 @@ impl WasmLibrary {
                     let area = polygon.area() * det_abs;
                     accumulate_finite_area(area_map, *layer, area);
                 }
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    end_type,
-                } => {
+                Element::Path(path) => {
                     if let Some(ribbon) = stroke_path_transformed(
-                        points,
-                        *width,
-                        *end_type,
+                        path.points(),
+                        path.width(),
+                        path.end_type(),
                         &placed.placement.transform,
                     ) {
                         let area = ribbon.area();
-                        accumulate_finite_area(area_map, *layer, area);
+                        accumulate_finite_area(area_map, path.layer(), area);
                     }
                 }
-                Element::CellRef(_) | Element::Text { .. } => {}
+                Element::CellRef(_) | Element::Text(_) => {}
             }
             WalkControl::Continue
         });
@@ -589,11 +580,12 @@ impl WasmLibrary {
             let Element::CellRef(cell_ref) = element else {
                 continue;
             };
-            if cell_ref.cell_name == cell.name() || self.hidden_cells.contains(&cell_ref.cell_name)
+            if cell_ref.cell_name() == cell.name()
+                || self.hidden_cells.contains(cell_ref.cell_name())
             {
                 continue;
             }
-            let Some(ref_cell) = self.library.cell(&cell_ref.cell_name) else {
+            let Some(ref_cell) = self.library.cell(cell_ref.cell_name()) else {
                 continue;
             };
             for copy_transform in array_transforms(cell_ref) {
@@ -601,7 +593,7 @@ impl WasmLibrary {
                     continue;
                 }
                 contexts.push((
-                    cell_ref.cell_name.clone(),
+                    cell_ref.cell_name().to_string(),
                     [
                         copy_transform.a,
                         copy_transform.b,
@@ -636,9 +628,6 @@ impl WasmLibrary {
             return;
         };
         let merge = |combined: &mut Option<BBox>, bbox: BBox| {
-            if !bbox.is_valid() {
-                return;
-            }
             *combined = Some(match combined.take() {
                 Some(existing) => existing.merge(&bbox),
                 None => bbox,
@@ -657,8 +646,8 @@ impl WasmLibrary {
                         Point::new(image_bounds[0], image_bounds[1]),
                         Point::new(image_bounds[2], image_bounds[3]),
                     )
-                    .try_transform(&placement.transform);
-                    if let Some(image) = image {
+                    .and_then(|image| image.try_transform(&placement.transform));
+                    if let Ok(image) = image {
                         merge(combined, image);
                     }
                 }
@@ -668,39 +657,30 @@ impl WasmLibrary {
                 let bbox = match placed.element {
                     Element::Polygon { polygon, .. } => polygon
                         .try_transform(&placed.placement.transform)
+                        .ok()
                         .map(|polygon| polygon.bbox()),
-                    Element::Path {
-                        points,
-                        width,
-                        end_type,
-                        ..
-                    } => stroke_path_transformed(
-                        points,
-                        *width,
-                        *end_type,
+                    Element::Path(path) => stroke_path_transformed(
+                        path.points(),
+                        path.width(),
+                        path.end_type(),
                         &placed.placement.transform,
                     )
                     .map(|path| path.bbox()),
-                    Element::Text {
-                        text,
-                        position,
-                        height,
-                        ..
-                    } => {
+                    Element::Text(text) => {
                         let transform = placed.placement.transform;
-                        let transformed_position = transform.apply(*position);
+                        let transformed_position = transform.apply(text.position());
                         let scale = transform.a.hypot(transform.c);
-                        let transformed_height = *height * scale;
+                        let transformed_height = text.height() * scale;
                         if !transformed_position.is_finite()
                             || !scale.is_finite()
                             || scale <= 0.0
-                            || !height.is_finite()
-                            || *height <= 0.0
+                            || !text.height().is_finite()
+                            || text.height() <= 0.0
                             || !transformed_height.is_finite()
                         {
                             None
                         } else {
-                            text_bbox(text, &transformed_position, transformed_height)
+                            text_bbox(text.text(), &transformed_position, transformed_height)
                         }
                     }
                     Element::CellRef(_) => None,
@@ -727,7 +707,7 @@ impl WasmLibrary {
         let mut combined: Option<BBox> = None;
         let origin = self
             .annotations
-            .get(&cell_ref.cell_name)
+            .get(cell_ref.cell_name())
             .map(|annotations| annotations.editor.origin)
             .unwrap_or_else(Point::origin);
         let placeholder = |transform: &Transform| {
@@ -736,16 +716,16 @@ impl WasmLibrary {
             if !placed_origin.is_finite() {
                 return None;
             }
-            let bbox = BBox::new(
+            BBox::new(
                 Point::new(placed_origin.x - HALF, placed_origin.y - HALF),
                 Point::new(placed_origin.x + HALF, placed_origin.y + HALF),
-            );
-            bbox.is_valid().then_some(bbox)
+            )
+            .ok()
         };
         for copy_transform in array_transforms(cell_ref) {
             let mut copy_bounds = None;
             self.collect_bounds_recursive(
-                &cell_ref.cell_name,
+                cell_ref.cell_name(),
                 &copy_transform,
                 &[parent_cell],
                 &mut copy_bounds,
@@ -760,7 +740,7 @@ impl WasmLibrary {
         }
         // Malformed serialized repetitions can contain a zero dimension. Keep
         // the instance selectable at its anchor only when that anchor is finite.
-        combined.or_else(|| placeholder(&cell_ref.transform))
+        combined.or_else(|| placeholder(&cell_ref.transform()))
     }
 
     /// Return the cached bbox for a CellRef in the active cell, computing on miss.
@@ -834,24 +814,19 @@ impl WasmLibrary {
                 };
                 let polygon = match placed.element {
                     Element::Polygon { polygon, .. } => Some(polygon.clone()),
-                    Element::Path {
-                        points,
-                        width,
-                        end_type,
-                        ..
-                    } => stroke_path_transformed(
-                        points,
-                        *width,
-                        *end_type,
+                    Element::Path(path) => stroke_path_transformed(
+                        path.points(),
+                        path.width(),
+                        path.end_type(),
                         &placed.placement.transform,
                     ),
-                    Element::CellRef(_) | Element::Text { .. } => None,
+                    Element::CellRef(_) | Element::Text(_) => None,
                 };
                 if let Some(polygon) = polygon {
-                    let polygon = if matches!(placed.element, Element::Path { .. }) {
+                    let polygon = if matches!(placed.element, Element::Path(_)) {
                         Some(polygon)
                     } else {
-                        polygon.try_transform(&placed.placement.transform)
+                        polygon.try_transform(&placed.placement.transform).ok()
                     };
                     let Some(polygon) = polygon else {
                         return WalkControl::Continue;
@@ -878,9 +853,9 @@ impl WasmLibrary {
         let element = cell.elements().get(cellref_elem_idx)?;
 
         if let Element::CellRef(cell_ref) = element
-            && let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
+            && let Some(ref_cell) = self.library.cell(cell_ref.cell_name())
         {
-            if self.hidden_cells.contains(&cell_ref.cell_name) {
+            if self.hidden_cells.contains(cell_ref.cell_name()) {
                 return None;
             }
             let mut counter: usize = 0;
@@ -929,28 +904,24 @@ impl WasmLibrary {
                 };
                 let polygon = match placed.element {
                     Element::Polygon { polygon, layer } => Some((polygon.clone(), *layer)),
-                    Element::Path {
-                        points,
-                        width,
-                        layer,
-                        end_type,
-                    } => stroke_path_transformed(
-                        points,
-                        *width,
-                        *end_type,
+                    Element::Path(path) => stroke_path_transformed(
+                        path.points(),
+                        path.width(),
+                        path.end_type(),
                         &placed.placement.transform,
                     )
-                    .map(|polygon| (polygon, *layer)),
-                    Element::CellRef(_) | Element::Text { .. } => return WalkControl::Continue,
+                    .map(|polygon| (polygon, path.layer())),
+                    Element::CellRef(_) | Element::Text(_) => return WalkControl::Continue,
                 };
                 if *counter == target_idx
                     && let Some((polygon, layer)) = polygon
                 {
-                    found = if matches!(placed.element, Element::Path { .. }) {
+                    found = if matches!(placed.element, Element::Path(_)) {
                         Some((polygon, layer))
                     } else {
                         polygon
                             .try_transform(&placed.placement.transform)
+                            .ok()
                             .map(|polygon| (polygon, layer))
                     };
                     return WalkControl::Break;
@@ -976,28 +947,23 @@ impl WasmLibrary {
             };
             let (polygon, layer) = match placed.element {
                 Element::Polygon { polygon, layer } => (polygon.clone(), *layer),
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    end_type,
-                } => {
+                Element::Path(path) => {
                     let Some(polygon) = stroke_path_transformed(
-                        points,
-                        *width,
-                        *end_type,
+                        path.points(),
+                        path.width(),
+                        path.end_type(),
                         &placed.placement.transform,
                     ) else {
                         return WalkControl::Continue;
                     };
-                    (polygon, *layer)
+                    (polygon, path.layer())
                 }
-                Element::CellRef(_) | Element::Text { .. } => return WalkControl::Continue,
+                Element::CellRef(_) | Element::Text(_) => return WalkControl::Continue,
             };
-            let transformed = if matches!(placed.element, Element::Path { .. }) {
+            let transformed = if matches!(placed.element, Element::Path(_)) {
                 Some(polygon)
             } else {
-                polygon.try_transform(&placed.placement.transform)
+                polygon.try_transform(&placed.placement.transform).ok()
             };
             let Some(transformed) = transformed else {
                 return WalkControl::Continue;
@@ -1046,10 +1012,10 @@ impl WasmLibrary {
 
         if let Some(cell) = self.library.cell(cell_name) {
             for cell_ref in cell.cell_refs() {
-                if cell_ref.cell_name == target {
+                if cell_ref.cell_name() == target {
                     return true;
                 }
-                if self.cell_references_recursive(&cell_ref.cell_name, target, visited) {
+                if self.cell_references_recursive(cell_ref.cell_name(), target, visited) {
                     return true;
                 }
             }
@@ -1095,11 +1061,11 @@ impl WasmLibrary {
         let mut child_names = Vec::new();
         if let Some(cell) = self.library.cell(cell_name) {
             for cell_ref in cell.cell_refs() {
-                if self.library.contains(&cell_ref.cell_name)
-                    && seen_children.insert(cell_ref.cell_name.clone())
-                    && !ancestors.contains(&cell_ref.cell_name)
+                if self.library.contains(cell_ref.cell_name())
+                    && seen_children.insert(cell_ref.cell_name().to_string())
+                    && !ancestors.contains(cell_ref.cell_name())
                 {
-                    child_names.push(cell_ref.cell_name.clone());
+                    child_names.push(cell_ref.cell_name().to_string());
                 }
             }
         }
@@ -1117,12 +1083,13 @@ impl WasmLibrary {
 
     /// Recursively flatten a cell and all its references into polygons.
     fn flatten_cell_recursive(
-        &mut self,
+        &self,
         cell: &Cell,
         library: &Library,
         transform: &Transform,
         initial_ancestors: &[&str],
         absolute_width_scale: f64,
+        result: &mut Vec<(Polygon, Layer)>,
     ) {
         walk_hierarchy_from(library, cell, *transform, initial_ancestors, |event| {
             let HierarchyEvent::Element(placed) = event else {
@@ -1130,41 +1097,29 @@ impl WasmLibrary {
             };
             let (polygon, layer) = match placed.element {
                 Element::Polygon { polygon, layer } => (polygon.clone(), *layer),
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    end_type,
-                } => {
+                Element::Path(path) => {
                     let Some(polygon) = stroke_path_transformed_with_scale(
-                        points,
-                        *width,
-                        *end_type,
+                        path.points(),
+                        path.width(),
+                        path.end_type(),
                         &placed.placement.transform,
                         absolute_width_scale,
                     ) else {
                         return WalkControl::Continue;
                     };
-                    (polygon, *layer)
+                    (polygon, path.layer())
                 }
-                Element::CellRef(_) | Element::Text { .. } => return WalkControl::Continue,
+                Element::CellRef(_) | Element::Text(_) => return WalkControl::Continue,
             };
-            let transformed = if matches!(placed.element, Element::Path { .. }) {
+            let transformed = if matches!(placed.element, Element::Path(_)) {
                 Some(polygon)
             } else {
-                polygon.try_transform(&placed.placement.transform)
+                polygon.try_transform(&placed.placement.transform).ok()
             };
             let Some(transformed) = transformed else {
                 return WalkControl::Continue;
             };
-            let vertices: Vec<f64> = transformed
-                .vertices()
-                .iter()
-                .flat_map(|point| [point.x, point.y])
-                .collect();
-            if vertices.len() >= 6 {
-                self.add_polygon(&vertices, layer.number, layer.datatype);
-            }
+            result.push((transformed, layer));
             WalkControl::Continue
         });
     }
@@ -1225,11 +1180,11 @@ impl WasmLibrary {
                     }
                 }
                 Element::CellRef(cell_ref) => {
-                    if let Some(ref_cell) = self.library.cell(&cell_ref.cell_name)
+                    if let Some(ref_cell) = self.library.cell(cell_ref.cell_name())
                         && let Some(cellref_uuid) = index_to_uuid.get(&elem_idx)
                     {
                         // Skip internal geometry for hidden cells
-                        if self.hidden_cells.contains(&cell_ref.cell_name) {
+                        if self.hidden_cells.contains(cell_ref.cell_name()) {
                             continue;
                         }
                         let mut poly_counter: usize = 0;
@@ -1249,17 +1204,14 @@ impl WasmLibrary {
                         }
                     }
                 }
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    end_type,
-                } => {
+                Element::Path(path) => {
                     // Render path as polygon ribbon.
                     // In init_from_library mode paths remain as Element::Path.
                     if let Some(uuid) = index_to_uuid.get(&elem_idx)
-                        && let Some(ribbon) = stroke_path(points, *width, *end_type)
+                        && let Some(ribbon) =
+                            stroke_path(path.points(), path.width(), path.end_type())
                     {
+                        let layer = path.layer();
                         let key = layer_key(layer.number, layer.datatype);
                         let color = self
                             .layer_colors
@@ -1360,17 +1312,17 @@ impl WasmLibrary {
                 let Some(bbox) = self.instance_bbox_cached(cell_name, elem_idx, cell_ref) else {
                     continue;
                 };
-                let rep = cell_ref.repetition.as_ref().and_then(|r| {
+                let rep = cell_ref.repetition().and_then(|r| {
                     if r.is_single() {
                         None
                     } else {
-                        Some((r.columns, r.rows))
+                        Some((r.columns(), r.rows()))
                     }
                 });
                 labels.push((
                     Self::format_ref_uuid(elem_idx, 0, token),
                     elem_idx,
-                    cell_ref.cell_name.clone(),
+                    cell_ref.cell_name().to_string(),
                     [bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y],
                     rep,
                 ));

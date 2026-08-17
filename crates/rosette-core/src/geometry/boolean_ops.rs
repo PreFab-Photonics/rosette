@@ -47,7 +47,7 @@ fn polygon_from_geo(geo_poly: &GeoPolygon<f64>) -> Option<Polygon> {
 
     if geo_poly.interiors().is_empty() {
         // Simple case: no holes.
-        Polygon::try_new(exterior)
+        Polygon::new(exterior).ok()
     } else {
         // Keyhole all interior rings into the exterior.
         let holes: Vec<Vec<Point>> = geo_poly
@@ -60,11 +60,11 @@ fn polygon_from_geo(geo_poly: &GeoPolygon<f64>) -> Option<Polygon> {
             .collect();
 
         if holes.is_empty() {
-            Polygon::try_new(exterior)
+            Polygon::new(exterior).ok()
         } else {
             let keyholed = keyhole(exterior, &holes);
             if keyholed.len() >= 3 {
-                Polygon::try_new(keyholed)
+                Polygon::new(keyholed).ok()
             } else {
                 None
             }
@@ -156,11 +156,12 @@ impl Region {
 
     /// Axis-aligned bounds of the region.
     pub fn bbox(&self) -> Option<BBox> {
-        self.geometry.bounding_rect().map(|rect| {
+        self.geometry.bounding_rect().and_then(|rect| {
             BBox::new(
                 Point::new(rect.min().x, rect.min().y),
                 Point::new(rect.max().x, rect.max().y),
             )
+            .ok()
         })
     }
 
@@ -389,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_polygon_to_geo_closes_ring() {
-        let poly = Polygon::rect(Point::new(0.0, 0.0), 10.0, 5.0);
+        let poly = Polygon::rect(Point::new(0.0, 0.0), 10.0, 5.0).unwrap();
         let geo_poly = polygon_to_geo(&poly);
         let coords: Vec<_> = geo_poly.exterior().coords().collect();
         // geo expects closed ring: first == last
@@ -416,7 +417,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_conversion() {
-        let original = Polygon::rect(Point::new(1.0, 2.0), 8.0, 4.0);
+        let original = Polygon::rect(Point::new(1.0, 2.0), 8.0, 4.0).unwrap();
         let geo_poly = polygon_to_geo(&original);
         let roundtripped = polygon_from_geo(&geo_poly).unwrap();
         assert_eq!(original.vertices().len(), roundtripped.vertices().len());
@@ -489,7 +490,7 @@ mod tests {
 
         // Must form a valid polygon: area should be exterior minus hole.
         // exterior = 100, hole = 2*2 = 4 (actually 2 wide * 2 tall = 4)
-        let poly = Polygon::new(result);
+        let poly = Polygon::new(result).unwrap();
         assert!(
             approx_eq(poly.area(), 96.0),
             "Expected area 96, got {}",
@@ -527,8 +528,8 @@ mod tests {
     #[test]
     fn test_union_overlapping_rects() {
         // Two overlapping rectangles
-        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0);
+        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0).unwrap();
 
         let result = lower_binary(&a, &b, Region::union);
         assert_eq!(result.len(), 1);
@@ -540,8 +541,8 @@ mod tests {
 
     #[test]
     fn test_union_disjoint_rects() {
-        let a = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
-        let b = Polygon::rect(Point::new(20.0, 20.0), 5.0, 5.0);
+        let a = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap();
+        let b = Polygon::rect(Point::new(20.0, 20.0), 5.0, 5.0).unwrap();
 
         let result = lower_binary(&a, &b, Region::union);
         assert_eq!(result.len(), 2);
@@ -552,8 +553,8 @@ mod tests {
 
     #[test]
     fn test_subtract_overlapping_rects() {
-        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0);
+        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0).unwrap();
 
         let result = lower_binary(&a, &b, Region::subtract);
         assert_eq!(result.len(), 1);
@@ -566,8 +567,8 @@ mod tests {
     #[test]
     fn test_subtract_creates_hole() {
         // Large square with a small square cut from the center.
-        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0);
-        let inner = Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0);
+        let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0).unwrap();
+        let inner = Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0).unwrap();
 
         let result = lower_binary(&outer, &inner, Region::subtract);
         assert_eq!(result.len(), 1);
@@ -586,8 +587,8 @@ mod tests {
 
     #[test]
     fn test_subtract_no_overlap() {
-        let a = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
-        let b = Polygon::rect(Point::new(20.0, 20.0), 5.0, 5.0);
+        let a = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap();
+        let b = Polygon::rect(Point::new(20.0, 20.0), 5.0, 5.0).unwrap();
 
         let result = lower_binary(&a, &b, Region::subtract);
         assert_eq!(result.len(), 1);
@@ -598,8 +599,8 @@ mod tests {
 
     #[test]
     fn test_intersect_overlapping_rects() {
-        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0);
+        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0).unwrap();
 
         let result = lower_binary(&a, &b, Region::intersect);
         assert_eq!(result.len(), 1);
@@ -611,8 +612,8 @@ mod tests {
 
     #[test]
     fn test_intersect_no_overlap() {
-        let a = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
-        let b = Polygon::rect(Point::new(20.0, 20.0), 5.0, 5.0);
+        let a = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap();
+        let b = Polygon::rect(Point::new(20.0, 20.0), 5.0, 5.0).unwrap();
 
         let result = lower_binary(&a, &b, Region::intersect);
         assert!(result.is_empty());
@@ -620,8 +621,8 @@ mod tests {
 
     #[test]
     fn test_xor_overlapping_rects() {
-        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0);
+        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0).unwrap();
 
         let result = lower_binary(&a, &b, Region::xor);
 
@@ -632,8 +633,8 @@ mod tests {
 
     #[test]
     fn test_xor_identical_rects() {
-        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
-        let b = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
+        let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
+        let b = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
 
         let result = lower_binary(&a, &b, Region::xor);
         assert!(result.is_empty());
@@ -642,8 +643,8 @@ mod tests {
     #[test]
     fn test_subtract_complete_coverage() {
         // Subtracting a larger polygon from a smaller one.
-        let small = Polygon::rect(Point::new(2.0, 2.0), 3.0, 3.0);
-        let big = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
+        let small = Polygon::rect(Point::new(2.0, 2.0), 3.0, 3.0).unwrap();
+        let big = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap();
 
         let result = lower_binary(&small, &big, Region::subtract);
         assert!(result.is_empty());
@@ -651,9 +652,10 @@ mod tests {
 
     #[test]
     fn region_preserves_multiple_holes_until_explicit_lowering() {
-        let outer = Region::from_polygon(&Polygon::rect(Point::origin(), 30.0, 20.0));
-        let hole_a = Region::from_polygon(&Polygon::rect(Point::new(3.0, 3.0), 5.0, 5.0));
-        let hole_b = Region::from_polygon(&Polygon::rect(Point::new(20.0, 10.0), 5.0, 5.0));
+        let outer = Region::from_polygon(&Polygon::rect(Point::origin(), 30.0, 20.0).unwrap());
+        let hole_a = Region::from_polygon(&Polygon::rect(Point::new(3.0, 3.0), 5.0, 5.0).unwrap());
+        let hole_b =
+            Region::from_polygon(&Polygon::rect(Point::new(20.0, 10.0), 5.0, 5.0).unwrap());
         let region = outer.subtract(&hole_a).subtract(&hole_b);
 
         assert_eq!(region.geometry.0.len(), 1);
@@ -666,9 +668,9 @@ mod tests {
 
     #[test]
     fn chained_region_booleans_keep_topology() {
-        let base = Region::from_polygon(&Polygon::rect(Point::origin(), 20.0, 20.0));
-        let hole = Region::from_polygon(&Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0));
-        let island = Region::from_polygon(&Polygon::rect(Point::new(30.0, 0.0), 5.0, 5.0));
+        let base = Region::from_polygon(&Polygon::rect(Point::origin(), 20.0, 20.0).unwrap());
+        let hole = Region::from_polygon(&Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0).unwrap());
+        let island = Region::from_polygon(&Polygon::rect(Point::new(30.0, 0.0), 5.0, 5.0).unwrap());
         let region = base.subtract(&hole).union(&island);
 
         assert_eq!(region.geometry.0.len(), 2);

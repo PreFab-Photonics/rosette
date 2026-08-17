@@ -40,7 +40,7 @@ pub(crate) fn extract_contours(raster: &LayerRaster, threshold: f64) -> Vec<Poly
     chains
         .into_iter()
         .filter(|chain| chain.len() >= 3)
-        .map(|chain| {
+        .filter_map(|chain| {
             let vertices: Vec<Point> = chain
                 .into_iter()
                 .map(|(px, py)| {
@@ -50,7 +50,7 @@ pub(crate) fn extract_contours(raster: &LayerRaster, threshold: f64) -> Vec<Poly
                     )
                 })
                 .collect();
-            Polygon::new(simplify_polygon(&vertices, raster.resolution * 0.1))
+            Polygon::new(simplify_polygon(&vertices, raster.resolution * 0.1)).ok()
         })
         .collect()
 }

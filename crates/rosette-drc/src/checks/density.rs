@@ -169,7 +169,10 @@ pub fn check_density(
                 let win_y0 = region.min().y + (y as f64) * pixel_size;
                 let win_x1 = win_x0 + window;
                 let win_y1 = win_y0 + window;
-                let loc = BBox::new(Point::new(win_x0, win_y0), Point::new(win_x1, win_y1));
+                let Ok(loc) = BBox::new(Point::new(win_x0, win_y0), Point::new(win_x1, win_y1))
+                else {
+                    continue;
+                };
 
                 let msg = if below {
                     format!(
@@ -382,13 +385,13 @@ mod tests {
     use rosette_core::{Layer, Point, Polygon};
 
     fn rect(x: f64, y: f64, w: f64, h: f64) -> Polygon {
-        Polygon::rect(Point::new(x, y), w, h)
+        Polygon::rect(Point::new(x, y), w, h).unwrap()
     }
 
     #[test]
     fn test_empty_region_under_fills() {
         // 100x100 region, nothing on the layer, min=0.2 -> every window fails
-        let region = BBox::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0));
+        let region = BBox::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0)).unwrap();
         let polys: Vec<(Polygon, usize)> = Vec::new();
         let v = check_density(
             &polys,
@@ -411,7 +414,7 @@ mod tests {
     #[test]
     fn test_full_fill_exceeds_max() {
         // Region fully covered by one big polygon, max=0.8 -> every window above
-        let region = BBox::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0));
+        let region = BBox::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0)).unwrap();
         let polys: Vec<(Polygon, usize)> = vec![(rect(0.0, 0.0, 100.0, 100.0), 0)];
         let v = check_density(
             &polys,
@@ -441,7 +444,7 @@ mod tests {
     fn test_uniform_fill_within_range_passes() {
         // 50% fill uniformly: half the region has polygon, density = 0.5 in every window.
         // A 100x100 region with the bottom half filled has density 0.5.
-        let region = BBox::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0));
+        let region = BBox::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0)).unwrap();
         let polys: Vec<(Polygon, usize)> = vec![(rect(0.0, 0.0, 100.0, 50.0), 0)];
         // Use a 50x50 window with step=50 so windows land exactly on top/bottom halves.
         let v = check_density(
@@ -462,7 +465,7 @@ mod tests {
     fn test_full_uniform_fill_within_range_passes() {
         // 50% fill in every 50x50 window: stripes of width 25 at period 50.
         // Window of 100x100 sees density = 0.5.
-        let region = BBox::new(Point::new(0.0, 0.0), Point::new(200.0, 100.0));
+        let region = BBox::new(Point::new(0.0, 0.0), Point::new(200.0, 100.0)).unwrap();
         let polys: Vec<(Polygon, usize)> = vec![
             (rect(0.0, 0.0, 25.0, 100.0), 0),
             (rect(50.0, 0.0, 25.0, 100.0), 1),
@@ -491,7 +494,7 @@ mod tests {
     #[test]
     fn test_window_larger_than_region_skips() {
         // Window bigger than region -> no check
-        let region = BBox::new(Point::new(0.0, 0.0), Point::new(50.0, 50.0));
+        let region = BBox::new(Point::new(0.0, 0.0), Point::new(50.0, 50.0)).unwrap();
         let polys: Vec<(Polygon, usize)> = vec![(rect(0.0, 0.0, 50.0, 50.0), 0)];
         let v = check_density(
             &polys,
@@ -529,7 +532,7 @@ mod tests {
     fn test_region_layer_missing_falls_back() {
         use std::collections::HashMap;
         let polys: HashMap<Layer, Vec<(Polygon, usize)>> = HashMap::new();
-        let fallback = BBox::new(Point::new(0.0, 0.0), Point::new(50.0, 50.0));
+        let fallback = BBox::new(Point::new(0.0, 0.0), Point::new(50.0, 50.0)).unwrap();
         let bb = compute_region_bbox(Some(Layer::new(99, 0)), &polys, Some(fallback));
         assert_eq!(bb, Some(fallback));
     }
@@ -537,7 +540,7 @@ mod tests {
     #[test]
     fn test_rasterizer_checkerboard_density() {
         // 100x100 region, 2x2 checkerboard of 50x50 -> 50% density in 100x100 window
-        let region = BBox::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0));
+        let region = BBox::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0)).unwrap();
         let polys: Vec<(Polygon, usize)> = vec![
             (rect(0.0, 0.0, 50.0, 50.0), 0),
             (rect(50.0, 50.0, 50.0, 50.0), 1),

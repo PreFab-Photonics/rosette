@@ -70,14 +70,17 @@ impl BuildSummary {
             .ports()
             .iter()
             .map(|p| PortInfo {
-                name: p.name.clone(),
-                x: p.position.x,
-                y: p.position.y,
-                width: p.width,
+                name: p.name().to_string(),
+                x: p.position().x,
+                y: p.position().y,
+                width: p.width(),
             })
             .collect();
 
-        let refs: Vec<String> = cell.cell_refs().map(|r| r.cell_name.clone()).collect();
+        let refs: Vec<String> = cell
+            .cell_refs()
+            .map(|cell_ref| cell_ref.cell_name().to_string())
+            .collect();
 
         // A cell is "hierarchical-only" when it has refs but no direct
         // polygons of its own.  Now that `bbox` resolves refs, we can't just
@@ -90,7 +93,7 @@ impl BuildSummary {
         let instance_ports = if let Some(lib) = library {
             let mut groups = Vec::new();
             for cell_ref in cell.cell_refs() {
-                if let Some(ref_cell) = lib.cell(&cell_ref.cell_name) {
+                if let Some(ref_cell) = lib.cell(cell_ref.cell_name()) {
                     for copy in cell_ref.copies() {
                         let origin = copy.transform.apply(rosette_core::Point::new(0.0, 0.0));
                         if !origin.is_finite() {
@@ -101,19 +104,19 @@ impl BuildSummary {
                         let mut port_infos = Vec::new();
                         let mut angles = Vec::new();
                         for port in ref_cell.ports() {
-                            let Some(transformed) = port.try_transform(&copy.transform) else {
+                            let Ok(transformed) = port.try_transform(&copy.transform) else {
                                 continue;
                             };
                             port_infos.push(PortInfo {
-                                name: transformed.name.clone(),
-                                x: transformed.position.x,
-                                y: transformed.position.y,
-                                width: transformed.width,
+                                name: transformed.name().to_string(),
+                                x: transformed.position().x,
+                                y: transformed.position().y,
+                                width: transformed.width(),
                             });
-                            angles.push(transformed.direction.angle().to_degrees());
+                            angles.push(transformed.direction().angle().to_degrees());
                         }
                         groups.push(InstancePortGroup {
-                            cell_name: cell_ref.cell_name.clone(),
+                            cell_name: cell_ref.cell_name().to_string(),
                             origin_x: origin.x,
                             origin_y: origin.y,
                             ports: port_infos,
@@ -396,10 +399,17 @@ mod tests {
 
     #[test]
     fn build_summary_expands_aref_port_groups() {
-        let mut child = Cell::new("child");
-        child.add_port(Port::new("port", Point::new(1.0, 0.0), Vector2::unit_x()));
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("child").array(2, 1, 10.0, 0.0));
+        let mut child = Cell::new("child").unwrap();
+        child
+            .add_port(Port::new("port", Point::new(1.0, 0.0), Vector2::unit_x()).unwrap())
+            .unwrap();
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(
+            CellRef::new("child")
+                .unwrap()
+                .array(2, 1, 10.0, 0.0)
+                .unwrap(),
+        );
         let mut library = Library::new("test");
         library.add_cell(child).unwrap();
         library.add_cell(top).unwrap();
@@ -418,10 +428,12 @@ mod tests {
 
     #[test]
     fn build_summary_skips_overflowed_instance_ports() {
-        let mut child = Cell::new("child");
-        child.add_port(Port::new("port", Point::new(2.0, 0.0), Vector2::unit_x()));
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("child").scale(f64::MAX));
+        let mut child = Cell::new("child").unwrap();
+        child
+            .add_port(Port::new("port", Point::new(2.0, 0.0), Vector2::unit_x()).unwrap())
+            .unwrap();
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("child").unwrap().scale(f64::MAX).unwrap());
         let mut library = Library::new("test");
         library.add_cell(child).unwrap();
         library.add_cell(top).unwrap();
@@ -440,14 +452,15 @@ mod tests {
     #[test]
     fn layout_document_persists_only_route_sidecars() {
         let mut library = Library::new("test");
-        library.add_cell(Cell::new("route")).unwrap();
+        library.add_cell(Cell::new("route").unwrap()).unwrap();
         let routes = RouteAnnotationMap::from([(
             "route".to_string(),
             RouteAnnotations::new(
                 Some(15.0),
-                vec![BendInfo::auto_reduced(2.0, Point::new(5.0, 1.0), 4.0)],
+                vec![BendInfo::auto_reduced(2.0, Point::new(5.0, 1.0), 4.0).unwrap()],
                 vec!["reduced".to_string()],
-            ),
+            )
+            .unwrap(),
         )]);
 
         let document = layout_document(library, &routes).unwrap();

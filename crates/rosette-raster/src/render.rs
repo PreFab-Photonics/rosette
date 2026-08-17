@@ -7,7 +7,7 @@ use thiserror::Error;
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform as SkiaTransform};
 
 use crate::palette::Palette;
-use crate::transform::ViewTransform;
+use crate::transform::{ViewTransform, ViewTransformError};
 use crate::{FlatPolygon, flatten_cell, flatten_library};
 
 /// Knobs for [`render_png`]. Build with `RenderOptions::default()` and
@@ -62,6 +62,8 @@ pub enum RenderError {
     CellNotFound(String),
     #[error("invalid canvas size: width={width}, height={height:?}")]
     InvalidCanvas { width: u32, height: Option<u32> },
+    #[error("invalid view transform: {0}")]
+    InvalidView(#[from] ViewTransformError),
     #[error("rasterization failed: {0}")]
     Raster(String),
     #[error("PNG encode failed: {0}")]
@@ -120,7 +122,7 @@ pub fn render_png(library: &Library, opts: &RenderOptions) -> Result<RenderResul
         return Err(RenderError::EmptyDesign);
     }
 
-    let view = ViewTransform::fit(target, opts.pad, opts.width_px, opts.height_px);
+    let view = ViewTransform::fit(target, opts.pad, opts.width_px, opts.height_px)?;
 
     let visible: Vec<&FlatPolygon> = filtered
         .into_iter()
@@ -201,9 +203,9 @@ fn compute_extent(polys: &[&FlatPolygon]) -> Option<BBox> {
         .iter()
         .flat_map(|p| p.vertices.chunks_exact(2).map(|c| Point::new(c[0], c[1])));
     let first = iter.next()?;
-    let mut bbox = BBox::from_point(first);
+    let mut bbox = BBox::from_point(first).ok()?;
     for pt in iter {
-        bbox = bbox.expand(pt);
+        bbox = bbox.expand(pt).ok()?;
     }
     Some(bbox)
 }
@@ -231,7 +233,8 @@ fn polygon_intersects(poly: &FlatPolygon, bbox: &BBox) -> bool {
             max_y = c[1];
         }
     }
-    BBox::new(Point::new(min_x, min_y), Point::new(max_x, max_y)).overlaps(bbox)
+    BBox::new(Point::new(min_x, min_y), Point::new(max_x, max_y))
+        .is_ok_and(|polygon_bbox| polygon_bbox.overlaps(bbox))
 }
 
 #[cfg(test)]
@@ -244,13 +247,13 @@ mod tests {
     }
 
     fn two_layer_lib() -> Library {
-        let mut cell = Cell::new("test");
+        let mut cell = Cell::new("test").unwrap();
         cell.add_polygon(
-            Polygon::rect(CorePoint::origin(), 10.0, 10.0),
+            Polygon::rect(CorePoint::origin(), 10.0, 10.0).unwrap(),
             Layer::new(1, 0),
         );
         cell.add_polygon(
-            Polygon::rect(CorePoint::new(20.0, 0.0), 10.0, 10.0),
+            Polygon::rect(CorePoint::new(20.0, 0.0), 10.0, 10.0).unwrap(),
             Layer::new(2, 0),
         );
         let mut lib = Library::new("lib");
@@ -278,10 +281,7 @@ mod tests {
         // Even with 10% padding this region (~ -3..13) doesn't reach the
         // layer-2 rect at x=20..30, so layer 2 should be culled.
         let opts = RenderOptions {
-            bbox: Some(BBox::new(
-                CorePoint::new(0.0, 0.0),
-                CorePoint::new(10.0, 10.0),
-            )),
+            bbox: Some(BBox::new(CorePoint::new(0.0, 0.0), CorePoint::new(10.0, 10.0)).unwrap()),
             width_px: 128,
             ..Default::default()
         };
@@ -313,19 +313,19 @@ mod tests {
 
     #[test]
     fn render_skips_overflowed_hierarchy_geometry() {
-        let mut leaf = Cell::new("leaf");
+        let mut leaf = Cell::new("leaf").unwrap();
         leaf.add_polygon(
-            Polygon::rect(CorePoint::new(2.0, 0.0), 1.0, 1.0),
+            Polygon::rect(CorePoint::new(2.0, 0.0), 1.0, 1.0).unwrap(),
             Layer::new(2, 0),
         );
-        let mut middle = Cell::new("middle");
-        middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
-        let mut top = Cell::new("top");
+        let mut middle = Cell::new("middle").unwrap();
+        middle.add_ref(CellRef::new("leaf").unwrap().scale(f64::MAX).unwrap());
+        let mut top = Cell::new("top").unwrap();
         top.add_polygon(
-            Polygon::rect(CorePoint::origin(), 1.0, 1.0),
+            Polygon::rect(CorePoint::origin(), 1.0, 1.0).unwrap(),
             Layer::new(1, 0),
         );
-        top.add_ref(CellRef::new("middle").scale(f64::MAX));
+        top.add_ref(CellRef::new("middle").unwrap().scale(f64::MAX).unwrap());
         let mut library = Library::new("test");
         library.add_cell(leaf).unwrap();
         library.add_cell(middle).unwrap();

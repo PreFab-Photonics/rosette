@@ -122,16 +122,11 @@ impl WasmLibrary {
                         },
                     )
                 }
-                Element::Path {
-                    points,
-                    width,
-                    end_type,
-                    ..
-                } => {
+                Element::Path(path) => {
                     let Some(uuid) = index_to_uuid.get(&elem_idx) else {
                         continue;
                     };
-                    match stroke_path(points, *width, *end_type) {
+                    match stroke_path(path.points(), path.width(), path.end_type()) {
                         Some(ribbon) => (
                             ribbon.bbox(),
                             IndexedKind::Direct {
@@ -141,16 +136,12 @@ impl WasmLibrary {
                         None => continue,
                     }
                 }
-                Element::Text {
-                    text,
-                    position,
-                    height,
-                    ..
-                } => {
+                Element::Text(text) => {
                     let Some(uuid) = index_to_uuid.get(&elem_idx) else {
                         continue;
                     };
-                    let Some(bbox) = text_bbox(text, position, *height) else {
+                    let position = text.position();
+                    let Some(bbox) = text_bbox(text.text(), &position, text.height()) else {
                         continue;
                     };
                     (

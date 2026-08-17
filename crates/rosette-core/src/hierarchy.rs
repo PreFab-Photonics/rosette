@@ -36,14 +36,14 @@ impl Iterator for CellRefCopies<'_> {
         self.next += 1;
         let column = (index % self.columns) as u16;
         let row = (index / self.columns) as u16;
-        let transform = match self.cell_ref.repetition {
+        let transform = match self.cell_ref.repetition() {
             Some(repetition) => {
                 let offset = repetition.copy_offset(column, row);
                 self.cell_ref
-                    .transform
+                    .transform()
                     .then(&Transform::translate(offset.x, offset.y))
             }
-            None => self.cell_ref.transform,
+            None => self.cell_ref.transform(),
         };
 
         Some(CellRefCopy {
@@ -68,9 +68,9 @@ impl CellRef {
     /// and columns innermost. Repetition vectors are applied in the referenced
     /// cell's local coordinates before the reference transform.
     pub fn copies(&self) -> CellRefCopies<'_> {
-        let (len, columns) = match self.repetition {
+        let (len, columns) = match self.repetition() {
             Some(repetition) if repetition.is_single() => (1, 1),
-            Some(repetition) => (repetition.count(), repetition.columns as usize),
+            Some(repetition) => (repetition.count(), repetition.columns() as usize),
             None => (1, 1),
         };
         CellRefCopies {
@@ -129,7 +129,10 @@ impl PlacedCell<'_, '_> {
             let _ = write!(
                 result,
                 "{}[ref={},col={},row={}]",
-                step.cell_ref.cell_name, step.element_index, step.column, step.row
+                step.cell_ref.cell_name(),
+                step.element_index,
+                step.column,
+                step.row
             );
         }
         result
@@ -267,14 +270,16 @@ pub fn cell_bbox(library: &Library, name: &str) -> Option<BBox> {
             return WalkControl::Continue;
         };
         let polygon = match placed.element {
-            Element::Polygon { polygon, .. } => polygon.try_transform(&placed.placement.transform),
-            Element::Path {
-                points,
-                width,
-                end_type,
-                ..
-            } => stroke_path_transformed(points, *width, *end_type, &placed.placement.transform),
-            Element::Text { .. } | Element::CellRef(_) => None,
+            Element::Polygon { polygon, .. } => {
+                polygon.try_transform(&placed.placement.transform).ok()
+            }
+            Element::Path(path) => stroke_path_transformed(
+                path.points(),
+                path.width(),
+                path.end_type(),
+                &placed.placement.transform,
+            ),
+            Element::Text(_) | Element::CellRef(_) => None,
         };
         if let Some(polygon) = polygon {
             let bbox = polygon.bbox();
@@ -368,8 +373,8 @@ where
         cell_ref: &'library CellRef,
         parent_transform: Transform,
     ) {
-        let child = self.library.cell(&cell_ref.cell_name);
-        let issue_kind = if self.ancestors.contains(&cell_ref.cell_name.as_str()) {
+        let child = self.library.cell(cell_ref.cell_name());
+        let issue_kind = if self.ancestors.contains(&cell_ref.cell_name()) {
             Some(HierarchyIssueKind::Cycle)
         } else if child.is_none() {
             Some(HierarchyIssueKind::MissingReference)
@@ -389,7 +394,7 @@ where
                 self.report.issues.push(HierarchyIssue {
                     kind,
                     parent_cell: parent.name().to_string(),
-                    cell_name: cell_ref.cell_name.clone(),
+                    cell_name: cell_ref.cell_name().to_string(),
                     element_index,
                     column: copy.column,
                     row: copy.row,
@@ -432,7 +437,10 @@ fn format_instance_path(current_cell: &Cell, path: &[InstanceStep<'_>]) -> Strin
         let _ = write!(
             result,
             "/{}[ref={},col={},row={}]",
-            step.cell_ref.cell_name, step.element_index, step.column, step.row
+            step.cell_ref.cell_name(),
+            step.element_index,
+            step.column,
+            step.row
         );
     }
     result
@@ -446,8 +454,11 @@ mod tests {
     #[test]
     fn copies_are_lazy_and_follow_local_lattice_order() {
         let cell_ref = CellRef::new("child")
+            .unwrap()
             .rotate(std::f64::consts::FRAC_PI_2)
-            .array_vectors(2, 2, Vector2::new(10.0, 0.0), Vector2::new(5.0, 20.0));
+            .unwrap()
+            .array_vectors(2, 2, Vector2::new(10.0, 0.0), Vector2::new(5.0, 20.0))
+            .unwrap();
         let copies: Vec<_> = cell_ref.copies().collect();
         assert_eq!(copies.len(), 4);
         assert_eq!(
@@ -468,14 +479,10 @@ mod tests {
     }
 
     #[test]
-    fn malformed_single_repetitions_preserve_one_copy() {
-        let mut cell_ref = CellRef::new("child");
-        cell_ref.repetition = Some(Repetition {
-            columns: 0,
-            rows: 1,
-            col_vector: Vector2::unit_x(),
-            row_vector: Vector2::unit_y(),
-        });
+    fn single_repetitions_preserve_one_copy() {
+        let cell_ref = CellRef::new("child")
+            .unwrap()
+            .with_repetition(Some(Repetition::new(1, 1, 1.0, 1.0).unwrap()));
         assert_eq!(cell_ref.copies().len(), 1);
         assert_eq!(
             cell_ref.copies().next().unwrap().transform,
@@ -485,13 +492,21 @@ mod tests {
 
     #[test]
     fn walk_reports_paths_arrays_missing_refs_and_cycles() {
-        let mut leaf = Cell::new("leaf");
-        leaf.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
-        leaf.add_ref(CellRef::new("root"));
+        let mut leaf = Cell::new("leaf").unwrap();
+        leaf.add_polygon(
+            Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(),
+            Layer::new(1, 0),
+        );
+        leaf.add_ref(CellRef::new("root").unwrap());
 
-        let mut root = Cell::new("root");
-        root.add_ref(CellRef::new("leaf").array(2, 1, 10.0, 0.0));
-        root.add_ref(CellRef::new("missing"));
+        let mut root = Cell::new("root").unwrap();
+        root.add_ref(
+            CellRef::new("leaf")
+                .unwrap()
+                .array(2, 1, 10.0, 0.0)
+                .unwrap(),
+        );
+        root.add_ref(CellRef::new("missing").unwrap());
 
         let mut library = Library::new("test");
         library.add_cell(leaf).unwrap();
@@ -525,10 +540,10 @@ mod tests {
 
     #[test]
     fn subtree_pruning_is_balanced_and_initial_ancestors_break_cycles() {
-        let mut child = Cell::new("child");
-        child.add_ref(CellRef::new("root"));
-        let mut root = Cell::new("root");
-        root.add_ref(CellRef::new("child"));
+        let mut child = Cell::new("child").unwrap();
+        child.add_ref(CellRef::new("root").unwrap());
+        let mut root = Cell::new("root").unwrap();
+        root.add_ref(CellRef::new("child").unwrap());
         let mut library = Library::new("test");
         library.add_cell(child).unwrap();
         library.add_cell(root).unwrap();

@@ -81,6 +81,11 @@ class TestRenderPng:
         with pytest.raises(ValueError, match="bg color"):
             render_png(two_layer_library, width=128, bg="not-a-color")
 
+    @pytest.mark.parametrize("pad", [float("nan"), float("inf"), -0.1])
+    def test_invalid_padding_raises_value_error(self, two_layer_library: Library, pad: float):
+        with pytest.raises(ValueError, match="padding"):
+            render_png(two_layer_library, pad=pad)
+
     def test_unknown_cell_raises(self, two_layer_library: Library):
         with pytest.raises(ValueError, match="not found"):
             render_png(two_layer_library, width=128, cell="missing")

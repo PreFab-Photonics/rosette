@@ -3,7 +3,7 @@ use rosette_core::{CellRef, PathEndType, Point};
 
 #[test]
 fn test_empty_cell() {
-    let cell = Cell::new("empty");
+    let cell = Cell::new("empty").unwrap();
     let rules = DrcRules::new().min_area(Layer::new(1, 0), 1.0, None);
 
     let result = run_drc(&cell, &rules, None);
@@ -13,9 +13,12 @@ fn test_empty_cell() {
 
 #[test]
 fn test_cycle_is_bounded_and_valid_geometry_is_checked_once() {
-    let mut cell = Cell::new("cycle");
-    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
-    cell.add_ref(CellRef::new("cycle"));
+    let mut cell = Cell::new("cycle").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 2.0).unwrap(),
+        Layer::new(1, 0),
+    );
+    cell.add_ref(CellRef::new("cycle").unwrap());
     let mut library = Library::new("cycle");
     library.add_cell(cell).unwrap();
     let rules = DrcRules::new().min_area(Layer::new(1, 0), 5.0, None);
@@ -29,13 +32,19 @@ fn test_cycle_is_bounded_and_valid_geometry_is_checked_once() {
 fn transform_overflow_skips_unrepresentable_drc_geometry() {
     let kept_layer = Layer::new(1, 0);
     let skipped_layer = Layer::new(2, 0);
-    let mut leaf = Cell::new("leaf");
-    leaf.add_polygon(Polygon::rect(Point::new(2.0, 0.0), 0.1, 0.1), skipped_layer);
-    let mut middle = Cell::new("middle");
-    middle.add_ref(CellRef::new("leaf").scale(f64::MAX));
-    let mut top = Cell::new("top");
-    top.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), kept_layer);
-    top.add_ref(CellRef::new("middle").scale(f64::MAX));
+    let mut leaf = Cell::new("leaf").unwrap();
+    leaf.add_polygon(
+        Polygon::rect(Point::new(2.0, 0.0), 0.1, 0.1).unwrap(),
+        skipped_layer,
+    );
+    let mut middle = Cell::new("middle").unwrap();
+    middle.add_ref(CellRef::new("leaf").unwrap().scale(f64::MAX).unwrap());
+    let mut top = Cell::new("top").unwrap();
+    top.add_polygon(
+        Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(),
+        kept_layer,
+    );
+    top.add_ref(CellRef::new("middle").unwrap().scale(f64::MAX).unwrap());
     let mut library = Library::new("test");
     library.add_cell(leaf).unwrap();
     library.add_cell(middle).unwrap();
@@ -60,8 +69,11 @@ fn transform_overflow_skips_unrepresentable_drc_geometry() {
 
 #[test]
 fn test_min_area_pass() {
-    let mut cell = Cell::new("test");
-    cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 10.0), Layer::new(1, 0));
+    let mut cell = Cell::new("test").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 10.0, 10.0).unwrap(),
+        Layer::new(1, 0),
+    );
 
     let rules = DrcRules::new().min_area(Layer::new(1, 0), 50.0, None);
     let result = run_drc(&cell, &rules, None);
@@ -71,8 +83,11 @@ fn test_min_area_pass() {
 
 #[test]
 fn test_min_area_fail() {
-    let mut cell = Cell::new("test");
-    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
+    let mut cell = Cell::new("test").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 2.0).unwrap(),
+        Layer::new(1, 0),
+    );
 
     let rules = DrcRules::new().min_area(Layer::new(1, 0), 50.0, Some("MIN_AREA"));
     let result = run_drc(&cell, &rules, None);
@@ -84,8 +99,11 @@ fn test_min_area_fail() {
 
 #[test]
 fn test_multiple_rules() {
-    let mut cell = Cell::new("test");
-    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
+    let mut cell = Cell::new("test").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 2.0).unwrap(),
+        Layer::new(1, 0),
+    );
 
     let rules = DrcRules::new()
         .min_area(Layer::new(1, 0), 50.0, None)
@@ -103,13 +121,13 @@ fn test_multiple_rules() {
 #[test]
 fn test_require_overlap_propagates_name_and_layer2() {
     // Two non-overlapping polygons on different layers with a named require_overlap rule
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(20.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(20.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(2, 0),
     );
 
@@ -130,9 +148,9 @@ fn test_require_overlap_propagates_name_and_layer2() {
 #[test]
 fn test_require_overlap_empty_layer2() {
     // Polygon on layer1 but nothing on layer2 — should still report violation
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -152,13 +170,13 @@ fn test_require_overlap_empty_layer2() {
 #[test]
 fn test_require_overlap_passes_when_overlapping() {
     // Overlapping polygons should pass
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(2, 0),
     );
 
@@ -171,9 +189,9 @@ fn test_require_overlap_passes_when_overlapping() {
 #[test]
 fn test_require_overlap_same_layer_isolated_polygon_fails() {
     // A single polygon has no other polygon to overlap with
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -191,13 +209,13 @@ fn test_require_overlap_same_layer_isolated_polygon_fails() {
 #[test]
 fn test_require_overlap_same_layer_overlapping_passes() {
     // Two overlapping polygons on the same layer should pass
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -214,13 +232,13 @@ fn test_require_overlap_same_layer_overlapping_passes() {
 #[test]
 fn test_require_overlap_same_layer_non_overlapping_fails() {
     // Two non-overlapping polygons should each fail (neither overlaps another)
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -243,21 +261,21 @@ fn test_require_overlap_same_layer_non_overlapping_fails() {
 fn test_enclosure_any_outer_sufficient() {
     // Inner polygon enclosed by the second outer polygon but not the first.
     // Should pass because ANY outer is sufficient.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
 
     // Inner: small box at (50, 50)
     cell.add_polygon(
-        Polygon::rect(Point::new(50.0, 50.0), 5.0, 5.0),
+        Polygon::rect(Point::new(50.0, 50.0), 5.0, 5.0).unwrap(),
         Layer::new(2, 0),
     );
     // Outer 1: far away — does NOT enclose inner
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap(),
         Layer::new(1, 0),
     );
     // Outer 2: large box around inner — DOES enclose it
     cell.add_polygon(
-        Polygon::rect(Point::new(40.0, 40.0), 25.0, 25.0),
+        Polygon::rect(Point::new(40.0, 40.0), 25.0, 25.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -274,16 +292,16 @@ fn test_enclosure_any_outer_sufficient() {
 #[test]
 fn test_enclosure_fails_when_no_outer_encloses() {
     // Inner polygon not enclosed by any outer polygon
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
 
     // Inner: box at (50, 50)
     cell.add_polygon(
-        Polygon::rect(Point::new(50.0, 50.0), 5.0, 5.0),
+        Polygon::rect(Point::new(50.0, 50.0), 5.0, 5.0).unwrap(),
         Layer::new(2, 0),
     );
     // Outer 1: too far away
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -298,9 +316,9 @@ fn test_enclosure_fails_when_no_outer_encloses() {
 #[test]
 fn test_enclosure_no_outer_polygons() {
     // Inner polygon exists but no outer polygons at all
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(2, 0),
     );
 
@@ -319,9 +337,9 @@ fn test_enclosure_no_outer_polygons() {
 #[test]
 fn test_forbid_overlap_same_layer_no_self_compare() {
     // A single polygon on a layer must not be flagged against itself
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -337,13 +355,13 @@ fn test_forbid_overlap_same_layer_no_self_compare() {
 #[test]
 fn test_forbid_overlap_same_layer_detects_overlap() {
     // Two overlapping polygons on the same layer should be flagged
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -370,13 +388,13 @@ fn test_forbid_overlap_same_layer_detects_overlap() {
 #[test]
 fn test_forbid_overlap_same_layer_non_overlapping_passes() {
     // Two non-overlapping polygons on the same layer should pass
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -392,12 +410,20 @@ fn test_forbid_overlap_same_layer_non_overlapping_passes() {
 #[test]
 fn test_flatten_handles_repetition() {
     // Create a child cell with a small polygon
-    let mut child = Cell::new("child");
-    child.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
+    let mut child = Cell::new("child").unwrap();
+    child.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 2.0).unwrap(),
+        Layer::new(1, 0),
+    );
 
     // Create top cell with an array reference: 3 columns, 2 rows
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("child").array(3, 2, 10.0, 20.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(
+        CellRef::new("child")
+            .unwrap()
+            .array(3, 2, 10.0, 20.0)
+            .unwrap(),
+    );
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -419,12 +445,20 @@ fn test_flatten_handles_repetition() {
 #[test]
 fn test_flatten_handles_repetition_spacing() {
     // Array of small polygons that are too close together
-    let mut child = Cell::new("child");
-    child.add_polygon(Polygon::rect(Point::origin(), 3.0, 3.0), Layer::new(1, 0));
+    let mut child = Cell::new("child").unwrap();
+    child.add_polygon(
+        Polygon::rect(Point::origin(), 3.0, 3.0).unwrap(),
+        Layer::new(1, 0),
+    );
 
     // 2 columns with 5.0 spacing — gap is only 2.0 (5.0 - 3.0)
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("child").array(2, 1, 5.0, 10.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(
+        CellRef::new("child")
+            .unwrap()
+            .array(2, 1, 5.0, 10.0)
+            .unwrap(),
+    );
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -442,13 +476,14 @@ fn test_flatten_handles_repetition_spacing() {
 #[test]
 fn test_flatten_handles_paths() {
     // Cell with a path element — should be converted to polygon for DRC
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_path(
         vec![Point::new(0.0, 0.0), Point::new(20.0, 0.0)],
         2.0,
         Layer::new(1, 0),
         PathEndType::default(),
-    );
+    )
+    .unwrap();
 
     // The path (width=2.0, length=20.0) becomes a polygon with area ~40
     let rules = DrcRules::new().min_area(Layer::new(1, 0), 30.0, None);
@@ -468,10 +503,14 @@ fn test_flatten_handles_paths() {
 fn test_path_end_type_changes_checked_geometry() {
     let points = vec![Point::origin(), Point::new(10.0, 0.0)];
     let layer = Layer::new(1, 0);
-    let mut flush = Cell::new("flush");
-    flush.add_path(points.clone(), 2.0, layer, PathEndType::Flush);
-    let mut round = Cell::new("round");
-    round.add_path(points, 2.0, layer, PathEndType::Round);
+    let mut flush = Cell::new("flush").unwrap();
+    flush
+        .add_path(points.clone(), 2.0, layer, PathEndType::Flush)
+        .unwrap();
+    let mut round = Cell::new("round").unwrap();
+    round
+        .add_path(points, 2.0, layer, PathEndType::Round)
+        .unwrap();
     let rules = DrcRules::new().min_area(layer, 22.0, None);
 
     assert!(!run_drc(&flush, &rules, None).passed());
@@ -481,13 +520,14 @@ fn test_path_end_type_changes_checked_geometry() {
 #[test]
 fn test_flatten_path_width_checked() {
     // Path with width 1.0 should fail min_width=2.0
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_path(
         vec![Point::new(0.0, 0.0), Point::new(20.0, 0.0)],
         1.0,
         Layer::new(1, 0),
         PathEndType::default(),
-    );
+    )
+    .unwrap();
 
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 2.0, Some("PATH_W"));
     let result = run_drc(&cell, &rules, None);
@@ -503,18 +543,18 @@ fn test_forbid_overlap_cross_hierarchy() {
     // Child cell has a polygon at (0,0)-(5,5).
     // Top cell has a polygon at (3,0)-(8,5) AND a CellRef to child.
     // The two polygons overlap — DRC should catch it across hierarchy.
-    let mut child = Cell::new("child");
+    let mut child = Cell::new("child").unwrap();
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     top.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
-    top.add_ref(CellRef::new("child"));
+    top.add_ref(CellRef::new("child").unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -555,18 +595,18 @@ fn test_forbid_overlap_cross_hierarchy() {
 fn test_forbid_overlap_cross_hierarchy_no_overlap_passes() {
     // Child cell polygon at (0,0)-(5,5), top cell polygon at (10,0)-(15,5).
     // No overlap — should pass.
-    let mut child = Cell::new("child");
+    let mut child = Cell::new("child").unwrap();
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     top.add_polygon(
-        Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
-    top.add_ref(CellRef::new("child"));
+    top.add_ref(CellRef::new("child").unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -585,14 +625,19 @@ fn test_forbid_overlap_cross_hierarchy_no_overlap_passes() {
 fn test_forbid_overlap_array_instances_overlap() {
     // Child cell has a 4-wide polygon. Array with col_spacing=3 means
     // copies overlap by 1 unit each.
-    let mut child = Cell::new("child");
+    let mut child = Cell::new("child").unwrap();
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 4.0, 2.0),
+        Polygon::rect(Point::new(0.0, 0.0), 4.0, 2.0).unwrap(),
         Layer::new(1, 0),
     );
 
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("child").array(3, 1, 3.0, 10.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(
+        CellRef::new("child")
+            .unwrap()
+            .array(3, 1, 3.0, 10.0)
+            .unwrap(),
+    );
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -617,10 +662,10 @@ fn test_forbid_overlap_array_instances_overlap() {
 fn test_forbid_overlap_many_non_overlapping_fast() {
     // Many non-overlapping polygons spread apart. The bbox pre-filter should
     // skip expensive boolean intersection for all pairs.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     for i in 0..50 {
         cell.add_polygon(
-            Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0),
+            Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0).unwrap(),
             Layer::new(1, 0),
         );
     }
@@ -641,14 +686,17 @@ fn test_require_overlap_many_separated_fast() {
     // require_overlap. 50 polygons on layer1 each paired with an overlapping
     // polygon on layer2. The R-tree bulk path should resolve these in
     // O(n log n) rather than O(n*m) boolean intersections.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     let layer1 = Layer::new(1, 0);
     let layer2 = Layer::new(2, 0);
 
     for i in 0..50 {
         let x = i as f64 * 20.0;
-        cell.add_polygon(Polygon::rect(Point::new(x, 0.0), 5.0, 5.0), layer1);
-        cell.add_polygon(Polygon::rect(Point::new(x + 1.0, 0.0), 5.0, 5.0), layer2);
+        cell.add_polygon(Polygon::rect(Point::new(x, 0.0), 5.0, 5.0).unwrap(), layer1);
+        cell.add_polygon(
+            Polygon::rect(Point::new(x + 1.0, 0.0), 5.0, 5.0).unwrap(),
+            layer2,
+        );
     }
 
     let rules = DrcRules::new().require_overlap(layer1, layer2, Some("REQ_OVLP"));
@@ -665,13 +713,13 @@ fn test_require_overlap_many_separated_fast() {
 fn test_require_overlap_many_no_match_reports_all() {
     // 50 polygons on layer1, none on layer2. Every polygon should report a
     // missing-overlap violation.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     let layer1 = Layer::new(1, 0);
     let layer2 = Layer::new(2, 0);
 
     for i in 0..50 {
         cell.add_polygon(
-            Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0),
+            Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0).unwrap(),
             layer1,
         );
     }
@@ -691,15 +739,15 @@ fn test_require_overlap_many_no_match_reports_all() {
 fn test_spacing_skip_touching_at_ports() {
     // Simulate route polygon abutting component polygon at a port connection.
     // Touching polygons (distance=0) should NOT produce spacing violations.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     // Component polygon: 0..10 x 0..2
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 2.0),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 2.0).unwrap(),
         Layer::new(1, 0),
     );
     // Route polygon: 10..20 x 0..2 (abuts at x=10)
     cell.add_polygon(
-        Polygon::rect(Point::new(10.0, 0.0), 10.0, 2.0),
+        Polygon::rect(Point::new(10.0, 0.0), 10.0, 2.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -717,22 +765,19 @@ fn test_non_rigid_transform_catches_width_violation() {
     // A child cell has a polygon with width 0.5 (passes min_width=0.15).
     // When scaled 0.1x in Y, the actual width becomes 0.05 (fails).
     // The hierarchy-aware DRC must detect this despite the cell being reused.
-    let mut child = Cell::new("narrow");
+    let mut child = Cell::new("narrow").unwrap();
     // 0.5 wide, 10 long rectangle
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.5),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.5).unwrap(),
         Layer::new(1, 0),
     );
 
     // Create top cell with two refs: one rigid (passes), one scaled (should fail)
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     // Rigid instance at origin — width is 0.5, passes min_width=0.15
-    top.add_ref(CellRef::new("narrow"));
+    top.add_ref(CellRef::new("narrow").unwrap());
     // Non-uniform scale: 0.1x in Y — polygon becomes 10.0 x 0.05, width = 0.05
-    top.add_ref(CellRef::with_transform(
-        "narrow",
-        Transform::scale(1.0, 0.1),
-    ));
+    top.add_ref(CellRef::with_transform("narrow", Transform::scale(1.0, 0.1)).unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -752,18 +797,18 @@ fn test_rigid_transform_detects_once_emits_per_instance() {
     // Per ROS-552: per-polygon rules detect each unique cell once but
     // emit one violation per rigid instance, carrying the owning
     // `cell_name` and a `location` in top-level global coordinates.
-    let mut child = Cell::new("tiny");
+    let mut child = Cell::new("tiny").unwrap();
     // 0.05 wide polygon — fails min_width=0.15
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
 
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     // 3 rigid instances at different positions
-    top.add_ref(CellRef::new("tiny").at(0.0, 0.0));
-    top.add_ref(CellRef::new("tiny").at(100.0, 0.0));
-    top.add_ref(CellRef::new("tiny").at(200.0, 0.0));
+    top.add_ref(CellRef::new("tiny").unwrap().at(0.0, 0.0).unwrap());
+    top.add_ref(CellRef::new("tiny").unwrap().at(100.0, 0.0).unwrap());
+    top.add_ref(CellRef::new("tiny").unwrap().at(200.0, 0.0).unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -797,9 +842,9 @@ fn test_rigid_transform_detects_once_emits_per_instance() {
 #[test]
 fn test_snap_to_grid_simple_pass() {
     // On-grid polygon passes snap-to-grid check.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.5),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.5).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -811,14 +856,15 @@ fn test_snap_to_grid_simple_pass() {
 #[test]
 fn test_snap_to_grid_simple_fail() {
     // Off-grid polygon fails snap-to-grid check.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
         Polygon::new(vec![
             Point::new(0.0, 0.0),
             Point::new(0.5, 0.0),
             Point::new(0.5, 0.003),
             Point::new(0.0, 0.003),
-        ]),
+        ])
+        .unwrap(),
         Layer::new(1, 0),
     );
 
@@ -832,16 +878,16 @@ fn test_snap_to_grid_off_grid_translation() {
     // A child cell has on-grid local vertices, but is placed at an off-grid
     // translation. The snap-to-grid check must catch this because the final
     // world coordinates are off-grid.
-    let mut child = Cell::new("block");
+    let mut child = Cell::new("block").unwrap();
     // All vertices are multiples of 0.005 (on 5nm grid locally)
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 0.5, 0.25),
+        Polygon::rect(Point::new(0.0, 0.0), 0.5, 0.25).unwrap(),
         Layer::new(1, 0),
     );
 
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     // Place at x=0.003 — off the 5nm grid
-    top.add_ref(CellRef::new("block").at(0.003, 0.0));
+    top.add_ref(CellRef::new("block").unwrap().at(0.003, 0.0).unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -864,15 +910,15 @@ fn test_snap_to_grid_off_grid_translation() {
 #[test]
 fn test_snap_to_grid_on_grid_translation() {
     // Child cell placed at on-grid translation should pass.
-    let mut child = Cell::new("block");
+    let mut child = Cell::new("block").unwrap();
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 0.5, 0.25),
+        Polygon::rect(Point::new(0.0, 0.0), 0.5, 0.25).unwrap(),
         Layer::new(1, 0),
     );
 
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     // Place at x=0.005 — on the 5nm grid
-    top.add_ref(CellRef::new("block").at(0.005, 0.0));
+    top.add_ref(CellRef::new("block").unwrap().at(0.005, 0.0).unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -889,9 +935,9 @@ fn test_snap_to_grid_on_grid_translation() {
 #[test]
 fn test_warning_margin_off_by_default_min_width() {
     // With no warning_margin, a near-threshold width is an error.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::origin(), 0.115, 10.0),
+        Polygon::rect(Point::origin(), 0.115, 10.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -907,9 +953,9 @@ fn test_warning_margin_off_by_default_min_width() {
 #[test]
 fn test_warning_margin_downgrades_near_threshold_width() {
     // 0.115 < 0.12 (violation) but within margin 0.01 of 0.12 → warning.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::origin(), 0.115, 10.0),
+        Polygon::rect(Point::origin(), 0.115, 10.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -927,8 +973,11 @@ fn test_warning_margin_downgrades_near_threshold_width() {
 #[test]
 fn test_warning_margin_keeps_far_violations_as_errors() {
     // 0.05 is far below 0.12 (well outside margin 0.01) → still an error.
-    let mut cell = Cell::new("test");
-    cell.add_polygon(Polygon::rect(Point::origin(), 0.05, 10.0), Layer::new(1, 0));
+    let mut cell = Cell::new("test").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 0.05, 10.0).unwrap(),
+        Layer::new(1, 0),
+    );
 
     let rules = DrcRules::new()
         .warning_margin(0.01)
@@ -944,13 +993,13 @@ fn test_warning_margin_keeps_far_violations_as_errors() {
 fn test_warning_margin_applies_to_min_spacing() {
     // Two polygons with a 0.11 gap, min_spacing=0.12, margin=0.02.
     // Gap 0.11 is within [0.10, 0.12) → warning.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(1.11, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(1.11, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -970,8 +1019,11 @@ fn test_warning_margin_applies_to_min_spacing() {
 #[test]
 fn test_warning_margin_applies_to_max_width() {
     // max_width = 5.0, actual = 5.05, margin = 0.1 → warning.
-    let mut cell = Cell::new("test");
-    cell.add_polygon(Polygon::rect(Point::origin(), 5.05, 10.0), Layer::new(1, 0));
+    let mut cell = Cell::new("test").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 5.05, 10.0).unwrap(),
+        Layer::new(1, 0),
+    );
 
     let rules = DrcRules::new()
         .warning_margin(0.1)
@@ -986,13 +1038,13 @@ fn test_warning_margin_applies_to_max_width() {
 #[test]
 fn test_warning_margin_does_not_downgrade_categorical() {
     // Forbidden-overlap is binary — a warning_margin must not silence it.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -1010,13 +1062,13 @@ fn test_warning_margin_does_not_downgrade_categorical() {
 fn test_warning_margin_mixed_result() {
     // Two rules: one produces a warning, one produces an error.
     // Overall `passed()` should be false because of the error.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::origin(), 0.115, 10.0),
+        Polygon::rect(Point::origin(), 0.115, 10.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(100.0, 0.0), 0.02, 10.0),
+        Polygon::rect(Point::new(100.0, 0.0), 0.02, 10.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -1036,9 +1088,9 @@ fn test_warning_margin_mixed_result() {
 #[test]
 fn test_warning_margin_zero_disables() {
     // Explicit zero should behave identically to `None`.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::origin(), 0.115, 10.0),
+        Polygon::rect(Point::origin(), 0.115, 10.0).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -1057,11 +1109,14 @@ fn test_warning_margin_does_not_apply_to_min_area() {
     // `MinArea` thresholds are in µm², so mixing them would silently
     // downgrade huge area violations for a small length-unit margin.
     // The policy is: `MinArea` violations are never downgraded.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     // Area = 0.0099 µm²; threshold = 0.01 µm²; shortfall = 0.0001 µm².
     // With a 0.01-µm margin, a naive comparison would downgrade to a
     // warning — which we explicitly do NOT want.
-    cell.add_polygon(Polygon::rect(Point::origin(), 0.099, 0.1), Layer::new(1, 0));
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 0.099, 0.1).unwrap(),
+        Layer::new(1, 0),
+    );
 
     let rules = DrcRules::new()
         .warning_margin(0.01)
@@ -1080,9 +1135,9 @@ fn test_warning_margin_does_not_apply_to_min_area() {
 fn test_density_passes_uniform_fill() {
     // Region = cell's own 100x100 fill. Single big polygon gives density=1.0.
     // Rule: max=None (no upper), min=0.5 — passes everywhere.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0),
+        Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0).unwrap(),
         Layer::new(1, 0),
     );
     let rules = DrcRules::new().density(
@@ -1100,9 +1155,9 @@ fn test_density_passes_uniform_fill() {
 
 #[test]
 fn test_density_fails_above_max() {
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0),
+        Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0).unwrap(),
         Layer::new(1, 0),
     );
     let rules = DrcRules::new().density(
@@ -1131,13 +1186,13 @@ fn test_density_region_layer_limits_scope() {
     // Target polygon on layer 1 fills the right half.
     // Region layer (99) only covers the left half — where there's nothing.
     // So measured density in the region is 0 -> fails min=0.2.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(50.0, 0.0), 50.0, 100.0),
+        Polygon::rect(Point::new(50.0, 0.0), 50.0, 100.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 50.0, 100.0),
+        Polygon::rect(Point::new(0.0, 0.0), 50.0, 100.0).unwrap(),
         Layer::new(99, 0),
     );
     let rules = DrcRules::new().density(
@@ -1160,20 +1215,25 @@ fn test_density_region_layer_limits_scope() {
 fn test_density_aggregates_across_array() {
     // A small filled cell arrayed across a region. Verify density
     // aggregates across instances (hierarchical flattening).
-    let mut child = Cell::new("child");
+    let mut child = Cell::new("child").unwrap();
     // 5x5 filled tile
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
     // 10 columns x 10 rows at pitch 10.0 -> tiles at x=0, 10, ..., 90.
     // Fill spans [0, 95] x [0, 95]. Use region_layer explicitly so the
     // bbox is a clean [0, 100] x [0, 100].
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("child").array(10, 10, 10.0, 10.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(
+        CellRef::new("child")
+            .unwrap()
+            .array(10, 10, 10.0, 10.0)
+            .unwrap(),
+    );
     top.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0),
+        Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0).unwrap(),
         Layer::new(99, 0),
     );
 
@@ -1223,7 +1283,7 @@ fn test_density_empty_design_skips_silently() {
     // (no region to measure over), so the check is a silent no-op.
     // Users who want density enforced over an explicit floor-plan must
     // declare a region_layer.
-    let cell = Cell::new("empty");
+    let cell = Cell::new("empty").unwrap();
     let rules = DrcRules::new().density(
         Layer::new(1, 0),
         Some(0.2),
@@ -1242,9 +1302,9 @@ fn test_density_empty_target_layer_inside_populated_design() {
     // Target layer has no geometry, but the design has geometry on
     // another layer. Fallback region = bbox of placed geometry.
     // Measured density on the empty target = 0 everywhere -> fails min.
-    let mut cell = Cell::new("test");
+    let mut cell = Cell::new("test").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0),
+        Polygon::rect(Point::new(0.0, 0.0), 100.0, 100.0).unwrap(),
         Layer::new(2, 0),
     );
     let rules = DrcRules::new().density(
@@ -1275,13 +1335,13 @@ fn test_density_empty_target_layer_inside_populated_design() {
 fn test_drc_skip_suppresses_intra_cell_violation() {
     // A cell has two overlapping polygons on the same layer.
     // With drc_skip=true, the intra-cell violation should be suppressed.
-    let mut trusted = Cell::new("trusted");
+    let mut trusted = Cell::new("trusted").unwrap();
     trusted.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     trusted.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
@@ -1303,17 +1363,17 @@ fn test_drc_skip_keeps_inter_cell_violation() {
     // Trusted child cell has a polygon that overlaps a polygon in an
     // untrusted top cell. The inter-cell violation MUST survive — trust
     // is about interior, not about placement.
-    let mut child = Cell::new("child");
+    let mut child = Cell::new("child").unwrap();
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     top.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
-    top.add_ref(CellRef::new("child"));
+    top.add_ref(CellRef::new("child").unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(child).unwrap();
@@ -1337,19 +1397,19 @@ fn test_drc_skip_keeps_inter_cell_violation() {
 fn test_drc_skip_suppresses_when_both_cells_trusted() {
     // Two trusted cells overlap each other. With both trusted, the
     // inter-cell violation should be suppressed too.
-    let mut a = Cell::new("a");
+    let mut a = Cell::new("a").unwrap();
     a.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut b = Cell::new("b");
+    let mut b = Cell::new("b").unwrap();
     b.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("a"));
-    top.add_ref(CellRef::new("b"));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("a").unwrap());
+    top.add_ref(CellRef::new("b").unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(a).unwrap();
@@ -1376,20 +1436,20 @@ fn test_drc_skip_propagates_to_subtree() {
     // Trusted parent contains an untrusted child. The child's own
     // intra-cell violation should still be suppressed because the child
     // is reachable from a trusted ancestor.
-    let mut grandchild = Cell::new("grandchild");
+    let mut grandchild = Cell::new("grandchild").unwrap();
     grandchild.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     grandchild.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
-    let mut parent = Cell::new("parent");
-    parent.add_ref(CellRef::new("grandchild"));
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("parent"));
+    let mut parent = Cell::new("parent").unwrap();
+    parent.add_ref(CellRef::new("grandchild").unwrap());
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("parent").unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(grandchild).unwrap();
@@ -1426,26 +1486,26 @@ fn test_drc_skip_diamond_hierarchy() {
     //   (untrusted)           |
     //       \                /
     //          shared (untrusted) — has an internal overlap
-    let mut shared = Cell::new("shared");
+    let mut shared = Cell::new("shared").unwrap();
     shared.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     shared.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
 
-    let mut parent_a = Cell::new("parent_a");
-    parent_a.add_ref(CellRef::new("shared"));
+    let mut parent_a = Cell::new("parent_a").unwrap();
+    parent_a.add_ref(CellRef::new("shared").unwrap());
 
-    let mut parent_b = Cell::new("parent_b");
-    parent_b.add_ref(CellRef::new("shared"));
-    let mut top = Cell::new("top");
+    let mut parent_b = Cell::new("parent_b").unwrap();
+    parent_b.add_ref(CellRef::new("shared").unwrap());
+    let mut top = Cell::new("top").unwrap();
     // Order matters for reproducing the old bug: put the untrusted
     // parent first so `shared` is visited via it first.
-    top.add_ref(CellRef::new("parent_a"));
-    top.add_ref(CellRef::new("parent_b"));
+    top.add_ref(CellRef::new("parent_a").unwrap());
+    top.add_ref(CellRef::new("parent_b").unwrap());
 
     let mut lib = Library::new("test_lib");
     lib.add_cell(shared).unwrap();
@@ -1484,10 +1544,10 @@ fn test_drc_skip_suppresses_per_polygon_violation() {
     // Regression for ROS-552: per-polygon rules now carry cell-name
     // provenance, so drc_skip suppresses them. Previously (v1 of
     // drc_skip) this was a documented gap — the violation was kept.
-    let mut trusted = Cell::new("trusted");
+    let mut trusted = Cell::new("trusted").unwrap();
     // A polygon with a thin neck that violates min_width.
     trusted.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, Some("MIN_W"));
@@ -1509,13 +1569,13 @@ fn test_drc_skip_suppresses_per_polygon_violation() {
 fn test_drc_skip_zero_skipped_cells_when_none_marked() {
     // Sanity: with no cells marked, stats reflect zero skipped cells
     // and zero suppressions, and behavior is unchanged.
-    let mut cell = Cell::new("plain");
+    let mut cell = Cell::new("plain").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     cell.add_polygon(
-        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0),
+        Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
     let rules = DrcRules::new().forbid_overlap(Layer::new(1, 0), Layer::new(1, 0), Some("NO_OVLP"));
@@ -1541,8 +1601,8 @@ fn two_level_hierarchy(leaf: Cell) -> (Library, String) {
     // Parent places the leaf translated by (100, 50) — chosen so that
     // local-frame and global-frame are trivially distinguishable.
     let leaf_name = leaf.name().to_string();
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new(&leaf_name).at(100.0, 50.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new(&leaf_name).unwrap().at(100.0, 50.0).unwrap());
     let mut lib = Library::new("prov_lib");
     lib.add_cell(leaf).unwrap();
     lib.add_cell(top).unwrap();
@@ -1551,9 +1611,9 @@ fn two_level_hierarchy(leaf: Cell) -> (Library, String) {
 
 #[test]
 fn prov_min_width_attributed_and_global() {
-    let mut leaf = Cell::new("thin_wire");
+    let mut leaf = Cell::new("thin_wire").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1569,9 +1629,9 @@ fn prov_min_width_attributed_and_global() {
 
 #[test]
 fn prov_min_area_attributed_and_global() {
-    let mut leaf = Cell::new("tiny_sq");
+    let mut leaf = Cell::new("tiny_sq").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1587,13 +1647,14 @@ fn prov_min_area_attributed_and_global() {
 #[test]
 fn prov_allowed_angles_attributed_and_global() {
     // Triangle has 60° interior angles; allow only {0, 90} -> violation.
-    let mut leaf = Cell::new("tri");
+    let mut leaf = Cell::new("tri").unwrap();
     leaf.add_polygon(
         Polygon::new(vec![
             Point::new(0.0, 0.0),
             Point::new(1.0, 0.0),
             Point::new(0.5, 1.0),
-        ]),
+        ])
+        .unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1611,7 +1672,7 @@ fn prov_allowed_angles_attributed_and_global() {
 #[test]
 fn prov_min_edge_length_attributed_and_global() {
     // A polygon with one tiny edge (0.01 long).
-    let mut leaf = Cell::new("short_edge");
+    let mut leaf = Cell::new("short_edge").unwrap();
     leaf.add_polygon(
         Polygon::new(vec![
             Point::new(0.0, 0.0),
@@ -1619,7 +1680,8 @@ fn prov_min_edge_length_attributed_and_global() {
             Point::new(10.0, 10.0),
             Point::new(10.0 - 0.01, 10.0),
             Point::new(0.0, 10.0),
-        ]),
+        ])
+        .unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1634,14 +1696,15 @@ fn prov_min_edge_length_attributed_and_global() {
 #[test]
 fn prov_self_intersection_attributed_and_global() {
     // Bowtie polygon (self-intersecting).
-    let mut leaf = Cell::new("bowtie");
+    let mut leaf = Cell::new("bowtie").unwrap();
     leaf.add_polygon(
         Polygon::new(vec![
             Point::new(0.0, 0.0),
             Point::new(10.0, 10.0),
             Point::new(10.0, 0.0),
             Point::new(0.0, 10.0),
-        ]),
+        ])
+        .unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1653,9 +1716,9 @@ fn prov_self_intersection_attributed_and_global() {
 
 #[test]
 fn prov_max_width_attributed_and_global() {
-    let mut leaf = Cell::new("fat");
+    let mut leaf = Cell::new("fat").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0),
+        Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0).unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1670,13 +1733,14 @@ fn prov_max_width_attributed_and_global() {
 #[test]
 fn prov_acute_angle_attributed_and_global() {
     // Thin triangle has a very small apex angle.
-    let mut leaf = Cell::new("sharp");
+    let mut leaf = Cell::new("sharp").unwrap();
     leaf.add_polygon(
         Polygon::new(vec![
             Point::new(0.0, 0.0),
             Point::new(10.0, 0.01),
             Point::new(10.0, -0.01),
-        ]),
+        ])
+        .unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1693,14 +1757,14 @@ fn prov_snap_to_grid_attributed_and_global() {
     // Leaf is on-grid; but the parent translates by an off-grid offset
     // so the final global coords are off-grid — forces snap-to-grid
     // to find violations in the flattened geometry.
-    let mut leaf = Cell::new("ongrid");
+    let mut leaf = Cell::new("ongrid").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.5),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 0.5).unwrap(),
         Layer::new(1, 0),
     );
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     // Translate by (0.0003, 0) — off 1nm grid since 0.0003 / 0.001 = 0.3.
-    top.add_ref(CellRef::new("ongrid").at(0.0003, 0.0));
+    top.add_ref(CellRef::new("ongrid").unwrap().at(0.0003, 0.0).unwrap());
     let mut lib = Library::new("prov_lib");
     lib.add_cell(leaf).unwrap();
     lib.add_cell(top).unwrap();
@@ -1722,13 +1786,13 @@ fn prov_min_spacing_same_layer_intra_cell() {
     // Two close polygons in the leaf on the same layer -> intra-cell
     // same-layer min-spacing violation. Phase 2 emits per-instance
     // with cell_name == cell_name2 == leaf.
-    let mut leaf = Cell::new("pair");
+    let mut leaf = Cell::new("pair").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
     leaf.add_polygon(
-        Polygon::rect(Point::new(1.05, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(1.05, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1745,19 +1809,19 @@ fn prov_min_spacing_same_layer_intra_cell() {
 #[test]
 fn prov_min_spacing_cross_layer() {
     // Two layers, cross-layer spacing violation across instances.
-    let mut a = Cell::new("layer_a");
+    let mut a = Cell::new("layer_a").unwrap();
     a.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut b = Cell::new("layer_b");
+    let mut b = Cell::new("layer_b").unwrap();
     b.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(2, 0),
     );
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("layer_a").at(0.0, 0.0));
-    top.add_ref(CellRef::new("layer_b").at(1.05, 0.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("layer_a").unwrap().at(0.0, 0.0).unwrap());
+    top.add_ref(CellRef::new("layer_b").unwrap().at(1.05, 0.0).unwrap());
     let mut lib = Library::new("prov_lib");
     lib.add_cell(a).unwrap();
     lib.add_cell(b).unwrap();
@@ -1775,19 +1839,19 @@ fn prov_enclosure_cross_layer() {
     // Inner on layer 2 in cell `inner_cell`; outer on layer 1 in cell
     // `outer_cell`. Parent places them so inner is barely enclosed
     // (margin < required).
-    let mut inner_cell = Cell::new("inner_cell");
+    let mut inner_cell = Cell::new("inner_cell").unwrap();
     inner_cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 4.0, 4.0),
+        Polygon::rect(Point::new(0.0, 0.0), 4.0, 4.0).unwrap(),
         Layer::new(2, 0),
     );
-    let mut outer_cell = Cell::new("outer_cell");
+    let mut outer_cell = Cell::new("outer_cell").unwrap();
     outer_cell.add_polygon(
-        Polygon::rect(Point::new(-0.5, -0.5), 5.0, 5.0),
+        Polygon::rect(Point::new(-0.5, -0.5), 5.0, 5.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("inner_cell").at(0.0, 0.0));
-    top.add_ref(CellRef::new("outer_cell").at(0.0, 0.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("inner_cell").unwrap().at(0.0, 0.0).unwrap());
+    top.add_ref(CellRef::new("outer_cell").unwrap().at(0.0, 0.0).unwrap());
     let mut lib = Library::new("prov_lib");
     lib.add_cell(inner_cell).unwrap();
     lib.add_cell(outer_cell).unwrap();
@@ -1804,9 +1868,9 @@ fn prov_enclosure_cross_layer() {
 fn prov_enclosure_no_outer() {
     // Inner polygon with no outer on layer 1 — cell_name set,
     // cell_name2 = None (there's no outer polygon to attribute to).
-    let mut leaf = Cell::new("orphan_inner");
+    let mut leaf = Cell::new("orphan_inner").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 4.0, 4.0),
+        Polygon::rect(Point::new(0.0, 0.0), 4.0, 4.0).unwrap(),
         Layer::new(2, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1821,19 +1885,19 @@ fn prov_enclosure_no_outer() {
 #[test]
 fn prov_require_overlap_cross_layer() {
     // layer_a polygon has no overlapping layer_b polygon.
-    let mut a = Cell::new("layer_a");
+    let mut a = Cell::new("layer_a").unwrap();
     a.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut b = Cell::new("layer_b");
+    let mut b = Cell::new("layer_b").unwrap();
     b.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(2, 0),
     );
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("layer_a").at(0.0, 0.0));
-    top.add_ref(CellRef::new("layer_b").at(50.0, 0.0)); // far away
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("layer_a").unwrap().at(0.0, 0.0).unwrap());
+    top.add_ref(CellRef::new("layer_b").unwrap().at(50.0, 0.0).unwrap()); // far away
     let mut lib = Library::new("prov_lib");
     lib.add_cell(a).unwrap();
     lib.add_cell(b).unwrap();
@@ -1850,19 +1914,19 @@ fn prov_require_overlap_cross_layer() {
 
 #[test]
 fn prov_forbid_overlap_cross_layer() {
-    let mut a = Cell::new("cell_a");
+    let mut a = Cell::new("cell_a").unwrap();
     a.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
+        Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut b = Cell::new("cell_b");
+    let mut b = Cell::new("cell_b").unwrap();
     b.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
+        Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0).unwrap(),
         Layer::new(2, 0),
     );
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("cell_a").at(0.0, 0.0));
-    top.add_ref(CellRef::new("cell_b").at(1.0, 0.0)); // overlapping
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("cell_a").unwrap().at(0.0, 0.0).unwrap());
+    top.add_ref(CellRef::new("cell_b").unwrap().at(1.0, 0.0).unwrap()); // overlapping
     let mut lib = Library::new("prov_lib");
     lib.add_cell(a).unwrap();
     lib.add_cell(b).unwrap();
@@ -1878,19 +1942,19 @@ fn prov_forbid_overlap_cross_layer() {
 #[test]
 fn prov_not_inside_cross_layer() {
     // Inner polygon fully inside exclusion zone from another cell.
-    let mut inner_cell = Cell::new("inner_cell");
+    let mut inner_cell = Cell::new("inner_cell").unwrap();
     inner_cell.add_polygon(
-        Polygon::rect(Point::new(2.0, 2.0), 1.0, 1.0),
+        Polygon::rect(Point::new(2.0, 2.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut zone_cell = Cell::new("zone_cell");
+    let mut zone_cell = Cell::new("zone_cell").unwrap();
     zone_cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0).unwrap(),
         Layer::new(2, 0),
     );
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("inner_cell").at(0.0, 0.0));
-    top.add_ref(CellRef::new("zone_cell").at(0.0, 0.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("inner_cell").unwrap().at(0.0, 0.0).unwrap());
+    top.add_ref(CellRef::new("zone_cell").unwrap().at(0.0, 0.0).unwrap());
     let mut lib = Library::new("prov_lib");
     lib.add_cell(inner_cell).unwrap();
     lib.add_cell(zone_cell).unwrap();
@@ -1909,9 +1973,9 @@ fn prov_not_inside_cross_layer() {
 fn prov_density_leaves_cell_name_none_by_design() {
     // Density is a window-based check with no single source polygon,
     // so cell_name is documented as intentionally None.
-    let mut leaf = Cell::new("sparse");
+    let mut leaf = Cell::new("sparse").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1931,9 +1995,9 @@ fn prov_density_leaves_cell_name_none_by_design() {
 fn prov_drc_skip_suppresses_per_polygon_in_nested_cell() {
     // Regression: a trusted leaf with per-polygon violation, placed in
     // an untrusted parent. ROS-552 lets drc_skip suppress it.
-    let mut leaf = Cell::new("trusted_leaf");
+    let mut leaf = Cell::new("trusted_leaf").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
     let (lib, top) = two_level_hierarchy(leaf);
@@ -1949,19 +2013,19 @@ fn prov_drc_skip_suppresses_per_polygon_in_nested_cell() {
 fn prov_drc_skip_suppresses_cross_layer_when_both_trusted() {
     // Two trusted leaves in cross-layer forbid_overlap — now
     // suppressed since both cell_name and cell_name2 are populated.
-    let mut a = Cell::new("a");
+    let mut a = Cell::new("a").unwrap();
     a.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
+        Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut b = Cell::new("b");
+    let mut b = Cell::new("b").unwrap();
     b.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0),
+        Polygon::rect(Point::new(0.0, 0.0), 2.0, 2.0).unwrap(),
         Layer::new(2, 0),
     );
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("a").at(0.0, 0.0));
-    top.add_ref(CellRef::new("b").at(1.0, 0.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("a").unwrap().at(0.0, 0.0).unwrap());
+    top.add_ref(CellRef::new("b").unwrap().at(1.0, 0.0).unwrap());
     let mut lib = Library::new("prov_lib");
     lib.add_cell(a).unwrap();
     lib.add_cell(b).unwrap();
@@ -1985,17 +2049,17 @@ fn prov_non_rigid_intra_cell_spacing_reflects_scaled_geometry() {
     // Leaf has two same-layer polygons 0.05 apart. Under 2× scale, the
     // spacing becomes 0.10, which passes min_spacing=0.08 — the runner
     // must see the scaled geometry to reach that conclusion.
-    let mut leaf = Cell::new("pair");
+    let mut leaf = Cell::new("pair").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(0.0, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
     leaf.add_polygon(
-        Polygon::rect(Point::new(1.05, 0.0), 1.0, 1.0),
+        Polygon::rect(Point::new(1.05, 0.0), 1.0, 1.0).unwrap(),
         Layer::new(1, 0),
     );
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("pair").scale(2.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("pair").unwrap().scale(2.0).unwrap());
     let mut lib = Library::new("nr_lib");
     lib.add_cell(leaf).unwrap();
     lib.add_cell(top).unwrap();
@@ -2038,14 +2102,19 @@ fn prov_detection_cache_dedupes_rigid_instances() {
     // number of violations but every one would carry subtly different
     // float noise from re-running the detection. Asserting identical
     // rule_type payloads locks in the cache invariant.
-    let mut leaf = Cell::new("leaf");
+    let mut leaf = Cell::new("leaf").unwrap();
     leaf.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     for i in 0..5 {
-        top.add_ref(CellRef::new("leaf").at(100.0 * i as f64, 0.0));
+        top.add_ref(
+            CellRef::new("leaf")
+                .unwrap()
+                .at(100.0 * i as f64, 0.0)
+                .unwrap(),
+        );
     }
     let mut lib = Library::new("dedup_lib");
     lib.add_cell(leaf).unwrap();
@@ -2078,9 +2147,9 @@ fn prov_detection_cache_dedupes_rigid_instances() {
 fn waive_region_suppresses_contained_violation() {
     // A thin polygon violates min-width. A waiver region that fully contains
     // the violation location suppresses it.
-    let mut cell = Cell::new("c");
+    let mut cell = Cell::new("c").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
@@ -2088,7 +2157,7 @@ fn waive_region_suppresses_contained_violation() {
     // Region generously covers the whole polygon (and thus the violation).
     policy.waive_region(
         "c",
-        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)).unwrap(),
     );
     let result = run_drc_with_policy(&cell, &rules, None, &policy);
 
@@ -2102,16 +2171,19 @@ fn waive_region_suppresses_contained_violation() {
 fn waive_region_keeps_partially_overlapping_violation() {
     // A waiver region that only partially overlaps the violation location
     // must NOT suppress it — full containment is required.
-    let mut cell = Cell::new("c");
+    let mut cell = Cell::new("c").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
     let mut policy = DrcPolicy::new();
     // Region covers only the left half — it does not contain the full
     // violation bbox (which spans the whole 10-wide polygon).
-    policy.waive_region("c", BBox::new(Point::new(-1.0, -1.0), Point::new(4.0, 1.0)));
+    policy.waive_region(
+        "c",
+        BBox::new(Point::new(-1.0, -1.0), Point::new(4.0, 1.0)).unwrap(),
+    );
     let result = run_drc_with_policy(&cell, &rules, None, &policy);
 
     assert!(
@@ -2125,9 +2197,9 @@ fn waive_region_keeps_partially_overlapping_violation() {
 #[test]
 fn waive_region_no_regions_unchanged() {
     // Without any waiver regions, behavior is unchanged and the stat is 0.
-    let mut cell = Cell::new("c");
+    let mut cell = Cell::new("c").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
 
@@ -2144,14 +2216,14 @@ fn waive_region_transformed_through_translated_ref() {
     // The waiver lives in a child cell's local frame. The child is placed by
     // a translated CellRef, so the region must be transformed into global
     // coords to line up with the (also-global) violation location.
-    let mut child = Cell::new("child");
+    let mut child = Cell::new("child").unwrap();
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
-    let mut top = Cell::new("top");
+    let mut top = Cell::new("top").unwrap();
     // Place far from the origin: a region left in local coords would miss.
-    top.add_ref(CellRef::new("child").at(1000.0, 2000.0));
+    top.add_ref(CellRef::new("child").unwrap().at(1000.0, 2000.0).unwrap());
 
     let mut lib = Library::new("waive_lib");
     lib.add_cell(child).unwrap();
@@ -2162,7 +2234,7 @@ fn waive_region_transformed_through_translated_ref() {
     // Local-frame region around the violation.
     policy.waive_region(
         "child",
-        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)).unwrap(),
     );
     let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
@@ -2179,13 +2251,13 @@ fn waive_region_local_coords_do_not_match_when_placed_far() {
     // Same as above, but the child has NO waiver. Confirms the placement is
     // genuinely far from the origin (so the transform in the previous test
     // is doing real work, not coincidentally matching a local-frame box).
-    let mut child = Cell::new("child");
+    let mut child = Cell::new("child").unwrap();
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("child").at(1000.0, 2000.0));
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(CellRef::new("child").unwrap().at(1000.0, 2000.0).unwrap());
     let mut lib = Library::new("waive_lib2");
     lib.add_cell(child).unwrap();
     lib.add_cell(top).unwrap();
@@ -2196,7 +2268,7 @@ fn waive_region_local_coords_do_not_match_when_placed_far() {
     // so it should not match the translated global violation location.
     policy.waive_region(
         "top",
-        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)).unwrap(),
     );
     let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
@@ -2208,13 +2280,16 @@ fn waive_region_local_coords_do_not_match_when_placed_far() {
 fn waive_region_replicated_across_aref_copies() {
     // A child with a local waiver placed via an AREF (repetition). Each copy
     // gets its own transformed waiver, so every per-copy violation is waived.
-    let mut child = Cell::new("child");
+    let mut child = Cell::new("child").unwrap();
     child.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
-    let mut top = Cell::new("top");
-    let cref = CellRef::new("child").array(3, 1, 100.0, 0.0);
+    let mut top = Cell::new("top").unwrap();
+    let cref = CellRef::new("child")
+        .unwrap()
+        .array(3, 1, 100.0, 0.0)
+        .unwrap();
     top.add_ref(cref);
 
     let mut lib = Library::new("waive_aref_lib");
@@ -2225,7 +2300,7 @@ fn waive_region_replicated_across_aref_copies() {
     let mut policy = DrcPolicy::new();
     policy.waive_region(
         "child",
-        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)).unwrap(),
     );
     let result = run_drc_with_policy(lib.cell("top").unwrap(), &rules, Some(&lib), &policy);
 
@@ -2240,9 +2315,9 @@ fn waive_region_replicated_across_aref_copies() {
 fn waive_region_and_drc_skip_not_double_counted() {
     // A violation suppressible by BOTH drc_skip and a region waiver is
     // counted once, as a drc_skip suppression (applied first).
-    let mut cell = Cell::new("c");
+    let mut cell = Cell::new("c").unwrap();
     cell.add_polygon(
-        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05),
+        Polygon::rect(Point::new(0.0, 0.0), 10.0, 0.05).unwrap(),
         Layer::new(1, 0),
     );
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
@@ -2250,7 +2325,7 @@ fn waive_region_and_drc_skip_not_double_counted() {
     policy.skip_cell("c");
     policy.waive_region(
         "c",
-        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)),
+        BBox::new(Point::new(-1.0, -1.0), Point::new(11.0, 1.0)).unwrap(),
     );
     let result = run_drc_with_policy(&cell, &rules, None, &policy);
 
@@ -2310,10 +2385,16 @@ fn assert_same_violations(cached: &DrcResult, fresh: &DrcResult) {
 
 #[test]
 fn content_hash_ignores_cell_name() {
-    let mut a = Cell::new("alpha");
-    a.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
-    let mut b = Cell::new("beta");
-    b.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
+    let mut a = Cell::new("alpha").unwrap();
+    a.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 2.0).unwrap(),
+        Layer::new(1, 0),
+    );
+    let mut b = Cell::new("beta").unwrap();
+    b.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 2.0).unwrap(),
+        Layer::new(1, 0),
+    );
 
     let mut memo = HashMap::new();
     let ha = cell_content_hash(&a, None, &mut memo);
@@ -2324,10 +2405,16 @@ fn content_hash_ignores_cell_name() {
 
 #[test]
 fn content_hash_changes_on_geometry_edit() {
-    let mut a = Cell::new("c");
-    a.add_polygon(Polygon::rect(Point::origin(), 2.0, 2.0), Layer::new(1, 0));
-    let mut b = Cell::new("c");
-    b.add_polygon(Polygon::rect(Point::origin(), 2.0, 3.0), Layer::new(1, 0));
+    let mut a = Cell::new("c").unwrap();
+    a.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 2.0).unwrap(),
+        Layer::new(1, 0),
+    );
+    let mut b = Cell::new("c").unwrap();
+    b.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 3.0).unwrap(),
+        Layer::new(1, 0),
+    );
 
     let mut m1 = HashMap::new();
     let mut m2 = HashMap::new();
@@ -2342,13 +2429,13 @@ fn content_hash_changes_on_geometry_edit() {
 fn content_hash_is_transitive() {
     // Editing a leaf cell must change the top cell's hash.
     let make = |leaf_h: f64| {
-        let mut leaf = Cell::new("leaf");
+        let mut leaf = Cell::new("leaf").unwrap();
         leaf.add_polygon(
-            Polygon::rect(Point::origin(), 1.0, leaf_h),
+            Polygon::rect(Point::origin(), 1.0, leaf_h).unwrap(),
             Layer::new(1, 0),
         );
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("leaf").at(0.0, 0.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("leaf").unwrap().at(0.0, 0.0).unwrap());
         let mut lib = Library::new("lib");
         lib.add_cell(leaf).unwrap();
         lib.add_cell(top.clone()).unwrap();
@@ -2367,8 +2454,11 @@ fn content_hash_is_transitive() {
 
 #[test]
 fn cached_matches_fresh_flat_cell() {
-    let mut cell = Cell::new("test");
-    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+    let mut cell = Cell::new("test").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 0.05).unwrap(),
+        Layer::new(1, 0),
+    );
     let rules = DrcRules::new()
         .min_width(Layer::new(1, 0), 0.5, Some("W"))
         .min_area(Layer::new(1, 0), 10.0, Some("A"));
@@ -2386,10 +2476,18 @@ fn cached_matches_fresh_flat_cell() {
 
 #[test]
 fn cached_matches_fresh_hierarchy() {
-    let mut child = Cell::new("child");
-    child.add_polygon(Polygon::rect(Point::origin(), 10.0, 0.05), Layer::new(1, 0));
-    let mut top = Cell::new("top");
-    top.add_ref(CellRef::new("child").array(3, 2, 12.0, 1.0));
+    let mut child = Cell::new("child").unwrap();
+    child.add_polygon(
+        Polygon::rect(Point::origin(), 10.0, 0.05).unwrap(),
+        Layer::new(1, 0),
+    );
+    let mut top = Cell::new("top").unwrap();
+    top.add_ref(
+        CellRef::new("child")
+            .unwrap()
+            .array(3, 2, 12.0, 1.0)
+            .unwrap(),
+    );
     let mut lib = Library::new("lib");
     lib.add_cell(child).unwrap();
     lib.add_cell(top.clone()).unwrap();
@@ -2407,8 +2505,11 @@ fn cached_matches_fresh_hierarchy() {
 
 #[test]
 fn cache_invalidates_on_rules_change() {
-    let mut cell = Cell::new("c");
-    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.3), Layer::new(1, 0));
+    let mut cell = Cell::new("c").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 0.3).unwrap(),
+        Layer::new(1, 0),
+    );
 
     let mut cache = DrcCache::new();
 
@@ -2443,14 +2544,19 @@ fn cached_tracks_edit_sequence_like_full_rerun() {
     // Build a fresh (top, lib) for a given leaf height + top name + instance
     // count, so each "edit" is just a rebuild with different parameters.
     let build = |leaf_h: f64, top_name: &str, instances: usize| {
-        let mut child = Cell::new("child");
+        let mut child = Cell::new("child").unwrap();
         child.add_polygon(
-            Polygon::rect(Point::origin(), 10.0, leaf_h),
+            Polygon::rect(Point::origin(), 10.0, leaf_h).unwrap(),
             Layer::new(1, 0),
         );
-        let mut top = Cell::new(top_name);
+        let mut top = Cell::new(top_name).unwrap();
         for i in 0..instances {
-            top.add_ref(CellRef::new("child").at(i as f64 * 12.0, 0.0));
+            top.add_ref(
+                CellRef::new("child")
+                    .unwrap()
+                    .at(i as f64 * 12.0, 0.0)
+                    .unwrap(),
+            );
         }
         let mut lib = Library::new("lib");
         lib.add_cell(child).unwrap();
@@ -2477,8 +2583,11 @@ fn cached_tracks_edit_sequence_like_full_rerun() {
 
 #[test]
 fn explicit_policy_suppresses_without_mutating_cell() {
-    let mut cell = Cell::new("trusted");
-    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+    let mut cell = Cell::new("trusted").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 0.05).unwrap(),
+        Layer::new(1, 0),
+    );
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
     let mut policy = DrcPolicy::new();
     policy.skip_cell("trusted");
@@ -2491,8 +2600,11 @@ fn explicit_policy_suppresses_without_mutating_cell() {
 
 #[test]
 fn cached_run_invalidates_full_result_when_policy_changes() {
-    let mut cell = Cell::new("trusted");
-    cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+    let mut cell = Cell::new("trusted").unwrap();
+    cell.add_polygon(
+        Polygon::rect(Point::origin(), 2.0, 0.05).unwrap(),
+        Layer::new(1, 0),
+    );
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
     let runner = DrcRunner::new(rules);
     let mut cache = DrcCache::new();
@@ -2510,8 +2622,11 @@ fn cached_run_invalidates_full_result_when_policy_changes() {
 #[test]
 fn cached_full_result_refreshes_provenance_after_rename() {
     let make_cell = |name: &str| {
-        let mut cell = Cell::new(name);
-        cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+        let mut cell = Cell::new(name).unwrap();
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 2.0, 0.05).unwrap(),
+            Layer::new(1, 0),
+        );
         cell
     };
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);
@@ -2528,8 +2643,11 @@ fn cached_full_result_refreshes_provenance_after_rename() {
 #[test]
 fn cached_full_result_refreshes_name_keyed_policy_after_rename() {
     let make_cell = |name: &str| {
-        let mut cell = Cell::new(name);
-        cell.add_polygon(Polygon::rect(Point::origin(), 2.0, 0.05), Layer::new(1, 0));
+        let mut cell = Cell::new(name).unwrap();
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 2.0, 0.05).unwrap(),
+            Layer::new(1, 0),
+        );
         cell
     };
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 0.5, None);

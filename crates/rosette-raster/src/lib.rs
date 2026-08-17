@@ -31,4 +31,4 @@ pub mod transform;
 pub use flatten::{FlatGeometry, FlatPolygon, flatten_cell, flatten_library};
 pub use palette::Palette;
 pub use render::{RenderError, RenderOptions, RenderResult, render_png};
-pub use transform::ViewTransform;
+pub use transform::{ViewTransform, ViewTransformError};

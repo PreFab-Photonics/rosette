@@ -464,7 +464,7 @@ mod tests {
     }
 
     fn test_bbox() -> BBox {
-        BBox::new(Point::new(0.0, 0.0), Point::new(20.0, 20.0))
+        BBox::new(Point::new(0.0, 0.0), Point::new(20.0, 20.0)).unwrap()
     }
 
     #[test]
@@ -598,7 +598,7 @@ mod tests {
         let predicted = make_raster(10, 10);
 
         let layer = Layer::new(1, 0);
-        let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(10.0, 10.0));
+        let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(10.0, 10.0)).unwrap();
         let (metrics, violations) = compare_layer(&designed, &predicted, layer, 0.5, &bbox, None);
 
         assert!((metrics.max_edge_deviation).abs() < 1e-10);
@@ -655,7 +655,7 @@ mod tests {
         }
 
         let layer = Layer::new(1, 0);
-        let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(1.0, 1.0));
+        let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(1.0, 1.0)).unwrap();
         let (metrics, _) = compare_layer(&designed, &predicted, layer, 0.5, &bbox, None);
 
         assert!(metrics.max_edge_deviation >= 0.05);

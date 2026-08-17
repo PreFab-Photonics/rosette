@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn test_narrow_waveguide_passes() {
         // 20x0.5 waveguide — width 0.5 is within max 1.0
-        let poly = Polygon::rect(Point::origin(), 20.0, 0.5);
+        let poly = Polygon::rect(Point::origin(), 20.0, 0.5).unwrap();
         let result = check_max_width(&poly, Layer::new(1, 0), 1.0, None);
         assert!(result.is_none());
     }
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn test_wide_waveguide_fails() {
         // 20x3.0 waveguide — width 3.0 exceeds max 1.0
-        let poly = Polygon::rect(Point::origin(), 20.0, 3.0);
+        let poly = Polygon::rect(Point::origin(), 20.0, 3.0).unwrap();
         let result = check_max_width(&poly, Layer::new(1, 0), 1.0, Some("MAX_W"));
         assert!(result.is_some());
 
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn test_square_pad_fails() {
         // 10x10 pad — both dimensions exceed max 5.0
-        let poly = Polygon::rect(Point::origin(), 10.0, 10.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 10.0).unwrap();
         let result = check_max_width(&poly, Layer::new(1, 0), 5.0, None);
         assert!(result.is_some());
     }
@@ -269,7 +269,8 @@ mod tests {
             Point::new(1.0, 1.0),
             Point::new(1.0, 10.0),
             Point::new(0.0, 10.0),
-        ]);
+        ])
+        .unwrap();
         let result = check_max_width(&poly, Layer::new(1, 0), 2.0, None);
         assert!(result.is_none());
     }
@@ -277,7 +278,7 @@ mod tests {
     #[test]
     fn test_exact_boundary_passes() {
         // Width exactly at the limit should pass
-        let poly = Polygon::rect(Point::origin(), 10.0, 2.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 2.0).unwrap();
         let result = check_max_width(&poly, Layer::new(1, 0), 2.0, None);
         assert!(result.is_none());
     }
@@ -300,7 +301,8 @@ mod tests {
             Point::new(3.5, 11.0),
             Point::new(3.5, 8.0),
             Point::new(0.0, 8.0),
-        ]);
+        ])
+        .unwrap();
 
         // max_width=2.0 — the 8x8 base should fail
         let result = check_max_width(&poly, Layer::new(1, 0), 2.0, None);

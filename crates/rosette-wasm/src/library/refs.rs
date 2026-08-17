@@ -5,6 +5,7 @@ use super::{CellRefInfo, ElementRef, WasmLibrary};
 use rosette_core::cell::Element;
 use rosette_core::geometry::BBox;
 use rosette_core::{CellRef, Repetition, Transform, Vector2};
+use std::convert::Infallible;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
@@ -42,12 +43,13 @@ fn parse_repetition(values: &[f64]) -> Option<Repetition> {
     {
         return None;
     }
-    Some(Repetition::new_vectors(
+    Repetition::new_vectors(
         columns as u16,
         rows as u16,
         Vector2::new(values[2], values[3]),
         Vector2::new(values[4], values[5]),
-    ))
+    )
+    .ok()
 }
 
 #[wasm_bindgen]
@@ -60,9 +62,9 @@ impl WasmLibrary {
         let (cell_name, element_index) = self.resolve_cell_ref_id(id)?;
         let cell = self.library.cell(&cell_name)?;
         if let Some(Element::CellRef(cell_ref)) = cell.elements().get(element_index) {
-            let t = &cell_ref.transform;
+            let t = cell_ref.transform();
             Some(CellRefInfo {
-                cell_name: cell_ref.cell_name.clone(),
+                cell_name: cell_ref.cell_name().to_string(),
                 transform: vec![t.a, t.b, t.c, t.d, t.tx, t.ty],
             })
         } else {
@@ -94,13 +96,13 @@ impl WasmLibrary {
         }
 
         let t = parse_transform(&transform)?;
-        let cell_ref = CellRef::with_transform(ref_cell_name.to_string(), t);
+        let cell_ref = CellRef::with_transform(ref_cell_name.to_string(), t).ok()?;
 
         let element_index = self
             .library
             .edit_cell(&active_name, |cell| {
                 cell.add_ref(cell_ref);
-                cell.elements().len() - 1
+                Ok::<_, Infallible>(cell.elements().len() - 1)
             })
             .ok()?;
 
@@ -136,15 +138,12 @@ impl WasmLibrary {
             .edit_cell(&active_cell_name, |cell| {
                 cell.edit_element(elem_idx, |element| {
                     let Element::CellRef(cell_ref) = element else {
-                        return false;
+                        return Ok(false);
                     };
-                    *cell_ref = CellRef::with_transform(cell_ref.cell_name.clone(), transform)
-                        .with_repetition(cell_ref.repetition);
-                    true
+                    cell_ref.set_transform(transform).map(|()| true)
                 })
             })
             .ok()
-            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -182,15 +181,15 @@ impl WasmLibrary {
 
         let cell = self.library.cell(&cell_name)?;
         if let Some(Element::CellRef(cell_ref)) = cell.elements().get(elem_idx)
-            && let Some(rep) = &cell_ref.repetition
+            && let Some(rep) = cell_ref.repetition()
         {
             return Some(vec![
-                rep.columns as f64,
-                rep.rows as f64,
-                rep.col_vector.x,
-                rep.col_vector.y,
-                rep.row_vector.x,
-                rep.row_vector.y,
+                rep.columns() as f64,
+                rep.rows() as f64,
+                rep.col_vector().x,
+                rep.col_vector().y,
+                rep.row_vector().x,
+                rep.row_vector().y,
             ]);
         }
         None
@@ -233,30 +232,32 @@ impl WasmLibrary {
         let updated = self
             .library
             .edit_cell(&cell_name, |cell| {
-                cell.edit_element(elem_idx, |element| {
-                    let Element::CellRef(cell_ref) = element else {
-                        return false;
-                    };
-                    let repetition = if columns == 1 && rows == 1 {
-                        None
-                    } else if let Some(existing) = cell_ref.repetition
-                        && (existing.col_vector.y != 0.0 || existing.row_vector.x != 0.0)
-                    {
-                        Some(Repetition::new_vectors(
-                            columns,
-                            rows,
-                            existing.col_vector,
-                            existing.row_vector,
-                        ))
-                    } else {
-                        Some(Repetition::new(columns, rows, col_spacing, row_spacing))
-                    };
-                    *cell_ref = cell_ref.clone().with_repetition(repetition);
-                    true
-                })
+                cell.edit_element(
+                    elem_idx,
+                    |element| -> Result<_, rosette_core::RepetitionValidationReason> {
+                        let Element::CellRef(cell_ref) = element else {
+                            return Ok(false);
+                        };
+                        let repetition = if columns == 1 && rows == 1 {
+                            None
+                        } else if let Some(existing) = cell_ref.repetition()
+                            && (existing.col_vector().y != 0.0 || existing.row_vector().x != 0.0)
+                        {
+                            Some(Repetition::new_vectors(
+                                columns,
+                                rows,
+                                existing.col_vector(),
+                                existing.row_vector(),
+                            )?)
+                        } else {
+                            Some(Repetition::new(columns, rows, col_spacing, row_spacing)?)
+                        };
+                        cell_ref.set_repetition(repetition);
+                        Ok(true)
+                    },
+                )
             })
             .ok()
-            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -302,26 +303,28 @@ impl WasmLibrary {
         let updated = self
             .library
             .edit_cell(&cell_name, |cell| {
-                cell.edit_element(elem_idx, |element| {
-                    let Element::CellRef(cell_ref) = element else {
-                        return false;
-                    };
-                    let repetition = if columns == 1 && rows == 1 {
-                        None
-                    } else {
-                        Some(Repetition::new_vectors(
-                            columns,
-                            rows,
-                            Vector2::new(col_x, col_y),
-                            Vector2::new(row_x, row_y),
-                        ))
-                    };
-                    *cell_ref = cell_ref.clone().with_repetition(repetition);
-                    true
-                })
+                cell.edit_element(
+                    elem_idx,
+                    |element| -> Result<_, rosette_core::RepetitionValidationReason> {
+                        let Element::CellRef(cell_ref) = element else {
+                            return Ok(false);
+                        };
+                        let repetition = if columns == 1 && rows == 1 {
+                            None
+                        } else {
+                            Some(Repetition::new_vectors(
+                                columns,
+                                rows,
+                                Vector2::new(col_x, col_y),
+                                Vector2::new(row_x, row_y),
+                            )?)
+                        };
+                        cell_ref.set_repetition(repetition);
+                        Ok(true)
+                    },
+                )
             })
             .ok()
-            .and_then(Result::ok)
             .unwrap_or(false);
         if updated {
             self.mark_dirty();
@@ -376,13 +379,14 @@ impl WasmLibrary {
         let cell_ref = CellRef::with_transform(
             ref_cell_name.to_string(),
             Transform::translate(x - origin.x, y - origin.y),
-        );
+        )
+        .ok()?;
 
         let element_index = self
             .library
             .edit_cell(parent_cell, |cell| {
                 cell.add_ref(cell_ref);
-                cell.elements().len() - 1
+                Ok::<_, Infallible>(cell.elements().len() - 1)
             })
             .ok()?;
 
@@ -412,21 +416,21 @@ impl WasmLibrary {
         for cell in self.library.cells() {
             for (element_index, element) in cell.elements().iter().enumerate() {
                 if let Element::CellRef(cell_ref) = element
-                    && cell_ref.cell_name == name
+                    && cell_ref.cell_name() == name
                 {
-                    let t = &cell_ref.transform;
+                    let t = cell_ref.transform();
                     entries.push(ParentRef {
                         parent: cell.name().to_string(),
                         element_index,
                         transform: vec![t.a, t.b, t.c, t.d, t.tx, t.ty],
-                        repetition: cell_ref.repetition.map(|repetition| {
+                        repetition: cell_ref.repetition().map(|repetition| {
                             vec![
-                                repetition.columns as f64,
-                                repetition.rows as f64,
-                                repetition.col_vector.x,
-                                repetition.col_vector.y,
-                                repetition.row_vector.x,
-                                repetition.row_vector.y,
+                                repetition.columns() as f64,
+                                repetition.rows() as f64,
+                                repetition.col_vector().x,
+                                repetition.col_vector().y,
+                                repetition.row_vector().x,
+                                repetition.row_vector().y,
                             ]
                         }),
                     });
@@ -517,22 +521,23 @@ impl WasmLibrary {
             Some(values) => Some(parse_repetition(&values)?),
             None => None,
         };
-        let cell_ref =
-            CellRef::with_transform(ref_cell_name.to_string(), t).with_repetition(repetition);
+        let cell_ref = CellRef::with_transform(ref_cell_name.to_string(), t)
+            .ok()?
+            .with_repetition(repetition);
 
         let inserted = self
             .library
-            .edit_cell(parent_cell, |cell| {
-                cell.add_ref(cell_ref);
-                if cell
-                    .edit_elements(|elements| elements[element_index..].rotate_right(1))
-                    .is_err()
-                {
-                    cell.remove_element(current_len);
-                    return false;
-                }
-                true
-            })
+            .edit_cell(
+                parent_cell,
+                |cell| -> Result<_, rosette_core::CellEditError<Infallible>> {
+                    cell.add_ref(cell_ref);
+                    cell.edit_elements(|elements| {
+                        elements[element_index..].rotate_right(1);
+                        Ok::<_, Infallible>(())
+                    })?;
+                    Ok(true)
+                },
+            )
             .ok()?;
         if !inserted {
             return None;
@@ -737,11 +742,11 @@ mod tests {
         let parent = library.library.cell("parent").unwrap();
         let cell_ref = parent.cell_refs().next().unwrap();
         assert_eq!(
-            (cell_ref.transform.tx, cell_ref.transform.ty),
+            (cell_ref.transform().tx, cell_ref.transform().ty),
             (90.0, 180.0)
         );
         let placed_origin = cell_ref
-            .transform
+            .transform()
             .apply(rosette_core::Point::new(10.0, 20.0));
         assert_eq!(placed_origin, rosette_core::Point::new(100.0, 200.0));
     }
@@ -858,10 +863,10 @@ mod tests {
             .cell_refs()
             .next()
             .unwrap();
-        let repetition = cell_ref.repetition.unwrap();
-        assert_eq!((repetition.columns, repetition.rows), (3, 2));
-        assert_eq!(repetition.col_vector, Vector2::new(8.0, 1.0));
-        assert_eq!(repetition.row_vector, Vector2::new(2.0, 6.0));
+        let repetition = cell_ref.repetition().unwrap();
+        assert_eq!((repetition.columns(), repetition.rows()), (3, 2));
+        assert_eq!(repetition.col_vector(), Vector2::new(8.0, 1.0));
+        assert_eq!(repetition.row_vector(), Vector2::new(2.0, 6.0));
     }
 
     #[test]
@@ -913,8 +918,8 @@ mod tests {
             .cell_refs()
             .next()
             .unwrap();
-        assert_eq!(cell_ref.transform, Transform::translate(10.0, 20.0));
-        assert!(cell_ref.repetition.is_none());
+        assert_eq!(cell_ref.transform(), Transform::translate(10.0, 20.0));
+        assert!(cell_ref.repetition().is_none());
         assert!(!library.is_dirty());
     }
 
@@ -1022,7 +1027,7 @@ mod tests {
         let elements = library.library.cell("parent").unwrap().elements();
         assert!(matches!(elements[0], Element::Polygon { .. }));
         assert!(matches!(elements[1], Element::CellRef(_)));
-        assert!(matches!(elements[2], Element::Text { .. }));
+        assert!(matches!(elements[2], Element::Text(_)));
         assert!(
             library
                 .restore_cell_ref_to_with_transform_at(

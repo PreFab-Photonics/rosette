@@ -10,7 +10,11 @@ use byteorder::{BigEndian, ReadBytesExt};
 
 use rosette_core::cell::{CellRef, PathEndType, Repetition};
 use rosette_core::geometry::Vector2;
-use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform};
+use rosette_core::{
+    Cell, CellRefError, CellRefValidationReason, CellValidationError, Layer, Library, LibraryError,
+    PathValidationReason, Point, Polygon, PolygonValidationReason, RepetitionValidationReason,
+    TextValidationReason, Transform,
+};
 
 use super::constants::*;
 use super::error::{GdsElementError, GdsError, GdsTransformError};
@@ -262,7 +266,12 @@ impl<'a> GdsReader<'a> {
             });
         }
         let cell_name = parse_string(&rec.data);
-        let mut cell = Cell::new(cell_name);
+        let mut cell = Cell::new(cell_name.clone()).map_err(|source| {
+            GdsError::InvalidLibrary(LibraryError::InvalidCell {
+                name: cell_name,
+                source,
+            })
+        })?;
 
         // Read elements until ENDSTR
         loop {
@@ -339,7 +348,10 @@ impl<'a> GdsReader<'a> {
             ));
         }
         let layer = parse_layer(cell.name(), element_index, layer, datatype)?;
-        cell.add_polygon(Polygon::new(vertices), layer);
+        let polygon = Polygon::new(vertices).map_err(|reason| {
+            invalid_element(cell.name(), element_index, polygon_error_reason(reason))
+        })?;
+        cell.add_polygon(polygon, layer);
 
         Ok(())
     }
@@ -413,7 +425,8 @@ impl<'a> GdsReader<'a> {
             }
         };
         let layer = parse_layer(cell.name(), element_index, layer, datatype)?;
-        cell.add_path(points, width, layer, end_type);
+        cell.add_path(points, width, layer, end_type)
+            .map_err(|error| map_cell_element_error(cell.name(), element_index, error))?;
 
         Ok(())
     }
@@ -463,7 +476,9 @@ impl<'a> GdsReader<'a> {
         let transform = build_transform(origin, angle_deg, mag, reflected);
         validate_imported_transform(cell.name(), element_index, &transform)?;
 
-        cell.add_ref(CellRef::with_transform(sname, transform));
+        let cell_ref = CellRef::with_transform(sname, transform)
+            .map_err(|error| map_cell_ref_error(cell.name(), element_index, error))?;
+        cell.add_ref(cell_ref);
         Ok(())
     }
 
@@ -576,10 +591,18 @@ impl<'a> GdsReader<'a> {
             rows,
             Vector2::new(col_local_x, col_local_y),
             Vector2::new(row_local_x, row_local_y),
-        );
+        )
+        .map_err(|reason| {
+            invalid_element(
+                cell.name(),
+                element_index,
+                repetition_error_reason(reason, columns, rows),
+            )
+        })?;
 
-        let mut cell_ref = CellRef::with_transform(sname, transform);
-        cell_ref.repetition = Some(repetition);
+        let cell_ref = CellRef::with_transform(sname, transform)
+            .map_err(|error| map_cell_ref_error(cell.name(), element_index, error))?
+            .with_repetition(Some(repetition));
         cell.add_ref(cell_ref);
 
         Ok(())
@@ -669,7 +692,8 @@ impl<'a> GdsReader<'a> {
         let position = points[0];
         let layer = parse_layer(cell.name(), element_index, layer, texttype)?;
 
-        cell.add_text_with_height(text_string, position, layer, mag);
+        cell.add_text_with_height(text_string, position, layer, mag)
+            .map_err(|error| map_cell_element_error(cell.name(), element_index, error))?;
 
         Ok(())
     }
@@ -750,6 +774,100 @@ fn invalid_element(cell: &str, element_index: usize, reason: GdsElementError) ->
         element_index,
         reason,
     }
+}
+
+fn polygon_error_reason(reason: PolygonValidationReason) -> GdsElementError {
+    match reason {
+        PolygonValidationReason::TooFewVertices { count } => {
+            GdsElementError::BoundaryPointCount { count }
+        }
+        PolygonValidationReason::NonFiniteVertex { .. } => GdsElementError::NonFiniteValue {
+            field: "polygon vertex",
+        },
+    }
+}
+
+fn path_error_reason(reason: PathValidationReason) -> GdsElementError {
+    match reason {
+        PathValidationReason::TooFewPoints { count } => GdsElementError::PathPointCount { count },
+        PathValidationReason::NonFinitePoint { .. } => GdsElementError::NonFiniteValue {
+            field: "path point",
+        },
+        PathValidationReason::NonFiniteWidth => GdsElementError::NonFiniteValue {
+            field: "path width",
+        },
+        PathValidationReason::ZeroWidth => GdsElementError::ZeroPathWidth,
+    }
+}
+
+fn repetition_error_reason(
+    reason: RepetitionValidationReason,
+    columns: u16,
+    rows: u16,
+) -> GdsElementError {
+    match reason {
+        RepetitionValidationReason::ZeroColumns | RepetitionValidationReason::ZeroRows => {
+            GdsElementError::RepetitionDimensions { columns, rows }
+        }
+        RepetitionValidationReason::NonFiniteColumnVector
+        | RepetitionValidationReason::NonFiniteRowVector => GdsElementError::NonFiniteValue {
+            field: "array repetition vector",
+        },
+    }
+}
+
+fn map_cell_ref_error(cell: &str, element_index: usize, error: CellRefError) -> GdsError {
+    let reason = match error {
+        CellRefError::Reference(CellRefValidationReason::EmptyTarget) => {
+            GdsElementError::EmptyReferenceTarget
+        }
+        CellRefError::Reference(CellRefValidationReason::NonFiniteTransform) => {
+            GdsElementError::UnsupportedTransform(GdsTransformError::NonFinite)
+        }
+        CellRefError::Reference(CellRefValidationReason::SingularTransform) => {
+            GdsElementError::UnsupportedTransform(GdsTransformError::Singular)
+        }
+        CellRefError::Repetition(reason) => repetition_error_reason(reason, 0, 0),
+    };
+    invalid_element(cell, element_index, reason)
+}
+
+fn map_cell_element_error(
+    cell: &str,
+    element_index: usize,
+    error: CellValidationError,
+) -> GdsError {
+    let reason = match error {
+        CellValidationError::InvalidPolygon { reason, .. } => polygon_error_reason(reason),
+        CellValidationError::InvalidPath { reason, .. } => path_error_reason(reason),
+        CellValidationError::InvalidCellRef { reason, .. } => match reason {
+            CellRefValidationReason::EmptyTarget => GdsElementError::EmptyReferenceTarget,
+            CellRefValidationReason::NonFiniteTransform => {
+                GdsElementError::UnsupportedTransform(GdsTransformError::NonFinite)
+            }
+            CellRefValidationReason::SingularTransform => {
+                GdsElementError::UnsupportedTransform(GdsTransformError::Singular)
+            }
+        },
+        CellValidationError::InvalidRepetition { reason, .. } => {
+            repetition_error_reason(reason, 0, 0)
+        }
+        CellValidationError::InvalidText { reason, .. } => match reason {
+            TextValidationReason::NonFinitePosition => GdsElementError::NonFiniteValue {
+                field: "text position",
+            },
+            TextValidationReason::NonFiniteHeight | TextValidationReason::NonPositiveHeight => {
+                GdsElementError::InvalidMagnification
+            }
+        },
+        other => {
+            return GdsError::InvalidLibrary(LibraryError::InvalidCell {
+                name: cell.to_string(),
+                source: other,
+            });
+        }
+    };
+    invalid_element(cell, element_index, reason)
 }
 
 fn require_element_record<T>(
@@ -1056,6 +1174,37 @@ fn build_transform(origin: Point, angle_deg: f64, mag: f64, reflected: bool) -> 
 mod tests {
     use super::*;
 
+    struct Cell;
+
+    #[allow(clippy::new_ret_no_self)]
+    impl Cell {
+        fn new(name: impl Into<String>) -> rosette_core::Cell {
+            rosette_core::Cell::new(name).unwrap()
+        }
+    }
+
+    struct CellRef;
+
+    #[allow(clippy::new_ret_no_self)]
+    impl CellRef {
+        fn new(cell_name: impl Into<String>) -> rosette_core::CellRef {
+            rosette_core::CellRef::new(cell_name).unwrap()
+        }
+    }
+
+    struct Polygon;
+
+    #[allow(clippy::new_ret_no_self)]
+    impl Polygon {
+        fn new(vertices: Vec<Point>) -> rosette_core::Polygon {
+            rosette_core::Polygon::new(vertices).unwrap()
+        }
+
+        fn rect(origin: Point, width: f64, height: f64) -> rosette_core::Polygon {
+            rosette_core::Polygon::rect(origin, width, height).unwrap()
+        }
+    }
+
     fn record_bytes(record_type: u8, data_type: u8, data: &[u8]) -> Vec<u8> {
         assert!(data.len().is_multiple_of(2));
         let length = 4 + data.len();
@@ -1336,7 +1485,8 @@ mod tests {
             0.5,
             Layer::new(1, 2),
             PathEndType::default(),
-        );
+        )
+        .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let path = super::super::writer::write_bytes(&library).unwrap();
@@ -1354,7 +1504,7 @@ mod tests {
         }
 
         let mut cell = Cell::new("TOP");
-        cell.add_ref(CellRef::new("TARGET").array(2, 2, 1.0, 1.0));
+        cell.add_ref(CellRef::new("TARGET").array(2, 2, 1.0, 1.0).unwrap());
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let aref = super::super::writer::write_bytes(&library).unwrap();
@@ -1363,7 +1513,8 @@ mod tests {
         }
 
         let mut cell = Cell::new("TOP");
-        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 2), 1.0);
+        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 2), 1.0)
+            .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let text = super::super::writer::write_bytes(&library).unwrap();
@@ -1385,7 +1536,8 @@ mod tests {
             0.5,
             Layer::new(1, 0),
             PathEndType::default(),
-        );
+        )
+        .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1560,7 +1712,8 @@ mod tests {
             0.5,
             Layer::new(1, 0),
             PathEndType::default(),
-        );
+        )
+        .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1591,7 +1744,7 @@ mod tests {
     #[test]
     fn rejects_zero_and_oversized_colrow_values() {
         let mut cell = Cell::new("TOP");
-        cell.add_ref(CellRef::new("TARGET").array(2, 2, 1.0, 1.0));
+        cell.add_ref(CellRef::new("TARGET").array(2, 2, 1.0, 1.0).unwrap());
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
 
@@ -1618,7 +1771,7 @@ mod tests {
         ));
 
         let mut cell = Cell::new("TOP");
-        cell.add_ref(CellRef::new("TARGET").scale(2.0));
+        cell.add_ref(CellRef::new("TARGET").scale(2.0).unwrap());
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1658,9 +1811,13 @@ mod tests {
                 (STRANS_ABSOLUTE_ANGLE, GdsTransformError::AbsoluteAngle),
             ] {
                 let cell_ref = if is_array {
-                    CellRef::new("TARGET").scale(2.0).array(2, 2, 1.0, 1.0)
+                    CellRef::new("TARGET")
+                        .scale(2.0)
+                        .unwrap()
+                        .array(2, 2, 1.0, 1.0)
+                        .unwrap()
                 } else {
-                    CellRef::new("TARGET").scale(2.0)
+                    CellRef::new("TARGET").scale(2.0).unwrap()
                 };
                 let mut cell = Cell::new("TOP");
                 cell.add_ref(cell_ref);
@@ -1685,8 +1842,12 @@ mod tests {
         let reserved: u16 = 0x4000;
 
         for cell_ref in [
-            CellRef::new("TARGET").scale(2.0),
-            CellRef::new("TARGET").scale(2.0).array(2, 2, 1.0, 1.0),
+            CellRef::new("TARGET").scale(2.0).unwrap(),
+            CellRef::new("TARGET")
+                .scale(2.0)
+                .unwrap()
+                .array(2, 2, 1.0, 1.0)
+                .unwrap(),
         ] {
             let mut cell = Cell::new("TOP");
             cell.add_ref(cell_ref);
@@ -1707,7 +1868,8 @@ mod tests {
         }
 
         let mut cell = Cell::new("TOP");
-        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 2.0);
+        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 2.0)
+            .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1731,7 +1893,8 @@ mod tests {
             0.5,
             Layer::new(1, 0),
             PathEndType::default(),
-        );
+        )
+        .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1745,7 +1908,8 @@ mod tests {
     #[test]
     fn accepts_default_text_pathtype_and_width() {
         let mut cell = Cell::new("TOP");
-        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0);
+        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0)
+            .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1777,7 +1941,8 @@ mod tests {
             ),
         ] {
             let mut cell = Cell::new("TOP");
-            cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0);
+            cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0)
+                .unwrap();
             let mut library = Library::new("test");
             library.add_cell(cell).unwrap();
             let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1804,7 +1969,8 @@ mod tests {
             (PRESENTATION, BIT_ARRAY, vec![]),
         ] {
             let mut cell = Cell::new("TOP");
-            cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0);
+            cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0)
+                .unwrap();
             let mut library = Library::new("test");
             library.add_cell(cell).unwrap();
             let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1828,7 +1994,8 @@ mod tests {
             (STRANS_ABSOLUTE_ANGLE, GdsTransformError::AbsoluteAngle),
         ] {
             let mut cell = Cell::new("TOP");
-            cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 2.0);
+            cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 2.0)
+                .unwrap();
             let mut library = Library::new("test");
             library.add_cell(cell).unwrap();
             let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1844,7 +2011,8 @@ mod tests {
         }
 
         let mut cell = Cell::new("TOP");
-        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0);
+        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0)
+            .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1898,7 +2066,8 @@ mod tests {
             0.5,
             Layer::new(2, 0),
             PathEndType::Round,
-        );
+        )
+        .unwrap();
 
         let mut lib = Library::new("test");
         lib.add_cell(cell).unwrap();
@@ -1917,7 +2086,8 @@ mod tests {
     #[test]
     fn test_roundtrip_text() {
         let mut cell = Cell::new("TOP");
-        cell.add_text_with_height("Hello", Point::new(5.0, 10.0), Layer::new(10, 7), 2.5);
+        cell.add_text_with_height("Hello", Point::new(5.0, 10.0), Layer::new(10, 7), 2.5)
+            .unwrap();
 
         let mut lib = Library::new("test");
         lib.add_cell(cell).unwrap();
@@ -1941,7 +2111,7 @@ mod tests {
         sub.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
 
         let mut top = Cell::new("TOP");
-        top.add_ref(CellRef::new("SUB").at(10.0, 20.0));
+        top.add_ref(CellRef::new("SUB").at(10.0, 20.0).unwrap());
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();
@@ -1954,9 +2124,9 @@ mod tests {
         assert_eq!(top.cell_refs().count(), 1);
 
         let cell_ref = top.cell_refs().next().unwrap();
-        assert_eq!(cell_ref.cell_name, "SUB");
+        assert_eq!(cell_ref.cell_name(), "SUB");
         // Check translation
-        let origin = cell_ref.transform.apply(Point::origin());
+        let origin = cell_ref.transform().apply(Point::origin());
         assert!((origin.x - 10.0).abs() < 0.01);
         assert!((origin.y - 20.0).abs() < 0.01);
     }
@@ -1967,7 +2137,11 @@ mod tests {
         sub.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
 
         let mut top = Cell::new("TOP");
-        top.add_ref(CellRef::new("SUB").rotate(std::f64::consts::FRAC_PI_2));
+        top.add_ref(
+            CellRef::new("SUB")
+                .rotate(std::f64::consts::FRAC_PI_2)
+                .unwrap(),
+        );
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();
@@ -1978,7 +2152,7 @@ mod tests {
         let cell_ref = top.cell_refs().next().unwrap();
 
         // (1, 0) should map to (0, 1) under 90deg rotation
-        let p = cell_ref.transform.apply(Point::new(1.0, 0.0));
+        let p = cell_ref.transform().apply(Point::new(1.0, 0.0));
         assert!((p.x).abs() < 0.01, "x={}", p.x);
         assert!((p.y - 1.0).abs() < 0.01, "y={}", p.y);
     }
@@ -1999,9 +2173,9 @@ mod tests {
         let top = result.cell("TOP").unwrap();
         let cell_ref = top.cell_refs().next().unwrap();
 
-        assert!(cell_ref.transform.is_reflection());
+        assert!(cell_ref.transform().is_reflection());
         // (0, 1) should map to (0, -1) under mirror_x
-        let p = cell_ref.transform.apply(Point::new(0.0, 1.0));
+        let p = cell_ref.transform().apply(Point::new(0.0, 1.0));
         assert!((p.x).abs() < 0.01);
         assert!((p.y - (-1.0)).abs() < 0.01);
     }
@@ -2012,10 +2186,10 @@ mod tests {
         leaf.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
 
         let mut mid = Cell::new("MID");
-        mid.add_ref(CellRef::new("LEAF").at(5.0, 0.0));
+        mid.add_ref(CellRef::new("LEAF").at(5.0, 0.0).unwrap());
 
         let mut top = Cell::new("TOP");
-        top.add_ref(CellRef::new("MID").at(0.0, 10.0));
+        top.add_ref(CellRef::new("MID").at(0.0, 10.0).unwrap());
 
         let mut lib = Library::new("test");
         lib.add_cell(leaf).unwrap();
@@ -2097,7 +2271,11 @@ mod tests {
         let row_vec = rosette_core::geometry::Vector2::new(pitch / 2.0, row_y);
 
         let mut top = Cell::new("TOP");
-        top.add_ref(CellRef::new("UNIT").array_vectors(4, 3, col_vec, row_vec));
+        top.add_ref(
+            CellRef::new("UNIT")
+                .array_vectors(4, 3, col_vec, row_vec)
+                .unwrap(),
+        );
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();
@@ -2105,15 +2283,14 @@ mod tests {
 
         let result = roundtrip(&lib);
         let top = result.cell("TOP").unwrap();
-        let refs: Vec<&CellRef> = top.cell_refs().collect();
+        let refs: Vec<&rosette_core::CellRef> = top.cell_refs().collect();
         assert_eq!(refs.len(), 1);
         let rep = refs[0]
-            .repetition
-            .as_ref()
+            .repetition()
             .expect("AREF repetition should be preserved");
 
-        assert_eq!(rep.columns, 4);
-        assert_eq!(rep.rows, 3);
+        assert_eq!(rep.columns(), 4);
+        assert_eq!(rep.rows(), 3);
         // GDS DB units quantise coordinates to a grid (default 1 nm = 1e-3 µm).
         // The reader recovers each lattice vector as
         //   `(end - origin) / n_steps`
@@ -2121,30 +2298,30 @@ mod tests {
         // i.e. ≤ 2.5e-4 µm for the 4-column test. Allow ~2× margin.
         let tol = 5e-4;
         assert!(
-            (rep.col_vector.x - col_vec.x).abs() < tol,
+            (rep.col_vector().x - col_vec.x).abs() < tol,
             "col_vector.x = {}",
-            rep.col_vector.x
+            rep.col_vector().x
         );
         assert!(
-            (rep.col_vector.y - col_vec.y).abs() < tol,
+            (rep.col_vector().y - col_vec.y).abs() < tol,
             "col_vector.y = {}",
-            rep.col_vector.y
+            rep.col_vector().y
         );
         assert!(
-            (rep.row_vector.x - row_vec.x).abs() < tol,
+            (rep.row_vector().x - row_vec.x).abs() < tol,
             "row_vector.x = {}",
-            rep.row_vector.x
+            rep.row_vector().x
         );
         assert!(
-            (rep.row_vector.y - row_vec.y).abs() < tol,
+            (rep.row_vector().y - row_vec.y).abs() < tol,
             "row_vector.y = {}",
-            rep.row_vector.y
+            rep.row_vector().y
         );
 
         // Writer path (legacy) also agrees for an axis-aligned AREF built
         // with the scalar `.array()` builder.
         let mut top2 = Cell::new("TOP2");
-        top2.add_ref(CellRef::new("UNIT").array(3, 2, 5.0, 7.0));
+        top2.add_ref(CellRef::new("UNIT").array(3, 2, 5.0, 7.0).unwrap());
         let mut lib2 = Library::new("test2");
         let mut sub2 = Cell::new("UNIT");
         sub2.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
@@ -2157,17 +2334,16 @@ mod tests {
             .cell_refs()
             .next()
             .unwrap()
-            .repetition
-            .as_ref()
+            .repetition()
             .unwrap();
-        let expected2 = Repetition::new(3, 2, 5.0, 7.0);
-        assert_eq!(rep2.columns, expected2.columns);
-        assert_eq!(rep2.rows, expected2.rows);
+        let expected2 = Repetition::new(3, 2, 5.0, 7.0).unwrap();
+        assert_eq!(rep2.columns(), expected2.columns());
+        assert_eq!(rep2.rows(), expected2.rows());
         assert!(
-            (rep2.col_vector.x - expected2.col_vector.x).abs() < 1e-9
-                && (rep2.col_vector.y - expected2.col_vector.y).abs() < 1e-9
-                && (rep2.row_vector.x - expected2.row_vector.x).abs() < 1e-9
-                && (rep2.row_vector.y - expected2.row_vector.y).abs() < 1e-9,
+            (rep2.col_vector().x - expected2.col_vector().x).abs() < 1e-9
+                && (rep2.col_vector().y - expected2.col_vector().y).abs() < 1e-9
+                && (rep2.row_vector().x - expected2.row_vector().x).abs() < 1e-9
+                && (rep2.row_vector().y - expected2.row_vector().y).abs() < 1e-9,
             "rectangular AREF should round-trip to within ULP: got {:?}, expected {:?}",
             rep2,
             expected2,
@@ -2186,9 +2362,11 @@ mod tests {
             0.5,
             Layer::new(2, 0),
             PathEndType::Flush,
-        );
-        top.add_text_with_height("Label", Point::new(50.0, 15.0), Layer::new(10, 0), 1.0);
-        top.add_ref(CellRef::new("SUB").at(20.0, 20.0));
+        )
+        .unwrap();
+        top.add_text_with_height("Label", Point::new(50.0, 15.0), Layer::new(10, 0), 1.0)
+            .unwrap();
+        top.add_ref(CellRef::new("SUB").at(20.0, 20.0).unwrap());
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();

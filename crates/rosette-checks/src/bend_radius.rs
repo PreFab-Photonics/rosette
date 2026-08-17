@@ -28,11 +28,11 @@ fn point_bbox(position: Point) -> Option<BBox> {
         return None;
     }
     let half = 0.05;
-    let bbox = BBox::new(
+    BBox::new(
         Point::new(position.x - half, position.y - half),
         Point::new(position.x + half, position.y + half),
-    );
-    bbox.is_valid().then_some(bbox)
+    )
+    .ok()
 }
 
 /// Extract the magnification of a conformal transform without squaring its
@@ -246,25 +246,23 @@ mod tests {
     use rosette_route::BendInfo;
 
     fn make_bend_cell(name: &str, radius: f64) -> (Cell, RouteAnnotations) {
-        let mut cell = Cell::new(name);
-        cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 0.5), Layer::new(1, 0));
-        cell.add_port(Port::with_width(
-            "in",
-            Point::origin(),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        cell.add_port(Port::with_width(
-            "out",
-            Point::new(10.0, 0.0),
-            Vector2::unit_x(),
-            0.5,
-        ));
+        let mut cell = Cell::new(name).unwrap();
+        cell.add_polygon(
+            Polygon::rect(Point::origin(), 10.0, 0.5).unwrap(),
+            Layer::new(1, 0),
+        );
+        cell.add_port(Port::with_width("in", Point::origin(), -Vector2::unit_x(), 0.5).unwrap())
+            .unwrap();
+        cell.add_port(
+            Port::with_width("out", Point::new(10.0, 0.0), Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
         let annotations = RouteAnnotations::new(
             None,
-            vec![BendInfo::new(radius, Point::new(5.0, 0.0))],
+            vec![BendInfo::new(radius, Point::new(5.0, 0.0)).unwrap()],
             Vec::new(),
-        );
+        )
+        .unwrap();
         (cell, annotations)
     }
 
@@ -313,14 +311,15 @@ mod tests {
 
     #[test]
     fn test_auto_reduced_bend() {
-        let cell = Cell::new("reduced");
+        let cell = Cell::new("reduced").unwrap();
         let routes = HashMap::from([(
             cell.name().to_string(),
             RouteAnnotations::new(
                 None,
-                vec![BendInfo::auto_reduced(3.0, Point::new(5.0, 0.0), 10.0)],
+                vec![BendInfo::auto_reduced(3.0, Point::new(5.0, 0.0), 10.0).unwrap()],
                 Vec::new(),
-            ),
+            )
+            .unwrap(),
         )]);
 
         let config = ChecksConfig::default().with_min_bend_radius(5.0);
@@ -357,9 +356,9 @@ mod tests {
         let (bend_cell, annotations) = make_bend_cell("inner_bend", 2.0);
         let routes = HashMap::from([("inner_bend".to_string(), annotations)]);
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("inner_bend").at(0.0, 0.0));
-        top.add_ref(CellRef::new("inner_bend").at(20.0, 0.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("inner_bend").unwrap().at(0.0, 0.0).unwrap());
+        top.add_ref(CellRef::new("inner_bend").unwrap().at(20.0, 0.0).unwrap());
 
         let mut lib = Library::new("test");
         lib.add_cell(bend_cell);
@@ -377,10 +376,10 @@ mod tests {
     fn accumulated_magnification_scales_bend_radius_above_one() {
         let (bend_cell, annotations) = make_bend_cell("inner_bend", 3.0);
         let routes = HashMap::from([("inner_bend".to_string(), annotations)]);
-        let mut middle = Cell::new("middle");
-        middle.add_ref(CellRef::new("inner_bend").scale(2.0));
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("middle").scale(2.0));
+        let mut middle = Cell::new("middle").unwrap();
+        middle.add_ref(CellRef::new("inner_bend").unwrap().scale(2.0).unwrap());
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("middle").unwrap().scale(2.0).unwrap());
         let mut library = Library::new("test");
         library.add_cell(bend_cell);
         library.add_cell(middle);
@@ -403,23 +402,24 @@ mod tests {
         ));
         assert_eq!(
             violations[0].location,
-            BBox::new(Point::new(19.95, -0.05), Point::new(20.05, 0.05))
+            BBox::new(Point::new(19.95, -0.05), Point::new(20.05, 0.05)).unwrap()
         );
     }
 
     #[test]
     fn accumulated_magnification_scales_bend_radii_below_one() {
-        let bend_cell = Cell::new("inner_bend");
+        let bend_cell = Cell::new("inner_bend").unwrap();
         let annotations = RouteAnnotations::new(
             None,
-            vec![BendInfo::auto_reduced(8.0, Point::new(5.0, 0.0), 12.0)],
+            vec![BendInfo::auto_reduced(8.0, Point::new(5.0, 0.0), 12.0).unwrap()],
             Vec::new(),
-        );
+        )
+        .unwrap();
         let routes = HashMap::from([("inner_bend".to_string(), annotations)]);
-        let mut middle = Cell::new("middle");
-        middle.add_ref(CellRef::new("inner_bend").scale(0.5));
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("middle").scale(0.5));
+        let mut middle = Cell::new("middle").unwrap();
+        middle.add_ref(CellRef::new("inner_bend").unwrap().scale(0.5).unwrap());
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("middle").unwrap().scale(0.5).unwrap());
         let mut library = Library::new("test");
         library.add_cell(bend_cell);
         library.add_cell(middle);
@@ -443,7 +443,8 @@ mod tests {
         assert!(
             violations
                 .iter()
-                .all(|violation| violation.location.is_valid())
+                .all(|violation| violation.location.min().is_finite()
+                    && violation.location.max().is_finite())
         );
     }
 
@@ -451,8 +452,8 @@ mod tests {
     fn scaled_bend_radius_overflow_is_uncheckable() {
         let (bend_cell, annotations) = make_bend_cell("inner_bend", f64::MAX);
         let routes = HashMap::from([("inner_bend".to_string(), annotations)]);
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("inner_bend").scale(2.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("inner_bend").unwrap().scale(2.0).unwrap());
         let mut library = Library::new("test");
         library.add_cell(bend_cell);
         library.add_cell(top);
@@ -472,7 +473,8 @@ mod tests {
             CheckViolationType::BendRadiusUncheckable
         ));
         assert_eq!(violations[0].severity, Severity::Error);
-        assert!(violations[0].location.is_valid());
+        assert!(violations[0].location.min().is_finite());
+        assert!(violations[0].location.max().is_finite());
         assert!(
             violations[0]
                 .message
@@ -486,17 +488,15 @@ mod tests {
         let annotations = RouteAnnotations::new(
             None,
             vec![
-                BendInfo::new(5.0, Point::new(5.0, 0.0)),
-                BendInfo::new(6.0, Point::new(6.0, 0.0)),
+                BendInfo::new(5.0, Point::new(5.0, 0.0)).unwrap(),
+                BendInfo::new(6.0, Point::new(6.0, 0.0)).unwrap(),
             ],
             Vec::new(),
-        );
+        )
+        .unwrap();
         let routes = HashMap::from([("inner_bend".to_string(), annotations)]);
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::with_transform(
-            "inner_bend",
-            Transform::scale(2.0, 1.0),
-        ));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::with_transform("inner_bend", Transform::scale(2.0, 1.0)).unwrap());
         let mut library = Library::new("test");
         library.add_cell(bend_cell);
         library.add_cell(top);
@@ -521,22 +521,23 @@ mod tests {
         );
         assert_eq!(
             violations[0].location,
-            BBox::new(Point::new(9.95, -0.05), Point::new(10.05, 0.05))
+            BBox::new(Point::new(9.95, -0.05), Point::new(10.05, 0.05)).unwrap()
         );
         assert!(violations[0].message.contains("nonconformal"));
     }
 
     #[test]
     fn unrepresentable_bend_position_uses_valid_fallback() {
-        let bend_cell = Cell::new("inner_bend");
+        let bend_cell = Cell::new("inner_bend").unwrap();
         let annotations = RouteAnnotations::new(
             None,
-            vec![BendInfo::new(5.0, Point::new(f64::MAX, 0.0))],
+            vec![BendInfo::new(5.0, Point::new(f64::MAX, 0.0)).unwrap()],
             Vec::new(),
-        );
+        )
+        .unwrap();
         let routes = HashMap::from([("inner_bend".to_string(), annotations)]);
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("inner_bend").scale(2.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("inner_bend").unwrap().scale(2.0).unwrap());
         let mut library = Library::new("test");
         library.add_cell(bend_cell);
         library.add_cell(top);
@@ -556,9 +557,10 @@ mod tests {
         ));
         assert_eq!(
             violations[0].location,
-            BBox::new(Point::new(-0.05, -0.05), Point::new(0.05, 0.05))
+            BBox::new(Point::new(-0.05, -0.05), Point::new(0.05, 0.05)).unwrap()
         );
-        assert!(violations[0].location.is_valid());
+        assert!(violations[0].location.min().is_finite());
+        assert!(violations[0].location.max().is_finite());
         assert!(violations[0].message.contains("origin fallback"));
     }
 
@@ -566,8 +568,13 @@ mod tests {
     fn test_aref_bends_are_checked_per_copy() {
         let (bend_cell, annotations) = make_bend_cell("inner_bend", 2.0);
         let routes = HashMap::from([("inner_bend".to_string(), annotations)]);
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("inner_bend").array(3, 2, 20.0, 10.0));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(
+            CellRef::new("inner_bend")
+                .unwrap()
+                .array(3, 2, 20.0, 10.0)
+                .unwrap(),
+        );
         let mut library = Library::new("test");
         library.add_cell(bend_cell);
         library.add_cell(top);
@@ -587,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_cell_with_no_bends() {
-        let cell = Cell::new("empty");
+        let cell = Cell::new("empty").unwrap();
 
         let config = ChecksConfig::default().with_min_bend_radius(5.0);
         let (violations, stats) =

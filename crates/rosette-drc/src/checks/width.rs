@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn test_rectangle_width_pass() {
         // 10x5 rectangle - width is 5
-        let poly = Polygon::rect(Point::origin(), 10.0, 5.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 5.0).unwrap();
         let result = check_width(&poly, Layer::new(1, 0), 4.0, None);
         assert!(result.is_none());
     }
@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn test_rectangle_width_fail() {
         // 10x2 rectangle - width is 2
-        let poly = Polygon::rect(Point::origin(), 10.0, 2.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 2.0).unwrap();
         let result = check_width(&poly, Layer::new(1, 0), 3.0, Some("MIN_WIDTH"));
         assert!(result.is_some());
 
@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn test_square() {
         // 5x5 square - width is 5
-        let poly = Polygon::rect(Point::origin(), 5.0, 5.0);
+        let poly = Polygon::rect(Point::origin(), 5.0, 5.0).unwrap();
         let result = check_width(&poly, Layer::new(1, 0), 4.0, None);
         assert!(result.is_none());
     }
@@ -361,7 +361,8 @@ mod tests {
             Point::new(0.5, 0.5),
             Point::new(0.5, 10.0),
             Point::new(0.0, 10.0),
-        ]);
+        ])
+        .unwrap();
 
         // This should FAIL because width is only ~0.5, less than required 0.6
         // The old bbox approach would incorrectly report width as 10.0
@@ -397,7 +398,8 @@ mod tests {
             Point::new(2.0, 2.0),
             Point::new(2.0, 10.0),
             Point::new(0.0, 10.0),
-        ]);
+        ])
+        .unwrap();
 
         let result = check_width(&l_shape, Layer::new(1, 0), 1.5, None);
         assert!(
@@ -425,7 +427,8 @@ mod tests {
             Point::new(10.0, -1.0), // bottom-right
             Point::new(10.0, 1.0),  // top-right
             Point::new(0.0, 0.2),   // top-left
-        ]);
+        ])
+        .unwrap();
 
         let measured = estimate_min_width_sampling(&taper, 10);
 
@@ -450,7 +453,8 @@ mod tests {
             Point::new(3.0, -1.5),  // bottom-right (3.0 total height)
             Point::new(3.0, 1.5),   // top-right
             Point::new(0.0, 0.15),  // top-left
-        ]);
+        ])
+        .unwrap();
 
         let steep_measured = estimate_min_width_sampling(&steep_taper, 10);
 
@@ -474,7 +478,8 @@ mod tests {
             Point::new(10.0, -1.0), // bottom-right
             Point::new(10.0, 1.0),  // top-right
             Point::new(0.0, 0.5),   // top-left
-        ]);
+        ])
+        .unwrap();
 
         // Should pass min_width=0.8 because narrow end is 1.0
         let result = check_width(&taper, Layer::new(1, 0), 0.8, None);
@@ -499,7 +504,8 @@ mod tests {
             Point::new(5.0, -0.6),  // bottom-right (taper_width/2)
             Point::new(5.0, 0.6),   // top-right
             Point::new(0.0, 0.25),  // top-left
-        ]);
+        ])
+        .unwrap();
 
         let measured = estimate_min_width_sampling(&taper, 10);
 
@@ -546,7 +552,8 @@ mod tests {
             Point::new(10.0, 0.0), // bottom-right
             Point::new(10.0, 1.5), // top-right
             Point::new(0.0, 0.5),  // top-left
-        ]);
+        ])
+        .unwrap();
 
         let measured = estimate_min_width_sampling(&taper, 10);
 
@@ -587,7 +594,7 @@ mod tests {
             vertices.push(Point::new(x, y));
         }
 
-        let taper = Polygon::new(vertices);
+        let taper = Polygon::new(vertices).unwrap();
         let measured = estimate_min_width_sampling(&taper, 10);
 
         // Narrow end is 0.5 (y: -0.25 to 0.25).
@@ -663,7 +670,8 @@ mod tests {
             Point::new(1.0, 1.0),
             Point::new(1.0, 5.0),
             Point::new(0.0, 5.0),
-        ]);
+        ])
+        .unwrap();
 
         // Width of arms and bottom is 1.0, should pass 0.8
         let result = check_width(&u_shape, Layer::new(1, 0), 0.8, None);

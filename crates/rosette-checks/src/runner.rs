@@ -85,26 +85,21 @@ mod tests {
 
     #[test]
     fn test_run_checks_all_pass() {
-        let mut cell = Cell::new("top");
-        cell.add_port(Port::with_width(
-            "in",
-            Point::origin(),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        cell.add_port(Port::with_width(
-            "out",
-            Point::new(10.0, 0.0),
-            Vector2::unit_x(),
-            0.5,
-        ));
+        let mut cell = Cell::new("top").unwrap();
+        cell.add_port(Port::with_width("in", Point::origin(), -Vector2::unit_x(), 0.5).unwrap())
+            .unwrap();
+        cell.add_port(
+            Port::with_width("out", Point::new(10.0, 0.0), Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
         let routes = RouteAnnotationMap::from([(
             "top".to_string(),
             RouteAnnotations::new(
                 None,
-                vec![BendInfo::new(10.0, Point::new(5.0, 0.0))],
+                vec![BendInfo::new(10.0, Point::new(5.0, 0.0)).unwrap()],
                 Vec::new(),
-            ),
+            )
+            .unwrap(),
         )]);
 
         let config = ChecksConfig::default().with_min_bend_radius(5.0);
@@ -118,38 +113,36 @@ mod tests {
     #[test]
     fn test_run_checks_mixed_violations() {
         // Cell with an unconnected sub-instance port and a tight bend
-        let mut wg = Cell::new("wg");
-        wg.add_polygon(Polygon::rect(Point::origin(), 10.0, 0.5), Layer::new(1, 0));
-        wg.add_port(Port::with_width(
-            "in",
-            Point::new(0.0, 0.25),
-            -Vector2::unit_x(),
-            0.5,
-        ));
-        wg.add_port(Port::with_width(
-            "out",
-            Point::new(10.0, 0.25),
-            Vector2::unit_x(),
-            0.5,
-        ));
+        let mut wg = Cell::new("wg").unwrap();
+        wg.add_polygon(
+            Polygon::rect(Point::origin(), 10.0, 0.5).unwrap(),
+            Layer::new(1, 0),
+        );
+        wg.add_port(
+            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
+        wg.add_port(
+            Port::with_width("out", Point::new(10.0, 0.25), Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
         let routes = RouteAnnotationMap::from([(
             "wg".to_string(),
             RouteAnnotations::new(
                 None,
-                vec![BendInfo::new(2.0, Point::new(5.0, 0.25))],
+                vec![BendInfo::new(2.0, Point::new(5.0, 0.25)).unwrap()],
                 Vec::new(),
-            ),
+            )
+            .unwrap(),
         )]);
 
-        let mut top = Cell::new("top");
-        top.add_ref(CellRef::new("wg"));
+        let mut top = Cell::new("top").unwrap();
+        top.add_ref(CellRef::new("wg").unwrap());
         // Only cover "in" port — "out" is unconnected
-        top.add_port(Port::with_width(
-            "in",
-            Point::new(0.0, 0.25),
-            -Vector2::unit_x(),
-            0.5,
-        ));
+        top.add_port(
+            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
+        )
+        .unwrap();
 
         let mut lib = Library::new("test");
         lib.add_cell(wg);
@@ -166,7 +159,7 @@ mod tests {
     #[test]
     fn test_run_checks_default_config() {
         // With default config (no min_bend_radius), only connectivity runs meaningfully
-        let cell = Cell::new("empty");
+        let cell = Cell::new("empty").unwrap();
         let result = run_checks(
             &cell,
             &ChecksConfig::default(),

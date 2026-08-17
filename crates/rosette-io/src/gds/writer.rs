@@ -11,7 +11,7 @@ use std::path::Path;
 use byteorder::{BigEndian, WriteBytesExt};
 
 use rosette_core::cell::{CellRef, Element, PathEndType};
-use rosette_core::{Cell, Layer, Library, Point, Polygon, Transform};
+use rosette_core::{Cell, Layer, Library, Point, Polygon, Repetition, Transform};
 
 use super::constants::*;
 use super::error::{GdsElementError, GdsError, GdsTransformError};
@@ -77,7 +77,7 @@ fn dependency_order(library: &Library) -> Vec<&Cell> {
         }
         let cell = &library.cells()[index];
         for cell_ref in cell.cell_refs() {
-            if let Some(&child_index) = indexes.get(cell_ref.cell_name.as_str()) {
+            if let Some(&child_index) = indexes.get(cell_ref.cell_name()) {
                 visit(library, indexes, states, ordered, child_index);
             }
         }
@@ -167,27 +167,17 @@ impl<W: Write> GdsWriter<W> {
                     self.write_polygon(polygon, layer)?;
                 }
                 Element::CellRef(cell_ref) => {
-                    if cell_ref.repetition.as_ref().is_some_and(|r| !r.is_single()) {
-                        self.write_aref(cell_ref)?;
+                    if let Some(repetition) = cell_ref.repetition().filter(|r| !r.is_single()) {
+                        self.write_aref(cell_ref, repetition)?;
                     } else {
                         self.write_sref(cell_ref)?;
                     }
                 }
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    end_type,
-                } => {
-                    self.write_path(points, *width, layer, *end_type)?;
+                Element::Path(path) => {
+                    self.write_path(path.points(), path.width(), &path.layer(), path.end_type())?;
                 }
-                Element::Text {
-                    text,
-                    position,
-                    layer,
-                    height,
-                } => {
-                    self.write_text(text, *position, layer, *height)?;
+                Element::Text(text) => {
+                    self.write_text(text.text(), text.position(), &text.layer(), text.height())?;
                 }
             }
         }
@@ -256,13 +246,13 @@ impl<W: Write> GdsWriter<W> {
         self.write_record(SREF, NO_DATA, &[])?;
 
         // SNAME
-        self.write_string_record(SNAME, &cell_ref.cell_name)?;
+        self.write_string_record(SNAME, cell_ref.cell_name())?;
 
         // STRANS (if there's reflection or rotation)
-        let t = &cell_ref.transform;
+        let t = cell_ref.transform();
         let has_reflection = t.is_reflection();
-        let angle = Self::transform_angle(t);
-        let mag = Self::transform_magnification(t);
+        let angle = Self::transform_angle(&t);
+        let mag = Self::transform_magnification(&t);
 
         if has_reflection || angle.abs() > 1e-10 || (mag - 1.0).abs() > 1e-10 {
             let mut strans: u16 = 0;
@@ -298,20 +288,18 @@ impl<W: Write> GdsWriter<W> {
         Ok(())
     }
 
-    fn write_aref(&mut self, cell_ref: &CellRef) -> Result<(), GdsError> {
-        let rep = cell_ref.repetition.as_ref().unwrap();
-
+    fn write_aref(&mut self, cell_ref: &CellRef, rep: Repetition) -> Result<(), GdsError> {
         // AREF
         self.write_record(AREF, NO_DATA, &[])?;
 
         // SNAME
-        self.write_string_record(SNAME, &cell_ref.cell_name)?;
+        self.write_string_record(SNAME, cell_ref.cell_name())?;
 
         // STRANS / MAG / ANGLE (same logic as SREF)
-        let t = &cell_ref.transform;
+        let t = cell_ref.transform();
         let has_reflection = t.is_reflection();
-        let angle = Self::transform_angle(t);
-        let mag = Self::transform_magnification(t);
+        let angle = Self::transform_angle(&t);
+        let mag = Self::transform_magnification(&t);
 
         if has_reflection || angle.abs() > 1e-10 || (mag - 1.0).abs() > 1e-10 {
             let mut strans: u16 = 0;
@@ -332,8 +320,8 @@ impl<W: Write> GdsWriter<W> {
 
         // COLROW: number of columns and rows
         let mut colrow_data = Vec::with_capacity(4);
-        colrow_data.extend_from_slice(&rep.columns.to_be_bytes());
-        colrow_data.extend_from_slice(&rep.rows.to_be_bytes());
+        colrow_data.extend_from_slice(&rep.columns().to_be_bytes());
+        colrow_data.extend_from_slice(&rep.rows().to_be_bytes());
         self.write_record(COLROW, INT16, &colrow_data)?;
 
         // XY: three points
@@ -347,14 +335,14 @@ impl<W: Write> GdsWriter<W> {
         // vectors may be non-orthogonal (hex packing, skewed arrays) —
         // each one is transformed independently by `[a,b;c,d]`.
         let origin = t.apply(Point::origin());
-        let cols = rep.columns as f64;
-        let rows = rep.rows as f64;
+        let cols = rep.columns() as f64;
+        let rows = rep.rows() as f64;
         // Column vector: local (cv.x, cv.y) transformed by [a,b;c,d]
-        let cv = rep.col_vector;
+        let cv = rep.col_vector();
         let col_end_x = origin.x + (t.a * cv.x + t.b * cv.y) * cols;
         let col_end_y = origin.y + (t.c * cv.x + t.d * cv.y) * cols;
         // Row vector: local (rv.x, rv.y) transformed by [a,b;c,d]
-        let rv = rep.row_vector;
+        let rv = rep.row_vector();
         let row_end_x = origin.x + (t.a * rv.x + t.b * rv.y) * rows;
         let row_end_y = origin.y + (t.c * rv.x + t.d * rv.y) * rows;
 
@@ -536,7 +524,7 @@ fn validate_library_names(library: &Library) -> Result<(), GdsError> {
     for cell in library.cells() {
         validate_structure_name(cell.name())?;
         for cell_ref in cell.cell_refs() {
-            validate_structure_name(&cell_ref.cell_name)?;
+            validate_structure_name(cell_ref.cell_name())?;
         }
     }
     Ok(())
@@ -582,60 +570,49 @@ fn preflight_element(cell: &str, element_index: usize, element: &Element) -> Res
                 validate_db_value(vertex.y, "polygon vertex y").map_err(&invalid)?;
             }
         }
-        Element::Path {
-            points,
-            width,
-            layer,
-            ..
-        } => {
-            if !(2..=8191).contains(&points.len()) {
+        Element::Path(path) => {
+            if !(2..=8191).contains(&path.points().len()) {
                 return Err(invalid(GdsElementError::PathPointCount {
-                    count: points.len(),
+                    count: path.points().len(),
                 }));
             }
-            validate_layer(layer, &invalid)?;
-            for point in points {
+            validate_layer(&path.layer(), &invalid)?;
+            for point in path.points() {
                 validate_db_value(point.x, "path point x").map_err(&invalid)?;
                 validate_db_value(point.y, "path point y").map_err(&invalid)?;
             }
-            let width_db = validate_db_value(*width, "path width").map_err(&invalid)?;
+            let width_db = validate_db_value(path.width(), "path width").map_err(&invalid)?;
             if width_db == 0 {
                 return Err(invalid(GdsElementError::ZeroPathWidth));
             }
         }
         Element::CellRef(cell_ref) => {
-            validate_transform(&cell_ref.transform)
+            let transform = cell_ref.transform();
+            validate_transform(&transform)
                 .map_err(|reason| invalid(GdsElementError::UnsupportedTransform(reason)))?;
-            validate_db_value(cell_ref.transform.tx, "reference origin x").map_err(&invalid)?;
-            validate_db_value(cell_ref.transform.ty, "reference origin y").map_err(&invalid)?;
+            validate_db_value(transform.tx, "reference origin x").map_err(&invalid)?;
+            validate_db_value(transform.ty, "reference origin y").map_err(&invalid)?;
 
-            if let Some(repetition) = cell_ref.repetition {
-                if repetition.columns > i16::MAX as u16 || repetition.rows > i16::MAX as u16 {
+            if let Some(repetition) = cell_ref.repetition() {
+                if repetition.columns() > i16::MAX as u16 || repetition.rows() > i16::MAX as u16 {
                     return Err(invalid(GdsElementError::RepetitionDimensions {
-                        columns: repetition.columns,
-                        rows: repetition.rows,
+                        columns: repetition.columns(),
+                        rows: repetition.rows(),
                     }));
                 }
                 if !repetition.is_single() {
-                    let columns = repetition.columns as f64;
-                    let rows = repetition.rows as f64;
-                    let transform = cell_ref.transform;
+                    let columns = repetition.columns() as f64;
+                    let rows = repetition.rows() as f64;
+                    let col_vector = repetition.col_vector();
+                    let row_vector = repetition.row_vector();
                     let col_end_x = transform.tx
-                        + (transform.a * repetition.col_vector.x
-                            + transform.b * repetition.col_vector.y)
-                            * columns;
+                        + (transform.a * col_vector.x + transform.b * col_vector.y) * columns;
                     let col_end_y = transform.ty
-                        + (transform.c * repetition.col_vector.x
-                            + transform.d * repetition.col_vector.y)
-                            * columns;
+                        + (transform.c * col_vector.x + transform.d * col_vector.y) * columns;
                     let row_end_x = transform.tx
-                        + (transform.a * repetition.row_vector.x
-                            + transform.b * repetition.row_vector.y)
-                            * rows;
+                        + (transform.a * row_vector.x + transform.b * row_vector.y) * rows;
                     let row_end_y = transform.ty
-                        + (transform.c * repetition.row_vector.x
-                            + transform.d * repetition.row_vector.y)
-                            * rows;
+                        + (transform.c * row_vector.x + transform.d * row_vector.y) * rows;
                     validate_db_value(col_end_x, "array column endpoint x").map_err(&invalid)?;
                     validate_db_value(col_end_y, "array column endpoint y").map_err(&invalid)?;
                     validate_db_value(row_end_x, "array row endpoint x").map_err(&invalid)?;
@@ -643,20 +620,15 @@ fn preflight_element(cell: &str, element_index: usize, element: &Element) -> Res
                 }
             }
         }
-        Element::Text {
-            text,
-            position,
-            layer,
-            height,
-        } => {
-            let count = text.chars().count();
+        Element::Text(text) => {
+            let count = text.text().chars().count();
             if count > 512 {
                 return Err(invalid(GdsElementError::TextTooLong { count }));
             }
-            validate_layer(layer, &invalid)?;
-            validate_db_value(position.x, "text position x").map_err(&invalid)?;
-            validate_db_value(position.y, "text position y").map_err(&invalid)?;
-            if !gds_real_is_representable(*height) {
+            validate_layer(&text.layer(), &invalid)?;
+            validate_db_value(text.position().x, "text position x").map_err(&invalid)?;
+            validate_db_value(text.position().y, "text position y").map_err(&invalid)?;
+            if !gds_real_is_representable(text.height()) {
                 return Err(invalid(GdsElementError::InvalidMagnification));
             }
         }
@@ -780,8 +752,45 @@ pub(crate) fn f64_to_gds_real(value: f64) -> [u8; 8] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::cell::CellRef;
     use std::fs;
+
+    struct Cell;
+
+    #[allow(clippy::new_ret_no_self)]
+    impl Cell {
+        fn new(name: impl Into<String>) -> rosette_core::Cell {
+            rosette_core::Cell::new(name).unwrap()
+        }
+    }
+
+    struct CellRef;
+
+    #[allow(clippy::new_ret_no_self)]
+    impl CellRef {
+        fn new(cell_name: impl Into<String>) -> rosette_core::CellRef {
+            rosette_core::CellRef::new(cell_name).unwrap()
+        }
+
+        fn with_transform(
+            cell_name: impl Into<String>,
+            transform: Transform,
+        ) -> rosette_core::CellRef {
+            rosette_core::CellRef::with_transform(cell_name, transform).unwrap()
+        }
+    }
+
+    struct Polygon;
+
+    #[allow(clippy::new_ret_no_self)]
+    impl Polygon {
+        fn new(vertices: Vec<Point>) -> rosette_core::Polygon {
+            rosette_core::Polygon::new(vertices).unwrap()
+        }
+
+        fn rect(origin: Point, width: f64, height: f64) -> rosette_core::Polygon {
+            rosette_core::Polygon::rect(origin, width, height).unwrap()
+        }
+    }
 
     struct FlushFailWriter;
 
@@ -974,7 +983,7 @@ mod tests {
         assert_eq!(
             dependency_order(&lib)
                 .into_iter()
-                .map(Cell::name)
+                .map(rosette_core::Cell::name)
                 .collect::<Vec<_>>(),
             ["A", "B", "C"]
         );
@@ -1084,7 +1093,7 @@ mod tests {
         sub.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
 
         let mut top = Cell::new("TOP");
-        top.add_ref(CellRef::new("SUB").at(100.0, 200.0));
+        top.add_ref(CellRef::new("SUB").at(100.0, 200.0).unwrap());
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();
@@ -1101,7 +1110,11 @@ mod tests {
         sub.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
 
         let mut top = Cell::new("TOP");
-        top.add_ref(CellRef::new("SUB").rotate(std::f64::consts::FRAC_PI_2));
+        top.add_ref(
+            CellRef::new("SUB")
+                .rotate(std::f64::consts::FRAC_PI_2)
+                .unwrap(),
+        );
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();
@@ -1118,7 +1131,7 @@ mod tests {
         sub.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
 
         let mut top = Cell::new("TOP");
-        top.add_ref(CellRef::new("SUB").rotate(std::f64::consts::PI));
+        top.add_ref(CellRef::new("SUB").rotate(std::f64::consts::PI).unwrap());
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();
@@ -1135,7 +1148,11 @@ mod tests {
         sub.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
 
         let mut top = Cell::new("TOP");
-        top.add_ref(CellRef::new("SUB").rotate(3.0 * std::f64::consts::FRAC_PI_2));
+        top.add_ref(
+            CellRef::new("SUB")
+                .rotate(3.0 * std::f64::consts::FRAC_PI_2)
+                .unwrap(),
+        );
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();
@@ -1186,7 +1203,7 @@ mod tests {
         sub.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
 
         let mut top = Cell::new("TOP");
-        top.add_ref(CellRef::new("SUB").scale(2.5));
+        top.add_ref(CellRef::new("SUB").scale(2.5).unwrap());
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();
@@ -1207,9 +1224,12 @@ mod tests {
         top.add_ref(
             CellRef::new("SUB")
                 .at(10.0, 20.0)
+                .unwrap()
                 .rotate(std::f64::consts::FRAC_PI_4)
+                .unwrap()
                 .mirror_x()
-                .scale(1.5),
+                .scale(1.5)
+                .unwrap(),
         );
 
         let mut lib = Library::new("test");
@@ -1361,7 +1381,8 @@ mod tests {
             0.5,
             Layer::new(1, 0),
             PathEndType::Flush,
-        );
+        )
+        .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1386,7 +1407,8 @@ mod tests {
             1.0,
             Layer::new(1, 0),
             PathEndType::Flush,
-        );
+        )
+        .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1405,7 +1427,8 @@ mod tests {
             2.0,
             Layer::new(1, 0),
             PathEndType::Round,
-        );
+        )
+        .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1424,7 +1447,8 @@ mod tests {
             2.0,
             Layer::new(1, 0),
             PathEndType::HalfWidthExtension,
-        );
+        )
+        .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1441,7 +1465,8 @@ mod tests {
         let points: Vec<Point> = (0..8192).map(|i| Point::new(i as f64, 0.0)).collect();
 
         let mut cell = Cell::new("TEST");
-        cell.add_path(points, 0.5, Layer::new(1, 0), PathEndType::Flush);
+        cell.add_path(points, 0.5, Layer::new(1, 0), PathEndType::Flush)
+            .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1461,19 +1486,10 @@ mod tests {
     #[test]
     fn rejects_short_paths_during_element_preflight() {
         for points in [vec![], vec![Point::origin()]] {
-            let element = Element::Path {
-                points,
-                width: 0.5,
-                layer: Layer::new(1, 0),
-                end_type: PathEndType::Flush,
-            };
-            assert!(matches!(
-                preflight_element("TEST", 0, &element),
-                Err(GdsError::InvalidElement {
-                    reason: GdsElementError::PathPointCount { .. },
-                    ..
-                })
-            ));
+            assert!(
+                rosette_core::PathElement::new(points, 0.5, Layer::new(1, 0), PathEndType::Flush,)
+                    .is_err()
+            );
         }
     }
 
@@ -1483,7 +1499,8 @@ mod tests {
         let points: Vec<Point> = (0..8191).map(|i| Point::new(i as f64 * 0.1, 0.0)).collect();
 
         let mut cell = Cell::new("TEST");
-        cell.add_path(points, 0.5, Layer::new(1, 0), PathEndType::Flush);
+        cell.add_path(points, 0.5, Layer::new(1, 0), PathEndType::Flush)
+            .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1506,7 +1523,8 @@ mod tests {
             Point::new(10.0, 20.0),
             Layer::new(10, 0),
             1.0,
-        );
+        )
+        .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1521,7 +1539,8 @@ mod tests {
     #[test]
     fn test_text_with_special_chars() {
         let mut cell = Cell::new("TEST");
-        cell.add_text_with_height("Label_123-ABC", Point::origin(), Layer::new(10, 0), 1.0);
+        cell.add_text_with_height("Label_123-ABC", Point::origin(), Layer::new(10, 0), 1.0)
+            .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1537,7 +1556,8 @@ mod tests {
         let long_text = "x".repeat(513); // 513 chars, max is 512
 
         let mut cell = Cell::new("TEST");
-        cell.add_text_with_height(&long_text, Point::origin(), Layer::new(10, 0), 1.0);
+        cell.add_text_with_height(&long_text, Point::origin(), Layer::new(10, 0), 1.0)
+            .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1559,7 +1579,8 @@ mod tests {
         let text = "x".repeat(512); // Exactly 512 chars should work
 
         let mut cell = Cell::new("TEST");
-        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0);
+        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0)
+            .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1580,7 +1601,8 @@ mod tests {
         assert_eq!(text.chars().count(), 512); // 512 characters
 
         let mut cell = Cell::new("TEST");
-        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0);
+        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0)
+            .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1599,7 +1621,8 @@ mod tests {
         assert_eq!(text.chars().count(), 513);
 
         let mut cell = Cell::new("TEST");
-        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0);
+        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0)
+            .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1619,9 +1642,12 @@ mod tests {
     #[test]
     fn test_multiple_texts() {
         let mut cell = Cell::new("TEST");
-        cell.add_text_with_height("Label1", Point::new(0.0, 0.0), Layer::new(10, 0), 1.0);
-        cell.add_text_with_height("Label2", Point::new(50.0, 0.0), Layer::new(10, 0), 1.0);
-        cell.add_text_with_height("Label3", Point::new(100.0, 0.0), Layer::new(10, 0), 1.0);
+        cell.add_text_with_height("Label1", Point::new(0.0, 0.0), Layer::new(10, 0), 1.0)
+            .unwrap();
+        cell.add_text_with_height("Label2", Point::new(50.0, 0.0), Layer::new(10, 0), 1.0)
+            .unwrap();
+        cell.add_text_with_height("Label3", Point::new(100.0, 0.0), Layer::new(10, 0), 1.0)
+            .unwrap();
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1649,15 +1675,17 @@ mod tests {
             0.5,
             Layer::new(2, 0),
             PathEndType::Round,
-        );
+        )
+        .unwrap();
 
         // Add text
-        cell.add_text_with_height("Component", Point::new(50.0, 15.0), Layer::new(10, 0), 1.0);
+        cell.add_text_with_height("Component", Point::new(50.0, 15.0), Layer::new(10, 0), 1.0)
+            .unwrap();
 
         // Add cell ref
         let mut sub = Cell::new("SUB");
         sub.add_polygon(Polygon::rect(Point::origin(), 1.0, 1.0), Layer::new(1, 0));
-        cell.add_ref(CellRef::new("SUB").at(20.0, 20.0));
+        cell.add_ref(CellRef::new("SUB").at(20.0, 20.0).unwrap());
 
         let mut lib = Library::new("test");
         lib.add_cell(sub).unwrap();
@@ -1673,7 +1701,7 @@ mod tests {
     #[test]
     fn rejects_oversized_repetitions() {
         let mut cell = Cell::new("TOP");
-        cell.add_ref(CellRef::new("UNIT").array(32768, 1, 1.0, 1.0));
+        cell.add_ref(CellRef::new("UNIT").array(32768, 1, 1.0, 1.0).unwrap());
         let mut oversized = Library::new("test");
         oversized.add_cell(cell).unwrap();
         assert!(matches!(
@@ -1708,19 +1736,14 @@ mod tests {
 
     #[test]
     fn rejects_nonfinite_coordinates_during_element_preflight() {
-        let element = Element::Path {
-            points: vec![Point::origin(), Point::new(f64::NAN, 0.0)],
-            width: 0.5,
-            layer: Layer::new(1, 0),
-            end_type: PathEndType::Flush,
-        };
-
         assert!(matches!(
-            preflight_element("TOP", 0, &element),
-            Err(GdsError::InvalidElement {
-                reason: GdsElementError::NonFiniteValue { .. },
-                ..
-            })
+            rosette_core::PathElement::new(
+                vec![Point::origin(), Point::new(f64::NAN, 0.0)],
+                0.5,
+                Layer::new(1, 0),
+                PathEndType::Flush,
+            ),
+            Err(rosette_core::PathValidationReason::NonFinitePoint { .. })
         ));
     }
 
@@ -1743,17 +1766,14 @@ mod tests {
             ));
         }
 
-        let singular = Element::CellRef(CellRef {
-            cell_name: "UNIT".to_string(),
-            transform: Transform::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-            repetition: None,
-        });
         assert!(matches!(
-            preflight_element("TOP", 0, &singular),
-            Err(GdsError::InvalidElement {
-                reason: GdsElementError::UnsupportedTransform(GdsTransformError::Singular),
-                ..
-            })
+            rosette_core::CellRef::with_transform(
+                "UNIT",
+                Transform::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ),
+            Err(rosette_core::CellRefError::Reference(
+                rosette_core::CellRefValidationReason::SingularTransform
+            ))
         ));
     }
 
@@ -1765,7 +1785,8 @@ mod tests {
             -0.5,
             Layer::new(1, 0),
             PathEndType::Flush,
-        );
+        )
+        .unwrap();
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
 

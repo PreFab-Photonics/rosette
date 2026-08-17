@@ -9,8 +9,11 @@
 //! use rosette_io::gds;
 //!
 //! // Write
-//! let mut cell = Cell::new("TOP");
-//! cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), Layer::new(1, 0));
+//! let mut cell = Cell::new("TOP").unwrap();
+//! cell.add_polygon(
+//!     Polygon::rect(Point::origin(), 10.0, 5.0).unwrap(),
+//!     Layer::new(1, 0),
+//! );
 //! gds::write("output.gds", &cell).unwrap();
 //!
 //! // Read

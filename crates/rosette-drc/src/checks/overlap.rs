@@ -347,8 +347,8 @@ mod tests {
 
     #[test]
     fn test_no_overlap() {
-        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
-        let poly2 = Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0);
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap();
+        let poly2 = Polygon::rect(Point::new(10.0, 0.0), 5.0, 5.0).unwrap();
 
         let result = check_forbid_overlap(&poly1, Layer::new(1, 0), &poly2, Layer::new(2, 0), None);
         assert!(result.is_none()); // No overlap, no violation
@@ -360,8 +360,8 @@ mod tests {
 
     #[test]
     fn test_with_overlap() {
-        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
-        let poly2 = Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0);
+        let poly1 = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap();
+        let poly2 = Polygon::rect(Point::new(3.0, 0.0), 5.0, 5.0).unwrap();
 
         let result = check_forbid_overlap(&poly1, Layer::new(1, 0), &poly2, Layer::new(2, 0), None);
         assert!(result.is_some()); // Overlap exists, violation for forbid
@@ -378,12 +378,17 @@ mod tests {
         let layer2 = Layer::new(2, 0);
 
         let polys1: Vec<(Polygon, usize)> = (0..10)
-            .map(|i| (Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0), i))
+            .map(|i| {
+                (
+                    Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0).unwrap(),
+                    i,
+                )
+            })
             .collect();
         let polys2: Vec<(Polygon, usize)> = (0..10)
             .map(|i| {
                 (
-                    Polygon::rect(Point::new(i as f64 * 20.0 + 2.0, 0.0), 5.0, 5.0),
+                    Polygon::rect(Point::new(i as f64 * 20.0 + 2.0, 0.0), 5.0, 5.0).unwrap(),
                     i,
                 )
             })
@@ -402,7 +407,7 @@ mod tests {
         let polys1: Vec<(Polygon, usize)> = (0..5)
             .map(|i| {
                 (
-                    Polygon::rect(Point::new(i as f64 * 100.0, 0.0), 5.0, 5.0),
+                    Polygon::rect(Point::new(i as f64 * 100.0, 0.0), 5.0, 5.0).unwrap(),
                     i,
                 )
             })
@@ -410,7 +415,7 @@ mod tests {
         let polys2: Vec<(Polygon, usize)> = (0..5)
             .map(|i| {
                 (
-                    Polygon::rect(Point::new(i as f64 * 100.0 + 50.0, 0.0), 5.0, 5.0),
+                    Polygon::rect(Point::new(i as f64 * 100.0 + 50.0, 0.0), 5.0, 5.0).unwrap(),
                     i,
                 )
             })
@@ -426,7 +431,12 @@ mod tests {
         let layer2 = Layer::new(2, 0);
 
         let polys1: Vec<(Polygon, usize)> = (0..3)
-            .map(|i| (Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0), i))
+            .map(|i| {
+                (
+                    Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0).unwrap(),
+                    i,
+                )
+            })
             .collect();
         let polys2: Vec<(Polygon, usize)> = Vec::new();
 
@@ -443,7 +453,8 @@ mod tests {
     fn test_require_overlap_bulk_same_layer_skips_self() {
         // Single polygon on same layer — should NOT match itself.
         let layer = Layer::new(1, 0);
-        let polys: Vec<(Polygon, usize)> = vec![(Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0), 0)];
+        let polys: Vec<(Polygon, usize)> =
+            vec![(Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0).unwrap(), 0)];
 
         let violations = check_require_overlap_bulk(&polys, layer, &polys, layer, None, true);
         assert_eq!(
@@ -462,12 +473,17 @@ mod tests {
 
         // Each poly1 at (i*20, 0), each poly2 at (i*20 + 1, 0) — overlapping pairs.
         let polys1: Vec<(Polygon, usize)> = (0..50)
-            .map(|i| (Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0), i))
+            .map(|i| {
+                (
+                    Polygon::rect(Point::new(i as f64 * 20.0, 0.0), 5.0, 5.0).unwrap(),
+                    i,
+                )
+            })
             .collect();
         let polys2: Vec<(Polygon, usize)> = (0..50)
             .map(|i| {
                 (
-                    Polygon::rect(Point::new(i as f64 * 20.0 + 1.0, 0.0), 5.0, 5.0),
+                    Polygon::rect(Point::new(i as f64 * 20.0 + 1.0, 0.0), 5.0, 5.0).unwrap(),
                     i,
                 )
             })

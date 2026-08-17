@@ -12,9 +12,9 @@
 //! use rosette_core::{Cell, Port, Point, Vector2};
 //! use rosette_checks::{ChecksConfig, RouteAnnotationMap, run_checks};
 //!
-//! let mut cell = Cell::new("test");
-//! cell.add_port(Port::with_width("in", Point::origin(), -Vector2::unit_x(), 0.5));
-//! cell.add_port(Port::with_width("out", Point::new(10.0, 0.0), Vector2::unit_x(), 0.5));
+//! let mut cell = Cell::new("test").unwrap();
+//! cell.add_port(Port::with_width("in", Point::origin(), -Vector2::unit_x(), 0.5).unwrap()).unwrap();
+//! cell.add_port(Port::with_width("out", Point::new(10.0, 0.0), Vector2::unit_x(), 0.5).unwrap()).unwrap();
 //!
 //! let config = ChecksConfig::default();
 //! let result = run_checks(&cell, &config, None, &RouteAnnotationMap::new());

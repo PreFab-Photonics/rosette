@@ -7,6 +7,7 @@ use rosette_core::{Cell, Library, Point};
 use rosette_io::json::CellAnnotations;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -38,7 +39,7 @@ impl WasmLibrary {
     pub fn add_cell(&mut self, name: &str) -> Result<(), JsValue> {
         rosette_io::gds::validate_structure_name(name)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let cell = Cell::new(name.to_string());
+        let cell = Cell::new(name.to_string()).map_err(|e| JsValue::from_str(&e.to_string()))?;
         self.library
             .add_cell(cell)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -130,7 +131,7 @@ impl WasmLibrary {
                     .iter()
                     .enumerate()
                     .filter_map(|(index, element)| match element {
-                        Element::CellRef(cell_ref) if cell_ref.cell_name == name => Some(index),
+                        Element::CellRef(cell_ref) if cell_ref.cell_name() == name => Some(index),
                         _ => None,
                     })
                     .collect();
@@ -149,6 +150,7 @@ impl WasmLibrary {
                     for &index in indices.iter().rev() {
                         cell.remove_element(index);
                     }
+                    Ok::<_, Infallible>(())
                 })
                 .is_err()
             {
@@ -352,7 +354,10 @@ impl WasmLibrary {
         if let Some(cell_name) = self.active_cell.clone()
             && self
                 .library
-                .edit_cell(&cell_name, |cell| cell.clear_elements())
+                .edit_cell(&cell_name, |cell| {
+                    cell.clear_elements();
+                    Ok::<_, Infallible>(())
+                })
                 .is_ok()
         {
             self.element_refs.retain(|_, r| r.cell_name != cell_name);
@@ -383,7 +388,7 @@ mod tests {
             },
             drc: DrcAnnotations {
                 skip: true,
-                waive_regions: vec![BBox::new(Point::origin(), Point::new(3.0, 4.0))],
+                waive_regions: vec![BBox::new(Point::origin(), Point::new(3.0, 4.0)).unwrap()],
             },
             editor: EditorAnnotations {
                 origin: Point::new(12.0, -4.0),
@@ -417,12 +422,14 @@ mod tests {
         annotations
             .drc
             .waive_regions
-            .push(BBox::new(Point::origin(), Point::new(3.0, 4.0)));
+            .push(BBox::new(Point::origin(), Point::new(3.0, 4.0)).unwrap());
         let expected_annotations = annotations.clone();
         library
             .library
             .edit_cell("cell", |cell| {
-                cell.add_port(Port::new("input", Point::new(1.0, 2.0), Vector2::unit_x()));
+                let port = Port::new("input", Point::new(1.0, 2.0), Vector2::unit_x()).unwrap();
+                cell.add_port(port).unwrap();
+                Ok::<_, Infallible>(())
             })
             .unwrap();
         library
@@ -502,7 +509,7 @@ mod tests {
                 .cell_refs()
                 .next()
                 .unwrap()
-                .transform,
+                .transform(),
             Transform::translate(6.0, 7.0)
         );
     }

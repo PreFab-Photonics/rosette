@@ -206,7 +206,7 @@ pub(crate) fn hierarchy_identity_fingerprint(cell: &Cell, library: Option<&Libra
         }
         let references: Vec<String> = cell
             .cell_refs()
-            .map(|cell_ref| cell_ref.cell_name.clone())
+            .map(|cell_ref| cell_ref.cell_name().to_string())
             .collect();
         if let Some(library) = library {
             for reference in &references {
@@ -257,33 +257,28 @@ fn cell_content_hash_inner(
                 layer.hash(&mut hasher);
                 hash_points(&mut hasher, polygon.vertices());
             }
-            Element::Path {
-                points,
-                width,
-                layer,
-                end_type,
-            } => {
+            Element::Path(path) => {
                 1u8.hash(&mut hasher);
-                layer.hash(&mut hasher);
-                width.to_bits().hash(&mut hasher);
-                (*end_type as u8).hash(&mut hasher);
-                hash_points(&mut hasher, points);
+                path.layer().hash(&mut hasher);
+                path.width().to_bits().hash(&mut hasher);
+                (path.end_type() as u8).hash(&mut hasher);
+                hash_points(&mut hasher, path.points());
             }
             Element::CellRef(cell_ref) => {
                 2u8.hash(&mut hasher);
-                hash_transform(&mut hasher, &cell_ref.transform);
-                if let Some(rep) = &cell_ref.repetition {
-                    rep.columns.hash(&mut hasher);
-                    rep.rows.hash(&mut hasher);
-                    rep.col_vector.x.to_bits().hash(&mut hasher);
-                    rep.col_vector.y.to_bits().hash(&mut hasher);
-                    rep.row_vector.x.to_bits().hash(&mut hasher);
-                    rep.row_vector.y.to_bits().hash(&mut hasher);
+                hash_transform(&mut hasher, &cell_ref.transform());
+                if let Some(rep) = cell_ref.repetition() {
+                    rep.columns().hash(&mut hasher);
+                    rep.rows().hash(&mut hasher);
+                    rep.col_vector().x.to_bits().hash(&mut hasher);
+                    rep.col_vector().y.to_bits().hash(&mut hasher);
+                    rep.row_vector().x.to_bits().hash(&mut hasher);
+                    rep.row_vector().y.to_bits().hash(&mut hasher);
                 }
                 // Fold in the target's content hash so the hash is transitive:
                 // editing a leaf changes every ancestor's hash.
                 if let Some(lib) = library
-                    && let Some(ref_cell) = lib.cell(&cell_ref.cell_name)
+                    && let Some(ref_cell) = lib.cell(cell_ref.cell_name())
                 {
                     let sub = cell_content_hash_inner(ref_cell, library, memo, stack);
                     sub.hash(&mut hasher);
@@ -291,12 +286,12 @@ fn cell_content_hash_inner(
                     // Unresolved ref: fall back to the target name so two
                     // designs referencing different missing cells don't
                     // collide.
-                    cell_ref.cell_name.hash(&mut hasher);
+                    cell_ref.cell_name().hash(&mut hasher);
                 }
             }
             // Text labels carry no geometry DRC checks, so they don't affect
             // results. Skip them to keep the hash stable under text edits.
-            Element::Text { .. } => {}
+            Element::Text(_) => {}
         }
     }
 

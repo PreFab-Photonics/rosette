@@ -3,6 +3,7 @@
 //! A [`Polygon`] is a closed shape defined by a sequence of vertices.
 
 use super::{BBox, Point, Transform, Vector2};
+use crate::error::PolygonValidationReason;
 
 /// A closed polygon defined by vertices.
 ///
@@ -14,26 +15,30 @@ pub struct Polygon {
 }
 
 impl Polygon {
-    /// Try to create a polygon from finite vertices.
-    ///
-    /// Returns `None` if fewer than three vertices are provided or any vertex
-    /// is non-finite.
-    pub fn try_new(vertices: Vec<Point>) -> Option<Self> {
-        (vertices.len() >= 3 && vertices.iter().all(|vertex| vertex.is_finite()))
-            .then_some(Self { vertices })
+    /// Create a polygon from vertices.
+    pub fn new(vertices: Vec<Point>) -> Result<Self, PolygonValidationReason> {
+        if vertices.len() < 3 {
+            return Err(PolygonValidationReason::TooFewVertices {
+                count: vertices.len(),
+            });
+        }
+        if let Some(vertex_index) = vertices.iter().position(|vertex| !vertex.is_finite()) {
+            return Err(PolygonValidationReason::NonFiniteVertex { vertex_index });
+        }
+        Ok(Self { vertices })
     }
 
-    /// Create a polygon from vertices.
-    ///
-    /// # Panics
-    /// Panics if fewer than 3 vertices are provided or any vertex is non-finite.
-    pub fn new(vertices: Vec<Point>) -> Self {
-        assert!(vertices.len() >= 3, "Polygon requires at least 3 vertices");
-        assert!(
-            vertices.iter().all(|vertex| vertex.is_finite()),
-            "Polygon vertices must be finite"
-        );
-        Self { vertices }
+    /// Validate the stored polygon vertices.
+    pub fn validate(&self) -> Result<(), PolygonValidationReason> {
+        if self.vertices.len() < 3 {
+            return Err(PolygonValidationReason::TooFewVertices {
+                count: self.vertices.len(),
+            });
+        }
+        if let Some(vertex_index) = self.vertices.iter().position(|vertex| !vertex.is_finite()) {
+            return Err(PolygonValidationReason::NonFiniteVertex { vertex_index });
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -44,7 +49,7 @@ impl Polygon {
     /// Create a rectangle from origin point, width, and height.
     ///
     /// The rectangle extends in positive X and Y directions from the origin.
-    pub fn rect(origin: Point, width: f64, height: f64) -> Self {
+    pub fn rect(origin: Point, width: f64, height: f64) -> Result<Self, PolygonValidationReason> {
         Self::new(vec![
             origin,
             Point::new(origin.x + width, origin.y),
@@ -54,7 +59,11 @@ impl Polygon {
     }
 
     /// Create a centered rectangle.
-    pub fn rect_centered(center: Point, width: f64, height: f64) -> Self {
+    pub fn rect_centered(
+        center: Point,
+        width: f64,
+        height: f64,
+    ) -> Result<Self, PolygonValidationReason> {
         let half_w = width / 2.0;
         let half_h = height / 2.0;
         Self::new(vec![
@@ -68,8 +77,14 @@ impl Polygon {
     /// Create a regular polygon with n sides.
     ///
     /// Centered at the given point with the specified radius.
-    pub fn regular(center: Point, radius: f64, sides: usize) -> Self {
-        assert!(sides >= 3, "Regular polygon requires at least 3 sides");
+    pub fn regular(
+        center: Point,
+        radius: f64,
+        sides: usize,
+    ) -> Result<Self, PolygonValidationReason> {
+        if sides < 3 {
+            return Err(PolygonValidationReason::TooFewVertices { count: sides });
+        }
         let angle_step = std::f64::consts::TAU / sides as f64;
         let vertices: Vec<Point> = (0..sides)
             .map(|i| {
@@ -130,28 +145,32 @@ impl Polygon {
 
     /// Calculate the bounding box.
     pub fn bbox(&self) -> BBox {
-        BBox::from_points(&self.vertices)
+        BBox::from_valid_points(&self.vertices)
     }
 
     /// Try to apply a transformation to all vertices.
     ///
-    /// Returns `None` if applying the transform produces a non-finite vertex.
-    pub fn try_transform(&self, t: &Transform) -> Option<Self> {
-        Self::try_new(self.vertices.iter().map(|p| t.apply(*p)).collect())
+    /// Returns an error if applying the transform produces a non-finite vertex.
+    pub fn try_transform(&self, t: &Transform) -> Result<Self, PolygonValidationReason> {
+        Self::new(self.vertices.iter().map(|p| t.apply(*p)).collect())
     }
 
     /// Translate by a vector.
-    pub fn translate(&self, v: Vector2) -> Self {
+    pub fn translate(&self, v: Vector2) -> Result<Self, PolygonValidationReason> {
         Self::new(self.vertices.iter().map(|p| p.translate(v)).collect())
     }
 
     /// Rotate around the origin.
-    pub fn rotate(&self, angle: f64) -> Self {
+    pub fn rotate(&self, angle: f64) -> Result<Self, PolygonValidationReason> {
         Self::new(self.vertices.iter().map(|p| p.rotate(angle)).collect())
     }
 
     /// Rotate around a point.
-    pub fn rotate_around(&self, center: Point, angle: f64) -> Self {
+    pub fn rotate_around(
+        &self,
+        center: Point,
+        angle: f64,
+    ) -> Result<Self, PolygonValidationReason> {
         Self::new(
             self.vertices
                 .iter()
@@ -161,18 +180,22 @@ impl Polygon {
     }
 
     /// Scale relative to the origin.
-    pub fn scale(&self, sx: f64, sy: f64) -> Self {
+    pub fn scale(&self, sx: f64, sy: f64) -> Result<Self, PolygonValidationReason> {
         Self::new(self.vertices.iter().map(|p| p.scale(sx, sy)).collect())
     }
 
     /// Mirror across the X axis.
     pub fn mirror_x(&self) -> Self {
-        Self::new(self.vertices.iter().map(|p| p.mirror_x()).collect())
+        Self {
+            vertices: self.vertices.iter().map(|p| p.mirror_x()).collect(),
+        }
     }
 
     /// Mirror across the Y axis.
     pub fn mirror_y(&self) -> Self {
-        Self::new(self.vertices.iter().map(|p| p.mirror_y()).collect())
+        Self {
+            vertices: self.vertices.iter().map(|p| p.mirror_y()).collect(),
+        }
     }
 
     /// Check if a point is inside the polygon using ray casting algorithm.
@@ -212,14 +235,14 @@ mod tests {
 
     #[test]
     fn test_rect() {
-        let rect = Polygon::rect(Point::origin(), 10.0, 5.0);
+        let rect = Polygon::rect(Point::origin(), 10.0, 5.0).unwrap();
         assert_eq!(rect.vertices().len(), 4);
         assert!(approx_eq(rect.area(), 50.0));
     }
 
     #[test]
     fn test_rect_centered() {
-        let rect = Polygon::rect_centered(Point::origin(), 10.0, 5.0);
+        let rect = Polygon::rect_centered(Point::origin(), 10.0, 5.0).unwrap();
         let centroid = rect.centroid();
         assert!(approx_eq(centroid.x, 0.0));
         assert!(approx_eq(centroid.y, 0.0));
@@ -227,13 +250,13 @@ mod tests {
 
     #[test]
     fn test_regular_polygon() {
-        let square = Polygon::regular(Point::origin(), 1.0, 4);
+        let square = Polygon::regular(Point::origin(), 1.0, 4).unwrap();
         assert_eq!(square.vertices().len(), 4);
     }
 
     #[test]
     fn test_bbox() {
-        let rect = Polygon::rect(Point::new(1.0, 2.0), 10.0, 5.0);
+        let rect = Polygon::rect(Point::new(1.0, 2.0), 10.0, 5.0).unwrap();
         let bbox = rect.bbox();
         assert!(approx_eq(bbox.min().x, 1.0));
         assert!(approx_eq(bbox.min().y, 2.0));
@@ -243,32 +266,36 @@ mod tests {
 
     #[test]
     fn test_translate() {
-        let rect = Polygon::rect(Point::origin(), 10.0, 5.0);
-        let translated = rect.translate(Vector2::new(5.0, 5.0));
+        let rect = Polygon::rect(Point::origin(), 10.0, 5.0).unwrap();
+        let translated = rect.translate(Vector2::new(5.0, 5.0)).unwrap();
         let bbox = translated.bbox();
         assert!(approx_eq(bbox.min().x, 5.0));
         assert!(approx_eq(bbox.min().y, 5.0));
     }
 
     #[test]
-    #[should_panic]
     fn test_too_few_vertices() {
-        Polygon::new(vec![Point::origin(), Point::new(1.0, 0.0)]);
+        assert_eq!(
+            Polygon::new(vec![Point::origin(), Point::new(1.0, 0.0)]),
+            Err(PolygonValidationReason::TooFewVertices { count: 2 })
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Polygon vertices must be finite")]
     fn nonfinite_vertices_are_rejected() {
-        Polygon::new(vec![
-            Point::origin(),
-            Point::new(1.0, 0.0),
-            Point::new(f64::NAN, 1.0),
-        ]);
+        assert_eq!(
+            Polygon::new(vec![
+                Point::origin(),
+                Point::new(1.0, 0.0),
+                Point::new(f64::NAN, 1.0),
+            ]),
+            Err(PolygonValidationReason::NonFiniteVertex { vertex_index: 2 })
+        );
     }
 
     #[test]
     fn transformations_revalidate_the_result() {
-        let polygon = Polygon::rect(Point::origin(), 1.0, 1.0);
+        let polygon = Polygon::rect(Point::origin(), 1.0, 1.0).unwrap();
         assert!(
             polygon
                 .try_transform(&Transform::translate(2.0, 3.0))
@@ -277,22 +304,29 @@ mod tests {
                 .iter()
                 .all(|p| p.is_finite())
         );
-        assert!(
+        assert_eq!(
             polygon
                 .try_transform(&Transform::translate(f64::INFINITY, 0.0))
-                .is_none()
+                .unwrap_err(),
+            PolygonValidationReason::NonFiniteVertex { vertex_index: 0 }
         );
         let extreme = Polygon::new(vec![
             Point::new(f64::MAX, 0.0),
             Point::new(f64::MAX, 1.0),
             Point::new(f64::MAX / 2.0, 0.0),
-        ]);
-        assert!(extreme.try_transform(&Transform::scale(2.0, 1.0)).is_none());
+        ])
+        .unwrap();
+        assert_eq!(
+            extreme
+                .try_transform(&Transform::scale(2.0, 1.0))
+                .unwrap_err(),
+            PolygonValidationReason::NonFiniteVertex { vertex_index: 0 }
+        );
     }
 
     #[test]
     fn test_contains_point_inside() {
-        let rect = Polygon::rect(Point::origin(), 10.0, 10.0);
+        let rect = Polygon::rect(Point::origin(), 10.0, 10.0).unwrap();
         assert!(rect.contains(Point::new(5.0, 5.0)));
         assert!(rect.contains(Point::new(1.0, 1.0)));
         assert!(rect.contains(Point::new(9.0, 9.0)));
@@ -300,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_contains_point_outside() {
-        let rect = Polygon::rect(Point::origin(), 10.0, 10.0);
+        let rect = Polygon::rect(Point::origin(), 10.0, 10.0).unwrap();
         assert!(!rect.contains(Point::new(-1.0, 5.0)));
         assert!(!rect.contains(Point::new(11.0, 5.0)));
         assert!(!rect.contains(Point::new(5.0, -1.0)));
@@ -318,7 +352,8 @@ mod tests {
             Point::new(5.0, 5.0),
             Point::new(5.0, 10.0),
             Point::new(0.0, 10.0),
-        ]);
+        ])
+        .unwrap();
         // Inside the L
         assert!(l_shape.contains(Point::new(2.5, 2.5)));
         assert!(l_shape.contains(Point::new(2.5, 7.5)));

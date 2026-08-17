@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn test_rectangle_no_violations() {
         // All interior angles are 90° — no violations at threshold 60°.
-        let poly = Polygon::rect(Point::origin(), 10.0, 5.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 5.0).unwrap();
         let violations = check_acute_angle(&poly, Layer::new(1, 0), 60.0, None);
         assert!(violations.is_empty());
     }
@@ -150,7 +150,8 @@ mod tests {
             Point::new(0.0, 0.5),
             Point::new(0.0, -0.5),
             Point::new(50.0, 0.0),
-        ]);
+        ])
+        .unwrap();
         let violations = check_acute_angle(&poly, Layer::new(1, 0), 60.0, None);
         // The apex should trigger; the base corners (~89°) should not.
         assert_eq!(violations.len(), 1, "only the sharp apex should violate");
@@ -180,7 +181,8 @@ mod tests {
             Point::new(0.0, 0.0),
             Point::new(10.0, 0.0),
             Point::new(10.0, 10.0),
-        ]);
+        ])
+        .unwrap();
         let violations = check_acute_angle(&poly, Layer::new(1, 0), 60.0, None);
         assert_eq!(violations.len(), 2, "both 45° corners should violate");
         for v in &violations {
@@ -201,7 +203,8 @@ mod tests {
             Point::new(0.0, 0.0),
             Point::new(10.0, 0.0),
             Point::new(10.0, 10.0),
-        ]);
+        ])
+        .unwrap();
         let violations = check_acute_angle(&poly, Layer::new(1, 0), 30.0, None);
         assert!(violations.is_empty());
     }
@@ -218,7 +221,8 @@ mod tests {
             Point::new(5.0, 5.0),
             Point::new(5.0, 10.0),
             Point::new(0.0, 10.0),
-        ]);
+        ])
+        .unwrap();
         let violations = check_acute_angle(&l_shape, Layer::new(1, 0), 60.0, None);
         assert!(
             violations.is_empty(),
@@ -235,7 +239,8 @@ mod tests {
             Point::new(0.0, 0.5),
             Point::new(50.0, 0.0),
             Point::new(0.0, -0.5),
-        ]);
+        ])
+        .unwrap();
         let violations = check_acute_angle(&poly, Layer::new(1, 0), 60.0, None);
         assert_eq!(violations.len(), 1, "CW winding should work the same");
     }
@@ -247,7 +252,8 @@ mod tests {
             Point::new(0.0, 0.5),
             Point::new(0.0, -0.5),
             Point::new(50.0, 0.0),
-        ]);
+        ])
+        .unwrap();
         let violations = check_acute_angle(&poly, Layer::new(1, 0), 60.0, Some("ACUTE_RULE"));
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].rule_name.as_deref(), Some("ACUTE_RULE"));
@@ -261,7 +267,8 @@ mod tests {
             Point::new(0.0, 0.0),
             Point::new(1.0, 0.0),
             Point::new(2.0, 0.0),
-        ]);
+        ])
+        .unwrap();
         let violations = check_acute_angle(&poly, Layer::new(1, 0), 60.0, None);
         assert!(violations.is_empty());
     }
@@ -270,7 +277,7 @@ mod tests {
     fn test_threshold_exactly_on_boundary() {
         // A 90° corner should NOT violate when threshold is exactly 90°
         // (strict `<` comparison).
-        let poly = Polygon::rect(Point::origin(), 10.0, 10.0);
+        let poly = Polygon::rect(Point::origin(), 10.0, 10.0).unwrap();
         let violations = check_acute_angle(&poly, Layer::new(1, 0), 90.0, None);
         assert!(
             violations.is_empty(),

@@ -7,44 +7,36 @@ use rosette_core::geometry::Vector2;
 use rosette_core::path::stroke_path;
 use rosette_core::{Point, Transform};
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use wasm_bindgen::prelude::*;
 
-fn can_translate(element: &Element, dx: f64, dy: f64) -> bool {
-    match element {
-        Element::Polygon { polygon, .. } => polygon
-            .vertices()
-            .iter()
-            .all(|point| (point.x + dx).is_finite() && (point.y + dy).is_finite()),
-        Element::Path { points, .. } => points
-            .iter()
-            .all(|point| (point.x + dx).is_finite() && (point.y + dy).is_finite()),
-        Element::Text { position, .. } => {
-            (position.x + dx).is_finite() && (position.y + dy).is_finite()
-        }
-        Element::CellRef(cell_ref) => {
-            (cell_ref.transform.tx + dx).is_finite() && (cell_ref.transform.ty + dy).is_finite()
-        }
-    }
-}
-
-fn translate(element: &mut Element, dx: f64, dy: f64) {
-    match element {
+fn translated(element: &Element, dx: f64, dy: f64) -> Option<Element> {
+    let mut translated = element.clone();
+    match &mut translated {
         Element::Polygon { polygon, .. } => {
-            *polygon = polygon.translate(Vector2::new(dx, dy));
+            *polygon = polygon.translate(Vector2::new(dx, dy)).ok()?;
         }
-        Element::Path { points, .. } => {
-            for point in points {
-                *point = Point::new(point.x + dx, point.y + dy);
-            }
+        Element::Path(path) => {
+            let points = path
+                .points()
+                .iter()
+                .map(|point| Point::new(point.x + dx, point.y + dy))
+                .collect();
+            path.set_points(points).ok()?;
         }
-        Element::Text { position, .. } => {
-            *position = Point::new(position.x + dx, position.y + dy);
+        Element::Text(text) => {
+            let position = text.position();
+            text.set_position(Point::new(position.x + dx, position.y + dy))
+                .ok()?;
         }
         Element::CellRef(cell_ref) => {
-            cell_ref.transform.tx += dx;
-            cell_ref.transform.ty += dy;
+            let mut transform = cell_ref.transform();
+            transform.tx += dx;
+            transform.ty += dy;
+            cell_ref.set_transform(transform).ok()?;
         }
     }
+    Some(translated)
 }
 
 #[wasm_bindgen]
@@ -74,7 +66,7 @@ impl WasmLibrary {
         let removed = self
             .library
             .edit_cell(&elem_ref.cell_name, |cell| {
-                cell.remove_element(elem_ref.element_index).is_some()
+                Ok::<_, Infallible>(cell.remove_element(elem_ref.element_index).is_some())
             })
             .unwrap_or(false);
         if !removed {
@@ -150,65 +142,43 @@ impl WasmLibrary {
             }
         });
 
-        let mut removed_count = 0;
-
-        // Process removals grouped by cell
-        let mut current_cell: Option<String> = None;
-        let mut indices_removed_in_cell: Vec<usize> = Vec::new();
-
+        let mut candidate_library = self.library.clone();
+        let mut removed: HashMap<String, Vec<(String, usize)>> = HashMap::new();
         for (id, cell_name, element_index) in to_remove {
-            // If switching to a new cell, apply index adjustments for previous cell
-            if current_cell.as_ref() != Some(&cell_name) {
-                if let Some(prev_cell) = &current_cell {
-                    self.adjust_indices_after_batch_remove(prev_cell, &indices_removed_in_cell);
-                }
-                current_cell = Some(cell_name.clone());
-                indices_removed_in_cell.clear();
-            }
-
-            // Remove from cell
-            let removed = self
-                .library
-                .edit_cell(&cell_name, |cell| {
-                    cell.remove_element(element_index).is_some()
-                })
-                .unwrap_or(false);
-            if removed {
-                self.element_refs.remove(&id);
-                indices_removed_in_cell.push(element_index);
-                removed_count += 1;
+            match candidate_library.edit_cell(&cell_name, |cell| {
+                Ok::<_, Infallible>(cell.remove_element(element_index).is_some())
+            }) {
+                Ok(true) => removed
+                    .entry(cell_name)
+                    .or_default()
+                    .push((id, element_index)),
+                Ok(false) => {}
+                Err(_) => return 0,
             }
         }
 
-        // Apply index adjustments for last cell
-        if let Some(last_cell) = &current_cell {
-            self.adjust_indices_after_batch_remove(last_cell, &indices_removed_in_cell);
-        }
-
+        let removed_count = removed.values().map(Vec::len).sum();
         if removed_count > 0 {
+            let mut candidate_refs = self.element_refs.clone();
+            for (cell_name, entries) in &removed {
+                for (id, _) in entries {
+                    candidate_refs.remove(id);
+                }
+                for element_ref in candidate_refs.values_mut() {
+                    if element_ref.cell_name == *cell_name {
+                        element_ref.element_index -= entries
+                            .iter()
+                            .filter(|(_, index)| *index < element_ref.element_index)
+                            .count();
+                    }
+                }
+            }
+            self.library = candidate_library;
+            self.element_refs = candidate_refs;
             self.mark_dirty();
         }
 
         removed_count
-    }
-
-    /// Adjust element indices after removing multiple elements from a cell.
-    /// `removed_indices` should be sorted in descending order.
-    fn adjust_indices_after_batch_remove(&mut self, cell_name: &str, removed_indices: &[usize]) {
-        if removed_indices.is_empty() {
-            return;
-        }
-
-        // For each ref in this cell, count how many removed indices are below it
-        for ref_entry in self.element_refs.values_mut() {
-            if ref_entry.cell_name == cell_name {
-                let adjustment = removed_indices
-                    .iter()
-                    .filter(|&&idx| idx < ref_entry.element_index)
-                    .count();
-                ref_entry.element_index -= adjustment;
-            }
-        }
     }
 
     /// Flatten the active cell by recursively resolving all CellRef instances.
@@ -241,76 +211,99 @@ impl WasmLibrary {
             return false;
         }
 
-        // Clone the full library so we can read from it while mutating self.
-        // This is necessary because flatten_cell_recursive calls self.add_polygon
-        // which borrows self mutably, while we also need to look up referenced
-        // cells by name in the library.
+        // Build the complete replacement before touching editor state.
         let library_snapshot = self.library.clone();
-        let cell_snapshot = library_snapshot.cell(&cell_name).unwrap().clone();
+        let Some(cell_snapshot) = library_snapshot.cell(&cell_name).cloned() else {
+            return false;
+        };
 
-        // Clear the active cell (removes all elements and element_refs)
-        self.clear_active_cell();
-
-        // Re-add elements: direct polygons/paths/text are copied as-is,
-        // CellRef elements are recursively flattened into polygons.
+        let mut flattened = Vec::new();
         let identity = Transform::identity();
         for element in cell_snapshot.elements() {
             match element {
                 Element::Polygon { polygon, layer } => {
-                    let vertices: Vec<f64> =
-                        polygon.vertices().iter().flat_map(|p| [p.x, p.y]).collect();
-                    if vertices.len() >= 6 {
-                        self.add_polygon(&vertices, layer.number, layer.datatype);
-                    }
+                    flattened.push(Element::Polygon {
+                        polygon: polygon.clone(),
+                        layer: *layer,
+                    });
                 }
-                Element::Path {
-                    points,
-                    width,
-                    layer,
-                    end_type,
-                } => {
+                Element::Path(path) => {
                     // Preserve paths as polygons (ribbon conversion)
-                    if let Some(ribbon) = stroke_path(points, *width, *end_type) {
-                        let vertices: Vec<f64> =
-                            ribbon.vertices().iter().flat_map(|p| [p.x, p.y]).collect();
-                        if vertices.len() >= 6 {
-                            self.add_polygon(&vertices, layer.number, layer.datatype);
-                        }
+                    if let Some(ribbon) = stroke_path(path.points(), path.width(), path.end_type())
+                    {
+                        flattened.push(Element::Polygon {
+                            polygon: ribbon,
+                            layer: path.layer(),
+                        });
                     }
                 }
                 Element::CellRef(cell_ref) => {
                     // Recursively flatten referenced cell geometry
-                    if let Some(ref_cell) = library_snapshot.cell(&cell_ref.cell_name) {
+                    if let Some(ref_cell) = library_snapshot.cell(cell_ref.cell_name()) {
                         for copy_transform in array_transforms(cell_ref) {
                             let combined = identity.then(&copy_transform);
+                            let mut polygons = Vec::new();
                             self.flatten_cell_recursive(
                                 ref_cell,
                                 &library_snapshot,
                                 &combined,
                                 &[cell_snapshot.name()],
                                 1.0,
+                                &mut polygons,
+                            );
+                            flattened.extend(
+                                polygons
+                                    .into_iter()
+                                    .map(|(polygon, layer)| Element::Polygon { polygon, layer }),
                             );
                         }
                     }
                 }
-                Element::Text {
-                    text,
-                    position,
-                    layer,
-                    height,
-                } => {
-                    self.add_text(
-                        text,
-                        position.x,
-                        position.y,
-                        *height,
-                        layer.number,
-                        layer.datatype,
-                    );
-                }
+                Element::Text(text) => flattened.push(Element::Text(text.clone())),
             }
         }
 
+        let mut candidate_library = self.library.clone();
+        let replaced = candidate_library
+            .edit_cell(&cell_name, |cell| {
+                cell.clear_elements();
+                for element in &flattened {
+                    match element {
+                        Element::Polygon { polygon, layer } => {
+                            cell.add_polygon(polygon.clone(), *layer);
+                        }
+                        Element::Text(text) => {
+                            cell.add_text_with_height(
+                                text.text(),
+                                text.position(),
+                                text.layer(),
+                                text.height(),
+                            )?;
+                        }
+                        Element::Path(_) | Element::CellRef(_) => unreachable!(),
+                    }
+                }
+                Ok::<(), rosette_core::CellValidationError>(())
+            })
+            .is_ok();
+        if !replaced {
+            return false;
+        }
+
+        let mut candidate_refs = self.element_refs.clone();
+        candidate_refs.retain(|_, element_ref| element_ref.cell_name != cell_name);
+        for element_index in 0..flattened.len() {
+            candidate_refs.insert(
+                uuid::Uuid::new_v4().to_string(),
+                super::ElementRef {
+                    cell_name: cell_name.clone(),
+                    element_index,
+                },
+            );
+        }
+
+        self.library = candidate_library;
+        self.element_refs = candidate_refs;
         self.mark_dirty();
         true
     }
@@ -360,7 +353,7 @@ impl WasmLibrary {
             return 0;
         }
 
-        let mut targets: HashMap<String, HashSet<usize>> = HashMap::new();
+        let mut targets: HashMap<String, HashMap<usize, Element>> = HashMap::new();
         for id in &ids {
             let (cell_name, element_index, must_be_cell_ref) = if id.starts_with(REF_UUID_PREFIX) {
                 let Some((element_index, _, _)) = self.resolve_ref_uuid_parts(id) else {
@@ -388,55 +381,38 @@ impl WasmLibrary {
             else {
                 return 0;
             };
-            if (must_be_cell_ref && !matches!(element, Element::CellRef(_)))
-                || !can_translate(element, dx, dy)
-            {
+            if must_be_cell_ref && !matches!(element, Element::CellRef(_)) {
                 return 0;
             }
-            targets.entry(cell_name).or_default().insert(element_index);
-        }
-
-        let count = targets.values().map(HashSet::len).sum();
-        if targets.len() == 1 {
-            let Some((cell_name, indices)) = targets.iter().next() else {
+            let Some(translated) = translated(element, dx, dy) else {
                 return 0;
             };
-            let edited = self
-                .library
+            targets
+                .entry(cell_name)
+                .or_default()
+                .entry(element_index)
+                .or_insert(translated);
+        }
+
+        let count = targets.values().map(HashMap::len).sum();
+        let mut candidate = self.library.clone();
+        for (cell_name, replacements) in &targets {
+            let edited = candidate
                 .edit_cell(cell_name, |cell| {
                     cell.edit_elements(|elements| {
-                        for &element_index in indices {
-                            translate(&mut elements[element_index], dx, dy);
+                        for (&element_index, replacement) in replacements {
+                            elements[element_index] = replacement.clone();
                         }
+                        Ok::<_, Infallible>(())
                     })
                 })
-                .ok()
-                .and_then(Result::ok)
-                .is_some();
+                .is_ok();
             if !edited {
                 return 0;
             }
-        } else {
-            let mut candidate = self.library.clone();
-            for (cell_name, indices) in &targets {
-                let edited = candidate
-                    .edit_cell(cell_name, |cell| {
-                        cell.edit_elements(|elements| {
-                            for &element_index in indices {
-                                translate(&mut elements[element_index], dx, dy);
-                            }
-                        })
-                    })
-                    .ok()
-                    .and_then(Result::ok)
-                    .is_some();
-                if !edited {
-                    return 0;
-                }
-            }
-            self.library = candidate;
         }
 
+        self.library = candidate;
         self.mark_dirty();
         count
     }
@@ -483,11 +459,10 @@ impl WasmLibrary {
                     } else {
                         elements[target_index..=source_index].rotate_right(1);
                     }
+                    Ok::<_, Infallible>(())
                 })
             })
-            .ok()
-            .and_then(Result::ok)
-            .is_some();
+            .is_ok();
         if !moved {
             return false;
         }
@@ -580,7 +555,7 @@ mod tests {
         );
         let cell = library.library.cell("top").unwrap();
         assert!(matches!(cell.elements()[0], Element::Polygon { .. }));
-        assert!(matches!(cell.elements()[1], Element::Text { .. }));
+        assert!(matches!(cell.elements()[1], Element::Text(_)));
 
         let huge_id = library
             .add_polygon(&[f64::MAX, 0.0, f64::MAX, 1.0, f64::MAX, 2.0], 3, 0)
@@ -602,6 +577,37 @@ mod tests {
         );
         assert_eq!(library.get_element_vertices(&huge_id).unwrap(), before);
         assert!(!library.is_dirty());
+    }
+
+    #[test]
+    fn multi_cell_translation_failure_preserves_all_cells_and_caches() {
+        let mut library = WasmLibrary::new("test");
+        library.add_cell("safe").unwrap();
+        let safe_id = library
+            .add_polygon(&[0.0, 0.0, 1.0, 0.0, 1.0, 1.0], 1, 0)
+            .unwrap();
+        library.add_cell("extreme").unwrap();
+        assert!(library.set_active_cell("extreme"));
+        let extreme_id = library
+            .add_polygon(&[f64::MAX, 0.0, f64::MAX, 1.0, f64::MAX, 2.0], 2, 0)
+            .unwrap();
+        library.with_spatial_index(|_| ()).unwrap();
+        library.mark_clean();
+
+        let safe_before = library.get_element_vertices(&safe_id).unwrap();
+        let extreme_before = library.get_element_vertices(&extreme_id).unwrap();
+        assert_eq!(
+            library.translate_elements(vec![safe_id.clone(), extreme_id.clone()], f64::MAX, 0.0,),
+            0
+        );
+
+        assert_eq!(library.get_element_vertices(&safe_id).unwrap(), safe_before);
+        assert_eq!(
+            library.get_element_vertices(&extreme_id).unwrap(),
+            extreme_before
+        );
+        assert!(!library.is_dirty());
+        assert!(library.spatial_index.borrow().is_some());
     }
 
     #[test]

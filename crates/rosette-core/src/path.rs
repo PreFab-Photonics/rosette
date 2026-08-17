@@ -108,7 +108,7 @@ pub fn stroke_path(centerline: &[Point], width: f64, end_type: PathEndType) -> O
         append_round_cap(&mut vertices, start_center, -normals[0], half_width);
     }
 
-    Polygon::try_new(vertices)
+    Polygon::new(vertices).ok()
 }
 
 /// Stroke a path with an accumulated hierarchy transform applied.
@@ -149,7 +149,7 @@ pub fn stroke_path_transformed_with_scale(
         )
     } else {
         stroke_path(centerline, width, end_type)
-            .and_then(|polygon| polygon.try_transform(transform))
+            .and_then(|polygon| polygon.try_transform(transform).ok())
     }
 }
 

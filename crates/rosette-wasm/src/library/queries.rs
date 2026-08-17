@@ -87,12 +87,8 @@ impl WasmLibrary {
                                     hits.push((uuid.clone(), polygon.area()));
                                 }
                             }
-                            Some(Element::Path {
-                                points,
-                                width,
-                                layer,
-                                end_type,
-                            }) => {
+                            Some(Element::Path(path)) => {
+                                let layer = path.layer();
                                 let key = layer_key(layer.number, layer.datatype);
                                 if let Some(color) = self.layer_colors.get(&key)
                                     && color[3] <= 0.0
@@ -100,19 +96,17 @@ impl WasmLibrary {
                                     continue;
                                 }
 
-                                if let Some(ribbon) = stroke_path(points, *width, *end_type) {
+                                if let Some(ribbon) =
+                                    stroke_path(path.points(), path.width(), path.end_type())
+                                {
                                     let bbox = ribbon.bbox();
                                     if ribbon.contains(proxy_point(&bbox)) {
                                         hits.push((uuid.clone(), ribbon.area()));
                                     }
                                 }
                             }
-                            Some(Element::Text {
-                                text,
-                                position,
-                                layer,
-                                height,
-                            }) => {
+                            Some(Element::Text(text)) => {
+                                let layer = text.layer();
                                 let key = layer_key(layer.number, layer.datatype);
                                 if let Some(color) = self.layer_colors.get(&key)
                                     && color[3] <= 0.0
@@ -120,7 +114,9 @@ impl WasmLibrary {
                                     continue;
                                 }
 
-                                let Some(bbox) = text_bbox(text, position, *height) else {
+                                let position = text.position();
+                                let Some(bbox) = text_bbox(text.text(), &position, text.height())
+                                else {
                                     continue;
                                 };
                                 if bbox.contains(point) {
@@ -164,7 +160,9 @@ impl WasmLibrary {
     /// (`ref:N:0:UUID`) per instance rather than all synthetic UUIDs.
     /// The caller should expand to the full group via `get_group_ids`.
     pub fn hit_test_rect(&self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> Vec<String> {
-        let query_bbox = BBox::new(Point::new(min_x, min_y), Point::new(max_x, max_y));
+        let Ok(query_bbox) = BBox::new(Point::new(min_x, min_y), Point::new(max_x, max_y)) else {
+            return Vec::new();
+        };
 
         let cell_name = match &self.active_cell {
             Some(name) => name,
@@ -187,9 +185,10 @@ impl WasmLibrary {
             for item in tree.locate_in_envelope_intersecting(&envelope) {
                 match &item.kind {
                     IndexedKind::Direct { uuid } => match cell.elements().get(item.element_index) {
-                        Some(Element::Polygon { layer, .. })
-                        | Some(Element::Path { layer, .. })
-                        | Some(Element::Text { layer, .. }) => {
+                        Some(element) if !matches!(element, Element::CellRef(_)) => {
+                            let Some(layer) = element.layer() else {
+                                continue;
+                            };
                             let key = layer_key(layer.number, layer.datatype);
                             if let Some(color) = self.layer_colors.get(&key)
                                 && color[3] <= 0.0
@@ -303,18 +302,14 @@ impl WasmLibrary {
 
             let bbox = match cell.elements().get(elem_ref.element_index) {
                 Some(Element::Polygon { polygon, .. }) => Some(polygon.bbox()),
-                Some(Element::Text {
-                    text,
-                    position,
-                    height,
-                    ..
-                }) => text_bbox(text, position, *height),
-                Some(Element::Path {
-                    points,
-                    width,
-                    end_type,
-                    ..
-                }) => stroke_path(points, *width, *end_type).map(|ribbon| ribbon.bbox()),
+                Some(Element::Text(text)) => {
+                    let position = text.position();
+                    text_bbox(text.text(), &position, text.height())
+                }
+                Some(Element::Path(path)) => {
+                    stroke_path(path.points(), path.width(), path.end_type())
+                        .map(|ribbon| ribbon.bbox())
+                }
                 _ => None,
             };
 
@@ -331,7 +326,7 @@ impl WasmLibrary {
             if let Element::CellRef(cell_ref) = element {
                 for copy_transform in array_transforms(cell_ref) {
                     self.collect_bounds_recursive(
-                        &cell_ref.cell_name,
+                        cell_ref.cell_name(),
                         &copy_transform,
                         &[cell.name()],
                         &mut combined_bbox,
@@ -341,11 +336,12 @@ impl WasmLibrary {
         }
 
         // Include image overlay bounds for the active cell itself
-        if let Some(img_bounds) = self.cell_image_bounds.get(cell_name) {
-            let img_bbox = BBox::new(
+        if let Some(img_bounds) = self.cell_image_bounds.get(cell_name)
+            && let Ok(img_bbox) = BBox::new(
                 Point::new(img_bounds[0], img_bounds[1]),
                 Point::new(img_bounds[2], img_bounds[3]),
-            );
+            )
+        {
             combined_bbox = Some(match combined_bbox {
                 Some(existing) => existing.merge(&img_bbox),
                 None => img_bbox,
@@ -403,18 +399,14 @@ impl WasmLibrary {
 
             let bbox = match cell.elements().get(elem_ref.element_index) {
                 Some(Element::Polygon { polygon, .. }) => Some(polygon.bbox()),
-                Some(Element::Text {
-                    text,
-                    position,
-                    height,
-                    ..
-                }) => text_bbox(text, position, *height),
-                Some(Element::Path {
-                    points,
-                    width,
-                    end_type,
-                    ..
-                }) => stroke_path(points, *width, *end_type).map(|ribbon| ribbon.bbox()),
+                Some(Element::Text(text)) => {
+                    let position = text.position();
+                    text_bbox(text.text(), &position, text.height())
+                }
+                Some(Element::Path(path)) => {
+                    stroke_path(path.points(), path.width(), path.end_type())
+                        .map(|ribbon| ribbon.bbox())
+                }
                 _ => None,
             };
 
@@ -456,14 +448,9 @@ impl WasmLibrary {
                     .collect();
                 Some(vertices)
             }
-            Some(Element::Path {
-                points,
-                width,
-                end_type,
-                ..
-            }) => {
+            Some(Element::Path(path)) => {
                 // Convert path to ribbon polygon for outline rendering
-                if let Some(ribbon) = stroke_path(points, *width, *end_type) {
+                if let Some(ribbon) = stroke_path(path.points(), path.width(), path.end_type()) {
                     let vertices: Vec<f64> = ribbon
                         .vertices()
                         .iter()
@@ -474,14 +461,10 @@ impl WasmLibrary {
                     None
                 }
             }
-            Some(Element::Text {
-                text,
-                position,
-                height,
-                ..
-            }) => {
+            Some(Element::Text(text)) => {
                 // Return bounding rectangle corners for selection outline rendering
-                let bbox = text_bbox(text, position, *height)?;
+                let position = text.position();
+                let bbox = text_bbox(text.text(), &position, text.height())?;
                 Some(vec![
                     bbox.min().x,
                     bbox.min().y,
@@ -533,19 +516,15 @@ impl WasmLibrary {
                     datatype: layer.datatype,
                 })
             }
-            Some(Element::Path {
-                points,
-                width,
-                layer,
-                end_type,
-            }) => {
+            Some(Element::Path(path)) => {
                 // Convert path centerline to ribbon polygon for selection outlines
-                if let Some(ribbon) = stroke_path(points, *width, *end_type) {
+                if let Some(ribbon) = stroke_path(path.points(), path.width(), path.end_type()) {
                     let vertices: Vec<f64> = ribbon
                         .vertices()
                         .iter()
                         .flat_map(|p| vec![p.x, p.y])
                         .collect();
+                    let layer = path.layer();
                     Some(ElementInfo {
                         vertices,
                         layer: layer.number,
@@ -555,14 +534,10 @@ impl WasmLibrary {
                     None
                 }
             }
-            Some(Element::Text {
-                text,
-                position,
-                layer,
-                height,
-            }) => {
+            Some(Element::Text(text)) => {
                 // Return bounding rectangle as vertices so selection outlines work
-                let bbox = text_bbox(text, position, *height)?;
+                let position = text.position();
+                let bbox = text_bbox(text.text(), &position, text.height())?;
                 let vertices = vec![
                     bbox.min().x,
                     bbox.min().y,
@@ -573,6 +548,7 @@ impl WasmLibrary {
                     bbox.min().x,
                     bbox.max().y,
                 ];
+                let layer = text.layer();
                 Some(ElementInfo {
                     vertices,
                     layer: layer.number,
@@ -590,19 +566,18 @@ impl WasmLibrary {
         }
         let element_ref = self.element_refs.get(id)?;
         let cell = self.library.cell(&element_ref.cell_name)?;
-        let Element::Path {
-            points,
-            width,
-            layer,
-            end_type,
-        } = cell.elements().get(element_ref.element_index)?
-        else {
+        let Element::Path(path) = cell.elements().get(element_ref.element_index)? else {
             return None;
         };
+        let layer = path.layer();
         Some(NativePathInfo {
-            centerline: points.iter().flat_map(|point| [point.x, point.y]).collect(),
-            width: *width,
-            end_type: *end_type as u8,
+            centerline: path
+                .points()
+                .iter()
+                .flat_map(|point| [point.x, point.y])
+                .collect(),
+            width: path.width(),
+            end_type: path.end_type() as u8,
             layer: layer.number,
             datatype: layer.datatype,
         })
@@ -636,12 +611,9 @@ impl WasmLibrary {
 
             let polygon = match cell.elements().get(elem_ref.element_index) {
                 Some(Element::Polygon { polygon, .. }) => Some(polygon.clone()),
-                Some(Element::Path {
-                    points,
-                    width,
-                    end_type,
-                    ..
-                }) => stroke_path(points, *width, *end_type),
+                Some(Element::Path(path)) => {
+                    stroke_path(path.points(), path.width(), path.end_type())
+                }
                 _ => None,
             };
             if let Some(polygon) = polygon {
@@ -659,7 +631,7 @@ impl WasmLibrary {
             if let Element::CellRef(cell_ref) = element {
                 for copy_transform in array_transforms(cell_ref) {
                     self.collect_vertices_recursive(
-                        &cell_ref.cell_name,
+                        cell_ref.cell_name(),
                         &copy_transform,
                         cell.name(),
                         &mut result,

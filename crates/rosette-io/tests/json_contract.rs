@@ -34,17 +34,17 @@ fn current_json_wire_shape_is_stable() {
 
     let refs: Vec<_> = library.cell("top").unwrap().cell_refs().collect();
     assert_eq!(refs.len(), 3);
-    let repetition = refs[1].repetition.unwrap();
-    assert_eq!((repetition.columns, repetition.rows), (3, 2));
+    let repetition = refs[1].repetition().unwrap();
+    assert_eq!((repetition.columns(), repetition.rows()), (3, 2));
     assert_eq!(
-        (repetition.col_vector.x, repetition.col_vector.y),
+        (repetition.col_vector().x, repetition.col_vector().y),
         (8.0, 1.0)
     );
     assert_eq!(
-        (repetition.row_vector.x, repetition.row_vector.y),
+        (repetition.row_vector().x, repetition.row_vector().y),
         (2.0, 6.0)
     );
-    assert_eq!(refs[2].cell_name, "missing");
+    assert_eq!(refs[2].cell_name(), "missing");
     assert!(rosette_core::hierarchy::cell_bbox(library, "top").is_some());
 }
 

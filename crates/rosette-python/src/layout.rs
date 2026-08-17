@@ -122,7 +122,7 @@ pub(crate) fn add_cell_hierarchy(
 
         state.visits.insert(name.to_string(), 1);
         for cell_ref in definition.cell_refs() {
-            let target = cell_ref.cell_name.as_str();
+            let target = cell_ref.cell_name();
             if resolve(library, candidates, target, duplicates)?.is_none() {
                 state.missing += 1;
                 continue;
@@ -205,28 +205,28 @@ fn validate_cell_ref_transform(transform: &Transform) -> PyResult<()> {
 }
 
 fn validate_cell_ref(cell_ref: &CellRef) -> PyResult<()> {
-    if cell_ref.cell_name.is_empty() {
+    if cell_ref.cell_name().is_empty() {
         return Err(PyValueError::new_err(
             "CellRef target cell name cannot be empty",
         ));
     }
-    validate_cell_ref_transform(&cell_ref.transform)?;
-    if let Some(repetition) = cell_ref.repetition {
-        if repetition.columns == 0
-            || repetition.rows == 0
-            || repetition.columns > GDS_ARRAY_MAX as u16
-            || repetition.rows > GDS_ARRAY_MAX as u16
+    validate_cell_ref_transform(&cell_ref.transform())?;
+    if let Some(repetition) = cell_ref.repetition() {
+        if repetition.columns() == 0
+            || repetition.rows() == 0
+            || repetition.columns() > GDS_ARRAY_MAX as u16
+            || repetition.rows() > GDS_ARRAY_MAX as u16
         {
             return Err(PyValueError::new_err(format!(
                 "CellRef array columns and rows must be in [1, {GDS_ARRAY_MAX}]"
             )));
         }
-        if !repetition.col_vector.is_finite() {
+        if !repetition.col_vector().is_finite() {
             return Err(PyValueError::new_err(
                 "CellRef array column vector must be finite",
             ));
         }
-        if !repetition.row_vector.is_finite() {
+        if !repetition.row_vector().is_finite() {
             return Err(PyValueError::new_err(
                 "CellRef array row vector must be finite",
             ));
@@ -351,32 +351,33 @@ impl PyPort {
         let port = match width {
             Some(w) => Port::with_width(name, position.0, direction.0, w),
             None => Port::new(name, position.0, direction.0),
-        };
+        }
+        .map_err(|_| PyValueError::new_err("Port contains invalid geometry"))?;
         Ok(PyPort(port))
     }
 
     /// Port name.
     #[getter]
     fn name(&self) -> &str {
-        &self.0.name
+        self.0.name()
     }
 
     /// Port position.
     #[getter]
     fn position(&self) -> PyPoint {
-        PyPoint(self.0.position)
+        PyPoint(self.0.position())
     }
 
     /// Port direction (outward).
     #[getter]
     fn direction(&self) -> PyVector2 {
-        PyVector2(self.0.direction)
+        PyVector2(self.0.direction())
     }
 
     /// Port width.
     #[getter]
     fn width(&self) -> Option<f64> {
-        self.0.width
+        self.0.width()
     }
 
     /// Angle of the direction (in degrees).
@@ -396,9 +397,9 @@ impl PyPort {
     fn __repr__(&self) -> String {
         format!(
             "Port('{}', position=({}, {}), angle={:.1})",
-            self.0.name,
-            self.0.position.x,
-            self.0.position.y,
+            self.0.name(),
+            self.0.position().x,
+            self.0.position().y,
             self.angle()
         )
     }
@@ -439,7 +440,9 @@ impl PyCellRef {
                 "CellRef target cell name cannot be empty",
             ));
         }
-        Ok(PyCellRef(CellRef::new(name)))
+        CellRef::new(name)
+            .map(PyCellRef)
+            .map_err(|_| PyValueError::new_err("CellRef target cell name cannot be empty"))
     }
 
     /// Lower a resolved facade Instance without reconstructing its transform.
@@ -483,7 +486,9 @@ impl PyCellRef {
                 "Instance transform must contain only translation, rotation, reflection, and uniform non-zero scale representable in GDS REAL8",
             ));
         }
-        Ok(PyCellRef(CellRef::with_transform(cell_name, transform)))
+        CellRef::with_transform(cell_name, transform)
+            .map(PyCellRef)
+            .map_err(|_| PyValueError::new_err("Instance transform is invalid"))
     }
 
     /// Set the position.
@@ -491,9 +496,13 @@ impl PyCellRef {
         if !x.is_finite() || !y.is_finite() {
             return Err(PyValueError::new_err("CellRef position must be finite"));
         }
-        let transform = Transform::translate(x, y).then(&self.0.transform);
+        let transform = Transform::translate(x, y).then(&self.0.transform());
         validate_cell_ref_transform(&transform)?;
-        Ok(PyCellRef(self.0.clone().at(x, y)))
+        self.0
+            .clone()
+            .at(x, y)
+            .map(PyCellRef)
+            .map_err(|_| PyValueError::new_err("CellRef transform must be finite and invertible"))
     }
 
     /// Rotate by angle (in degrees).
@@ -502,9 +511,13 @@ impl PyCellRef {
         if !angle.is_finite() {
             return Err(PyValueError::new_err("CellRef rotation must be finite"));
         }
-        let transform = Transform::rotate(angle).then(&self.0.transform);
+        let transform = Transform::rotate(angle).then(&self.0.transform());
         validate_cell_ref_transform(&transform)?;
-        Ok(PyCellRef(self.0.clone().rotate(angle)))
+        self.0
+            .clone()
+            .rotate(angle)
+            .map(PyCellRef)
+            .map_err(|_| PyValueError::new_err("CellRef transform must be finite and invertible"))
     }
 
     /// Mirror across X axis.
@@ -524,9 +537,13 @@ impl PyCellRef {
                 "CellRef scale must be finite and nonzero",
             ));
         }
-        let transform = Transform::scale_uniform(s).then(&self.0.transform);
+        let transform = Transform::scale_uniform(s).then(&self.0.transform());
         validate_cell_ref_transform(&transform)?;
-        Ok(PyCellRef(self.0.clone().scale(s)))
+        self.0
+            .clone()
+            .scale(s)
+            .map(PyCellRef)
+            .map_err(|_| PyValueError::new_err("CellRef transform must be finite and invertible"))
     }
 
     /// Set array repetition (columns × rows rectangular grid with given pitch).
@@ -569,12 +586,11 @@ impl PyCellRef {
                 "CellRef array spacing must be finite",
             ));
         }
-        Ok(PyCellRef(self.0.clone().array(
-            columns,
-            rows,
-            col_spacing,
-            row_spacing,
-        )))
+        self.0
+            .clone()
+            .array(columns, rows, col_spacing, row_spacing)
+            .map(PyCellRef)
+            .map_err(|_| PyValueError::new_err("CellRef array spacing must be finite"))
     }
 
     /// Set array repetition from arbitrary column and row displacement vectors.
@@ -624,18 +640,17 @@ impl PyCellRef {
                 "CellRef array row vector must be finite",
             ));
         }
-        Ok(PyCellRef(self.0.clone().array_vectors(
-            columns,
-            rows,
-            col_vector.0,
-            row_vector.0,
-        )))
+        self.0
+            .clone()
+            .array_vectors(columns, rows, col_vector.0, row_vector.0)
+            .map(PyCellRef)
+            .map_err(|_| PyValueError::new_err("CellRef array vectors must be finite"))
     }
 
     /// Cell name being referenced.
     #[getter]
     fn cell_name(&self) -> &str {
-        &self.0.cell_name
+        self.0.cell_name()
     }
 
     /// Get a transformed port from this cell reference.
@@ -670,9 +685,9 @@ impl PyCellRef {
             pyo3::exceptions::PyKeyError::new_err(format!("Port '{}' not found", name))
         })?;
         original_port
-            .try_transform(&self.0.transform)
+            .try_transform(&self.0.transform())
             .map(PyPort)
-            .ok_or_else(|| {
+            .map_err(|_| {
                 PyValueError::new_err("CellRef port transform produced invalid finite geometry")
             })
     }
@@ -680,7 +695,9 @@ impl PyCellRef {
     fn __repr__(&self) -> String {
         format!(
             "CellRef('{}', at=({}, {}))",
-            self.0.cell_name, self.0.transform.tx, self.0.transform.ty
+            self.0.cell_name(),
+            self.0.transform().tx,
+            self.0.transform().ty
         )
     }
 }
@@ -714,10 +731,9 @@ impl PyCell {
     fn new(name: String) -> PyResult<Self> {
         rosette_io::gds::validate_structure_name(&name)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        Ok(Self::from_parts(
-            Cell::new(name),
-            RouteAnnotations::default(),
-        ))
+        let cell =
+            Cell::new(name).map_err(|_| PyValueError::new_err("Cell name cannot be empty"))?;
+        Ok(Self::from_parts(cell, RouteAnnotations::default()))
     }
 
     /// Cell name.
@@ -803,8 +819,9 @@ impl PyCell {
         let layer = extract_layer(layer)?;
         let points: Vec<_> = points.into_iter().map(|p| p.0).collect();
         let end_type = end_type.map(|e| e.0).unwrap_or(PathEndType::Flush);
-        self.0.add_path(points, width, layer, end_type);
-        Ok(())
+        self.0
+            .add_path(points, width, layer, end_type)
+            .map_err(|_| PyValueError::new_err("Cell path contains invalid geometry"))
     }
 
     /// Add a text label to the cell.
@@ -842,26 +859,28 @@ impl PyCell {
             return Err(PyValueError::new_err("Cell text height must be positive"));
         }
         let layer = extract_layer(layer)?;
-        self.0.add_text_with_height(text, position.0, layer, height);
-        Ok(())
+        self.0
+            .add_text_with_height(text, position.0, layer, height)
+            .map_err(|_| PyValueError::new_err("Cell text contains invalid geometry"))
     }
 
     /// Add a port.
     fn add_port(&mut self, port: &PyPort) -> PyResult<()> {
         validate_port_parts(
-            &port.0.name,
-            port.0.position,
-            port.0.direction,
-            port.0.width,
+            port.0.name(),
+            port.0.position(),
+            port.0.direction(),
+            port.0.width(),
         )?;
-        if self.0.port(&port.0.name).is_some() {
+        if self.0.port(port.0.name()).is_some() {
             return Err(PyValueError::new_err(format!(
                 "Cell already contains a port named {:?}",
-                port.0.name
+                port.0.name()
             )));
         }
-        self.0.add_port(port.0.clone());
-        Ok(())
+        self.0
+            .add_port(port.0.clone())
+            .map_err(|_| PyValueError::new_err("Cell contains an invalid port"))
     }
 
     /// Get a port by name. Raises KeyError if not found.
@@ -905,7 +924,11 @@ impl PyCell {
     /// Returns:
     ///     List of unique cell names that this cell references (direct children only).
     fn cell_ref_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.0.cell_refs().map(|r| r.cell_name.clone()).collect();
+        let mut names: Vec<String> = self
+            .0
+            .cell_refs()
+            .map(|cell_ref| cell_ref.cell_name().to_string())
+            .collect();
         names.sort();
         names.dedup();
         names
@@ -923,7 +946,7 @@ impl PyCell {
 
     /// Calculate the bounding box.
     fn bbox(&self) -> Option<PyBBox> {
-        self.0.bbox().map(PyBBox)
+        self.0.bbox().map(PyBBox::from_core)
     }
 
     /// Place a cell reference by aligning its port to a target port.
@@ -955,13 +978,12 @@ impl PyCell {
         target_port: &PyPort,
     ) -> PyResult<PyCellRef> {
         let transform = connect_transform(&cell_port.0, &target_port.0);
-        let transform = transform.then(&cell_ref.0.transform);
+        let transform = transform.then(&cell_ref.0.transform());
         validate_cell_ref_transform(&transform)?;
         // Create a new CellRef with the combined transform
-        Ok(PyCellRef(CellRef::with_transform(
-            cell_ref.0.cell_name.clone(),
-            transform,
-        )))
+        CellRef::with_transform(cell_ref.0.cell_name(), transform)
+            .map(PyCellRef)
+            .map_err(|_| PyValueError::new_err("CellRef transform must be finite and invertible"))
     }
 
     fn __repr__(&self) -> String {
@@ -1015,16 +1037,16 @@ mod tests {
 
     fn annotated_cell(name: &str, path_length: f64) -> PyCell {
         PyCell::from_parts(
-            Cell::new(name),
-            RouteAnnotations::new(Some(path_length), Vec::new(), Vec::new()),
+            Cell::new(name).unwrap(),
+            RouteAnnotations::new(Some(path_length), Vec::new(), Vec::new()).unwrap(),
         )
     }
 
     #[test]
     fn library_preserves_route_annotations_and_duplicate_policy() {
         let leaf = annotated_cell("leaf", 12.0);
-        let mut root = Cell::new("root");
-        root.add_ref(CellRef::new("leaf"));
+        let mut root = Cell::new("root").unwrap();
+        root.add_ref(CellRef::new("leaf").unwrap());
         let root = PyCell::from_parts(root, RouteAnnotations::default());
         let mut library = PyLibrary::from_library(Library::new("test"));
 
@@ -1076,7 +1098,7 @@ mod tests {
     #[test]
     fn core_library_import_creates_default_route_annotations() {
         let mut core = Library::new("gds");
-        core.add_cell(Cell::new("geometry")).unwrap();
+        core.add_cell(Cell::new("geometry").unwrap()).unwrap();
 
         let library = PyLibrary::from_library(core);
 
@@ -1088,11 +1110,11 @@ mod tests {
 
     #[test]
     fn recursive_insert_is_dependency_first_and_atomic() {
-        let leaf = Cell::new("leaf");
-        let mut child = Cell::new("child");
-        child.add_ref(CellRef::new("leaf"));
-        let mut root = Cell::new("root");
-        root.add_ref(CellRef::new("child"));
+        let leaf = Cell::new("leaf").unwrap();
+        let mut child = Cell::new("child").unwrap();
+        child.add_ref(CellRef::new("leaf").unwrap());
+        let mut root = Cell::new("root").unwrap();
+        root.add_ref(CellRef::new("child").unwrap());
         let mut library = Library::new("test");
 
         add_cell_hierarchy(
@@ -1107,8 +1129,8 @@ mod tests {
             vec!["leaf", "child", "root"]
         );
 
-        let mut missing = Cell::new("missing_root");
-        missing.add_ref(CellRef::new("absent"));
+        let mut missing = Cell::new("missing_root").unwrap();
+        missing.add_ref(CellRef::new("absent").unwrap());
         let error = add_cell_hierarchy(&mut library, missing, &[], DuplicatePolicy::KeepExisting)
             .unwrap_err();
         assert!(matches!(
@@ -1123,10 +1145,10 @@ mod tests {
 
     #[test]
     fn recursive_insert_rejects_cycles_and_ambiguous_candidates() {
-        let mut cell_a = Cell::new("A");
-        cell_a.add_ref(CellRef::new("B"));
-        let mut cell_b = Cell::new("B");
-        cell_b.add_ref(CellRef::new("A"));
+        let mut cell_a = Cell::new("A").unwrap();
+        cell_a.add_ref(CellRef::new("B").unwrap());
+        let mut cell_b = Cell::new("B").unwrap();
+        cell_b.add_ref(CellRef::new("A").unwrap());
         let mut library = Library::new("test");
 
         let error = add_cell_hierarchy(
@@ -1145,12 +1167,12 @@ mod tests {
         ));
         assert!(library.cells().is_empty());
 
-        let mut root = Cell::new("root");
-        root.add_ref(CellRef::new("child"));
+        let mut root = Cell::new("root").unwrap();
+        root.add_ref(CellRef::new("child").unwrap());
         let error = add_cell_hierarchy(
             &mut library,
             root,
-            &[Cell::new("child"), Cell::new("child")],
+            &[Cell::new("child").unwrap(), Cell::new("child").unwrap()],
             DuplicatePolicy::KeepExisting,
         )
         .unwrap_err();
@@ -1350,7 +1372,7 @@ impl PyLibrary {
     ///     bb = lib.cell_bbox("top")  # covers all 15 copies
     ///     ```
     fn cell_bbox(&self, name: &str) -> Option<PyBBox> {
-        rosette_core::hierarchy::cell_bbox(&self.0, name).map(PyBBox)
+        rosette_core::hierarchy::cell_bbox(&self.0, name).map(PyBBox::from_core)
     }
 
     fn __repr__(&self) -> String {
