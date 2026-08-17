@@ -7,7 +7,7 @@ import { useUIStore } from "@/stores/ui";
 import { useRulerStore } from "@/stores/ruler";
 import { useLayerStore } from "@/stores/layer";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
-import { cn, keys, centerViewOnSelection, getAllImageIds } from "@/lib/utils";
+import { keys, centerViewOnSelection, getAllImageIds } from "@/lib/utils";
 import {
   DeleteElementsCommand,
   DeleteRulersCommand,
@@ -25,14 +25,13 @@ import {
 import { isImageId, imageIdToKey } from "@/stores/image";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
-
-/**
- * Keyboard shortcut definition for menu items.
- */
-interface Shortcut {
-  modifiers?: string[];
-  key: string;
-}
+import {
+  MenuItem as MenuItemButton,
+  MenuSeparator as MenuSeparatorLine,
+  MenuShortcut,
+  MenuSurface,
+  type MenuShortcutSpec,
+} from "./Menu";
 
 /**
  * Menu item definition.
@@ -40,7 +39,7 @@ interface Shortcut {
 interface MenuItem {
   id: string;
   label: string;
-  shortcut?: Shortcut;
+  shortcut?: MenuShortcutSpec;
   action: () => void;
   disabled: boolean;
 }
@@ -731,14 +730,10 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
   if (!isOpen) return null;
 
   return (
-    <div
+    <MenuSurface
       ref={menuRef}
-      className={cn(
-        "fixed z-50 min-w-[170px] rounded-xl border py-1",
-        isDark
-          ? "border-white/10 bg-[rgb(29,29,29)] text-white/90"
-          : "border-black/10 bg-[rgb(241,241,241)] text-black/90",
-      )}
+      isDark={isDark}
+      className="fixed z-50 min-w-[170px]"
       style={{
         left: clampedPos.x,
         top: clampedPos.y,
@@ -746,27 +741,14 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
     >
       {menuItems.map((entry) => {
         if (isSeparator(entry)) {
-          return (
-            <div
-              key={entry.id}
-              className={cn("my-1 h-px", isDark ? "bg-white/10" : "bg-black/10")}
-            />
-          );
+          return <MenuSeparatorLine key={entry.id} isDark={isDark} />;
         }
 
         const item = entry;
         return (
-          <button
+          <MenuItemButton
             key={item.id}
-            className={cn(
-              "mx-1 flex w-[calc(100%-0.5rem)] cursor-pointer items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-xs",
-              "transition-colors",
-              item.disabled
-                ? "opacity-40"
-                : isDark
-                  ? "hover:bg-[rgb(54,54,54)]"
-                  : "hover:bg-[rgb(217,217,217)]",
-            )}
+            isDark={isDark}
             onClick={() => {
               if (!item.disabled) {
                 item.action();
@@ -775,32 +757,10 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
             disabled={item.disabled}
           >
             <span>{item.label}</span>
-            {item.shortcut && (
-              <span className="flex gap-0.5">
-                {item.shortcut.modifiers?.map((modifier) => (
-                  <kbd
-                    key={modifier}
-                    className={cn(
-                      "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[11px]",
-                      isDark ? "border-white/15 bg-white/10" : "border-black/15 bg-black/10",
-                    )}
-                  >
-                    {modifier}
-                  </kbd>
-                ))}
-                <kbd
-                  className={cn(
-                    "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[11px]",
-                    isDark ? "border-white/15 bg-white/10" : "border-black/15 bg-black/10",
-                  )}
-                >
-                  {item.shortcut.key}
-                </kbd>
-              </span>
-            )}
-          </button>
+            {item.shortcut && <MenuShortcut isDark={isDark} shortcut={item.shortcut} />}
+          </MenuItemButton>
         );
       })}
-    </div>
+    </MenuSurface>
   );
 }

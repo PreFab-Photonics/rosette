@@ -28,16 +28,12 @@ import {
 } from "@/lib/utils";
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { useGoToDialogStore } from "@/stores/goto-dialog";
-
-interface Shortcut {
-  modifiers?: string[];
-  key: string;
-}
+import { MenuItem, MenuSeparator, MenuShortcut, MenuSurface, type MenuShortcutSpec } from "../Menu";
 
 interface SubMenuItem {
   id: string;
   label: string;
-  shortcut?: Shortcut;
+  shortcut?: MenuShortcutSpec;
   action: () => void;
   disabled: boolean;
   /** When true, clicking this item does not close the menu (useful for toggles). */
@@ -90,36 +86,22 @@ export function FlyoutSubmenu({
   }, []);
 
   return (
-    <div
+    <MenuSurface
       ref={menuRef}
+      isDark={isDark}
       className={cn(
-        "absolute -top-px z-50 min-w-[170px] rounded-xl border py-1",
+        "absolute -top-px z-50 min-w-[170px]",
         openLeft ? "right-full mr-1" : "left-full ml-1",
-        isDark
-          ? "border-white/10 bg-[rgb(29,29,29)] text-white/90"
-          : "border-black/10 bg-[rgb(241,241,241)] text-black/90",
       )}
     >
       {items.map((entry) => {
         if (isSubSeparator(entry)) {
-          return (
-            <div
-              key={entry.id}
-              className={cn("my-1 h-px", isDark ? "bg-white/10" : "bg-black/10")}
-            />
-          );
+          return <MenuSeparator key={entry.id} isDark={isDark} />;
         }
         return (
-          <button
+          <MenuItem
             key={entry.id}
-            className={cn(
-              "mx-1 flex w-[calc(100%-0.5rem)] cursor-pointer items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-xs transition-colors",
-              entry.disabled
-                ? "opacity-40"
-                : isDark
-                  ? "hover:bg-[rgb(54,54,54)]"
-                  : "hover:bg-[rgb(217,217,217)]",
-            )}
+            isDark={isDark}
             disabled={entry.disabled}
             onClick={() => {
               if (!entry.disabled) {
@@ -137,33 +119,11 @@ export function FlyoutSubmenu({
             }}
           >
             <span>{entry.label}</span>
-            {entry.shortcut && (
-              <span className="flex gap-0.5">
-                {entry.shortcut.modifiers?.map((modifier) => (
-                  <kbd
-                    key={modifier}
-                    className={cn(
-                      "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[11px]",
-                      isDark ? "border-white/15 bg-white/10" : "border-black/15 bg-black/10",
-                    )}
-                  >
-                    {modifier}
-                  </kbd>
-                ))}
-                <kbd
-                  className={cn(
-                    "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[11px]",
-                    isDark ? "border-white/15 bg-white/10" : "border-black/15 bg-black/10",
-                  )}
-                >
-                  {entry.shortcut.key}
-                </kbd>
-              </span>
-            )}
-          </button>
+            {entry.shortcut && <MenuShortcut isDark={isDark} shortcut={entry.shortcut} />}
+          </MenuItem>
         );
       })}
-    </div>
+    </MenuSurface>
   );
 }
 
@@ -555,24 +515,12 @@ export function HamburgerMenu({ isDark }: { isDark: boolean }) {
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div
-          className={cn(
-            "absolute top-full right-0 z-50 mt-1 min-w-[140px] rounded-xl border py-1",
-            isDark
-              ? "border-white/10 bg-[rgb(29,29,29)] text-white/90"
-              : "border-black/10 bg-[rgb(241,241,241)] text-black/90",
-          )}
-        >
+        <MenuSurface isDark={isDark} className="absolute top-full right-0 z-50 mt-1 min-w-[140px]">
           {menus.map((menu) => (
             <div key={menu.id}>
-              <button
-                type="button"
-                className={cn(
-                  "mx-1 flex w-[calc(100%-0.5rem)] cursor-pointer items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-xs transition-colors",
-                  isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-                  activeSubmenu === menu.id &&
-                    (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
-                )}
+              <MenuItem
+                isDark={isDark}
+                active={activeSubmenu === menu.id}
                 onMouseEnter={() => setActiveSubmenu(menu.id)}
                 onClick={() => setActiveSubmenu(activeSubmenu === menu.id ? null : menu.id)}
               >
@@ -580,7 +528,7 @@ export function HamburgerMenu({ isDark }: { isDark: boolean }) {
                 <svg width="12" height="12" viewBox="0 0 16 16" className="flex-shrink-0">
                   <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
                 </svg>
-              </button>
+              </MenuItem>
 
               {/* Flyout submenu */}
               {activeSubmenu === menu.id && (
@@ -588,7 +536,7 @@ export function HamburgerMenu({ isDark }: { isDark: boolean }) {
               )}
             </div>
           ))}
-        </div>
+        </MenuSurface>
       )}
     </div>
   );
