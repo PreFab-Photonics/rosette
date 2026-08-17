@@ -20,12 +20,16 @@
 //! route.to(100.0, 30.0);           // Another straight
 //! route.end_at(100.0, 30.0, 0.0);  // End pointing +X
 //!
-//! let cell = route.to_cell("my_route");
+//! let (cell, annotations) = route
+//!     .build()
+//!     .unwrap()
+//!     .into_cell_with_annotations("my_route");
 //! ```
 
 use std::f64::consts::PI;
 
-use rosette_core::{Cell, Layer, Point, Polygon, Port, Vector2, fresnel_c, fresnel_s};
+use rosette_core::geometry::{fresnel_c, fresnel_s};
+use rosette_core::{Cell, Layer, Point, Polygon, Port, Vector2};
 
 /// Corner bend shape for [`Route`].
 ///
@@ -930,26 +934,6 @@ impl Route {
 
         total.max(0.0)
     }
-
-    /// Convert the route to a Cell.
-    pub fn to_cell(&self, name: &str) -> Cell {
-        self.generate().into_cell(name)
-    }
-
-    /// Get the calculated path length.
-    pub fn path_length(&self) -> f64 {
-        self.generate().path_length
-    }
-
-    /// Get warnings from the last generation.
-    pub fn warnings(&self) -> Vec<String> {
-        self.generate().warnings
-    }
-
-    /// Get bend diagnostics from the last generation.
-    pub fn bends(&self) -> Vec<BendInfo> {
-        self.generate().bends
-    }
 }
 
 impl RouteResult {
@@ -986,11 +970,6 @@ impl RouteResult {
     /// Layer assigned to generated polygons.
     pub fn layer(&self) -> Layer {
         self.layer
-    }
-
-    /// Materialize only this result's geometry and ports as a layout cell.
-    pub fn into_cell(self, name: &str) -> Cell {
-        self.into_cell_with_annotations(name).0
     }
 
     /// Materialize this result as geometry plus explicit route annotations.
@@ -1239,10 +1218,13 @@ mod tests {
         route.to(50.0, 0.0);
         route.end_at(50.0, 0.0, 0.0);
 
-        let cell = route.to_cell("test_route");
+        let (cell, _) = route
+            .build()
+            .unwrap()
+            .into_cell_with_annotations("test_route");
 
         assert_eq!(cell.name(), "test_route");
-        assert!(cell.polygon_count() > 0);
+        assert!(cell.polygons().next().is_some());
         assert!(cell.port("in").is_some());
         assert!(cell.port("out").is_some());
     }
@@ -1254,7 +1236,6 @@ mod tests {
             route.build(),
             Err(RouteBuildError::InsufficientPoints { points: 0 })
         ));
-        assert!(route.bends().is_empty());
     }
 
     #[test]

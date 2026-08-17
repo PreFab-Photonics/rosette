@@ -8,11 +8,8 @@ use crate::error::{
     PolygonValidationReason, RepetitionValidationReason, TextValidationReason,
 };
 use crate::geometry::{BBox, Point, Polygon, Transform, Vector2};
-use crate::hierarchy::{
-    HierarchyEvent, HierarchyIssue, HierarchyIssueKind, WalkControl, walk_hierarchy,
-};
 use crate::layer::Layer;
-use crate::path::{stroke_path, stroke_path_transformed};
+use crate::path::stroke_path;
 use crate::port::Port;
 use std::collections::{HashMap, HashSet};
 
@@ -357,11 +354,11 @@ pub struct Cell {
 fn validate_element(element_index: usize, element: &Element) -> Result<(), CellValidationError> {
     match element {
         Element::Polygon { polygon, .. } => {
-            if polygon.len() < 3 {
+            if polygon.vertices().len() < 3 {
                 return Err(CellValidationError::InvalidPolygon {
                     element_index,
                     reason: PolygonValidationReason::TooFewVertices {
-                        count: polygon.len(),
+                        count: polygon.vertices().len(),
                     },
                 });
             }
@@ -561,19 +558,6 @@ impl Cell {
         self.elements.push(element);
     }
 
-    /// Add a path with default (flush) end type.
-    pub fn add_path_simple(&mut self, points: Vec<Point>, width: f64, layer: impl Into<Layer>) {
-        self.add_path(points, width, layer, PathEndType::default());
-    }
-
-    /// Add a text label to the cell.
-    ///
-    /// Text labels are useful for debugging and documentation but are
-    /// typically not fabricated.
-    pub fn add_text(&mut self, text: impl Into<String>, position: Point, layer: impl Into<Layer>) {
-        self.add_text_with_height(text, position, layer, 1.0);
-    }
-
     /// Add a text label with specified height.
     ///
     /// Text labels are useful for debugging and documentation but are
@@ -650,9 +634,9 @@ impl Cell {
     /// Calculate the bounding box of the geometry directly stored in this cell.
     ///
     /// Includes polygons and paths. Does **not** resolve cell references
-    /// (SREFs or AREFs) — use [`Library::cell_bbox`] for the fully resolved
-    /// bbox of a cell inside a library. Text labels are not included because
-    /// their rendered extent depends on the renderer.
+    /// (SREFs or AREFs) — use [`crate::hierarchy::cell_bbox`] for the fully
+    /// resolved bbox of a cell inside a library. Text labels are not included
+    /// because their rendered extent depends on the renderer.
     pub fn bbox(&self) -> Option<BBox> {
         let mut result: Option<BBox> = None;
         for (polygon, _) in self.polygons() {
@@ -672,43 +656,6 @@ impl Cell {
             }
         }
         result
-    }
-
-    /// Count the number of polygons.
-    pub fn polygon_count(&self) -> usize {
-        self.elements
-            .iter()
-            .filter(|e| matches!(e, Element::Polygon { .. }))
-            .count()
-    }
-
-    /// Count the number of cell references.
-    pub fn ref_count(&self) -> usize {
-        self.elements
-            .iter()
-            .filter(|e| matches!(e, Element::CellRef(_)))
-            .count()
-    }
-
-    /// Count the number of paths.
-    pub fn path_count(&self) -> usize {
-        self.elements
-            .iter()
-            .filter(|e| matches!(e, Element::Path { .. }))
-            .count()
-    }
-
-    /// Count the number of text labels.
-    pub fn text_count(&self) -> usize {
-        self.elements
-            .iter()
-            .filter(|e| matches!(e, Element::Text { .. }))
-            .count()
-    }
-
-    /// Check if the cell is empty.
-    pub fn is_empty(&self) -> bool {
-        self.elements.is_empty()
     }
 
     /// Remove an element by index.
@@ -790,12 +737,6 @@ impl Cell {
     pub fn clear_elements(&mut self) {
         self.elements.clear();
     }
-
-    /// Remove all CellRef elements that reference the given cell name.
-    pub fn remove_refs_by_name(&mut self, name: &str) {
-        self.elements
-            .retain(|e| !matches!(e, Element::CellRef(r) if r.cell_name == name));
-    }
 }
 
 /// A library containing multiple cells.
@@ -818,14 +759,6 @@ pub enum DuplicatePolicy {
     Error,
     /// Keep the existing definition and ignore the incoming definition.
     KeepExisting,
-}
-
-#[derive(Default)]
-struct RecursiveInsertState {
-    visits: HashMap<String, u8>,
-    path: Vec<String>,
-    ordered: Vec<Cell>,
-    issues: Vec<HierarchyIssue>,
 }
 
 impl Library {
@@ -975,22 +908,6 @@ impl Library {
         Ok(())
     }
 
-    /// Validate the nonempty, unique identities required by the core model.
-    pub fn validate_identities(&self) -> Result<(), LibraryError> {
-        let mut names = HashSet::with_capacity(self.cells.len());
-        for cell in &self.cells {
-            if cell.name().is_empty() {
-                return Err(LibraryError::EmptyCellName);
-            }
-            if !names.insert(cell.name()) {
-                return Err(LibraryError::AlreadyExists {
-                    name: cell.name().to_string(),
-                });
-            }
-        }
-        Ok(())
-    }
-
     /// Return graph-derived root cells in deterministic library order.
     ///
     /// A root is a cell that is not referenced by any other cell in the
@@ -1047,53 +964,6 @@ impl Library {
     /// Clear the explicit top selection and restore unique-root inference.
     pub fn clear_top_cell(&mut self) {
         self.explicit_top = None;
-    }
-
-    /// Calculate the fully-resolved bounding box of a cell in this library.
-    ///
-    /// Unlike [`Cell::bbox`], this recursively resolves every [`CellRef`]
-    /// (SREF and AREF) and expands array repetitions, returning the
-    /// axis-aligned bounding box of everything that would appear when the
-    /// cell is rendered or written to GDS.
-    ///
-    /// Returns `None` if the cell does not exist, is empty, or only
-    /// references cells that themselves have no geometry.
-    ///
-    /// Cell-reference cycles (which are invalid but can arise from hand-built
-    /// libraries) are broken by refusing to recurse into a cell that is
-    /// already on the current resolution stack; this yields a well-defined
-    /// answer instead of recursing forever.
-    pub fn cell_bbox(&self, name: &str) -> Option<BBox> {
-        let cell = self.cell(name)?;
-        let mut result: Option<BBox> = None;
-        walk_hierarchy(self, cell, Transform::identity(), |event| {
-            let HierarchyEvent::Element(placed) = event else {
-                return WalkControl::Continue;
-            };
-            let polygon = match placed.element {
-                Element::Polygon { polygon, .. } => {
-                    polygon.try_transform(&placed.placement.transform)
-                }
-                Element::Path {
-                    points,
-                    width,
-                    end_type,
-                    ..
-                } => {
-                    stroke_path_transformed(points, *width, *end_type, &placed.placement.transform)
-                }
-                Element::Text { .. } | Element::CellRef(_) => None,
-            };
-            if let Some(polygon) = polygon {
-                let bbox = polygon.bbox();
-                result = Some(match result.take() {
-                    Some(existing) => existing.merge(&bbox),
-                    None => bbox,
-                });
-            }
-            WalkControl::Continue
-        });
-        result
     }
 
     /// Rename a cell in the library.
@@ -1172,173 +1042,6 @@ impl Library {
         }
         Ok(removed)
     }
-
-    /// Remove a cell and all references to it.
-    ///
-    /// Returns the number of removed references. A missing cell is a no-op.
-    pub fn remove_cell_cascade(&mut self, name: &str) -> usize {
-        if !self.contains(name) {
-            return 0;
-        }
-        let mut removed_refs = 0;
-        for cell in &mut self.cells {
-            let before = cell.elements.len();
-            cell.remove_refs_by_name(name);
-            removed_refs += before - cell.elements.len();
-        }
-        self.cells.retain(|cell| cell.name() != name);
-        if self.explicit_top.as_deref() == Some(name) {
-            self.explicit_top = None;
-        }
-        removed_refs
-    }
-
-    /// Add a cell and its reachable definitions recursively and atomically.
-    ///
-    /// This method takes a cell registry (a slice of available cells) and
-    /// automatically adds all cells that are referenced by the given cell,
-    /// recursively resolving the entire hierarchy.
-    ///
-    /// Candidate definitions are validated before the library is changed.
-    /// Missing references, cycles, duplicate candidate identities, and policy
-    /// conflicts return an error without partially inserting the hierarchy.
-    ///
-    /// # Arguments
-    /// * `cell` - The cell to add (typically the top-level cell)
-    /// * `available_cells` - A slice of cells that may be referenced
-    ///
-    /// # Example
-    /// ```ignore
-    /// let mut lib = Library::new("my_lib");
-    /// let all_cells = vec![mmi_cell, sbend_cell, waveguide_cell, top_cell];
-    /// lib.add_cell_recursive(top_cell, &all_cells, DuplicatePolicy::KeepExisting)?;
-    /// # Ok::<(), LibraryError>(())
-    /// ```
-    pub fn add_cell_recursive(
-        &mut self,
-        cell: Cell,
-        available_cells: &[Cell],
-        duplicates: DuplicatePolicy,
-    ) -> Result<(), LibraryError> {
-        cell.validate()
-            .map_err(|source| LibraryError::InvalidCell {
-                name: cell.name.clone(),
-                source,
-            })?;
-        let mut candidates = HashMap::<&str, &Cell>::new();
-        candidates.insert(cell.name(), &cell);
-        for candidate in available_cells {
-            // The root is commonly included in the registry; the explicit root
-            // argument is authoritative for that identity.
-            if candidate.name() == cell.name() {
-                continue;
-            }
-            if candidates.insert(candidate.name(), candidate).is_some() {
-                return Err(LibraryError::DuplicateCandidate {
-                    name: candidate.name().to_string(),
-                });
-            }
-        }
-
-        fn resolve<'a>(
-            library: &'a Library,
-            candidates: &'a HashMap<&str, &'a Cell>,
-            name: &str,
-            duplicates: DuplicatePolicy,
-        ) -> Result<Option<(&'a Cell, bool)>, LibraryError> {
-            if let Some(existing) = library.cell(name) {
-                if candidates.contains_key(name) && duplicates == DuplicatePolicy::Error {
-                    return Err(LibraryError::AlreadyExists {
-                        name: name.to_string(),
-                    });
-                }
-                return Ok(Some((existing, false)));
-            }
-            Ok(candidates.get(name).map(|cell| (*cell, true)))
-        }
-
-        fn visit<'a>(
-            library: &'a Library,
-            candidates: &'a HashMap<&str, &'a Cell>,
-            name: &str,
-            duplicates: DuplicatePolicy,
-            state: &mut RecursiveInsertState,
-        ) -> Result<(), LibraryError> {
-            let Some((definition, should_insert)) = resolve(library, candidates, name, duplicates)?
-            else {
-                return Err(LibraryError::CellNotFound {
-                    name: name.to_string(),
-                });
-            };
-            definition
-                .validate()
-                .map_err(|source| LibraryError::InvalidCell {
-                    name: definition.name().to_string(),
-                    source,
-                })?;
-
-            state.visits.insert(name.to_string(), 1);
-            state.path.push(name.to_string());
-            for (element_index, element) in definition.elements().iter().enumerate() {
-                let Element::CellRef(cell_ref) = element else {
-                    continue;
-                };
-                let target = cell_ref.cell_name.as_str();
-                if resolve(library, candidates, target, duplicates)?.is_none() {
-                    state.issues.push(HierarchyIssue {
-                        kind: HierarchyIssueKind::MissingReference,
-                        parent_cell: definition.name().to_string(),
-                        cell_name: target.to_string(),
-                        element_index,
-                        column: 0,
-                        row: 0,
-                        path: format!("{}/{}", state.path.join("/"), target),
-                    });
-                    continue;
-                }
-
-                match state.visits.get(target).copied().unwrap_or(0) {
-                    1 => state.issues.push(HierarchyIssue {
-                        kind: HierarchyIssueKind::Cycle,
-                        parent_cell: definition.name().to_string(),
-                        cell_name: target.to_string(),
-                        element_index,
-                        column: 0,
-                        row: 0,
-                        path: format!("{}/{}", state.path.join("/"), target),
-                    }),
-                    2 => {}
-                    _ => visit(library, candidates, target, duplicates, state)?,
-                }
-            }
-            state.path.pop();
-            state.visits.insert(name.to_string(), 2);
-            if should_insert {
-                state.ordered.push(definition.clone());
-            }
-            Ok(())
-        }
-
-        let root_name = cell.name().to_string();
-        let mut state = RecursiveInsertState::default();
-        visit(self, &candidates, &root_name, duplicates, &mut state)?;
-
-        if !state.issues.is_empty() {
-            let missing = state
-                .issues
-                .iter()
-                .filter(|issue| issue.kind == HierarchyIssueKind::MissingReference)
-                .count();
-            let cycles = state.issues.len() - missing;
-            return Err(LibraryError::InvalidHierarchy {
-                summary: format!("{missing} missing reference(s), {cycles} cycle(s)"),
-                issues: state.issues,
-            });
-        }
-
-        self.cells.extend(state.ordered);
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -1362,10 +1065,11 @@ mod tests {
             let width = if absolute_width { -size } else { size };
             let mut cell = Cell::new("generated");
             cell.add_polygon(Polygon::rect(Point::new(x, y), size, size), 1);
-            cell.add_path_simple(
+            cell.add_path(
                 vec![Point::new(x, y), Point::new(x + size, y)],
                 width,
                 1,
+                PathEndType::default(),
             );
             cell.add_text_with_height("label", Point::new(x, y), 2, size);
             cell.add_port(Port::with_width(
@@ -1387,10 +1091,11 @@ mod tests {
         #[test]
         fn invalid_element_edits_are_atomic(width in 1.0e-6_f64..1.0e6) {
             let mut cell = Cell::new("generated");
-            cell.add_path_simple(
+            cell.add_path(
                 vec![Point::origin(), Point::new(1.0, 0.0)],
                 width,
                 1,
+                PathEndType::default(),
             );
 
             let result = cell.edit_element(0, |element| {
@@ -1425,7 +1130,7 @@ mod tests {
     fn test_cell_new() {
         let cell = Cell::new("test_cell");
         assert_eq!(cell.name(), "test_cell");
-        assert!(cell.is_empty());
+        assert!(cell.elements().is_empty());
     }
 
     #[test]
@@ -1580,7 +1285,7 @@ mod tests {
             columns: 1,
             rows: 1,
             col_vector: Vector2::new(f64::INFINITY, 0.0),
-            row_vector: Vector2::zero(),
+            row_vector: Vector2::new(0.0, 0.0),
         });
         assert!(matches!(
             cell.validate(),
@@ -1666,7 +1371,7 @@ mod tests {
                 ..
             })
         ));
-        cell.ports[0].direction = Vector2::zero();
+        cell.ports[0].direction = Vector2::new(0.0, 0.0);
         assert!(matches!(
             cell.validate(),
             Err(CellValidationError::InvalidPort {
@@ -1731,11 +1436,11 @@ mod tests {
             1,
             PathEndType::Flush,
         );
-        cell.add_text("", Point::origin(), 1);
+        cell.add_text_with_height("", Point::origin(), 1, 1.0);
         cell.add_ref(CellRef::new("missing").array_vectors(
             1,
             1,
-            Vector2::zero(),
+            Vector2::new(0.0, 0.0),
             Vector2::new(-1.0, 0.0),
         ));
 
@@ -1763,7 +1468,7 @@ mod tests {
 
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                cell.add_path_simple(vec![Point::origin()], 1.0, 1);
+                cell.add_path(vec![Point::origin()], 1.0, 1, PathEndType::default());
             }))
             .is_err()
         );
@@ -1788,7 +1493,7 @@ mod tests {
         let invalid_port = Port {
             name: "p".to_string(),
             position: Point::origin(),
-            direction: Vector2::zero(),
+            direction: Vector2::new(0.0, 0.0),
             width: None,
         };
         assert!(
@@ -1814,14 +1519,14 @@ mod tests {
         let mut cell = Cell::new("test");
         let rect = Polygon::rect(Point::origin(), 10.0, 5.0);
         cell.add_polygon(rect, Layer::new(1, 0));
-        assert_eq!(cell.polygon_count(), 1);
+        assert_eq!(cell.polygons().count(), 1);
     }
 
     #[test]
     fn test_add_ref() {
         let mut cell = Cell::new("top");
         cell.add_ref(CellRef::new("sub_cell").at(10.0, 20.0));
-        assert_eq!(cell.ref_count(), 1);
+        assert_eq!(cell.cell_refs().count(), 1);
     }
 
     #[test]
@@ -1895,7 +1600,7 @@ mod tests {
         lib.add_cell(child).unwrap();
         lib.add_cell(parent).unwrap();
 
-        let bbox = lib.cell_bbox("parent").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "parent").unwrap();
         assert!((bbox.min().x - 20.0).abs() < 1e-10);
         assert!((bbox.min().y - 0.0).abs() < 1e-10);
         assert!((bbox.max().x - 30.0).abs() < 1e-10);
@@ -1916,7 +1621,7 @@ mod tests {
         lib.add_cell(child).unwrap();
         lib.add_cell(top).unwrap();
 
-        let bbox = lib.cell_bbox("top").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "top").unwrap();
         // Columns 0..=4 at x-pitch 20: last column origin at 80, width 10 → max x = 90.
         // Rows    0..=2 at y-pitch 20: last row origin at 40, height 10 → max y = 50.
         assert!((bbox.min().x - 0.0).abs() < 1e-10);
@@ -1949,7 +1654,7 @@ mod tests {
         lib.add_cell(child).unwrap();
         lib.add_cell(top).unwrap();
 
-        let bbox = lib.cell_bbox("top").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "top").unwrap();
         // Columns at x-pitch −20: last origin at −80, prototype extends +10 → min x = −80, max x = 10.
         // Rows    at y-pitch −20: last origin at −40, prototype extends +10 → min y = −40, max y = 10.
         assert!((bbox.min().x - (-80.0)).abs() < 1e-10);
@@ -1973,7 +1678,7 @@ mod tests {
         let repetition = Repetition::new(2, 3, 0.0, -4.0);
         assert_eq!(repetition.columns, 2);
         assert_eq!(repetition.rows, 3);
-        assert_eq!(repetition.col_vector, Vector2::zero());
+        assert_eq!(repetition.col_vector, Vector2::new(0.0, 0.0));
         assert_eq!(repetition.row_vector, Vector2::new(0.0, -4.0));
 
         assert!(std::panic::catch_unwind(|| CellRef::new("")).is_err());
@@ -2003,8 +1708,8 @@ mod tests {
         let invalid_repetition = Repetition {
             columns: 0,
             rows: 1,
-            col_vector: Vector2::zero(),
-            row_vector: Vector2::zero(),
+            col_vector: Vector2::new(0.0, 0.0),
+            row_vector: Vector2::new(0.0, 0.0),
         };
         assert!(
             std::panic::catch_unwind(|| {
@@ -2040,7 +1745,7 @@ mod tests {
                     .rotate(angle)
                     .scale(scale);
                 assert!(cell_ref.validation_error().is_none());
-                let transformed = polygon.transform(&cell_ref.transform);
+                let transformed = polygon.try_transform(&cell_ref.transform).unwrap();
                 assert!(transformed.vertices().iter().all(|point| point.is_finite()));
             }
         }
@@ -2061,7 +1766,7 @@ mod tests {
         lib.add_cell(child).unwrap();
         lib.add_cell(top).unwrap();
 
-        let bbox = lib.cell_bbox("top").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "top").unwrap();
         assert!((bbox.min().x - (-5.0)).abs() < 1e-9);
         assert!((bbox.min().y - 0.0).abs() < 1e-9);
         assert!((bbox.max().x - 0.0).abs() < 1e-9);
@@ -2084,7 +1789,7 @@ mod tests {
         library.add_cell(child).unwrap();
         library.add_cell(top).unwrap();
 
-        let bbox = library.cell_bbox("top").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&library, "top").unwrap();
         assert_eq!(bbox.min(), Point::origin());
         assert_eq!(bbox.max(), Point::new(1.0, 1.0));
     }
@@ -2106,7 +1811,7 @@ mod tests {
         lib.add_cell(group).unwrap();
         lib.add_cell(top).unwrap();
 
-        let bbox = lib.cell_bbox("top").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "top").unwrap();
         // group bbox: (0,0)-(15,5). Shifted by (100,50) → (100,50)-(115,55).
         assert!((bbox.min().x - 100.0).abs() < 1e-10);
         assert!((bbox.min().y - 50.0).abs() < 1e-10);
@@ -2128,7 +1833,7 @@ mod tests {
         lib.add_cell(child).unwrap();
         lib.add_cell(top).unwrap();
 
-        let bbox = lib.cell_bbox("top").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "top").unwrap();
         assert!((bbox.min().x - (-5.0)).abs() < 1e-10);
         assert!((bbox.min().y - (-5.0)).abs() < 1e-10);
         assert!((bbox.max().x - 30.0).abs() < 1e-10);
@@ -2173,7 +1878,7 @@ mod tests {
         lib.add_cell(unit).unwrap();
         lib.add_cell(top).unwrap();
 
-        let bbox = lib.cell_bbox("top").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "top").unwrap();
         assert!(
             (bbox.min().x - (-5.0)).abs() < 1e-9,
             "min.x = {}",
@@ -2231,7 +1936,7 @@ mod tests {
         lib.add_cell(unit).unwrap();
         lib.add_cell(top).unwrap();
 
-        let bbox = lib.cell_bbox("top").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "top").unwrap();
         assert!(
             (bbox.min().x - 0.0).abs() < 1e-10,
             "min.x = {}",
@@ -2257,7 +1962,7 @@ mod tests {
     #[test]
     fn test_library_cell_bbox_missing_cell() {
         let lib = Library::new("lib");
-        assert!(lib.cell_bbox("does_not_exist").is_none());
+        assert!(crate::hierarchy::cell_bbox(&lib, "does_not_exist").is_none());
     }
 
     #[test]
@@ -2271,7 +1976,7 @@ mod tests {
         let mut lib = Library::new("lib");
         lib.add_cell(top).unwrap();
 
-        let bbox = lib.cell_bbox("top").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "top").unwrap();
         assert!((bbox.max().x - 10.0).abs() < 1e-10);
     }
 
@@ -2286,30 +1991,13 @@ mod tests {
         let mut lib = Library::new("lib");
         lib.add_cell(cell).unwrap();
 
-        let bbox = lib.cell_bbox("self_ref").unwrap();
+        let bbox = crate::hierarchy::cell_bbox(&lib, "self_ref").unwrap();
         // Top-level call pushes "self_ref" onto the visited stack before
         // iterating refs. The nested CellRef("self_ref") hits the cycle
         // guard immediately and returns None, so we only see the direct
         // polygon of the top level — no infinite recursion.
         assert!((bbox.min().x - 0.0).abs() < 1e-10);
         assert!((bbox.max().x - 10.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn add_cell_recursive_rejects_cycles_atomically() {
-        let mut cell_a = Cell::new("A");
-        cell_a.add_ref(CellRef::new("B"));
-        let mut cell_b = Cell::new("B");
-        cell_b.add_ref(CellRef::new("A"));
-        let available = [cell_a.clone(), cell_b];
-        let mut library = Library::new("cycle");
-
-        let error = library
-            .add_cell_recursive(cell_a, &available, DuplicatePolicy::KeepExisting)
-            .unwrap_err();
-
-        assert!(matches!(error, LibraryError::InvalidHierarchy { .. }));
-        assert!(library.cells().is_empty());
     }
 
     #[test]
@@ -2383,7 +2071,7 @@ mod tests {
             vec!["A", "B"]
         );
         assert_eq!(library.top_cell().unwrap().name(), "A");
-        library.validate_identities().unwrap();
+        library.validate().unwrap();
     }
 
     #[test]
@@ -2400,14 +2088,19 @@ mod tests {
 
         assert!(result.is_err());
         assert!(library.contains("original"));
-        library.validate_identities().unwrap();
+        library.validate().unwrap();
     }
 
     #[test]
     fn cell_element_edits_are_transactional() {
         let mut cell = Cell::new("test");
-        cell.add_path_simple(vec![Point::origin(), Point::new(1.0, 0.0)], 1.0, 1);
-        cell.add_text("label", Point::origin(), 1);
+        cell.add_path(
+            vec![Point::origin(), Point::new(1.0, 0.0)],
+            1.0,
+            1,
+            PathEndType::default(),
+        );
+        cell.add_text_with_height("label", Point::origin(), 1, 1.0);
 
         let error = cell
             .edit_element(0, |element| {
@@ -2479,7 +2172,7 @@ mod tests {
         cell.add_port(Port::new("out", Point::new(1.0, 0.0), Vector2::unit_x()));
 
         let error = cell
-            .edit_ports(|ports| ports[0].direction = Vector2::zero())
+            .edit_ports(|ports| ports[0].direction = Vector2::new(0.0, 0.0))
             .unwrap_err();
         assert!(matches!(error, CellValidationError::InvalidPort { .. }));
         assert_eq!(cell.ports()[0].direction, Vector2::unit_x());
@@ -2497,7 +2190,7 @@ mod tests {
     #[test]
     fn library_edits_roll_back_validation_failures_and_panics() {
         let mut a = Cell::new("A");
-        a.add_text("original", Point::origin(), 1);
+        a.add_text_with_height("original", Point::origin(), 1, 1.0);
         let mut library = Library::new("test");
         library.add_cell(a).unwrap();
         library.add_cell(Cell::new("B")).unwrap();
@@ -2528,11 +2221,11 @@ mod tests {
             });
         }));
         assert!(panic.is_err());
-        assert_eq!(library.cell("A").unwrap().text_count(), 1);
+        assert_eq!(library.cell("A").unwrap().texts().count(), 1);
 
         let error = library
             .edit_cells(|cell| {
-                cell.add_text("candidate-only", Point::origin(), 1);
+                cell.add_text_with_height("candidate-only", Point::origin(), 1, 1.0);
                 if cell.name() == "B" {
                     cell.elements.push(Element::Text {
                         text: String::new(),
@@ -2544,8 +2237,8 @@ mod tests {
             })
             .unwrap_err();
         assert!(matches!(error, LibraryError::InvalidCell { name, .. } if name == "B"));
-        assert_eq!(library.cell("A").unwrap().text_count(), 1);
-        assert_eq!(library.cell("B").unwrap().text_count(), 0);
+        assert_eq!(library.cell("A").unwrap().texts().count(), 1);
+        assert_eq!(library.cell("B").unwrap().texts().count(), 0);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = library.edit_cells(|cell| {
@@ -2556,7 +2249,7 @@ mod tests {
             });
         }));
         assert!(panic.is_err());
-        assert_eq!(library.cell("A").unwrap().text_count(), 1);
+        assert_eq!(library.cell("A").unwrap().texts().count(), 1);
 
         assert!(matches!(
             library.edit_cell("missing", |_| {}).unwrap_err(),
@@ -2592,44 +2285,6 @@ mod tests {
             Err(LibraryError::AlreadyExists { name }) if name == "A"
         ));
         library.cells.pop();
-
-        let mut malformed = Cell::new("child");
-        malformed.elements.push(Element::Path {
-            points: vec![Point::origin()],
-            width: 1.0,
-            layer: Layer::new(1, 0),
-            end_type: PathEndType::Flush,
-        });
-        let mut root = Cell::new("root");
-        root.add_ref(CellRef::new("child"));
-        let error = library
-            .add_cell_recursive(root, &[malformed], DuplicatePolicy::KeepExisting)
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            LibraryError::InvalidCell { name, .. } if name == "child"
-        ));
-        assert_eq!(library.cells().len(), 2);
-    }
-
-    #[test]
-    fn recursive_insertion_ignores_unreachable_malformed_candidates() {
-        let root = Cell::new("root");
-        let mut malformed = Cell::new("unused");
-        malformed.elements.push(Element::Path {
-            points: vec![Point::origin()],
-            width: 1.0,
-            layer: Layer::new(1, 0),
-            end_type: PathEndType::Flush,
-        });
-        let mut library = Library::new("test");
-
-        library
-            .add_cell_recursive(root, &[malformed], DuplicatePolicy::KeepExisting)
-            .unwrap();
-
-        assert!(library.contains("root"));
-        assert!(!library.contains("unused"));
     }
 
     #[test]
@@ -2675,58 +2330,7 @@ mod tests {
     }
 
     #[test]
-    fn recursive_insertion_is_dependency_first_and_reports_missing_refs() {
-        let leaf = Cell::new("leaf");
-        let mut child = Cell::new("child");
-        child.add_ref(CellRef::new("leaf"));
-        let mut root = Cell::new("root");
-        root.add_ref(CellRef::new("child"));
-
-        let mut library = Library::new("test");
-        library
-            .add_cell_recursive(root.clone(), &[leaf, child], DuplicatePolicy::KeepExisting)
-            .unwrap();
-        assert_eq!(
-            library
-                .cells()
-                .iter()
-                .map(|cell| cell.name())
-                .collect::<Vec<_>>(),
-            vec!["leaf", "child", "root"]
-        );
-        assert_eq!(library.top_cell().unwrap().name(), "root");
-
-        let mut missing_root = Cell::new("missing_root");
-        missing_root.add_ref(CellRef::new("absent"));
-        let error = library
-            .add_cell_recursive(missing_root, &[], DuplicatePolicy::KeepExisting)
-            .unwrap_err();
-        let LibraryError::InvalidHierarchy { issues, .. } = error else {
-            panic!("expected hierarchy error");
-        };
-        assert_eq!(issues.len(), 1);
-        assert_eq!(issues[0].kind, HierarchyIssueKind::MissingReference);
-        assert_eq!(issues[0].path, "missing_root/absent");
-        assert_eq!(library.cells().len(), 3);
-    }
-
-    #[test]
-    fn recursive_insertion_rejects_ambiguous_candidates_atomically() {
-        let mut root = Cell::new("root");
-        root.add_ref(CellRef::new("child"));
-        let candidates = [Cell::new("child"), Cell::new("child")];
-        let mut library = Library::new("test");
-
-        let error = library
-            .add_cell_recursive(root, &candidates, DuplicatePolicy::KeepExisting)
-            .unwrap_err();
-
-        assert!(matches!(error, LibraryError::DuplicateCandidate { .. }));
-        assert!(library.cells().is_empty());
-    }
-
-    #[test]
-    fn removal_rejects_dangling_references_and_cascade_preserves_integrity() {
+    fn removal_rejects_dangling_references() {
         let child = Cell::new("child");
         let mut parent = Cell::new("parent");
         parent.add_ref(CellRef::new("child"));
@@ -2738,12 +2342,6 @@ mod tests {
         let error = library.remove_cell("child").unwrap_err();
         assert!(matches!(error, LibraryError::CellReferenced { .. }));
         assert!(library.contains("child"));
-
-        assert_eq!(library.remove_cell_cascade("child"), 1);
-        assert!(!library.contains("child"));
-        assert_eq!(library.cell("parent").unwrap().ref_count(), 0);
-        assert!(library.remove_cell("parent").unwrap());
-        assert!(library.top_cell().is_none());
     }
 
     #[test]
@@ -2823,7 +2421,7 @@ mod tests {
         ];
         cell.add_path(points.clone(), 0.5, Layer::new(1, 0), PathEndType::Flush);
 
-        assert_eq!(cell.path_count(), 1);
+        assert_eq!(cell.paths().count(), 1);
 
         let paths: Vec<_> = cell.paths().collect();
         assert_eq!(paths.len(), 1);
@@ -2834,12 +2432,12 @@ mod tests {
     }
 
     #[test]
-    fn test_add_path_simple() {
+    fn test_add_path_default_end_type() {
         let mut cell = Cell::new("test");
         let points = vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)];
-        cell.add_path_simple(points, 1.0, 1);
+        cell.add_path(points, 1.0, 1, PathEndType::default());
 
-        assert_eq!(cell.path_count(), 1);
+        assert_eq!(cell.paths().count(), 1);
     }
 
     #[test]
@@ -2851,15 +2449,15 @@ mod tests {
         cell.add_path(points.clone(), 0.5, 1, PathEndType::Round);
         cell.add_path(points.clone(), 0.5, 1, PathEndType::HalfWidthExtension);
 
-        assert_eq!(cell.path_count(), 3);
+        assert_eq!(cell.paths().count(), 3);
     }
 
     #[test]
-    fn test_add_text() {
+    fn test_add_text_default_height() {
         let mut cell = Cell::new("test");
-        cell.add_text("Hello", Point::new(5.0, 5.0), Layer::new(10, 0));
+        cell.add_text_with_height("Hello", Point::new(5.0, 5.0), Layer::new(10, 0), 1.0);
 
-        assert_eq!(cell.text_count(), 1);
+        assert_eq!(cell.texts().count(), 1);
 
         let texts: Vec<_> = cell.texts().collect();
         assert_eq!(texts.len(), 1);
@@ -2887,13 +2485,18 @@ mod tests {
         // Add various element types
         cell.add_polygon(Polygon::rect(Point::origin(), 10.0, 5.0), 1);
         cell.add_ref(CellRef::new("other"));
-        cell.add_path_simple(vec![Point::origin(), Point::new(10.0, 0.0)], 0.5, 1);
-        cell.add_text("Label", Point::new(5.0, 5.0), 10);
+        cell.add_path(
+            vec![Point::origin(), Point::new(10.0, 0.0)],
+            0.5,
+            1,
+            PathEndType::default(),
+        );
+        cell.add_text_with_height("Label", Point::new(5.0, 5.0), 10, 1.0);
 
-        assert_eq!(cell.polygon_count(), 1);
-        assert_eq!(cell.ref_count(), 1);
-        assert_eq!(cell.path_count(), 1);
-        assert_eq!(cell.text_count(), 1);
+        assert_eq!(cell.polygons().count(), 1);
+        assert_eq!(cell.cell_refs().count(), 1);
+        assert_eq!(cell.paths().count(), 1);
+        assert_eq!(cell.texts().count(), 1);
         assert_eq!(cell.elements().len(), 4);
     }
 
@@ -2904,21 +2507,21 @@ mod tests {
         cell.add_polygon(Polygon::rect(Point::new(20.0, 0.0), 5.0, 5.0), 1);
         cell.add_polygon(Polygon::rect(Point::new(30.0, 0.0), 3.0, 3.0), 1);
 
-        assert_eq!(cell.polygon_count(), 3);
+        assert_eq!(cell.polygons().count(), 3);
 
         // Remove middle element
         let removed = cell.remove_element(1);
         assert!(removed.is_some());
-        assert_eq!(cell.polygon_count(), 2);
+        assert_eq!(cell.polygons().count(), 2);
 
         // Remove first element
         let removed = cell.remove_element(0);
         assert!(removed.is_some());
-        assert_eq!(cell.polygon_count(), 1);
+        assert_eq!(cell.polygons().count(), 1);
 
         // Try to remove out of bounds
         let removed = cell.remove_element(10);
         assert!(removed.is_none());
-        assert_eq!(cell.polygon_count(), 1);
+        assert_eq!(cell.polygons().count(), 1);
     }
 }

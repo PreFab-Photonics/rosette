@@ -5,7 +5,8 @@
 //! Holes (inner contours) are boolean-subtracted from outer contours using the
 //! `geo` crate so that glyphs like 'd', 'o', 'A' render correctly.
 
-use rosette_core::{Point, Polygon, Region};
+use rosette_core::geometry::Region;
+use rosette_core::{Point, Polygon};
 use ttf_parser::{Face, OutlineBuilder};
 
 /// Embedded Source Code Pro Regular font (SIL Open Font License).

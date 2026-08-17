@@ -42,7 +42,7 @@ pub(crate) fn extract_layer(obj: &Bound<'_, PyAny>) -> PyResult<Layer> {
 
     // Try to extract as int
     if let Ok(num) = obj.extract::<u16>() {
-        return Ok(Layer::from_number(num));
+        return Ok(Layer::from(num));
     }
 
     // Try to extract as tuple (layer, datatype)

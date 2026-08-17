@@ -3,6 +3,7 @@
 //! Implements writing of GDS II Stream format as specified in the
 //! GDSII Reference Manual.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -52,6 +53,44 @@ const USER_UNIT_M: f64 = 1e-6;
 /// Conversion factor: user units to database units.
 const UNITS_PER_UM: f64 = 1000.0;
 
+/// Return every cell once in cycle-safe dependency-first order.
+fn dependency_order(library: &Library) -> Vec<&Cell> {
+    let indexes: HashMap<&str, usize> = library
+        .cells()
+        .iter()
+        .enumerate()
+        .map(|(index, cell)| (cell.name(), index))
+        .collect();
+    let mut states = vec![0_u8; library.cells().len()];
+    let mut ordered = Vec::with_capacity(library.cells().len());
+
+    fn visit<'a>(
+        library: &'a Library,
+        indexes: &HashMap<&str, usize>,
+        states: &mut [u8],
+        ordered: &mut Vec<&'a Cell>,
+        index: usize,
+    ) {
+        match states[index] {
+            1 | 2 => return,
+            _ => states[index] = 1,
+        }
+        let cell = &library.cells()[index];
+        for cell_ref in cell.cell_refs() {
+            if let Some(&child_index) = indexes.get(cell_ref.cell_name.as_str()) {
+                visit(library, indexes, states, ordered, child_index);
+            }
+        }
+        states[index] = 2;
+        ordered.push(cell);
+    }
+
+    for index in 0..library.cells().len() {
+        visit(library, &indexes, &mut states, &mut ordered, index);
+    }
+    ordered
+}
+
 pub(crate) struct GdsWriter<W: Write> {
     writer: W,
 }
@@ -68,7 +107,7 @@ impl<W: Write> GdsWriter<W> {
         self.write_libname(library.name())?;
         self.write_units()?;
 
-        let cells = library.dependency_order();
+        let cells = dependency_order(library);
 
         for cell in &cells {
             self.write_cell(cell)?;
@@ -532,9 +571,9 @@ fn preflight_element(cell: &str, element_index: usize, element: &Element) -> Res
 
     match element {
         Element::Polygon { polygon, layer } => {
-            if !(3..=8190).contains(&polygon.len()) {
+            if !(3..=8190).contains(&polygon.vertices().len()) {
                 return Err(invalid(GdsElementError::BoundaryPointCount {
-                    count: polygon.len(),
+                    count: polygon.vertices().len(),
                 }));
             }
             validate_layer(layer, &invalid)?;
@@ -932,16 +971,13 @@ mod tests {
         let result = writer.write_library(&lib);
         assert!(result.is_ok());
 
-        // Verify the output contains all three structure names
-        // STRNAME records should appear in dependency order: A, B, C
-        let a_pos = output.windows(1).position(|w| w == b"A");
-        let b_pos = output.windows(1).position(|w| w == b"B");
-        let c_pos = output.windows(1).position(|w| w == b"C");
-
-        // All cells should be present
-        assert!(a_pos.is_some());
-        assert!(b_pos.is_some());
-        assert!(c_pos.is_some());
+        assert_eq!(
+            dependency_order(&lib)
+                .into_iter()
+                .map(Cell::name)
+                .collect::<Vec<_>>(),
+            ["A", "B", "C"]
+        );
     }
 
     #[test]
@@ -1465,7 +1501,12 @@ mod tests {
     #[test]
     fn test_simple_text() {
         let mut cell = Cell::new("TEST");
-        cell.add_text("Hello World", Point::new(10.0, 20.0), Layer::new(10, 0));
+        cell.add_text_with_height(
+            "Hello World",
+            Point::new(10.0, 20.0),
+            Layer::new(10, 0),
+            1.0,
+        );
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1480,7 +1521,7 @@ mod tests {
     #[test]
     fn test_text_with_special_chars() {
         let mut cell = Cell::new("TEST");
-        cell.add_text("Label_123-ABC", Point::origin(), Layer::new(10, 0));
+        cell.add_text_with_height("Label_123-ABC", Point::origin(), Layer::new(10, 0), 1.0);
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1496,7 +1537,7 @@ mod tests {
         let long_text = "x".repeat(513); // 513 chars, max is 512
 
         let mut cell = Cell::new("TEST");
-        cell.add_text(&long_text, Point::origin(), Layer::new(10, 0));
+        cell.add_text_with_height(&long_text, Point::origin(), Layer::new(10, 0), 1.0);
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1518,7 +1559,7 @@ mod tests {
         let text = "x".repeat(512); // Exactly 512 chars should work
 
         let mut cell = Cell::new("TEST");
-        cell.add_text(&text, Point::origin(), Layer::new(10, 0));
+        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0);
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1539,7 +1580,7 @@ mod tests {
         assert_eq!(text.chars().count(), 512); // 512 characters
 
         let mut cell = Cell::new("TEST");
-        cell.add_text(&text, Point::origin(), Layer::new(10, 0));
+        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0);
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1558,7 +1599,7 @@ mod tests {
         assert_eq!(text.chars().count(), 513);
 
         let mut cell = Cell::new("TEST");
-        cell.add_text(&text, Point::origin(), Layer::new(10, 0));
+        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0);
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1578,9 +1619,9 @@ mod tests {
     #[test]
     fn test_multiple_texts() {
         let mut cell = Cell::new("TEST");
-        cell.add_text("Label1", Point::new(0.0, 0.0), Layer::new(10, 0));
-        cell.add_text("Label2", Point::new(50.0, 0.0), Layer::new(10, 0));
-        cell.add_text("Label3", Point::new(100.0, 0.0), Layer::new(10, 0));
+        cell.add_text_with_height("Label1", Point::new(0.0, 0.0), Layer::new(10, 0), 1.0);
+        cell.add_text_with_height("Label2", Point::new(50.0, 0.0), Layer::new(10, 0), 1.0);
+        cell.add_text_with_height("Label3", Point::new(100.0, 0.0), Layer::new(10, 0), 1.0);
 
         let mut output = Vec::new();
         let mut writer = GdsWriter::new(&mut output);
@@ -1611,7 +1652,7 @@ mod tests {
         );
 
         // Add text
-        cell.add_text("Component", Point::new(50.0, 15.0), Layer::new(10, 0));
+        cell.add_text_with_height("Component", Point::new(50.0, 15.0), Layer::new(10, 0), 1.0);
 
         // Add cell ref
         let mut sub = Cell::new("SUB");

@@ -37,20 +37,7 @@ pub mod port;
 
 // Re-export primary types at crate root for convenience
 pub use cell::{Cell, CellRef, DuplicatePolicy, Library, PathEndType, Repetition};
-pub use component::connect_transform;
 pub use error::{CellValidationError, LibraryError};
-pub use geometry::{
-    BBox,
-    Point,
-    Polygon,
-    Region,
-    Transform,
-    Vector2,
-    // Utility functions for component authoring
-    arc_points,
-    fresnel_c,
-    fresnel_s,
-    path_length,
-};
+pub use geometry::{BBox, Point, Polygon, Transform, Vector2};
 pub use layer::Layer;
 pub use port::Port;

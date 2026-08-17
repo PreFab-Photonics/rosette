@@ -3,7 +3,8 @@
 //! Uses R-tree spatial indexing for the bulk forbidden-overlap check to avoid
 //! O(n²) boolean intersection operations on well-separated polygons.
 
-use rosette_core::{Layer, Polygon, Region};
+use rosette_core::geometry::Region;
+use rosette_core::{Layer, Polygon};
 use rstar::{AABB, RTree};
 
 use super::spatial::IndexedPolygon;

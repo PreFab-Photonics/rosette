@@ -1,6 +1,6 @@
 //! Python bindings for I/O operations.
 
-use crate::layout::{PyCell, PyLibrary};
+use crate::layout::{PyCell, PyLibrary, add_cell_hierarchy};
 use pyo3::prelude::*;
 use rosette_checks::RouteAnnotationMap;
 use rosette_core::{Cell, DuplicatePolicy, Library};
@@ -56,7 +56,9 @@ impl BuildSummary {
         // no library is available (rare — only the CLI path without a library
         // context hits this branch).
         let bbox = match library {
-            Some(lib) => lib.cell_bbox(cell.name()).or_else(|| cell.bbox()),
+            Some(lib) => {
+                rosette_core::hierarchy::cell_bbox(lib, cell.name()).or_else(|| cell.bbox())
+            }
             None => cell.bbox(),
         };
         let (bbox_width, bbox_height) = match bbox {
@@ -80,8 +82,9 @@ impl BuildSummary {
         // A cell is "hierarchical-only" when it has refs but no direct
         // polygons of its own.  Now that `bbox` resolves refs, we can't just
         // look at bbox_width — check the local geometry instead.
-        let has_refs_only =
-            cell.polygon_count() == 0 && cell.path_count() == 0 && cell.ref_count() > 0;
+        let has_refs_only = cell.polygons().next().is_none()
+            && cell.paths().next().is_none()
+            && cell.cell_refs().next().is_some();
 
         // Resolve instance ports (one level deep) when library is available
         let instance_ports = if let Some(lib) = library {
@@ -128,7 +131,7 @@ impl BuildSummary {
             cell_name: cell.name().to_string(),
             bbox_width,
             bbox_height,
-            cell_count: cell.ref_count() + 1, // +1 for the cell itself
+            cell_count: cell.cell_refs().count() + 1, // +1 for the cell itself
             port_count: cell.ports().len(),
             path_length: route_annotations.and_then(RouteAnnotations::path_length),
             ports,
@@ -340,8 +343,13 @@ pub fn write_gds(
         if let Some(child_cells) = cells {
             let mut lib = rosette_core::Library::new(cell.0.name().to_string());
             let cells_vec: Vec<_> = child_cells.iter().map(|c| c.0.clone()).collect();
-            lib.add_cell_recursive(cell.0.clone(), &cells_vec, DuplicatePolicy::KeepExisting)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            add_cell_hierarchy(
+                &mut lib,
+                cell.0.clone(),
+                &cells_vec,
+                DuplicatePolicy::KeepExisting,
+            )
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
             gds::write_library(path, &lib).map_err(|e| {
                 pyo3::exceptions::PyIOError::new_err(format!("Failed to write GDS: {}", e))
             })?;
@@ -539,8 +547,13 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
                 )
             }));
             let cells_vec: Vec<_> = child_cells.iter().map(|c| c.0.clone()).collect();
-            lib.add_cell_recursive(cell.0.clone(), &cells_vec, DuplicatePolicy::KeepExisting)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            add_cell_hierarchy(
+                &mut lib,
+                cell.0.clone(),
+                &cells_vec,
+                DuplicatePolicy::KeepExisting,
+            )
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         } else {
             lib.add_cell(cell.0.clone())
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;

@@ -199,9 +199,9 @@ mod tests {
         assert_eq!(bounds(&flush), (0.0, -1.0, 10.0, 1.0));
         assert_eq!(bounds(&round), (-1.0, -1.0, 11.0, 1.0));
         assert_eq!(bounds(&extended), (-1.0, -1.0, 11.0, 1.0));
-        assert_eq!(flush.len(), 4);
-        assert_eq!(round.len(), 34);
-        assert_eq!(extended.len(), 4);
+        assert_eq!(flush.vertices().len(), 4);
+        assert_eq!(round.vertices().len(), 34);
+        assert_eq!(extended.vertices().len(), 4);
     }
 
     #[test]

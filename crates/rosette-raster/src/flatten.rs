@@ -454,7 +454,7 @@ mod tests {
     #[test]
     fn test_flatten_reflected_path_characterization() {
         let mut child = Cell::new("path");
-        child.add_path_simple(
+        child.add_path(
             vec![
                 Point::origin(),
                 Point::new(10.0, 0.0),
@@ -462,6 +462,7 @@ mod tests {
             ],
             2.0,
             Layer::new(1, 0),
+            rosette_core::PathEndType::default(),
         );
         let mut top = Cell::new("top");
         top.add_ref(CellRef::new("path").mirror_x());
@@ -478,10 +479,11 @@ mod tests {
     #[test]
     fn test_flatten_uniform_path_scale_scales_width() {
         let mut child = Cell::new("path");
-        child.add_path_simple(
+        child.add_path(
             vec![Point::origin(), Point::new(10.0, 0.0)],
             2.0,
             Layer::new(1, 0),
+            rosette_core::PathEndType::default(),
         );
         let mut top = Cell::new("top");
         top.add_ref(CellRef::new("path").scale(2.0));
@@ -499,10 +501,11 @@ mod tests {
     #[test]
     fn test_nonuniform_path_scale_matches_bbox() {
         let mut child = Cell::new("path");
-        child.add_path_simple(
+        child.add_path(
             vec![Point::origin(), Point::new(10.0, 0.0)],
             2.0,
             Layer::new(1, 0),
+            rosette_core::PathEndType::default(),
         );
         let mut top = Cell::new("top");
         top.add_ref(CellRef::with_transform("path", Transform::scale(2.0, 3.0)));
@@ -516,7 +519,7 @@ mod tests {
             (0.0, -3.0, 20.0, 3.0)
         );
 
-        let bbox = library.cell_bbox("top").unwrap();
+        let bbox = rosette_core::hierarchy::cell_bbox(&library, "top").unwrap();
         assert_eq!(
             (bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y),
             (0.0, -3.0, 20.0, 3.0)
@@ -526,10 +529,11 @@ mod tests {
     #[test]
     fn test_negative_gds_path_width_is_absolute() {
         let mut child = Cell::new("path");
-        child.add_path_simple(
+        child.add_path(
             vec![Point::origin(), Point::new(10.0, 0.0)],
             -2.0,
             Layer::new(1, 0),
+            rosette_core::PathEndType::default(),
         );
         let mut top = Cell::new("top");
         top.add_ref(CellRef::new("path").scale(3.0));

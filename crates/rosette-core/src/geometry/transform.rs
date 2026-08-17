@@ -172,7 +172,7 @@ impl Transform {
     ///
     /// Returns `None` if the transform or its inverse is not finite, or if its
     /// linear part is singular.
-    pub fn inverse(&self) -> Option<Self> {
+    fn inverse(&self) -> Option<Self> {
         if !self.is_finite() {
             return None;
         }
@@ -230,19 +230,6 @@ impl Transform {
     /// Check if this is a reflection (negative determinant).
     pub fn is_reflection(&self) -> bool {
         self.determinant() < 0.0
-    }
-
-    /// Extract the rotation angle from the transform (in radians).
-    ///
-    /// This assumes the transform is a composition of rotation, scale, and translation.
-    /// For transforms with non-uniform scale or reflection, the result may not be meaningful.
-    pub fn rotation(&self) -> f64 {
-        self.c.atan2(self.a)
-    }
-
-    /// Extract the translation component.
-    pub fn translation(&self) -> (f64, f64) {
-        (self.tx, self.ty)
     }
 
     /// Check if this is a rigid transform (isometry).

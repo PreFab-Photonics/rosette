@@ -330,7 +330,7 @@ impl WasmLibrary {
         self.active_cell
             .as_ref()
             .and_then(|name| self.library.cell(name))
-            .map(|cell| cell.polygon_count())
+            .map(|cell| cell.polygons().count())
             .unwrap_or(0)
     }
 

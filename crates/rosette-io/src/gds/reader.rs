@@ -1331,10 +1331,11 @@ mod tests {
         }
 
         let mut cell = Cell::new("TOP");
-        cell.add_path_simple(
+        cell.add_path(
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 2),
+            PathEndType::default(),
         );
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
@@ -1362,7 +1363,7 @@ mod tests {
         }
 
         let mut cell = Cell::new("TOP");
-        cell.add_text("label", Point::origin(), Layer::new(1, 2));
+        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 2), 1.0);
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let text = super::super::writer::write_bytes(&library).unwrap();
@@ -1379,10 +1380,11 @@ mod tests {
     #[test]
     fn rejects_omitted_path_width_as_unrepresentable_zero_width() {
         let mut cell = Cell::new("TOP");
-        cell.add_path_simple(
+        cell.add_path(
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 0),
+            PathEndType::default(),
         );
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
@@ -1553,10 +1555,11 @@ mod tests {
     #[test]
     fn rejects_short_paths_and_empty_reference_targets() {
         let mut cell = Cell::new("TOP");
-        cell.add_path_simple(
+        cell.add_path(
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 0),
+            PathEndType::default(),
         );
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
@@ -1723,10 +1726,11 @@ mod tests {
     #[test]
     fn retains_negative_nonzero_path_widths() {
         let mut cell = Cell::new("TOP");
-        cell.add_path_simple(
+        cell.add_path(
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 0),
+            PathEndType::default(),
         );
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
@@ -1741,7 +1745,7 @@ mod tests {
     #[test]
     fn accepts_default_text_pathtype_and_width() {
         let mut cell = Cell::new("TOP");
-        cell.add_text("label", Point::origin(), Layer::new(1, 0));
+        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0);
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1756,7 +1760,7 @@ mod tests {
         );
 
         let imported = read_bytes(&bytes).unwrap();
-        assert_eq!(imported.cell("TOP").unwrap().text_count(), 1);
+        assert_eq!(imported.cell("TOP").unwrap().texts().count(), 1);
     }
 
     #[test]
@@ -1773,7 +1777,7 @@ mod tests {
             ),
         ] {
             let mut cell = Cell::new("TOP");
-            cell.add_text("label", Point::origin(), Layer::new(1, 0));
+            cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0);
             let mut library = Library::new("test");
             library.add_cell(cell).unwrap();
             let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1800,7 +1804,7 @@ mod tests {
             (PRESENTATION, BIT_ARRAY, vec![]),
         ] {
             let mut cell = Cell::new("TOP");
-            cell.add_text("label", Point::origin(), Layer::new(1, 0));
+            cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0);
             let mut library = Library::new("test");
             library.add_cell(cell).unwrap();
             let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1840,7 +1844,7 @@ mod tests {
         }
 
         let mut cell = Cell::new("TOP");
-        cell.add_text("label", Point::origin(), Layer::new(1, 0));
+        cell.add_text_with_height("label", Point::origin(), Layer::new(1, 0), 1.0);
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();
         let mut bytes = super::super::writer::write_bytes(&library).unwrap();
@@ -1872,7 +1876,7 @@ mod tests {
         assert_eq!(result.cells().len(), 1);
         let cell = &result.cells()[0];
         assert_eq!(cell.name(), "TOP");
-        assert_eq!(cell.polygon_count(), 1);
+        assert_eq!(cell.polygons().count(), 1);
 
         let (poly, layer) = cell.polygons().next().unwrap();
         assert_eq!(layer.number, 1);
@@ -1901,7 +1905,7 @@ mod tests {
 
         let result = roundtrip(&lib);
         let cell = &result.cells()[0];
-        assert_eq!(cell.path_count(), 1);
+        assert_eq!(cell.paths().count(), 1);
 
         let (points, width, layer, end_type) = cell.paths().next().unwrap();
         assert_eq!(points.len(), 2);
@@ -1920,7 +1924,7 @@ mod tests {
 
         let result = roundtrip(&lib);
         let cell = &result.cells()[0];
-        assert_eq!(cell.text_count(), 1);
+        assert_eq!(cell.texts().count(), 1);
 
         let (text, pos, layer, height) = cell.texts().next().unwrap();
         assert_eq!(text, "Hello");
@@ -1947,7 +1951,7 @@ mod tests {
         assert_eq!(result.cells().len(), 2);
 
         let top = result.cell("TOP").unwrap();
-        assert_eq!(top.ref_count(), 1);
+        assert_eq!(top.cell_refs().count(), 1);
 
         let cell_ref = top.cell_refs().next().unwrap();
         assert_eq!(cell_ref.cell_name, "SUB");
@@ -2060,7 +2064,7 @@ mod tests {
 
         let result = roundtrip(&lib);
         let cell = &result.cells()[0];
-        assert_eq!(cell.polygon_count(), 3);
+        assert_eq!(cell.polygons().count(), 3);
 
         let layers: Vec<Layer> = cell.polygons().map(|(_, l)| *l).collect();
         assert!(layers.contains(&Layer::new(1, 0)));
@@ -2183,7 +2187,7 @@ mod tests {
             Layer::new(2, 0),
             PathEndType::Flush,
         );
-        top.add_text("Label", Point::new(50.0, 15.0), Layer::new(10, 0));
+        top.add_text_with_height("Label", Point::new(50.0, 15.0), Layer::new(10, 0), 1.0);
         top.add_ref(CellRef::new("SUB").at(20.0, 20.0));
 
         let mut lib = Library::new("test");
@@ -2192,9 +2196,9 @@ mod tests {
 
         let result = roundtrip(&lib);
         let top = result.cell("TOP").unwrap();
-        assert_eq!(top.polygon_count(), 1);
-        assert_eq!(top.path_count(), 1);
-        assert_eq!(top.text_count(), 1);
-        assert_eq!(top.ref_count(), 1);
+        assert_eq!(top.polygons().count(), 1);
+        assert_eq!(top.paths().count(), 1);
+        assert_eq!(top.texts().count(), 1);
+        assert_eq!(top.cell_refs().count(), 1);
     }
 }

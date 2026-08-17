@@ -104,72 +104,9 @@ impl Port {
         Self::from_parts(name, position, direction, Some(width))
     }
 
-    /// Set the width.
-    pub fn set_width(mut self, width: f64) -> Self {
-        assert!(width.is_finite(), "Port width must be finite");
-        assert!(width > 0.0, "Port width must be positive");
-        self.width = Some(width);
-        self
-    }
-
     /// Get the angle of the direction (in radians).
     pub fn angle(&self) -> f64 {
         self.direction.angle()
-    }
-
-    /// Get the opposite direction (pointing into the component).
-    pub fn inward_direction(&self) -> Vector2 {
-        -self.direction
-    }
-
-    /// Translate the port by a vector.
-    pub fn translate(&self, v: Vector2) -> Self {
-        Self::from_parts(
-            self.name.clone(),
-            self.position.translate(v),
-            self.direction,
-            self.width,
-        )
-    }
-
-    /// Rotate the port around the origin.
-    pub fn rotate(&self, angle: f64) -> Self {
-        Self::from_parts(
-            self.name.clone(),
-            self.position.rotate(angle),
-            self.direction.rotate(angle),
-            self.width,
-        )
-    }
-
-    /// Rotate the port around a center point.
-    pub fn rotate_around(&self, center: Point, angle: f64) -> Self {
-        Self::from_parts(
-            self.name.clone(),
-            self.position.rotate_around(center, angle),
-            self.direction.rotate(angle),
-            self.width,
-        )
-    }
-
-    /// Mirror the port across the X axis.
-    pub fn mirror_x(&self) -> Self {
-        Self::from_parts(
-            self.name.clone(),
-            self.position.mirror_x(),
-            Vector2::new(self.direction.x, -self.direction.y),
-            self.width,
-        )
-    }
-
-    /// Mirror the port across the Y axis.
-    pub fn mirror_y(&self) -> Self {
-        Self::from_parts(
-            self.name.clone(),
-            self.position.mirror_y(),
-            Vector2::new(-self.direction.x, self.direction.y),
-            self.width,
-        )
     }
 
     /// Check if this port can connect to another port.
@@ -184,15 +121,6 @@ impl Port {
         // Check if directions are opposite (dot product should be -1)
         let dot = self.direction.dot(other.direction);
         dot < -0.99 // Allow small tolerance for floating point
-    }
-
-    /// Apply a transform to this port.
-    ///
-    /// The position is fully transformed, while the direction only has the
-    /// linear part of the transform applied (rotation/scale/mirror, no translation).
-    pub fn transform(&self, t: &Transform) -> Self {
-        self.try_transform(t)
-            .expect("Port transformation must produce valid finite fields")
     }
 
     /// Try to apply a transform to this port.
@@ -260,7 +188,7 @@ mod tests {
     #[test]
     fn test_rotate() {
         let port = Port::new("in", Point::new(1.0, 0.0), Vector2::unit_x());
-        let rotated = port.rotate(PI / 2.0);
+        let rotated = port.try_transform(&Transform::rotate(PI / 2.0)).unwrap();
         assert!(approx_eq(rotated.position.x, 0.0));
         assert!(approx_eq(rotated.position.y, 1.0));
         assert!(approx_eq(rotated.direction.x, 0.0));
@@ -285,7 +213,7 @@ mod tests {
 
         // Test translation
         let t_translate = Transform::translate(5.0, 10.0);
-        let transformed = port.transform(&t_translate);
+        let transformed = port.try_transform(&t_translate).unwrap();
         assert!(approx_eq(transformed.position.x, 15.0));
         assert!(approx_eq(transformed.position.y, 10.0));
         assert!(approx_eq(transformed.direction.x, 1.0)); // Direction unchanged
@@ -293,7 +221,7 @@ mod tests {
 
         // Test rotation (90 degrees)
         let t_rotate = Transform::rotate(PI / 2.0);
-        let rotated = port.transform(&t_rotate);
+        let rotated = port.try_transform(&t_rotate).unwrap();
         assert!(approx_eq(rotated.position.x, 0.0));
         assert!(approx_eq(rotated.position.y, 10.0));
         assert!(approx_eq(rotated.direction.x, 0.0));
@@ -301,7 +229,7 @@ mod tests {
 
         // Test combined translate + rotate
         let t_combined = Transform::rotate(PI / 2.0).then(&Transform::translate(100.0, 0.0));
-        let combined = port.transform(&t_combined);
+        let combined = port.try_transform(&t_combined).unwrap();
         // First translate (10,0) -> (110, 0), then rotate -> (0, 110)
         assert!(approx_eq(combined.position.x, 0.0));
         assert!(approx_eq(combined.position.y, 110.0));
@@ -328,7 +256,7 @@ mod tests {
         );
         assert!(
             std::panic::catch_unwind(|| {
-                Port::new("p", Point::origin(), Vector2::zero());
+                Port::new("p", Point::origin(), Vector2::new(0.0, 0.0));
             })
             .is_err()
         );
@@ -356,21 +284,21 @@ mod tests {
 
     #[test]
     fn builders_and_transforms_preserve_port_validity() {
-        let port = Port::new("p", Point::origin(), Vector2::new(3.0, 4.0)).set_width(2.0);
+        let port = Port::with_width("p", Point::origin(), Vector2::new(3.0, 4.0), 2.0);
         assert!(port.validation_error().is_none());
-        assert!(port.rotate(0.7).validation_error().is_none());
         assert!(
-            port.transform(&Transform::scale(2.0, -3.0))
+            port.try_transform(&Transform::rotate(0.7))
+                .unwrap()
                 .validation_error()
                 .is_none()
         );
-        assert!(std::panic::catch_unwind(|| port.clone().set_width(0.0)).is_err());
         assert!(
-            std::panic::catch_unwind(|| {
-                port.transform(&Transform::scale(0.0, 0.0));
-            })
-            .is_err()
+            port.try_transform(&Transform::scale(2.0, -3.0))
+                .unwrap()
+                .validation_error()
+                .is_none()
         );
+        assert!(port.try_transform(&Transform::scale(0.0, 0.0)).is_none());
     }
 
     #[test]

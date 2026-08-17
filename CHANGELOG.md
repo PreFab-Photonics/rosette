@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Rust breaking:** hierarchy-resolved bounds are now queried with
+  `rosette_core::hierarchy::cell_bbox()`, while recursive Python composition,
+  editor cascade deletion, and GDS dependency ordering are owned by their
+  respective feature layers instead of `Library`.
+- **Rust breaking:** fallible transforms, typed element iterators,
+  `Route::build()`, `Region`, and standard `From` conversions are now the
+  canonical forms; duplicate panic wrappers, count helpers, convenience
+  constructors, and crate-root feature aliases have been removed.
+- Python, WASM, GDS, and `rosette-layout` V1 behavior remain unchanged while
+  their adapters use the narrowed Rust surface.
+
 ## [0.5.0] - 2026-08-13
 
 ### Added

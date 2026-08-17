@@ -5,7 +5,8 @@
 //! boolean-geometry cost for the outers whose bbox is actually near it.
 //! Mirrors the pattern used by `overlap.rs` and `spacing.rs`.
 
-use rosette_core::{Layer, Polygon, Region};
+use rosette_core::geometry::Region;
+use rosette_core::{Layer, Polygon};
 use rstar::{AABB, RTree};
 
 use super::spatial::IndexedPolygon;

@@ -88,16 +88,6 @@ impl Polygon {
         &self.vertices
     }
 
-    /// Number of vertices.
-    pub fn len(&self) -> usize {
-        self.vertices.len()
-    }
-
-    /// Check if polygon has no vertices (always false for valid polygon).
-    pub fn is_empty(&self) -> bool {
-        self.vertices.is_empty()
-    }
-
     /// Calculate the signed area.
     ///
     /// Positive for counter-clockwise winding, negative for clockwise.
@@ -141,12 +131,6 @@ impl Polygon {
     /// Calculate the bounding box.
     pub fn bbox(&self) -> BBox {
         BBox::from_points(&self.vertices)
-    }
-
-    /// Apply a transformation to all vertices.
-    pub fn transform(&self, t: &Transform) -> Self {
-        self.try_transform(t)
-            .expect("Polygon transformation must produce finite vertices")
     }
 
     /// Try to apply a transformation to all vertices.
@@ -229,7 +213,7 @@ mod tests {
     #[test]
     fn test_rect() {
         let rect = Polygon::rect(Point::origin(), 10.0, 5.0);
-        assert_eq!(rect.len(), 4);
+        assert_eq!(rect.vertices().len(), 4);
         assert!(approx_eq(rect.area(), 50.0));
     }
 
@@ -244,7 +228,7 @@ mod tests {
     #[test]
     fn test_regular_polygon() {
         let square = Polygon::regular(Point::origin(), 1.0, 4);
-        assert_eq!(square.len(), 4);
+        assert_eq!(square.vertices().len(), 4);
     }
 
     #[test]
@@ -287,16 +271,16 @@ mod tests {
         let polygon = Polygon::rect(Point::origin(), 1.0, 1.0);
         assert!(
             polygon
-                .transform(&Transform::translate(2.0, 3.0))
+                .try_transform(&Transform::translate(2.0, 3.0))
+                .unwrap()
                 .vertices()
                 .iter()
                 .all(|p| p.is_finite())
         );
         assert!(
-            std::panic::catch_unwind(|| {
-                polygon.transform(&Transform::translate(f64::INFINITY, 0.0));
-            })
-            .is_err()
+            polygon
+                .try_transform(&Transform::translate(f64::INFINITY, 0.0))
+                .is_none()
         );
         let extreme = Polygon::new(vec![
             Point::new(f64::MAX, 0.0),

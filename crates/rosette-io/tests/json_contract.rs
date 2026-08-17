@@ -16,9 +16,9 @@ fn current_json_wire_shape_is_stable() {
     assert_eq!(library.top_cell().unwrap().name(), "top");
 
     let leaf = library.cell("leaf").unwrap();
-    assert_eq!(leaf.polygon_count(), 1);
-    assert_eq!(leaf.path_count(), 1);
-    assert_eq!(leaf.text_count(), 1);
+    assert_eq!(leaf.polygons().count(), 1);
+    assert_eq!(leaf.paths().count(), 1);
+    assert_eq!(leaf.texts().count(), 1);
     assert_eq!(leaf.ports().len(), 1);
     assert_eq!(leaf.paths().next().unwrap().3, PathEndType::Round);
 
@@ -45,7 +45,7 @@ fn current_json_wire_shape_is_stable() {
         (2.0, 6.0)
     );
     assert_eq!(refs[2].cell_name, "missing");
-    assert!(library.cell_bbox("top").is_some());
+    assert!(rosette_core::hierarchy::cell_bbox(library, "top").is_some());
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn cycle_fixture_is_accepted_and_bbox_guarded() {
     assert_eq!(library.cells().len(), 2);
     assert!(library.roots().is_empty());
     assert!(library.top_cell().is_none());
-    assert!(library.cell_bbox("cycle_a").is_none());
+    assert!(rosette_core::hierarchy::cell_bbox(library, "cycle_a").is_none());
 }
 
 #[test]
@@ -77,8 +77,8 @@ fn multi_root_fixture_preserves_explicit_top_selection() {
     );
     assert_eq!(library.top_cell().unwrap().name(), "root_b");
     assert_eq!(library.explicit_top_cell().unwrap().name(), "root_b");
-    assert!(library.cell_bbox("root_a").is_some());
-    assert!(library.cell_bbox("root_b").is_some());
+    assert!(rosette_core::hierarchy::cell_bbox(library, "root_a").is_some());
+    assert!(rosette_core::hierarchy::cell_bbox(library, "root_b").is_some());
 
     assert_eq!(to_string(&document).unwrap(), MULTI_ROOT.trim_end());
 

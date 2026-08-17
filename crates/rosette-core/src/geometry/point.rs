@@ -28,14 +28,6 @@ impl Point {
         self.x.is_finite() && self.y.is_finite()
     }
 
-    /// Convert to a vector from the origin.
-    pub fn to_vector(self) -> Vector2 {
-        Vector2 {
-            x: self.x,
-            y: self.y,
-        }
-    }
-
     /// Distance to another point.
     pub fn distance_to(self, other: Point) -> f64 {
         let dx = other.x - self.x;
@@ -125,11 +117,6 @@ impl Vector2 {
         Self { x, y }
     }
 
-    /// Zero vector.
-    pub fn zero() -> Self {
-        Self { x: 0.0, y: 0.0 }
-    }
-
     /// Whether both components are finite.
     pub fn is_finite(self) -> bool {
         self.x.is_finite() && self.y.is_finite()
@@ -161,11 +148,6 @@ impl Vector2 {
     /// Length of the vector.
     pub fn length(self) -> f64 {
         self.x.hypot(self.y)
-    }
-
-    /// Squared length (avoids sqrt).
-    pub fn length_squared(self) -> f64 {
-        self.x * self.x + self.y * self.y
     }
 
     /// Normalize to unit length.

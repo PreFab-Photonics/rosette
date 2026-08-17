@@ -85,7 +85,7 @@ mod tests {
         assert!(approx_eq(aligned_pos.y, wg1_out.position.y));
 
         // Directions should be opposite
-        let aligned_dir = wg2_in.direction.rotate(transform.rotation());
+        let aligned_dir = transform.apply_linear(wg2_in.direction);
         assert!(approx_eq(aligned_dir.x, -wg1_out.direction.x));
         assert!(approx_eq(aligned_dir.y, -wg1_out.direction.y));
     }
@@ -106,7 +106,7 @@ mod tests {
         assert!(approx_eq(aligned_pos.y, target_port.position.y));
 
         // Directions should be opposite (facing each other)
-        let aligned_dir = component_port.direction.rotate(transform.rotation());
+        let aligned_dir = transform.apply_linear(component_port.direction);
         assert!(approx_eq(aligned_dir.x, -target_port.direction.x));
         assert!(approx_eq(aligned_dir.y, -target_port.direction.y));
     }

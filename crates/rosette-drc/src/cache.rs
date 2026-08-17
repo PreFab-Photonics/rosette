@@ -38,7 +38,7 @@ use crate::violation::DrcViolation;
 /// and each `CellRef`'s transform/repetition plus
 /// the content hash of the referenced cell. Ports, text, metadata, and origin
 /// don't affect DRC results and are excluded.
-pub type ContentHash = u64;
+pub(crate) type ContentHash = u64;
 
 /// Cached per-cell detection results, in the cell's local coordinate frame.
 ///
@@ -181,7 +181,7 @@ pub(crate) fn rules_fingerprint(rules: &DrcRules) -> u64 {
 /// is serialised once. `library` resolves `CellRef`s; refs whose target is
 /// missing from the library contribute only their transform/repetition (the
 /// same cells are invisible to DRC flattening anyway).
-pub fn cell_content_hash(
+pub(crate) fn cell_content_hash(
     cell: &Cell,
     library: Option<&Library>,
     memo: &mut HashMap<String, ContentHash>,

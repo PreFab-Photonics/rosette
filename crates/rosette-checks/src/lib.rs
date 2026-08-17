@@ -23,11 +23,11 @@
 //! }
 //! ```
 
-pub mod bend_radius;
-pub mod config;
-pub mod connectivity;
-pub mod runner;
-pub mod violation;
+mod bend_radius;
+mod config;
+mod connectivity;
+mod runner;
+mod violation;
 
 pub use bend_radius::RouteAnnotationMap;
 pub use config::ChecksConfig;

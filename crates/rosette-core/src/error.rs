@@ -1,7 +1,5 @@
 //! Format-neutral errors for the core layout model.
 
-use crate::hierarchy::HierarchyIssue;
-
 /// Reason that a polygon element is invalid.
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum PolygonValidationReason {
@@ -166,10 +164,6 @@ pub enum LibraryError {
     #[error("cell \"{name}\" already exists")]
     AlreadyExists { name: String },
 
-    /// More than one candidate definition has the same identity.
-    #[error("cell \"{name}\" appears more than once in the candidate registry")]
-    DuplicateCandidate { name: String },
-
     /// A requested cell is not present in the library.
     #[error("cell \"{name}\" does not exist")]
     CellNotFound { name: String },
@@ -187,12 +181,5 @@ pub enum LibraryError {
     CellReferenced {
         name: String,
         referenced_by: Vec<String>,
-    },
-
-    /// A recursive insertion contains missing references or cycles.
-    #[error("invalid cell hierarchy: {summary}")]
-    InvalidHierarchy {
-        summary: String,
-        issues: Vec<HierarchyIssue>,
     },
 }

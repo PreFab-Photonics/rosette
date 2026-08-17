@@ -879,7 +879,15 @@ mod tests {
                 )
                 .is_some()
         );
-        assert_eq!(library.library.cell("self_ref").unwrap().ref_count(), 1);
+        assert_eq!(
+            library
+                .library
+                .cell("self_ref")
+                .unwrap()
+                .cell_refs()
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -979,7 +987,10 @@ mod tests {
                 )
                 .is_none()
         );
-        assert_eq!(library.library.cell("parent").unwrap().ref_count(), 1);
+        assert_eq!(
+            library.library.cell("parent").unwrap().cell_refs().count(),
+            1
+        );
     }
 
     #[test]

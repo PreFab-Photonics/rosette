@@ -70,6 +70,7 @@ class TestRouteBasic:
         route = Route(Layer(1, 0))
 
         assert route.bends == []
+        assert route.warnings == ["Route requires at least 2 points"]
 
     def test_s_curve(self):
         """Route with two opposite bends (S-curve)."""

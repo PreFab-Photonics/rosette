@@ -71,7 +71,7 @@ mod tests {
         assert_eq!(restored.library().cells().len(), 1);
 
         let cell = restored.library().cell("test_cell").unwrap();
-        assert_eq!(cell.polygon_count(), 2);
+        assert_eq!(cell.polygons().count(), 2);
         assert_eq!(cell.ports().len(), 1);
         assert_eq!(cell.ports()[0].name, "opt1");
     }
@@ -99,7 +99,7 @@ mod tests {
         let restored = from_string(&json).unwrap();
 
         let cell = restored.library().cell("with_path").unwrap();
-        assert_eq!(cell.path_count(), 1);
+        assert_eq!(cell.paths().count(), 1);
     }
 
     #[test]
@@ -126,7 +126,7 @@ mod tests {
         assert!(restored.library().cell("parent").is_some());
 
         let parent = restored.library().cell("parent").unwrap();
-        assert_eq!(parent.ref_count(), 1);
+        assert_eq!(parent.cell_refs().count(), 1);
     }
 
     #[test]
@@ -160,10 +160,11 @@ mod tests {
     #[test]
     fn rejects_locally_invalid_cell_contents_after_deserialization() {
         let mut cell = Cell::new("cell");
-        cell.add_path_simple(
+        cell.add_path(
             vec![Point::origin(), Point::new(1.0, 0.0)],
             0.5,
             Layer::new(1, 0),
+            rosette_core::PathEndType::default(),
         );
         let mut library = Library::new("test");
         library.add_cell(cell).unwrap();

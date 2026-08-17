@@ -443,10 +443,11 @@ fn test_flatten_handles_repetition_spacing() {
 fn test_flatten_handles_paths() {
     // Cell with a path element — should be converted to polygon for DRC
     let mut cell = Cell::new("test");
-    cell.add_path_simple(
+    cell.add_path(
         vec![Point::new(0.0, 0.0), Point::new(20.0, 0.0)],
         2.0,
         Layer::new(1, 0),
+        PathEndType::default(),
     );
 
     // The path (width=2.0, length=20.0) becomes a polygon with area ~40
@@ -481,10 +482,11 @@ fn test_path_end_type_changes_checked_geometry() {
 fn test_flatten_path_width_checked() {
     // Path with width 1.0 should fail min_width=2.0
     let mut cell = Cell::new("test");
-    cell.add_path_simple(
+    cell.add_path(
         vec![Point::new(0.0, 0.0), Point::new(20.0, 0.0)],
         1.0,
         Layer::new(1, 0),
+        PathEndType::default(),
     );
 
     let rules = DrcRules::new().min_width(Layer::new(1, 0), 2.0, Some("PATH_W"));
@@ -2484,7 +2486,7 @@ fn explicit_policy_suppresses_without_mutating_cell() {
     let result = run_drc_with_policy(&cell, &rules, None, &policy);
     assert!(result.passed());
     assert_eq!(result.stats.suppressed_violations, 1);
-    assert_eq!(cell.polygon_count(), 1);
+    assert_eq!(cell.polygons().count(), 1);
 }
 
 #[test]

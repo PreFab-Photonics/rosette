@@ -11,15 +11,14 @@
 //! - [`path_length`]: Calculate the length of a polyline path
 //! - [`fresnel_c`], [`fresnel_s`]: Fresnel integrals for Euler bends
 //!
-//! Boolean shape operations (via the `geo` crate):
-//! - [`Polygon::union`], [`Polygon::subtract`], [`Polygon::intersect`], [`Polygon::xor`]
+//! [`Region`] provides hole-preserving Boolean and spatial operations.
 
-pub mod bbox;
-pub mod boolean_ops;
-pub mod point;
-pub mod polygon;
-pub mod transform;
-pub mod utils;
+mod bbox;
+mod boolean_ops;
+mod point;
+mod polygon;
+mod transform;
+mod utils;
 
 pub use bbox::BBox;
 pub use boolean_ops::Region;

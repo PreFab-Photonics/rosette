@@ -6,7 +6,7 @@ use crate::layout::{PyCell, PyPort};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
-use rosette_route::{BendInfo, BendProfile, Route, RouteResult};
+use rosette_route::{BendInfo, BendProfile, Route, RouteBuildError, RouteResult};
 use std::f64::consts::PI;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -60,16 +60,19 @@ fn route_generation_error() -> PyErr {
     PyValueError::new_err("Route geometry generation produced invalid or non-finite geometry")
 }
 
+fn generated_route(route: &Route) -> PyResult<Option<RouteResult>> {
+    match catch_unwind(AssertUnwindSafe(|| route.build())).map_err(|_| route_generation_error())? {
+        Ok(result) => Ok(Some(result)),
+        Err(RouteBuildError::InsufficientPoints { .. }) => Ok(None),
+    }
+}
+
 fn build_route(route: &Route) -> PyResult<RouteResult> {
-    catch_unwind(AssertUnwindSafe(|| route.build()))
-        .map_err(|_| route_generation_error())?
-        .map_err(|_| route_generation_error())
+    generated_route(route)?.ok_or_else(route_generation_error)
 }
 
 fn validate_generated_route(route: &Route) -> PyResult<()> {
-    let result =
-        catch_unwind(AssertUnwindSafe(|| route.build())).map_err(|_| route_generation_error())?;
-    let Ok(result) = result else {
+    let Some(result) = generated_route(route)? else {
         return Ok(());
     };
     if !result.path_length().is_finite()
@@ -279,8 +282,9 @@ impl PyRoute {
     /// Get the total optical path length.
     #[getter]
     fn path_length(&self) -> PyResult<f64> {
-        let length = catch_unwind(AssertUnwindSafe(|| self.route.path_length()))
-            .map_err(|_| route_generation_error())?;
+        let length = generated_route(&self.route)?
+            .map(|result| result.path_length())
+            .unwrap_or_default();
         if !length.is_finite() {
             return Err(route_generation_error());
         }
@@ -290,16 +294,17 @@ impl PyRoute {
     /// Get warnings from route generation.
     #[getter]
     fn warnings(&self) -> PyResult<Vec<String>> {
-        catch_unwind(AssertUnwindSafe(|| self.route.warnings()))
-            .map_err(|_| route_generation_error())
+        Ok(generated_route(&self.route)?
+            .map(|result| result.warnings().to_vec())
+            .unwrap_or_else(|| vec!["Route requires at least 2 points".to_string()]))
     }
 
     /// Get bend diagnostics from route generation.
     #[getter]
     fn bends(&self) -> PyResult<Vec<PyBendInfo>> {
-        catch_unwind(AssertUnwindSafe(|| self.route.bends()))
-            .map(|bends| bends.into_iter().map(PyBendInfo).collect())
-            .map_err(|_| route_generation_error())
+        Ok(generated_route(&self.route)?
+            .map(|result| result.bends().iter().cloned().map(PyBendInfo).collect())
+            .unwrap_or_default())
     }
 
     /// Create a route through a series of waypoints.
@@ -455,7 +460,7 @@ mod tests {
 
     #[test]
     fn route_cell_and_bends_share_generated_annotations() {
-        let mut route = Route::new(Layer::from_number(1));
+        let mut route = Route::new(Layer::from(1));
         route.start_at(0.0, 0.0, 0.0);
         route.to(10.0, 0.0);
         route.end_at(10.0, 10.0, PI / 2.0);
@@ -475,9 +480,13 @@ mod tests {
     #[test]
     fn incomplete_route_has_empty_bend_diagnostics() {
         let route = PyRoute {
-            route: Route::new(Layer::from_number(1)),
+            route: Route::new(Layer::from(1)),
         };
 
         assert!(route.bends().unwrap().is_empty());
+        assert_eq!(
+            route.warnings().unwrap(),
+            ["Route requires at least 2 points"]
+        );
     }
 }

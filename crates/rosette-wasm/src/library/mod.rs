@@ -856,7 +856,7 @@ impl WasmLibrary {
                     let Some(polygon) = polygon else {
                         return WalkControl::Continue;
                     };
-                    result.push(polygon.len() as f64);
+                    result.push(polygon.vertices().len() as f64);
                     for point in polygon.vertices() {
                         result.push(point.x);
                         result.push(point.y);

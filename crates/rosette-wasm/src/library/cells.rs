@@ -138,7 +138,27 @@ impl WasmLibrary {
             })
             .collect();
 
-        let removed_count = self.library.remove_cell_cascade(name) as u32;
+        let removed_count = removed_indices.values().map(Vec::len).sum::<usize>() as u32;
+        let mut library = self.library.clone();
+        for (cell_name, indices) in &removed_indices {
+            if cell_name == name {
+                continue;
+            }
+            if library
+                .edit_cell(cell_name, |cell| {
+                    for &index in indices.iter().rev() {
+                        cell.remove_element(index);
+                    }
+                })
+                .is_err()
+            {
+                return 0;
+            }
+        }
+        if library.remove_cell(name).ok() != Some(true) {
+            return 0;
+        }
+        self.library = library;
 
         self.element_refs.retain(|_, element_ref| {
             if element_ref.cell_name == name {
@@ -412,7 +432,7 @@ mod tests {
         library.clear_active_cell();
 
         let cell = library.library.cell("cell").unwrap();
-        assert!(cell.is_empty());
+        assert!(cell.elements().is_empty());
         assert_eq!(cell.ports().len(), 1);
         assert_eq!(library.annotations["cell"], expected_annotations);
         assert_eq!(library.get_cell_path_length("cell"), Some(0.84));

@@ -25,17 +25,10 @@ impl BBox {
 
     /// Whether both corners are finite and ordered on both axes.
     pub fn is_valid(&self) -> bool {
-        self.is_finite() && self.has_ordered_corners()
-    }
-
-    /// Whether both corners are finite.
-    pub fn is_finite(&self) -> bool {
-        self.min.is_finite() && self.max.is_finite()
-    }
-
-    /// Whether the minimum corner is component-wise at or below the maximum.
-    pub fn has_ordered_corners(&self) -> bool {
-        self.min.x <= self.max.x && self.min.y <= self.max.y
+        self.min.is_finite()
+            && self.max.is_finite()
+            && self.min.x <= self.max.x
+            && self.min.y <= self.max.y
     }
 
     /// Create a bounding box from a slice of points.
@@ -144,32 +137,6 @@ impl BBox {
         }
     }
 
-    /// Get the intersection with another bounding box.
-    ///
-    /// Returns None if the boxes don't overlap.
-    pub fn intersection(&self, other: &BBox) -> Option<Self> {
-        if !self.overlaps(other) {
-            return None;
-        }
-        Some(Self {
-            min: Point::new(self.min.x.max(other.min.x), self.min.y.max(other.min.y)),
-            max: Point::new(self.max.x.min(other.max.x), self.max.y.min(other.max.y)),
-        })
-    }
-
-    /// Return the tight axis-aligned bounding box of this box after applying
-    /// `transform`.
-    ///
-    /// Computes the AABB of the four transformed corners. For rotations that
-    /// are not multiples of 90° the result is slightly inflated versus the
-    /// true geometric bbox — this matches the behaviour of `Polygon::bbox()`
-    /// called after `Polygon::transform()` and is the standard AABB result
-    /// under affine transforms.
-    pub fn transform(&self, transform: &Transform) -> Self {
-        self.try_transform(transform)
-            .expect("BBox transformation must produce finite corners")
-    }
-
     /// Try to transform this box and return its axis-aligned bounds.
     ///
     /// Returns `None` if transforming any corner produces a non-finite point.
@@ -274,7 +241,7 @@ mod tests {
     fn test_transform_translate() {
         let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(10.0, 5.0));
         let t = Transform::translate(3.0, -2.0);
-        let out = bbox.transform(&t);
+        let out = bbox.try_transform(&t).unwrap();
         assert!(approx_eq(out.min().x, 3.0));
         assert!(approx_eq(out.min().y, -2.0));
         assert!(approx_eq(out.max().x, 13.0));
@@ -286,7 +253,7 @@ mod tests {
         // 10x5 rect at origin -> rotated 90° should become 5x10 at origin
         let bbox = BBox::new(Point::new(0.0, 0.0), Point::new(10.0, 5.0));
         let t = Transform::rotate(std::f64::consts::FRAC_PI_2);
-        let out = bbox.transform(&t);
+        let out = bbox.try_transform(&t).unwrap();
         assert!(approx_eq(out.width(), 5.0));
         assert!(approx_eq(out.height(), 10.0));
     }
@@ -296,7 +263,7 @@ mod tests {
         // Axis-aligned unit square rotated 45° has AABB side sqrt(2).
         let bbox = BBox::new(Point::new(-0.5, -0.5), Point::new(0.5, 0.5));
         let t = Transform::rotate(std::f64::consts::FRAC_PI_4);
-        let out = bbox.transform(&t);
+        let out = bbox.try_transform(&t).unwrap();
         let diag = std::f64::consts::SQRT_2;
         assert!(approx_eq(out.width(), diag));
         assert!(approx_eq(out.height(), diag));

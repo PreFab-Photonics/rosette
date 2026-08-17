@@ -24,19 +24,11 @@ impl Layer {
     pub fn new(number: u16, datatype: u16) -> Self {
         Self { number, datatype }
     }
-
-    /// Create a layer with datatype 0.
-    pub fn from_number(number: u16) -> Self {
-        Self {
-            number,
-            datatype: 0,
-        }
-    }
 }
 
 impl From<u16> for Layer {
     fn from(number: u16) -> Self {
-        Self::from_number(number)
+        Self::new(number, 0)
     }
 }
 
@@ -54,13 +46,6 @@ mod tests {
     fn test_new() {
         let layer = Layer::new(1, 0);
         assert_eq!(layer.number, 1);
-        assert_eq!(layer.datatype, 0);
-    }
-
-    #[test]
-    fn test_from_number() {
-        let layer = Layer::from_number(5);
-        assert_eq!(layer.number, 5);
         assert_eq!(layer.datatype, 0);
     }
 

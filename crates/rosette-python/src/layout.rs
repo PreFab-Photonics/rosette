@@ -8,12 +8,154 @@ use rosette_checks::RouteAnnotationMap;
 use rosette_core::cell::PathEndType;
 use rosette_core::component::connect_transform;
 use rosette_core::{
-    Cell, CellRef, DuplicatePolicy, Layer, Library, Point, Port, Transform, Vector2,
+    Cell, CellRef, DuplicatePolicy, Layer, Library, LibraryError, Point, Port, Transform, Vector2,
 };
 use rosette_route::RouteAnnotations;
+use std::collections::HashMap;
 use std::f64::consts::PI;
+use std::fmt;
 
 const GDS_ARRAY_MAX: i64 = 32_767;
+
+#[derive(Debug)]
+pub(crate) enum RecursiveInsertError {
+    Library(LibraryError),
+    DuplicateCandidate { name: String },
+    InvalidHierarchy { missing: usize, cycles: usize },
+}
+
+impl fmt::Display for RecursiveInsertError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Library(error) => error.fmt(formatter),
+            Self::DuplicateCandidate { name } => write!(
+                formatter,
+                "cell \"{name}\" appears more than once in the candidate registry"
+            ),
+            Self::InvalidHierarchy { missing, cycles } => write!(
+                formatter,
+                "invalid cell hierarchy: {missing} missing reference(s), {cycles} cycle(s)"
+            ),
+        }
+    }
+}
+
+impl From<LibraryError> for RecursiveInsertError {
+    fn from(error: LibraryError) -> Self {
+        Self::Library(error)
+    }
+}
+
+#[derive(Default)]
+struct RecursiveInsertState {
+    visits: HashMap<String, u8>,
+    ordered: Vec<Cell>,
+    missing: usize,
+    cycles: usize,
+}
+
+/// Insert a reachable cell hierarchy for Python composition workflows.
+pub(crate) fn add_cell_hierarchy(
+    library: &mut Library,
+    cell: Cell,
+    available_cells: &[Cell],
+    duplicates: DuplicatePolicy,
+) -> Result<(), RecursiveInsertError> {
+    cell.validate()
+        .map_err(|source| LibraryError::InvalidCell {
+            name: cell.name().to_string(),
+            source,
+        })?;
+
+    let mut candidates = HashMap::<&str, &Cell>::new();
+    candidates.insert(cell.name(), &cell);
+    for candidate in available_cells {
+        // The explicit root definition is authoritative when also in the registry.
+        if candidate.name() == cell.name() {
+            continue;
+        }
+        if candidates.insert(candidate.name(), candidate).is_some() {
+            return Err(RecursiveInsertError::DuplicateCandidate {
+                name: candidate.name().to_string(),
+            });
+        }
+    }
+
+    fn resolve<'a>(
+        library: &'a Library,
+        candidates: &'a HashMap<&str, &'a Cell>,
+        name: &str,
+        duplicates: DuplicatePolicy,
+    ) -> Result<Option<(&'a Cell, bool)>, RecursiveInsertError> {
+        if let Some(existing) = library.cell(name) {
+            if candidates.contains_key(name) && duplicates == DuplicatePolicy::Error {
+                return Err(LibraryError::AlreadyExists {
+                    name: name.to_string(),
+                }
+                .into());
+            }
+            return Ok(Some((existing, false)));
+        }
+        Ok(candidates.get(name).map(|candidate| (*candidate, true)))
+    }
+
+    fn visit<'a>(
+        library: &'a Library,
+        candidates: &'a HashMap<&str, &'a Cell>,
+        name: &str,
+        duplicates: DuplicatePolicy,
+        state: &mut RecursiveInsertState,
+    ) -> Result<(), RecursiveInsertError> {
+        let Some((definition, should_insert)) = resolve(library, candidates, name, duplicates)?
+        else {
+            return Err(LibraryError::CellNotFound {
+                name: name.to_string(),
+            }
+            .into());
+        };
+        definition
+            .validate()
+            .map_err(|source| LibraryError::InvalidCell {
+                name: definition.name().to_string(),
+                source,
+            })?;
+
+        state.visits.insert(name.to_string(), 1);
+        for cell_ref in definition.cell_refs() {
+            let target = cell_ref.cell_name.as_str();
+            if resolve(library, candidates, target, duplicates)?.is_none() {
+                state.missing += 1;
+                continue;
+            }
+            match state.visits.get(target).copied().unwrap_or_default() {
+                1 => state.cycles += 1,
+                2 => {}
+                _ => visit(library, candidates, target, duplicates, state)?,
+            }
+        }
+        state.visits.insert(name.to_string(), 2);
+        if should_insert {
+            state.ordered.push(definition.clone());
+        }
+        Ok(())
+    }
+
+    let mut state = RecursiveInsertState::default();
+    visit(library, &candidates, cell.name(), duplicates, &mut state)?;
+    if state.missing != 0 || state.cycles != 0 {
+        return Err(RecursiveInsertError::InvalidHierarchy {
+            missing: state.missing,
+            cycles: state.cycles,
+        });
+    }
+
+    let mut candidate = library.clone();
+    for cell in state.ordered {
+        candidate.add_cell(cell)?;
+    }
+    *library = candidate;
+    Ok(())
+}
 
 fn validate_port_parts(
     name: &str,
@@ -736,7 +878,7 @@ impl PyCell {
 
     /// Number of polygons.
     fn polygon_count(&self) -> usize {
-        self.0.polygon_count()
+        self.0.polygons().count()
     }
 
     /// Get all polygons (and their layers) stored directly on this cell.
@@ -755,7 +897,7 @@ impl PyCell {
 
     /// Number of cell references.
     fn ref_count(&self) -> usize {
-        self.0.ref_count()
+        self.0.cell_refs().count()
     }
 
     /// Get the unique names of all cells referenced by this cell.
@@ -771,12 +913,12 @@ impl PyCell {
 
     /// Number of paths.
     fn path_count(&self) -> usize {
-        self.0.path_count()
+        self.0.paths().count()
     }
 
     /// Number of text labels.
     fn text_count(&self) -> usize {
-        self.0.text_count()
+        self.0.texts().count()
     }
 
     /// Calculate the bounding box.
@@ -823,15 +965,18 @@ impl PyCell {
     }
 
     fn __repr__(&self) -> String {
-        let mut parts = vec![format!("{} polygons", self.0.polygon_count())];
-        if self.0.path_count() > 0 {
-            parts.push(format!("{} paths", self.0.path_count()));
+        let mut parts = vec![format!("{} polygons", self.0.polygons().count())];
+        let path_count = self.0.paths().count();
+        if path_count > 0 {
+            parts.push(format!("{path_count} paths"));
         }
-        if self.0.text_count() > 0 {
-            parts.push(format!("{} texts", self.0.text_count()));
+        let text_count = self.0.texts().count();
+        if text_count > 0 {
+            parts.push(format!("{text_count} texts"));
         }
-        if self.0.ref_count() > 0 {
-            parts.push(format!("{} refs", self.0.ref_count()));
+        let ref_count = self.0.cell_refs().count();
+        if ref_count > 0 {
+            parts.push(format!("{ref_count} refs"));
         }
         format!("Cell('{}', {})", self.0.name(), parts.join(", "))
     }
@@ -939,6 +1084,81 @@ mod tests {
             library.route_annotations().get("geometry"),
             Some(&RouteAnnotations::default())
         );
+    }
+
+    #[test]
+    fn recursive_insert_is_dependency_first_and_atomic() {
+        let leaf = Cell::new("leaf");
+        let mut child = Cell::new("child");
+        child.add_ref(CellRef::new("leaf"));
+        let mut root = Cell::new("root");
+        root.add_ref(CellRef::new("child"));
+        let mut library = Library::new("test");
+
+        add_cell_hierarchy(
+            &mut library,
+            root,
+            &[leaf, child],
+            DuplicatePolicy::KeepExisting,
+        )
+        .unwrap();
+        assert_eq!(
+            library.cells().iter().map(Cell::name).collect::<Vec<_>>(),
+            vec!["leaf", "child", "root"]
+        );
+
+        let mut missing = Cell::new("missing_root");
+        missing.add_ref(CellRef::new("absent"));
+        let error = add_cell_hierarchy(&mut library, missing, &[], DuplicatePolicy::KeepExisting)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            RecursiveInsertError::InvalidHierarchy {
+                missing: 1,
+                cycles: 0
+            }
+        ));
+        assert_eq!(library.cells().len(), 3);
+    }
+
+    #[test]
+    fn recursive_insert_rejects_cycles_and_ambiguous_candidates() {
+        let mut cell_a = Cell::new("A");
+        cell_a.add_ref(CellRef::new("B"));
+        let mut cell_b = Cell::new("B");
+        cell_b.add_ref(CellRef::new("A"));
+        let mut library = Library::new("test");
+
+        let error = add_cell_hierarchy(
+            &mut library,
+            cell_a.clone(),
+            &[cell_a, cell_b],
+            DuplicatePolicy::KeepExisting,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            RecursiveInsertError::InvalidHierarchy {
+                missing: 0,
+                cycles: 1
+            }
+        ));
+        assert!(library.cells().is_empty());
+
+        let mut root = Cell::new("root");
+        root.add_ref(CellRef::new("child"));
+        let error = add_cell_hierarchy(
+            &mut library,
+            root,
+            &[Cell::new("child"), Cell::new("child")],
+            DuplicatePolicy::KeepExisting,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            RecursiveInsertError::DuplicateCandidate { name } if name == "child"
+        ));
+        assert!(library.cells().is_empty());
     }
 }
 
@@ -1048,8 +1268,7 @@ impl PyLibrary {
         incoming_annotations.insert(cell.0.name().to_string(), cell.route_annotations().clone());
 
         let mut library = self.0.clone();
-        library
-            .add_cell_recursive(cell.0.clone(), &cells, duplicates)
+        add_cell_hierarchy(&mut library, cell.0.clone(), &cells, duplicates)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let mut route_annotations = self.1.clone();
         for added in library
@@ -1131,7 +1350,7 @@ impl PyLibrary {
     ///     bb = lib.cell_bbox("top")  # covers all 15 copies
     ///     ```
     fn cell_bbox(&self, name: &str) -> Option<PyBBox> {
-        self.0.cell_bbox(name).map(PyBBox)
+        rosette_core::hierarchy::cell_bbox(&self.0, name).map(PyBBox)
     }
 
     fn __repr__(&self) -> String {

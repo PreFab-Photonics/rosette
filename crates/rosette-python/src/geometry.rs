@@ -2,8 +2,8 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use rosette_core::geometry::{Region, arc_points, fresnel_c, fresnel_s, path_length};
 use rosette_core::{BBox, Point, Polygon, Transform, Vector2};
-use rosette_core::{arc_points, fresnel_c, fresnel_s, path_length};
 use std::f64::consts::PI;
 
 /// A 2D point representing a position in space.
@@ -296,7 +296,7 @@ impl PyPolygon {
 
     /// Number of vertices.
     fn __len__(&self) -> usize {
-        self.0.len()
+        self.0.vertices().len()
     }
 
     /// Calculate the area.
@@ -401,7 +401,12 @@ impl PyPolygon {
     /// Overlapping regions are merged. Holes are keyholed into single-ring
     /// polygons.
     fn union(&self, other: &PyPolygon) -> Vec<PyPolygon> {
-        self.0.union(&other.0).into_iter().map(PyPolygon).collect()
+        Region::from_polygon(&self.0)
+            .union(&Region::from_polygon(&other.0))
+            .to_keyholed_polygons()
+            .into_iter()
+            .map(PyPolygon)
+            .collect()
     }
 
     /// Subtract another polygon from this one.
@@ -410,8 +415,9 @@ impl PyPolygon {
     /// overlap with `other`. If `other` cuts a hole, the result is a keyholed
     /// single-ring polygon.
     fn subtract(&self, other: &PyPolygon) -> Vec<PyPolygon> {
-        self.0
-            .subtract(&other.0)
+        Region::from_polygon(&self.0)
+            .subtract(&Region::from_polygon(&other.0))
+            .to_keyholed_polygons()
             .into_iter()
             .map(PyPolygon)
             .collect()
@@ -421,8 +427,9 @@ impl PyPolygon {
     ///
     /// Returns a list of polygons covering the area shared by both inputs.
     fn intersect(&self, other: &PyPolygon) -> Vec<PyPolygon> {
-        self.0
-            .intersect(&other.0)
+        Region::from_polygon(&self.0)
+            .intersect(&Region::from_polygon(&other.0))
+            .to_keyholed_polygons()
             .into_iter()
             .map(PyPolygon)
             .collect()
@@ -433,11 +440,16 @@ impl PyPolygon {
     /// Returns a list of polygons covering the area in either input but not
     /// both.
     fn xor(&self, other: &PyPolygon) -> Vec<PyPolygon> {
-        self.0.xor(&other.0).into_iter().map(PyPolygon).collect()
+        Region::from_polygon(&self.0)
+            .xor(&Region::from_polygon(&other.0))
+            .to_keyholed_polygons()
+            .into_iter()
+            .map(PyPolygon)
+            .collect()
     }
 
     fn __repr__(&self) -> String {
-        format!("Polygon({} vertices)", self.0.len())
+        format!("Polygon({} vertices)", self.0.vertices().len())
     }
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyPolygonIterator {

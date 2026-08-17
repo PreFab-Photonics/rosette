@@ -443,7 +443,7 @@ mod tests {
         assert!(
             violations
                 .iter()
-                .all(|violation| violation.location.is_finite())
+                .all(|violation| violation.location.is_valid())
         );
     }
 

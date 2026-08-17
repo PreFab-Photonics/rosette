@@ -1555,7 +1555,7 @@ impl DrcRunner {
             } => {
                 // Fallback region: union of bboxes of all flattened geometry
                 // across every layer. This is the bbox of the design as
-                // actually placed — equivalent to `Library::cell_bbox` on the
+                // actually placed — equivalent to `hierarchy::cell_bbox` on the
                 // top cell, computed here from the already-flattened polygon
                 // map without re-walking the hierarchy. When `region_layer`
                 // is set, that layer's union drives the bbox instead.
@@ -1591,7 +1591,7 @@ impl DrcRunner {
 ///
 /// Returns `None` if no polygons exist. Used as the fallback region for
 /// density checks when no `region_layer` is specified. Equivalent in value
-/// to `Library::cell_bbox` on the top cell, since both describe the extent
+/// to `hierarchy::cell_bbox` on the top cell, since both describe the extent
 /// of all geometry as placed.
 fn placed_geometry_bbox(polygons_by_layer: &HashMap<Layer, Vec<(Polygon, usize)>>) -> Option<BBox> {
     let mut bb: Option<BBox> = None;

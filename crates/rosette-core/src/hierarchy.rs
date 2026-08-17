@@ -1,9 +1,8 @@
 //! Shared cell-hierarchy traversal and array-reference expansion.
 
-use std::collections::HashMap;
-
 use crate::cell::Element;
-use crate::{Cell, CellRef, Library, Transform};
+use crate::path::stroke_path_transformed;
+use crate::{BBox, Cell, CellRef, Library, Transform};
 
 /// One concrete copy produced by an SREF or AREF.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -254,6 +253,41 @@ where
     state.report
 }
 
+/// Calculate the fully resolved bounding box of a cell in a library.
+///
+/// This expands SREFs and AREFs and includes polygons and stroked paths. Text
+/// is excluded because its rendered extent depends on the renderer. Missing
+/// cells and hierarchies without geometry return `None`; cycle back-edges are
+/// skipped by [`walk_hierarchy`].
+pub fn cell_bbox(library: &Library, name: &str) -> Option<BBox> {
+    let cell = library.cell(name)?;
+    let mut result: Option<BBox> = None;
+    walk_hierarchy(library, cell, Transform::identity(), |event| {
+        let HierarchyEvent::Element(placed) = event else {
+            return WalkControl::Continue;
+        };
+        let polygon = match placed.element {
+            Element::Polygon { polygon, .. } => polygon.try_transform(&placed.placement.transform),
+            Element::Path {
+                points,
+                width,
+                end_type,
+                ..
+            } => stroke_path_transformed(points, *width, *end_type, &placed.placement.transform),
+            Element::Text { .. } | Element::CellRef(_) => None,
+        };
+        if let Some(polygon) = polygon {
+            let bbox = polygon.bbox();
+            result = Some(match result.take() {
+                Some(existing) => existing.merge(&bbox),
+                None => bbox,
+            });
+        }
+        WalkControl::Continue
+    });
+    result
+}
+
 struct WalkState<'library, 'visitor, F> {
     library: &'library Library,
     visitor: &'visitor mut F,
@@ -404,50 +438,6 @@ fn format_instance_path(current_cell: &Cell, path: &[InstanceStep<'_>]) -> Strin
     result
 }
 
-impl Library {
-    /// Return every cell once in cycle-safe dependency-first order.
-    ///
-    /// Missing targets and cycle back-edges do not prevent other definitions
-    /// from being ordered. Library insertion order breaks ties deterministically.
-    pub fn dependency_order(&self) -> Vec<&Cell> {
-        let indexes: HashMap<&str, usize> = self
-            .cells()
-            .iter()
-            .enumerate()
-            .map(|(index, cell)| (cell.name(), index))
-            .collect();
-        let mut states = vec![0_u8; self.cells().len()];
-        let mut ordered = Vec::with_capacity(self.cells().len());
-
-        fn visit<'a>(
-            library: &'a Library,
-            indexes: &HashMap<&str, usize>,
-            states: &mut [u8],
-            ordered: &mut Vec<&'a Cell>,
-            index: usize,
-        ) {
-            match states[index] {
-                1 | 2 => return,
-                _ => states[index] = 1,
-            }
-
-            let cell = &library.cells()[index];
-            for cell_ref in cell.cell_refs() {
-                if let Some(&child_index) = indexes.get(cell_ref.cell_name.as_str()) {
-                    visit(library, indexes, states, ordered, child_index);
-                }
-            }
-            states[index] = 2;
-            ordered.push(cell);
-        }
-
-        for index in 0..self.cells().len() {
-            visit(self, &indexes, &mut states, &mut ordered, index);
-        }
-        ordered
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,36 +521,6 @@ mod tests {
         assert_eq!(report.issues.len(), 3);
         assert_eq!(report.issues[0].kind, HierarchyIssueKind::Cycle);
         assert_eq!(report.issues[2].kind, HierarchyIssueKind::MissingReference);
-    }
-
-    #[test]
-    fn dependency_order_handles_diamonds_cycles_and_disconnected_cells() {
-        let leaf = Cell::new("leaf");
-        let mut left = Cell::new("left");
-        left.add_ref(CellRef::new("leaf"));
-        let mut right = Cell::new("right");
-        right.add_ref(CellRef::new("leaf"));
-        let mut root = Cell::new("root");
-        root.add_ref(CellRef::new("left"));
-        root.add_ref(CellRef::new("right"));
-        let mut cycle = Cell::new("cycle");
-        cycle.add_ref(CellRef::new("cycle"));
-        let disconnected = Cell::new("disconnected");
-
-        let mut library = Library::new("test");
-        for cell in [root, right, left, leaf, cycle, disconnected] {
-            library.add_cell(cell).unwrap();
-        }
-
-        let names: Vec<_> = library
-            .dependency_order()
-            .into_iter()
-            .map(Cell::name)
-            .collect();
-        assert_eq!(
-            names,
-            vec!["leaf", "left", "right", "root", "cycle", "disconnected"]
-        );
     }
 
     #[test]

@@ -96,11 +96,6 @@ impl Default for Region {
 }
 
 impl Region {
-    /// Create an empty region.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Create a region from one single-ring polygon.
     pub fn from_polygon(polygon: &Polygon) -> Self {
         Self {
@@ -110,9 +105,11 @@ impl Region {
 
     /// Create a region containing all supplied polygons.
     pub fn from_polygons<'a>(polygons: impl IntoIterator<Item = &'a Polygon>) -> Self {
-        polygons.into_iter().fold(Self::new(), |region, polygon| {
-            region.union(&Self::from_polygon(polygon))
-        })
+        polygons
+            .into_iter()
+            .fold(Self::default(), |region, polygon| {
+                region.union(&Self::from_polygon(polygon))
+            })
     }
 
     /// Compute the union while preserving interior rings.
@@ -191,22 +188,6 @@ impl Region {
                     .map(move |right| Euclidean::distance(left.exterior(), right.exterior()))
             })
             .fold(f64::INFINITY, f64::min)
-    }
-
-    /// Exterior rings without duplicated closing points.
-    pub fn exterior_rings(&self) -> Vec<Vec<Point>> {
-        self.geometry
-            .iter()
-            .map(|polygon| ring_to_points(polygon.exterior()))
-            .collect()
-    }
-
-    /// Interior rings without duplicated closing points.
-    pub fn interior_rings(&self) -> Vec<Vec<Point>> {
-        self.geometry
-            .iter()
-            .flat_map(|polygon| polygon.interiors().iter().map(ring_to_points))
-            .collect()
     }
 
     /// Lower the region to Rosette's single-ring polygon model by keyholing holes.
@@ -383,59 +364,6 @@ fn find_bridge_point(contour: &[Point], hole_point: Point) -> Option<(usize, Poi
 }
 
 // =============================================================================
-// Boolean operations on Polygon
-// =============================================================================
-
-impl Polygon {
-    /// Compute the union of this polygon with another.
-    ///
-    /// Returns the combined area of both polygons as a list of polygons.
-    /// Overlapping regions are merged. Results are keyholed single-ring
-    /// polygons. Degenerate fragments (fewer than 3 vertices) are discarded.
-    #[must_use]
-    pub fn union(&self, other: &Polygon) -> Vec<Polygon> {
-        Region::from_polygon(self)
-            .union(&Region::from_polygon(other))
-            .to_keyholed_polygons()
-    }
-
-    /// Subtract another polygon from this one.
-    ///
-    /// Returns the area of `self` that does not overlap with `other`.
-    /// If `other` is fully contained within `self`, the result is a
-    /// keyholed polygon with a bridge connecting the exterior to the
-    /// cutout. Degenerate fragments (fewer than 3 vertices) are discarded.
-    #[must_use]
-    pub fn subtract(&self, other: &Polygon) -> Vec<Polygon> {
-        Region::from_polygon(self)
-            .subtract(&Region::from_polygon(other))
-            .to_keyholed_polygons()
-    }
-
-    /// Compute the intersection of this polygon with another.
-    ///
-    /// Returns the overlapping area of both polygons. Degenerate fragments
-    /// (fewer than 3 vertices) are discarded.
-    #[must_use]
-    pub fn intersect(&self, other: &Polygon) -> Vec<Polygon> {
-        Region::from_polygon(self)
-            .intersect(&Region::from_polygon(other))
-            .to_keyholed_polygons()
-    }
-
-    /// Compute the symmetric difference (XOR) of this polygon with another.
-    ///
-    /// Returns the area that is in either polygon but not in both. Degenerate
-    /// fragments (fewer than 3 vertices) are discarded.
-    #[must_use]
-    pub fn xor(&self, other: &Polygon) -> Vec<Polygon> {
-        Region::from_polygon(self)
-            .xor(&Region::from_polygon(other))
-            .to_keyholed_polygons()
-    }
-}
-
-// =============================================================================
 // Tests
 // =============================================================================
 
@@ -447,6 +375,14 @@ mod tests {
 
     fn approx_eq(a: f64, b: f64) -> bool {
         (a - b).abs() < EPSILON
+    }
+
+    fn lower_binary(
+        left: &Polygon,
+        right: &Polygon,
+        operation: impl FnOnce(&Region, &Region) -> Region,
+    ) -> Vec<Polygon> {
+        operation(&Region::from_polygon(left), &Region::from_polygon(right)).to_keyholed_polygons()
     }
 
     // -- Conversion tests --
@@ -475,7 +411,7 @@ mod tests {
             vec![],
         );
         let poly = polygon_from_geo(&geo_poly).unwrap();
-        assert_eq!(poly.len(), 4);
+        assert_eq!(poly.vertices().len(), 4);
     }
 
     #[test]
@@ -483,7 +419,7 @@ mod tests {
         let original = Polygon::rect(Point::new(1.0, 2.0), 8.0, 4.0);
         let geo_poly = polygon_to_geo(&original);
         let roundtripped = polygon_from_geo(&geo_poly).unwrap();
-        assert_eq!(original.len(), roundtripped.len());
+        assert_eq!(original.vertices().len(), roundtripped.vertices().len());
         assert!(approx_eq(original.area(), roundtripped.area()));
     }
 
@@ -583,7 +519,7 @@ mod tests {
         let poly = polygon_from_geo(&geo_poly).unwrap();
 
         // Should have more than 4 vertices (exterior + hole + bridge)
-        assert!(poly.len() > 4);
+        assert!(poly.vertices().len() > 4);
     }
 
     // -- Boolean operation tests --
@@ -594,7 +530,7 @@ mod tests {
         let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
         let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0);
 
-        let result = a.union(&b);
+        let result = lower_binary(&a, &b, Region::union);
         assert_eq!(result.len(), 1);
 
         // Union area should be 150 (10*10 + 10*10 - 5*10 overlap)
@@ -607,7 +543,7 @@ mod tests {
         let a = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
         let b = Polygon::rect(Point::new(20.0, 20.0), 5.0, 5.0);
 
-        let result = a.union(&b);
+        let result = lower_binary(&a, &b, Region::union);
         assert_eq!(result.len(), 2);
 
         let total_area: f64 = result.iter().map(|p| p.area()).sum();
@@ -619,7 +555,7 @@ mod tests {
         let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
         let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0);
 
-        let result = a.subtract(&b);
+        let result = lower_binary(&a, &b, Region::subtract);
         assert_eq!(result.len(), 1);
 
         // Remaining area: 10*10 - 5*10 = 50
@@ -633,14 +569,14 @@ mod tests {
         let outer = Polygon::rect(Point::new(0.0, 0.0), 20.0, 20.0);
         let inner = Polygon::rect(Point::new(5.0, 5.0), 10.0, 10.0);
 
-        let result = outer.subtract(&inner);
+        let result = lower_binary(&outer, &inner, Region::subtract);
         assert_eq!(result.len(), 1);
 
         // The result should be a keyholed polygon.
         // Area: 20*20 - 10*10 = 300
         let poly = &result[0];
         // More than 4 vertices (has a bridge + hole)
-        assert!(poly.len() > 4);
+        assert!(poly.vertices().len() > 4);
 
         // Verify area by shoelace — for a keyholed polygon the signed area
         // should equal exterior area minus hole area.
@@ -653,7 +589,7 @@ mod tests {
         let a = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
         let b = Polygon::rect(Point::new(20.0, 20.0), 5.0, 5.0);
 
-        let result = a.subtract(&b);
+        let result = lower_binary(&a, &b, Region::subtract);
         assert_eq!(result.len(), 1);
 
         let total_area: f64 = result.iter().map(|p| p.area()).sum();
@@ -665,7 +601,7 @@ mod tests {
         let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
         let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0);
 
-        let result = a.intersect(&b);
+        let result = lower_binary(&a, &b, Region::intersect);
         assert_eq!(result.len(), 1);
 
         // Intersection area: 5*10 = 50
@@ -678,7 +614,7 @@ mod tests {
         let a = Polygon::rect(Point::new(0.0, 0.0), 5.0, 5.0);
         let b = Polygon::rect(Point::new(20.0, 20.0), 5.0, 5.0);
 
-        let result = a.intersect(&b);
+        let result = lower_binary(&a, &b, Region::intersect);
         assert!(result.is_empty());
     }
 
@@ -687,7 +623,7 @@ mod tests {
         let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
         let b = Polygon::rect(Point::new(5.0, 0.0), 10.0, 10.0);
 
-        let result = a.xor(&b);
+        let result = lower_binary(&a, &b, Region::xor);
 
         // XOR area: (10*10 + 10*10) - 2*(5*10) = 100
         let total_area: f64 = result.iter().map(|p| p.area()).sum();
@@ -699,7 +635,7 @@ mod tests {
         let a = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
         let b = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
 
-        let result = a.xor(&b);
+        let result = lower_binary(&a, &b, Region::xor);
         assert!(result.is_empty());
     }
 
@@ -709,7 +645,7 @@ mod tests {
         let small = Polygon::rect(Point::new(2.0, 2.0), 3.0, 3.0);
         let big = Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0);
 
-        let result = small.subtract(&big);
+        let result = lower_binary(&small, &big, Region::subtract);
         assert!(result.is_empty());
     }
 
@@ -720,12 +656,12 @@ mod tests {
         let hole_b = Region::from_polygon(&Polygon::rect(Point::new(20.0, 10.0), 5.0, 5.0));
         let region = outer.subtract(&hole_a).subtract(&hole_b);
 
-        assert_eq!(region.exterior_rings().len(), 1);
-        assert_eq!(region.interior_rings().len(), 2);
+        assert_eq!(region.geometry.0.len(), 1);
+        assert_eq!(region.geometry.0[0].interiors().len(), 2);
         assert!(approx_eq(region.area(), 550.0));
         let lowered = region.to_keyholed_polygons();
         assert_eq!(lowered.len(), 1);
-        assert!(lowered[0].len() > 12);
+        assert!(lowered[0].vertices().len() > 12);
     }
 
     #[test]
@@ -735,8 +671,15 @@ mod tests {
         let island = Region::from_polygon(&Polygon::rect(Point::new(30.0, 0.0), 5.0, 5.0));
         let region = base.subtract(&hole).union(&island);
 
-        assert_eq!(region.exterior_rings().len(), 2);
-        assert_eq!(region.interior_rings().len(), 1);
+        assert_eq!(region.geometry.0.len(), 2);
+        assert_eq!(
+            region
+                .geometry
+                .iter()
+                .map(|polygon| polygon.interiors().len())
+                .sum::<usize>(),
+            1
+        );
         assert!(approx_eq(region.area(), 325.0));
     }
 }

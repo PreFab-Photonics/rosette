@@ -22,7 +22,7 @@ use crate::rasterize::LayerRaster;
 /// # Returns
 ///
 /// A vector of polygons representing the predicted geometry boundaries.
-pub fn extract_contours(raster: &LayerRaster, threshold: f64) -> Vec<Polygon> {
+pub(crate) fn extract_contours(raster: &LayerRaster, threshold: f64) -> Vec<Polygon> {
     if raster.width < 2 || raster.height < 2 {
         return Vec::new();
     }

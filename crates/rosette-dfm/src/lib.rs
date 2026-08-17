@@ -35,15 +35,16 @@
 
 mod compare;
 mod contour;
-pub mod model;
-pub mod rasterize;
+mod model;
+mod rasterize;
 mod result;
 
 pub use compare::{DfmTolerances, DfmViolation, DfmViolationType, LayerMetrics, Severity};
-pub use contour::extract_contours;
 pub use model::{DfmModel, GaussianModel};
 pub use rasterize::{LayerRaster, RasterConfig};
 pub use result::{DfmResult, DfmStats, LayerPrediction};
+
+use contour::extract_contours;
 
 use std::collections::HashMap;
 use std::sync::Arc;

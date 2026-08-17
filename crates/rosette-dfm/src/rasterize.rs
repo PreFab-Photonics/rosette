@@ -236,31 +236,6 @@ fn rasterize_polygon(raster: &mut LayerRaster, polygon: &Polygon) {
     }
 }
 
-/// Rasterize a cell on a specific layer.
-pub fn rasterize_cell(
-    cell: &Cell,
-    library: Option<&Library>,
-    layer: Layer,
-    config: &RasterConfig,
-) -> Option<LayerRaster> {
-    let polygons_by_layer = flatten_cell(cell, library, &Transform::identity());
-    let polygons = polygons_by_layer.get(&layer)?;
-
-    if polygons.is_empty() {
-        return None;
-    }
-
-    // Compute bounding box of all polygons on this layer
-    let mut bbox = polygons[0].bbox();
-    for poly in &polygons[1..] {
-        bbox = bbox.merge(&poly.bbox());
-    }
-
-    let mut raster = LayerRaster::from_bbox(&bbox, config);
-    rasterize_polygons(&mut raster, polygons);
-    Some(raster)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,31 +260,6 @@ mod tests {
         let mid_col = raster.width / 2;
         let mid_row = raster.height / 2;
         assert_eq!(raster.get(mid_col, mid_row), 1.0);
-    }
-
-    #[test]
-    fn test_rasterize_cell() {
-        let mut cell = Cell::new("test");
-        let layer = Layer::new(1, 0);
-        cell.add_polygon(Polygon::rect(Point::new(0.0, 0.0), 10.0, 10.0), layer);
-
-        let config = RasterConfig {
-            resolution: 1.0,
-            padding: 1.0,
-        };
-
-        let raster = rasterize_cell(&cell, None, layer, &config).unwrap();
-        assert!(raster.filled_count() > 0);
-        assert!(raster.width > 10);
-        assert!(raster.height > 10);
-    }
-
-    #[test]
-    fn test_empty_layer() {
-        let cell = Cell::new("empty");
-        let config = RasterConfig::default();
-        let result = rasterize_cell(&cell, None, Layer::new(1, 0), &config);
-        assert!(result.is_none());
     }
 
     #[test]
