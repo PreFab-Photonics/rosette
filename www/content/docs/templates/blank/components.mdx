@@ -1,0 +1,24 @@
+---
+title: Blank Components
+description: Understand the helper-only component scaffold included with the blank template.
+---
+
+The blank template starts with no public components. Its `components/` package
+contains only the shared scaffold:
+
+| Module | Purpose |
+| --- | --- |
+| `__init__.py` | Public project exports; initially `__all__ = []`. |
+| `_utils.py` | `safe_cell_name()` for deterministic names within the GDS length limit. |
+| `_curves.py` | S-bend point, tangent, envelope, and path-length helpers. |
+| `_tapers.py` | `taper_polygon()` and the `TaperProfile` type. |
+
+These underscore modules are project-local implementation helpers, not components
+to instantiate directly from a design. Define semantic layers in `rosette.toml`, then
+use the shared [component-authoring guide](/docs/templates/component-authoring) to
+build and export the components your process requires.
+
+If you want the complete starter catalog instead, initialize a project with the
+[generic template](/docs/templates/generic/components). Do not copy the generic
+catalog into an established project without reviewing its layer, geometry, and process
+assumptions.

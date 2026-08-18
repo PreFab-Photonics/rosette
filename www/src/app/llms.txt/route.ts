@@ -13,6 +13,13 @@ Coordinates, dimensions, and distances are in microns. The website documents the
 - [Core concepts](https://rosette.dev/docs/getting-started/core-concepts.md): Understand cells, layers, ports, geometry, and verification.
 - [Agent workflows](https://rosette.dev/docs/guides/agent-workflows.md): Use generated contracts and the build-check-inspect loop.
 
+## Project Templates
+
+- [Template overview](https://rosette.dev/docs/templates.md): Choose between the generic catalog and blank authoring scaffold.
+- [Component authoring](https://rosette.dev/docs/templates/component-authoring.md): Add or modify project-local components in either template.
+- [Generic components](https://rosette.dev/docs/templates/generic/components.md): Included components, ports, signatures, and metric functions.
+- [Blank components](https://rosette.dev/docs/templates/blank/components.md): Understand the minimal helper scaffold and empty public surface.
+
 ## Design Workflows
 
 - [Routing](https://rosette.dev/docs/guides/routing.md): Connect ports with waypoint-based photonic routes and inspect bend diagnostics.

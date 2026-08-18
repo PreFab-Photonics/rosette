@@ -19,13 +19,13 @@ relevant shared helpers, and a similar existing component when one exists.
   outputs at positive x where practical.
 - Point every port direction outward from the component body and set the port
   width to the physical waveguide width at that boundary.
-- Component factories return geometry. Expose a separately named metric function
+- Component functions return geometry. Expose a separately named metric function
   only when the metric is meaningful and unambiguous, such as
   `ring_round_trip_length()` or `crossing_through_length()`.
 - Use `safe_cell_name()` from `components._utils` for parameterized GDS-safe names.
 - Reuse `components._curves` and `components._tapers` instead of duplicating their
   geometry algorithms.
-- Export public component factories and metric functions from
+- Export public component functions and metric functions from
   `components/__init__.py` and its `__all__`.
 
 ## Validate

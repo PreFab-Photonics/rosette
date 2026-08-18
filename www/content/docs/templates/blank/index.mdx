@@ -1,0 +1,22 @@
+---
+title: Blank Template
+description: Start with an empty process configuration and component-authoring scaffold.
+---
+
+The blank template is intended for custom processes and PDK integration. It includes
+the same generated contracts as the generic template, plus workflow skills when an
+agent harness is selected, but starts with:
+
+- An empty layer and DRC configuration for you to define.
+- No public components.
+- Shared curve, taper, and naming helpers under `components/`.
+
+```bash
+uvx --from librosette rosette init my-chip --template blank
+cd my-chip
+```
+
+Define semantic layers in `rosette.toml` before writing designs. Then add reusable
+devices to `components/` as your project requires. See
+[blank components](/docs/templates/blank/components) for the initial helper scaffold,
+then follow the shared [component-authoring guide](/docs/templates/component-authoring).

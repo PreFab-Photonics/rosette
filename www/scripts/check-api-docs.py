@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Check that every public API symbol has a corresponding docs page.
+"""Check that every public API symbol has corresponding documentation.
 
 Parses __all__ from the root package and public feature modules, then verifies
 that each symbol either has its own .mdx page (classes) or is documented on the
-index page (functions and constants).
+index page (functions and constants). Project-owned component exports are
+documented in the generic-template component catalog instead.
 
 Usage:
     uv run python www/scripts/check-api-docs.py
@@ -16,10 +17,10 @@ Exit codes:
 from __future__ import annotations
 
 import ast
-from collections import Counter
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
@@ -39,6 +40,10 @@ PUBLIC_MODULES = {
     "rosette.render": ROSETTE_PACKAGE / "render.py",
 }
 AGENT_REFERENCE = ROOT / "python" / "rosette" / "api.pyi"
+COMPONENT_MODULE = ROSETTE_PACKAGE / "components" / "__init__.py"
+GENERIC_COMPONENT_DOCS = (
+    ROOT / "www" / "content" / "docs" / "templates" / "generic" / "components.mdx"
+)
 
 
 def extract_all(filepath: Path) -> list[str]:
@@ -82,6 +87,11 @@ def find_documented_attrs(index_mdx: Path) -> set[str]:
     """Find attribute/constant names documented in the index.mdx via PyAttribute components."""
     content = index_mdx.read_text()
     return set(re.findall(r'<PyAttribute\s+name=\{"([^"]+)"\}', content))
+
+
+def find_documented_components(page: Path) -> set[str]:
+    """Find component exports documented as second-level code headings."""
+    return set(re.findall(r"^## `([^`]+)`$", page.read_text(), flags=re.MULTILINE))
 
 
 def find_landing_class_cards(index_mdx: Path) -> set[str]:
@@ -150,23 +160,12 @@ def main() -> int:
         for symbol in duplicates:
             errors.append(f"Symbol '{module}.{symbol}' appears more than once in __all__")
 
-    all_symbols = [
-        symbol
-        for symbols in symbols_by_module.values()
-        for symbol in symbols
-    ]
-    duplicate_exports = [
-        name for name, count in Counter(all_symbols).items() if count > 1
-    ]
+    all_symbols = [symbol for symbols in symbols_by_module.values() for symbol in symbols]
+    duplicate_exports = [name for name, count in Counter(all_symbols).items() if count > 1]
     for symbol in duplicate_exports:
-        modules = [
-            module
-            for module, symbols in symbols_by_module.items()
-            if symbol in symbols
-        ]
+        modules = [module for module, symbols in symbols_by_module.items() if symbol in symbols]
         errors.append(
-            f"Symbol '{symbol}' is exported by multiple public modules: "
-            f"{', '.join(modules)}"
+            f"Symbol '{symbol}' is exported by multiple public modules: {', '.join(modules)}"
         )
 
     # Separate classes (uppercase, not ALL_CAPS) from functions/constants.
@@ -175,6 +174,24 @@ def main() -> int:
     classes = [s for s in all_symbols if s and s[0].isupper() and not s.isupper()]
     functions = [s for s in all_symbols if s and s[0].islower()]
     constants = [s for s in all_symbols if s and s.isupper()]
+
+    # Template components are project-owned after `rosette init`, so their
+    # catalog lives under the generic template rather than the core API index.
+    component_symbols = set(extract_all(COMPONENT_MODULE))
+    if not component_symbols:
+        errors.append(f"Could not parse __all__ from rosette.components ({COMPONENT_MODULE})")
+    if GENERIC_COMPONENT_DOCS.exists():
+        documented_components = find_documented_components(GENERIC_COMPONENT_DOCS)
+        for component in sorted(component_symbols - documented_components):
+            errors.append(
+                f"Generic component '{component}' is missing from "
+                f"{GENERIC_COMPONENT_DOCS.relative_to(ROOT)}"
+            )
+        for component in sorted(documented_components - component_symbols):
+            errors.append(f"Generic template docs contain unknown component '{component}'")
+    else:
+        errors.append(f"Generic component docs not found: {GENERIC_COMPONENT_DOCS}")
+
     # ── Check docs exist ───────────────────────────────────────────────
     mdx_pages = find_mdx_pages(DOCS_DIR)
     index_mdx = DOCS_DIR / "index.mdx"
@@ -259,7 +276,7 @@ def main() -> int:
             file=sys.stderr,
         )
         print(
-            "corresponding docs page in www/content/docs/api-reference/.",
+            "corresponding API or template component docs page.",
             file=sys.stderr,
         )
         print(
@@ -271,7 +288,8 @@ def main() -> int:
     print(
         f"API docs check passed: {len(classes)} classes, "
         f"{len(functions)} functions, {len(constants)} constants "
-        f"across {len(symbols_by_module)} public modules - all documented."
+        f"across {len(symbols_by_module)} public modules, plus "
+        f"{len(component_symbols)} generic-template component exports - all documented."
     )
     return 0
 

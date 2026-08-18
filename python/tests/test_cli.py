@@ -921,7 +921,7 @@ class TestRosetteInit:
         assert {path.name for path in skill_root.iterdir()} == FOCUSED_SKILLS
         authoring = (skill_root / "component-authoring" / "SKILL.md").read_text()
         assert "not for one-off design geometry" in authoring
-        assert "Component factories return geometry" in authoring
+        assert "Component functions return geometry" in authoring
         assert "separately named metric function" in authoring
         assert "cell.path_length" not in authoring
         assert not (project_dir / ".claude").exists()

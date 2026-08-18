@@ -41,6 +41,12 @@ For library development, import from `rosette.components`:
 from rosette.components import mmi, ring, grating_coupler
 ```
 
+The component surface is documented by project template rather than as a stable core
+API. See the [generic component catalog](/docs/templates/generic/components) or the
+[blank component scaffold](/docs/templates/blank/components). The shared
+[component-authoring guide](/docs/templates/component-authoring) applies to both.
+After initialization, the project-local `components/` source is authoritative.
+
 <Tabs items={["Classes","Functions"]}>
 
 <Tab value={"Classes"}>
@@ -75,7 +81,7 @@ from rosette.components import mmi, ring, grating_coupler
 
 ### Component metrics
 
-Component factories return geometry-only Cells. When a component has a
+Component functions return geometry-only Cells. When a component has a
 meaningful optical metric, import its semantically named companion from
 `components` in a generated project or from `rosette.components` during
 library development:
