@@ -47,9 +47,7 @@ API. See the [generic component catalog](/docs/templates/generic/components) or 
 [component-authoring guide](/docs/templates/component-authoring) applies to both.
 After initialization, the project-local `components/` source is authoritative.
 
-<Tabs items={["Classes","Functions"]}>
-
-<Tab value={"Classes"}>
+## Classes
 
 ### Geometry
 
@@ -149,8 +147,7 @@ generic path or a `Cell.path_length` value.
 
 </Cards>
 
-</Tab>
-<Tab value={"Functions"}>
+## Functions
 
 ### I/O
 
@@ -345,7 +342,7 @@ Rules are defined per-layer in the `[drc.layers]` section (supporting
 `[[drc.rules]]` array.
 
 An optional top-level `[drc].warning_margin` knob downgrades near-threshold
-numeric violations to warnings (see [`DrcRules.warning_margin`](./DrcRules)).
+numeric violations to warnings (see [`DrcRules.warning_margin`](/docs/api-reference/DrcRules#warning_margin)).
 
 Layer keys can use semantic names from the `[layers]` section (e.g.
 `[drc.layers.silicon]`) or the traditional `"number/datatype"` format
@@ -425,7 +422,7 @@ Library containing referenced cells (required if cell has refs).
 <PyParameter name={"policy"} type={"DrcPolicy | None"} value={"None"}>
 
 Optional explicit per-run cell skips and local waiver regions. DRC policy is
-separate from Cell geometry; see [`DrcPolicy`](./DrcPolicy).
+separate from Cell geometry; see [`DrcPolicy`](/docs/api-reference/DrcPolicy).
 
 </PyParameter>
 
@@ -695,8 +692,8 @@ without notice.
 
 <PyFunction name={"render_png"} type={"(design, *, bbox=None, cell=None, layers=None, width=1024, height=None, pad=0.1, bg='#1a1a1a', fill_alpha=178, palette=None) -> RenderResult"}>
 
-Render a [`Cell`](./Cell) or [`Library`](./Library) to a PNG image, returning a
-[`RenderResult`](./RenderResult) with the image bytes and world↔pixel transform
+Render a [`Cell`](/docs/api-reference/Cell) or [`Library`](/docs/api-reference/Library) to a PNG image, returning a
+[`RenderResult`](/docs/api-reference/RenderResult) with the image bytes and world↔pixel transform
 metadata.
 
 <div>
@@ -758,13 +755,9 @@ Optional `{layer_number: hex_color}` overrides.
 
 <PyFunctionReturn type={"RenderResult"}>
 
-A [`RenderResult`](./RenderResult) with `png` (bytes), `view` (dict), and
+A [`RenderResult`](/docs/api-reference/RenderResult) with `png` (bytes), `view` (dict), and
 `layers_rendered`.
 
 </PyFunctionReturn>
 
 </PyFunction>
-
-</Tab>
-
-</Tabs>

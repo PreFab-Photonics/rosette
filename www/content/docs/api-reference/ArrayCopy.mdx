@@ -3,12 +3,12 @@ title: ArrayCopy
 description: A read-only view of one copy in an arrayed Instance.
 ---
 
-A read-only view of one copy in an arrayed [`Instance`](./Instance).
+A read-only view of one copy in an arrayed [`Instance`](/docs/api-reference/Instance).
 
 Import with `from rosette.layout import ArrayCopy`.
 
-Produced by [`Instance.copy()`](./Instance#copy) and
-[`Instance.copies()`](./Instance#copies). Exposes the copy's grid position,
+Produced by [`Instance.copy()`](/docs/api-reference/Instance#copy) and
+[`Instance.copies()`](/docs/api-reference/Instance#copies). Exposes the copy's grid position,
 its world-space transform, and a `port(name)` helper for retrieving the
 transformed port of this specific copy.
 
@@ -72,6 +72,34 @@ The underlying cell definition (shared with the parent `Instance`).
 </PyAttribute>
 
 ## Methods
+
+<PyFunction name={"__init__"} type={"(instance, col, row) -> None"}>
+
+Create a read-only view for one array position.
+
+<div>
+
+<PyParameter name={"instance"} type={"Instance"}>
+
+Parent arrayed instance.
+
+</PyParameter>
+<PyParameter name={"col"} type={"int"}>
+
+Zero-based column index.
+
+</PyParameter>
+<PyParameter name={"row"} type={"int"}>
+
+Zero-based row index.
+
+</PyParameter>
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
 
 <PyFunction name={"port"} type={"(name) -> Port"}>
 

@@ -376,7 +376,7 @@ Zero-based grid row.
 
 <PyFunctionReturn type={"ArrayCopy"}>
 
-A validated [`ArrayCopy`](./ArrayCopy) view. Invalid coordinates raise
+A validated [`ArrayCopy`](/docs/api-reference/ArrayCopy) view. Invalid coordinates raise
 `IndexError`; non-integer coordinates raise `TypeError`.
 
 </PyFunctionReturn>
@@ -387,7 +387,7 @@ A validated [`ArrayCopy`](./ArrayCopy) view. Invalid coordinates raise
 
 Iterate over the individual copies in this instance's array.
 
-Yields one [`ArrayCopy`](./ArrayCopy) per grid position, in
+Yields one [`ArrayCopy`](/docs/api-reference/ArrayCopy) per grid position, in
 column-major order (`col` varies fastest). Each yielded object
 exposes `col`, `row`, a world-space `transform`, and a `port(name)`
 convenience. These are read-only observational views, not independent

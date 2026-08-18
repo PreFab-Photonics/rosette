@@ -30,14 +30,14 @@ Create an empty DRC policy.
 
 </PyFunction>
 
-<PyFunction name={"skip_cell"} type={"(name) -> None"}>
+<PyFunction name={"skip_cell"} type={"(cell_name) -> None"}>
 
 Suppress violations attributed entirely to the named cell or its reachable
 subtree. Violations involving an unskipped cell remain visible.
 
 <div>
 
-<PyParameter name={"name"} type={"str"}>
+<PyParameter name={"cell_name"} type={"str"}>
 
 Name of the cell whose subtree should be skipped.
 
@@ -49,7 +49,7 @@ Name of the cell whose subtree should be skipped.
 
 </PyFunction>
 
-<PyFunction name={"waive_region"} type={"(name, region) -> None"}>
+<PyFunction name={"waive_region"} type={"(cell_name, region) -> None"}>
 
 Add a region waiver in the named cell's local coordinate system. A violation
 is waived only when its location is fully contained by the region after the
@@ -57,7 +57,7 @@ region is transformed for that cell placement.
 
 <div>
 
-<PyParameter name={"name"} type={"str"}>
+<PyParameter name={"cell_name"} type={"str"}>
 
 Name of the cell that owns the local waiver region.
 
@@ -74,14 +74,14 @@ Finite bounding box with ordered corners.
 
 </PyFunction>
 
-<PyFunction name={"skips"} type={"(name) -> bool"}>
+<PyFunction name={"skips"} type={"(cell_name) -> bool"}>
 
 Return whether the named cell was explicitly passed to `skip_cell`. This does
 not report cells included only because they are descendants of a skipped cell.
 
 <div>
 
-<PyParameter name={"name"} type={"str"}>
+<PyParameter name={"cell_name"} type={"str"}>
 
 Cell name to query.
 
@@ -93,13 +93,13 @@ Cell name to query.
 
 </PyFunction>
 
-<PyFunction name={"waiver_regions"} type={"(name) -> list[BBox]"}>
+<PyFunction name={"waiver_regions"} type={"(cell_name) -> list[BBox]"}>
 
 Return a copy of the local waiver regions registered for the named cell.
 
 <div>
 
-<PyParameter name={"name"} type={"str"}>
+<PyParameter name={"cell_name"} type={"str"}>
 
 Cell name to query.
 

@@ -12,7 +12,8 @@ flow-preserving placeholders in `source.config.ts`. Machine output must not cont
 presentation-only JSX or encoded JSX attributes. `.source/` and `.next/` are
 generated and must not be edited.
 
-`build` also validates the generated full corpus and API contract output.
+`build` also validates the generated full corpus, API contract output, and internal
+links against the built HTML routes and anchors.
 
 `public/cli.json` is generated from the Python parser. After changing CLI
 commands or flags, run `uv run python www/scripts/generate-cli-manifest.py` and
