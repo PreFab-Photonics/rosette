@@ -1,0 +1,722 @@
+{
+  "schema": 1,
+  "prog": "rosette",
+  "description": "Photonic layout tool for creating and building GDS designs",
+  "json_schema": 1,
+  "package_version": "0.4.2",
+  "arguments": [
+    {
+      "flags": [
+        "-V",
+        "--version"
+      ],
+      "dest": "version",
+      "positional": false,
+      "required": false,
+      "takes_value": false,
+      "metavar": null,
+      "choices": null,
+      "default": null,
+      "help": "show program's version number and exit"
+    }
+  ],
+  "commands": {
+    "init": {
+      "help": "Initialize rosette in the current dir or a new project directory",
+      "description": null,
+      "epilog": null,
+      "needs": "nothing",
+      "arguments": [
+        {
+          "flags": [],
+          "dest": "path",
+          "positional": true,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Directory to create the project in (created if needed). Defaults to current dir."
+        },
+        {
+          "flags": [
+            "-n",
+            "--name"
+          ],
+          "dest": "name",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Project name (defaults to the project directory name). Interactive if omitted."
+        },
+        {
+          "flags": [
+            "-t",
+            "--template"
+          ],
+          "dest": "template",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Project template to use (blank, generic). Interactive if omitted."
+        },
+        {
+          "flags": [
+            "--tool"
+          ],
+          "dest": "tool",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "AI tool(s) to configure, comma-separated (e.g. 'agents', 'claude', 'agents,claude', or 'none'). Aliases like 'opencode'/'codex'/'cursor' map to the AGENTS.md standard. Interactive if omitted."
+        },
+        {
+          "flags": [
+            "-y",
+            "--yes"
+          ],
+          "dest": "yes",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Skip confirmation when bootstrapping a uv project (uv init + uv add librosette)."
+        },
+        {
+          "flags": [
+            "--no-git"
+          ],
+          "dest": "git",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": true,
+          "help": "Don't run `git init` when bootstrapping a new project."
+        },
+        {
+          "flags": [
+            "--no-install"
+          ],
+          "dest": "install",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": true,
+          "help": "Dev only: skip `uv add librosette` when bootstrapping, so the project's venv doesn't shadow a globally-installed (e.g. working-copy) rosette. `uv run rosette` then uses the rosette on PATH. The project won't declare librosette as a dependency or be able to `import rosette`."
+        }
+      ]
+    },
+    "update": {
+      "help": "Update generated project context",
+      "description": null,
+      "epilog": null,
+      "needs": "nothing",
+      "arguments": []
+    },
+    "cli-manifest": {
+      "help": "Print the machine-readable CLI manifest (same as .rosette/cli.json)",
+      "description": "Print the CLI command manifest as JSON to stdout. This is the same object written to .rosette/cli.json by `rosette init`/`update`: a discoverable contract of every command, its flags, exit codes, and the --json schema version. Derived from the argparse parser, so it never drifts from the real CLI.",
+      "epilog": null,
+      "needs": "nothing",
+      "arguments": []
+    },
+    "build": {
+      "help": "Build a design to GDS",
+      "description": null,
+      "epilog": null,
+      "needs": "design",
+      "arguments": [
+        {
+          "flags": [],
+          "dest": "design",
+          "positional": true,
+          "required": true,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Design file (path or path:target)"
+        },
+        {
+          "flags": [
+            "-o",
+            "--output"
+          ],
+          "dest": "output",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": "output",
+          "help": "Output directory"
+        },
+        {
+          "flags": [
+            "-v",
+            "--verbose"
+          ],
+          "dest": "verbose",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Show detailed build output"
+        },
+        {
+          "flags": [
+            "--check"
+          ],
+          "dest": "check",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Run DRC before building (warns but still writes GDS)"
+        },
+        {
+          "flags": [
+            "--config"
+          ],
+          "dest": "config",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Path to rosette.toml for --check (auto-detected if omitted)"
+        }
+      ]
+    },
+    "check": {
+      "help": "Run all checks (DRC, design checks)",
+      "description": "Run DRC and design checks (connectivity + bend radius); add --include-dfm to also run DFM prediction.",
+      "epilog": "With --json, `check` emits a single JSON object on stdout (schema 1); decorative output is suppressed so stdout stays parseable. Read `passed` directly; each violation carries a `bbox` in microns (same coordinate space as `rosette shot`) locating the problem. Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. These are stable; branch on the exit code, not on the printed text.",
+      "needs": "design",
+      "arguments": [
+        {
+          "flags": [],
+          "dest": "design",
+          "positional": true,
+          "required": true,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Design file (path or path:target)"
+        },
+        {
+          "flags": [
+            "--config"
+          ],
+          "dest": "config",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Path to rosette.toml (auto-detected if omitted)"
+        },
+        {
+          "flags": [
+            "--include-dfm"
+          ],
+          "dest": "include_dfm",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Also run DFM prediction (requires [dfm] section in rosette.toml)"
+        },
+        {
+          "flags": [
+            "-v",
+            "--verbose"
+          ],
+          "dest": "verbose",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Show detailed output"
+        },
+        {
+          "flags": [
+            "--json"
+          ],
+          "dest": "json",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Emit a single machine-readable JSON object to stdout (schema 1)"
+        }
+      ]
+    },
+    "drc": {
+      "help": "Run DRC only",
+      "description": "Run design-rule checking (min width, spacing, overlap, ...) only.",
+      "epilog": "With --json, `drc` emits a single JSON object on stdout (schema 1); decorative output is suppressed so stdout stays parseable. Read `passed` directly; each violation carries a `bbox` in microns (same coordinate space as `rosette shot`) locating the problem. Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. These are stable; branch on the exit code, not on the printed text.",
+      "needs": "design",
+      "arguments": [
+        {
+          "flags": [],
+          "dest": "design",
+          "positional": true,
+          "required": true,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Design file (path or path:target)"
+        },
+        {
+          "flags": [
+            "--config"
+          ],
+          "dest": "config",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Path to rosette.toml (auto-detected if omitted)"
+        },
+        {
+          "flags": [
+            "-v",
+            "--verbose"
+          ],
+          "dest": "verbose",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Show detailed output"
+        },
+        {
+          "flags": [
+            "--json"
+          ],
+          "dest": "json",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Emit a single machine-readable JSON object to stdout (schema 1)"
+        }
+      ]
+    },
+    "dfm": {
+      "help": "Run DFM prediction",
+      "description": "Run design-for-manufacturing prediction (requires a [dfm] section in rosette.toml; skips cleanly with exit 0 if absent).",
+      "epilog": "With --json, `dfm` emits a single JSON object on stdout (schema 1); decorative output is suppressed so stdout stays parseable. Read `passed` directly; each violation carries a `bbox` in microns (same coordinate space as `rosette shot`) locating the problem. Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. These are stable; branch on the exit code, not on the printed text.",
+      "needs": "design",
+      "arguments": [
+        {
+          "flags": [],
+          "dest": "design",
+          "positional": true,
+          "required": true,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Design file (path or path:target)"
+        },
+        {
+          "flags": [
+            "--config"
+          ],
+          "dest": "config",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Path to rosette.toml (auto-detected if omitted)"
+        },
+        {
+          "flags": [
+            "--gds"
+          ],
+          "dest": "gds",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": "OUTPUT",
+          "choices": null,
+          "default": null,
+          "help": "Write GDS with predicted polygons on offset layers (e.g., 1/0 -> 1/100)"
+        },
+        {
+          "flags": [
+            "-v",
+            "--verbose"
+          ],
+          "dest": "verbose",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Show detailed output"
+        },
+        {
+          "flags": [
+            "--json"
+          ],
+          "dest": "json",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Emit a single machine-readable JSON object to stdout (schema 1)"
+        }
+      ]
+    },
+    "serve": {
+      "help": "Start dev server with live preview",
+      "description": null,
+      "epilog": null,
+      "needs": "nothing",
+      "arguments": [
+        {
+          "flags": [],
+          "dest": "design",
+          "positional": true,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Design file (.py). If omitted, opens empty canvas."
+        },
+        {
+          "flags": [
+            "-p",
+            "--port"
+          ],
+          "dest": "port",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": 5173,
+          "help": "Server port (default: 5173)"
+        },
+        {
+          "flags": [
+            "--no-open"
+          ],
+          "dest": "no_open",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Don't open browser automatically"
+        },
+        {
+          "flags": [
+            "--native"
+          ],
+          "dest": "native",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Open in native Tauri window (auto-detected if available)"
+        },
+        {
+          "flags": [
+            "--no-native"
+          ],
+          "dest": "no_native",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Force browser mode even if Tauri app is available"
+        }
+      ]
+    },
+    "shot": {
+      "help": "Render a design region to a PNG image",
+      "description": null,
+      "epilog": null,
+      "needs": "design",
+      "arguments": [
+        {
+          "flags": [],
+          "dest": "design",
+          "positional": true,
+          "required": true,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Design file (path or path:target)"
+        },
+        {
+          "flags": [
+            "-o",
+            "--out"
+          ],
+          "dest": "out",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Output PNG path (default: <design-stem>.png)"
+        },
+        {
+          "flags": [
+            "--cell"
+          ],
+          "dest": "cell",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Render only this cell instead of the selected/unique top or all roots"
+        },
+        {
+          "flags": [
+            "--bbox"
+          ],
+          "dest": "bbox",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": "XMIN,YMIN,XMAX,YMAX",
+          "choices": null,
+          "default": null,
+          "help": "Render only this region, in microns (default: full extent)"
+        },
+        {
+          "flags": [
+            "--layer"
+          ],
+          "dest": "layer",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": "L/D[,L/D...]",
+          "choices": null,
+          "default": null,
+          "help": "Restrict to specific layers as 'number/datatype' pairs"
+        },
+        {
+          "flags": [
+            "--width"
+          ],
+          "dest": "width",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": 1024,
+          "help": "Output width in pixels (default: 1024)"
+        },
+        {
+          "flags": [
+            "--height"
+          ],
+          "dest": "height",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Output height in pixels (default: derived from aspect)"
+        },
+        {
+          "flags": [
+            "--pad"
+          ],
+          "dest": "pad",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": 0.1,
+          "help": "Fractional padding around target bbox (default: 0.1)"
+        },
+        {
+          "flags": [
+            "--bg"
+          ],
+          "dest": "bg",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": "#1a1a1a",
+          "help": "Background color #RRGGBB or #RRGGBBAA (default: #1a1a1a)"
+        },
+        {
+          "flags": [
+            "--fill-alpha"
+          ],
+          "dest": "fill_alpha",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": 178,
+          "help": "Layer fill alpha 0-255 (default: 178 ~70%)"
+        },
+        {
+          "flags": [
+            "--no-sidecar"
+          ],
+          "dest": "no_sidecar",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Skip writing the <out>.json sidecar with view metadata"
+        },
+        {
+          "flags": [
+            "--retain"
+          ],
+          "dest": "retain",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": "N",
+          "choices": null,
+          "default": null,
+          "help": "Keep only the N newest snapshots in the default snapshots dir (default: 20, or [snapshots] retain in rosette.toml). 0 disables pruning. Ignored when --out is set."
+        }
+      ]
+    },
+    "run": {
+      "help": "View a GDS file in the browser",
+      "description": null,
+      "epilog": null,
+      "needs": "gds",
+      "arguments": [
+        {
+          "flags": [],
+          "dest": "file",
+          "positional": true,
+          "required": true,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "GDS file to view (.gds)"
+        },
+        {
+          "flags": [
+            "-p",
+            "--port"
+          ],
+          "dest": "port",
+          "positional": false,
+          "required": false,
+          "takes_value": true,
+          "metavar": null,
+          "choices": null,
+          "default": 5173,
+          "help": "Server port (default: 5173)"
+        },
+        {
+          "flags": [
+            "--no-open"
+          ],
+          "dest": "no_open",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Don't open browser automatically"
+        },
+        {
+          "flags": [
+            "--native"
+          ],
+          "dest": "native",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": null,
+          "help": "Open in native Tauri window (auto-detected if available)"
+        },
+        {
+          "flags": [
+            "--no-native"
+          ],
+          "dest": "no_native",
+          "positional": false,
+          "required": false,
+          "takes_value": false,
+          "metavar": null,
+          "choices": null,
+          "default": false,
+          "help": "Force browser mode even if Tauri app is available"
+        }
+      ]
+    }
+  }
+}

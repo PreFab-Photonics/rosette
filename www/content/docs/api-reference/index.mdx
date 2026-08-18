@@ -7,6 +7,12 @@ description: Complete reference for every class and function in the Rosette Pyth
 Rosette is pre-1.0. Function signatures, class interfaces, and behavior may change between releases without notice.
 </Callout>
 
+For machine-readable contracts, use the complete [Python API stub](/api.pyi)
+and [CLI manifest](/cli.json). In an initialized project, prefer the generated
+`.rosette/api.pyi` and `.rosette/cli.json` when `.rosette/manifest.json` matches
+the installed package. If Rosette reports stale references, run
+`uv run rosette update`. This website tracks current development.
+
 ```python
 from rosette import Cell, Layer, Point, Polygon
 from rosette.io import write_gds

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { getMarkdownHeaders } from "@/lib/llm";
 import { getLLMText, source } from "@/lib/source";
 
 export const revalidate = false;
@@ -12,9 +13,7 @@ export async function GET(
   if (!page) notFound();
 
   return new Response(await getLLMText(page), {
-    headers: {
-      "Content-Type": "text/markdown",
-    },
+    headers: getMarkdownHeaders(page.url),
   });
 }
 

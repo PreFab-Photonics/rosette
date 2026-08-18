@@ -1,10 +1,17 @@
-import { getLLMText, source } from "@/lib/source";
+import { getCanonicalUrl } from "@/lib/llm";
+import { getLLMText, getOrderedDocsPages } from "@/lib/source";
 
 export const revalidate = false;
 
 export async function GET() {
-  const scan = source.getPages().map(getLLMText);
-  const scanned = await Promise.all(scan);
+  const pages = getOrderedDocsPages();
+  const rendered = await Promise.all(pages.map(getLLMText));
+  const documents = rendered.map(
+    (content, index) =>
+      `<!-- DOCUMENT: ${getCanonicalUrl(pages[index].url)} -->\n\n${content}`,
+  );
 
-  return new Response(scanned.join("\n\n"));
+  return new Response(documents.join("\n\n---\n\n"), {
+    headers: { "Content-Type": "text/markdown; charset=utf-8" },
+  });
 }

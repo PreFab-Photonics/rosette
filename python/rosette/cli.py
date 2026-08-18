@@ -1335,7 +1335,7 @@ def main() -> None:
     # is the same object written to .rosette/cli.json at init/update time, so
     # an agent can inspect the CLI contract live (even outside a project).
     if args.command == "cli-manifest":
-        print(json.dumps(_cli_manifest(), indent=2))
+        sys.stdout.write(_cli_manifest_json())
         return
 
     # No command given: interactive picker in TTY, help text otherwise
@@ -1907,7 +1907,7 @@ def _managed_reference_payloads() -> dict[str, bytes]:
     payloads = {
         "index.md": _AGENT_INDEX.encode(),
         "api.pyi": api_path.read_bytes(),
-        "cli.json": (json.dumps(_cli_manifest(), indent=2) + "\n").encode(),
+        "cli.json": _cli_manifest_json().encode(),
     }
     payloads.update(
         {
@@ -2240,13 +2240,15 @@ def _action_to_dict(action: argparse.Action) -> dict[str, object]:
         "metavar": action.metavar,
         "choices": list(action.choices) if action.choices is not None else None,
         "default": action.default if _json_safe(action.default) else None,
-        "help": action.help,
+        "help": action.help.replace("%%", "%") if isinstance(action.help, str) else action.help,
     }
 
 
 def _json_safe(value: object) -> bool:
     """True if ``value`` round-trips through json.dumps (keeps defaults clean)."""
-    return value is None or isinstance(value, (str, int, float, bool))
+    return value != argparse.SUPPRESS and (
+        value is None or isinstance(value, (str, int, float, bool))
+    )
 
 
 def _cli_manifest() -> dict[str, object]:
@@ -2264,6 +2266,12 @@ def _cli_manifest() -> dict[str, object]:
     from rosette import __version__
 
     parser = _build_parser()
+
+    arguments = [
+        _action_to_dict(action)
+        for action in parser._actions
+        if not isinstance(action, (argparse._HelpAction, argparse._SubParsersAction))
+    ]
 
     # The subparsers action is the one with `choices` mapping name -> subparser.
     commands: dict[str, object] = {}
@@ -2294,8 +2302,14 @@ def _cli_manifest() -> dict[str, object]:
         "description": parser.description,
         "json_schema": SCHEMA_VERSION,
         "package_version": __version__,
+        "arguments": arguments,
         "commands": commands,
     }
+
+
+def _cli_manifest_json() -> str:
+    """Serialize the CLI manifest consistently for every published copy."""
+    return json.dumps(_cli_manifest(), indent=2) + "\n"
 
 
 def _check_reference_staleness() -> None:
