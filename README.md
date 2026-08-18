@@ -4,60 +4,91 @@
 
 # Rosette
 
-A modern GDSII layout editor for integrated circuits. Fast. Intelligent. Accessible.
+Open-source photonic layout tools for agents and humans.
 
-By [PreFab Photonics](https://prefabphotonics.com).
+Rosette is a scriptable GDS-II layout environment for integrated photonics. It
+combines a typed Python API, a Rust core, and a local WebGPU viewer for designing,
+checking, and reviewing layouts.
+
+Built by [PreFab Photonics](https://prefabphotonics.com).
 
 > [!WARNING]
-> Rosette is in early development. The API is unstable and will have breaking changes. Not suitable for production use.
+> Rosette is beta software. The API is unstable, breaking changes are expected,
+> and it is not suitable for production use.
 
-### Highlights
+## What does "agent-native" mean?
 
-- **Fast** — A Rust core and GPU acceleration that keeps you in the flow. From geometry operations to live preview, every layer of the stack is built for speed.
-- **Intelligent** — AI-native from the ground up. Agent instructions and direct code access give LLM agents the context to design circuits alongside you.
-- **Accessible** — A minimal Python API, a modern interface, and documentation written for engineers. Professional tools without the learning cliff.
+Rosette does not ship its own model or proprietary chat interface. It works with
+the coding agents you already use, including Claude Code and AGENTS.md-compatible
+tools such as OpenCode, Codex, and Cursor.
 
-## Quickstart
+`rosette init` gives those agents the material they need to work effectively:
+project instructions, task-focused API contracts, machine-readable layer and
+design-rule configuration, editable component source, and focused skills.
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+.
+Rosette deliberately exposes small, reusable primitives instead of trying to
+pre-build every high-level circuit or workflow. Cells, ports, geometry, routes,
+checks, and editable photonic components give agents the vocabulary and guardrails
+to compose much larger designs.
+
+The agent works in normal Python files and verifies its work with the same commands
+you use:
+
+```text
+prompt -> write Python -> build GDS -> run checks -> fix violations -> repeat
+```
+
+No custom model, MCP server, or dedicated agent harness is required. The project
+stays readable, editable, and version-controlled by you.
+
+## Try it out
+
+The quickest start requires [uv](https://docs.astral.sh/uv/) and Python 3.11+:
 
 ```bash
 uvx --from librosette rosette init my-chip
 cd my-chip
 ```
 
-`rosette init` creates the project directory, bootstraps uv (`uv init --bare`, `uv add librosette`, `git init`), then walks you through template and AI tool selection before scaffolding your project with editable components, layer config, and agent instructions. `uvx` runs the CLI in a throwaway environment, so this works before anything is installed.
+This creates a Python project, installs Rosette, and walks you through choosing a
+project template and agent setup. Open the directory with your coding agent and
+describe a design, or write the Python yourself.
 
-Prefer to set things up yourself? Create the project first, then init in place:
-
-```bash
-mkdir my-chip && cd my-chip
-uv init
-uv add librosette
-uv run rosette init
-```
-
-Run commands with `uv run rosette <command>`, or install the CLI globally with `uv tool install librosette` to use `rosette` directly. See the [installation guide](https://rosette.dev/docs/getting-started/installation) for details.
-
-### Commands
+Once you have a design script, the core workflow is:
 
 ```bash
-rosette init                      # Scaffold a new project
-rosette serve [design.py]         # Dev server with live preview
-rosette build design.py           # Build design to GDS
-rosette build design.py --check   # Build with DRC pre-check
-rosette check design.py           # Run all checks (DRC, design checks)
-rosette drc design.py             # Run DRC only
-rosette run output.gds            # View a GDS file
-rosette --version                 # Print version
+rosette serve designs/my_design.py  # Live local preview
+rosette check designs/my_design.py  # DRC, connectivity, and bend checks
+rosette build designs/my_design.py  # Export GDS-II
 ```
 
-`ro` is a short alias for `rosette`. Running bare `rosette` with no args opens an interactive command picker.
+The examples use `rosette` for readability. In a project managed by uv, prefix
+commands with `uv run`; an activated virtual environment or global tool installation
+can use them as shown. Run `rosette --help` for the complete CLI. Other installation
+options are covered in the
+[installation guide](https://rosette.dev/docs/getting-started/installation).
+
+## What's included
+
+- **Scriptable layout:** Geometry, ports, hierarchy, compact arrays, transforms,
+  boolean operations, and GDS-II import and export through a typed Python API.
+- **Photonic building blocks:** Minimal, editable components for common devices,
+  designed to be composed into larger circuits.
+- **Verification:** Checks for design rules, connectivity, and other layout
+  constraints, with results both humans and agents can act on.
+- **Visual inspection:** A local viewer with GPU rendering, hierarchy and layer
+  controls, and hot reload for inspecting an entire design or a specific region.
+- **Open foundations:** The Rust core, Python package, CLI, and viewer are all in
+  this repository and licensed under MIT.
 
 ## Documentation
 
-Full docs, API reference, and component library at **[rosette.dev/docs](https://rosette.dev/docs)**.
+- [Getting started](https://rosette.dev/docs/getting-started)
+- [Guides](https://rosette.dev/docs/guides)
+- [Python API reference](https://rosette.dev/docs/api-reference)
+- [Agent workflows](https://rosette.dev/docs/guides/agent-workflows)
+- [Example designs](https://github.com/PreFab-Photonics/rosette/tree/main/designs)
 
 ## License
 
-MIT
+[MIT](https://github.com/PreFab-Photonics/rosette/blob/main/LICENSE)
