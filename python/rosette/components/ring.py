@@ -189,7 +189,13 @@ def ring(
 
     is_adddrop = coupling == "adddrop"
 
-    cell = Cell(safe_cell_name(f"ring_{coupling}_r{radius:.1f}_w{waveguide_width:.3f}_g{gap:.2f}"))
+    cell = Cell(
+        safe_cell_name(
+            f"ring_{coupling}_l{layer.number}_{layer.datatype}_r{radius!r}"
+            f"_w{waveguide_width!r}_g{gap!r}_cl{coupling_length!r}"
+            f"_be{bus_extension!r}_n{num_segments}"
+        )
+    )
 
     # Ring center position
     # Bus top edge is at waveguide_width/2, ring inner edge should be gap above that
@@ -312,8 +318,8 @@ def _ring_polygon(
         # Top straight (right to left)
         points.append(Point(center_x - half_cl, center_y + outer_r))
 
-        # Left semicircle (outer, +pi/2 to +3pi/2, excluding last point
-        # which coincides with the starting bottom-left point)
+        # Left semicircle (outer, +pi/2 to +3pi/2). Keep the final tangent
+        # explicit so the following radial bridge cannot cut across the bend.
         for i in range(1, half_segs):
             angle = math.pi / 2 + math.pi * i / half_segs
             points.append(
@@ -322,6 +328,7 @@ def _ring_polygon(
                     center_y + outer_r * math.sin(angle),
                 )
             )
+        points.append(Point(center_x - half_cl, center_y - outer_r))
 
         # --- Bridge from outer to inner at bottom-left (radial cut) ---
         points.append(Point(center_x - half_cl, center_y - inner_r))

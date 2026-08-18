@@ -8,6 +8,7 @@ import pytest
 from rosette import Cell, Layer, Point, Polygon
 from rosette._core import DrcCache
 from rosette._serve import (
+    _load_drc_rules_safe,
     _load_layer_map_safe,
     _prepare_design,
     _run_drc_safe,
@@ -185,6 +186,35 @@ class TestLoadLayerMapSafe:
                 "opacity": 0.5,
             },
         ]
+
+    def test_reads_explicit_design_config_outside_cwd(self, tmp_path: Path, monkeypatch):
+        project = tmp_path / "project"
+        project.mkdir()
+        config = project / "rosette.toml"
+        config.write_text('[layers.custom]\nnumber = 77\ncolor = "#abcdef"\n')
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        monkeypatch.chdir(outside)
+
+        layers = _load_layer_map_safe(config)
+
+        assert layers is not None
+        assert layers[0]["name"] == "custom"
+        assert layers[0]["layerNumber"] == 77
+
+    def test_reads_drc_from_explicit_design_config(self, tmp_path: Path, monkeypatch):
+        config = tmp_path / "rosette.toml"
+        config.write_text('[drc.layers."1/0"]\nmin_width = 0.5\n')
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        monkeypatch.chdir(outside)
+
+        rules = _load_drc_rules_safe(config)
+
+        assert rules is not None
+        thin = Cell("thin")
+        thin.add_polygon(Polygon.rect(Point.origin(), 2.0, 0.1), Layer(1, 0))
+        assert _run_drc_safe(thin, rules)["passed"] is False
 
     def test_falls_back_to_defaults_without_config(self, tmp_path: Path, monkeypatch):
         """No rosette.toml => built-in default layers (silicon, text)."""

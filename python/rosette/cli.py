@@ -23,6 +23,8 @@ import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from rosette._design import design_config_context
+
 if TYPE_CHECKING:
     from rosette import BBox, Cell
     from rosette.checks import ChecksResult
@@ -2124,6 +2126,17 @@ def load_design(path_spec: str) -> tuple[Cell, Path, str]:
     return _load_design(path_spec)
 
 
+def _resolve_design_config(config_path: str | None, file_path: Path | None) -> str | None:
+    """Prefer an explicit config, then the nearest config to the design file."""
+    if config_path is not None or file_path is None:
+        return config_path
+
+    from rosette._design import find_design_config
+
+    discovered = find_design_config(file_path)
+    return str(discovered) if discovered is not None else None
+
+
 def _use_color() -> bool:
     """Check if we should use colored output."""
     if os.environ.get("NO_COLOR"):
@@ -2570,10 +2583,12 @@ def _run_drc_check(
 
     # Load design
     cell, file_path, _ = load_design(design_spec)
+    config_path = _resolve_design_config(config_path, file_path)
 
     # Load DRC rules from rosette.toml
     try:
-        rules = load_drc_rules(config_path)
+        with design_config_context(file_path):
+            rules = load_drc_rules(config_path)
     except FileNotFoundError as e:
         if json_output:
             _emit_json_error("drc", design_spec, str(e))
@@ -2723,10 +2738,12 @@ def _run_dfm_check(
     # Load design if not provided
     if cell is None:
         cell, file_path, _ = load_design(design_spec)
+    config_path = _resolve_design_config(config_path, file_path)
 
     # Load DFM config from rosette.toml. None => no [dfm] section (skip);
     # raises on a missing file or invalid config (caller handles).
-    loaded = load_dfm_config(config_path)
+    with design_config_context(file_path or Path.cwd()):
+        loaded = load_dfm_config(config_path)
     if loaded is None:
         return None
     dfm_config, model, layers = loaded
@@ -2911,9 +2928,11 @@ def _run_checks_check(
     # Load design if not provided
     if cell is None:
         cell, file_path, _ = load_design(design_spec)
+    config_path = _resolve_design_config(config_path, file_path)
 
     # Load config (returns defaults if no [checks] section)
-    checks_config = load_checks_config(config_path)
+    with design_config_context(file_path or Path.cwd()):
+        checks_config = load_checks_config(config_path)
 
     # Run checks (Rust engine)
     result = run_checks(cell, checks_config)
@@ -3000,12 +3019,14 @@ def check_design(
 
     # Load the design once — shared by all checks
     cell, file_path, _ = load_design(design)
+    config = _resolve_design_config(config, file_path)
 
     # DRC
     from rosette.drc import load_drc_rules, run_drc
 
     try:
-        rules = load_drc_rules(config)
+        with design_config_context(file_path):
+            rules = load_drc_rules(config)
         result = run_drc(cell, rules)
         passed = _print_drc_result(result, file_path, verbose)
         if not passed:
@@ -3067,10 +3088,12 @@ def _check_design_json(design: str, config: str | None, include_dfm: bool) -> No
 
     # Load the design once — shared by all checks
     cell, file_path, _ = load_design(design)
+    config = _resolve_design_config(config, file_path)
 
     # DRC — a config error here is fatal (matches prose path's sys.exit(1)).
     try:
-        rules = load_drc_rules(config)
+        with design_config_context(file_path):
+            rules = load_drc_rules(config)
     except FileNotFoundError as e:
         _emit_json_error("check", design, str(e))
     except ValueError as e:
@@ -3147,13 +3170,15 @@ def build_design(
 
     # Load design using convention
     cell, file_path, _ = load_design(design)
+    config = _resolve_design_config(config, file_path)
 
     # Run DRC before building if --check is set
     if check:
         from rosette.drc import load_drc_rules, run_drc
 
         try:
-            rules = load_drc_rules(config)
+            with design_config_context(file_path):
+                rules = load_drc_rules(config)
             result = run_drc(cell, rules)
             _print_drc_result(result, file_path, verbose)
             print()  # blank line before next section
@@ -3228,25 +3253,26 @@ def _parse_layers_arg(s: str) -> list[tuple[int, int]]:
 _DEFAULT_RETAIN = 20
 
 
-def _project_snapshot_dir() -> Path | None:
+def _project_snapshot_dir(config_path: str | None = None) -> Path | None:
     """Project-local snapshots directory: `<project_root>/.rosette/snapshots/`.
 
-    Returns None when no `rosette.toml` is found upward from cwd, signalling
-    that the caller should fall back to writing next to the design file.
+    Uses ``config_path`` when supplied, otherwise searches upward from cwd.
+    Returns None when no config is found, signalling that the caller should
+    fall back to writing next to the design file.
     """
     from rosette._api import _find_rosette_toml
 
-    toml = _find_rosette_toml()
+    toml = Path(config_path) if config_path is not None else _find_rosette_toml()
     if toml is None:
         return None
     return toml.parent / ROSETTE_DIR / "snapshots"
 
 
-def _load_retain_config() -> int:
+def _load_retain_config(config_path: str | None = None) -> int:
     """Read `[snapshots] retain = N` from rosette.toml; default 20."""
     from rosette._api import _find_rosette_toml
 
-    toml_path = _find_rosette_toml()
+    toml_path = Path(config_path) if config_path is not None else _find_rosette_toml()
     if toml_path is None:
         return _DEFAULT_RETAIN
     try:
@@ -3348,11 +3374,13 @@ def shot_design(
         sys.exit(2)
 
     cell_obj, file_path, _ = load_design(design)
+    config_path = _resolve_design_config(None, file_path)
 
     using_default_dir = out is None
     snapshot_dir: Path | None = None
     if using_default_dir:
-        snapshot_dir = _project_snapshot_dir()
+        with design_config_context(file_path):
+            snapshot_dir = _project_snapshot_dir(config_path)
         if snapshot_dir is not None:
             ts = time.strftime("%Y%m%d-%H%M%S")
             tag = secrets.token_hex(3)
@@ -3366,17 +3394,18 @@ def shot_design(
 
     t0 = time.perf_counter()
     try:
-        result = render_png(
-            cell_obj,
-            bbox=bbox,
-            cell=cell,
-            layers=layers,
-            width=width,
-            height=height,
-            pad=pad,
-            bg=bg,
-            fill_alpha=fill_alpha,
-        )
+        with design_config_context(file_path):
+            result = render_png(
+                cell_obj,
+                bbox=bbox,
+                cell=cell,
+                layers=layers,
+                width=width,
+                height=height,
+                pad=pad,
+                bg=bg,
+                fill_alpha=fill_alpha,
+            )
     except ValueError as e:
         print(f"{_red('Error')}: {e}")
         sys.exit(1)
@@ -3394,7 +3423,11 @@ def shot_design(
 
     pruned = 0
     if using_default_dir and snapshot_dir is not None:
-        retain_val = retain if retain is not None else _load_retain_config()
+        if retain is not None:
+            retain_val = retain
+        else:
+            with design_config_context(file_path):
+                retain_val = _load_retain_config(config_path)
         pruned = _prune_snapshots(snapshot_dir, retain_val)
 
     canvas = result.view["canvas_px"]

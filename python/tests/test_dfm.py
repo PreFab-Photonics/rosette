@@ -752,9 +752,9 @@ class TestDfmCli:
 
     def test_run_dfm_check(self, tmp_path):
         """_run_dfm_check returns result for valid design."""
-        design_py, config_file = _write_design_and_dfm_config(tmp_path)
+        design_py, _ = _write_design_and_dfm_config(tmp_path)
 
-        result, file_path, has_tol, cell = _run_dfm_check(str(design_py), str(config_file))
+        result, file_path, has_tol, cell = _run_dfm_check(str(design_py))
         assert isinstance(result, DfmResult)
         assert result.layers_processed == 1
         assert file_path.name == "design.py"

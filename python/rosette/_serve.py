@@ -213,12 +213,12 @@ def _layer_map_to_viewer_layers(layer_map: LayerMap) -> list[dict[str, object]]:
     ]
 
 
-def _load_layer_map_safe() -> list[dict[str, object]] | None:
+def _load_layer_map_safe(config_path: str | Path | None = None) -> list[dict[str, object]] | None:
     """Try to load layer map from rosette.toml, fall back to defaults."""
     try:
         from rosette.project import load_layer_map
 
-        layer_map = load_layer_map()
+        layer_map = load_layer_map(config_path)
         if len(layer_map) > 0:
             return _layer_map_to_viewer_layers(layer_map)
     except (FileNotFoundError, ValueError):
@@ -229,7 +229,7 @@ def _load_layer_map_safe() -> list[dict[str, object]] | None:
     return _layer_map_to_viewer_layers(_default_layer_map())
 
 
-def _load_drc_rules_safe():
+def _load_drc_rules_safe(config_path: str | Path | None = None):
     """Try to load DRC rules from rosette.toml.
 
     Returns the ``DrcRules`` if the ``[drc]`` section is present and valid,
@@ -239,7 +239,7 @@ def _load_drc_rules_safe():
     try:
         from rosette.drc import load_drc_rules
 
-        return load_drc_rules()
+        return load_drc_rules(config_path)
     except (FileNotFoundError, ValueError):
         return None
 
@@ -585,7 +585,7 @@ def serve_design(
     """
     import logging
 
-    from rosette._design import load_design
+    from rosette._design import design_config_context, find_design_config, load_design
 
     logging.basicConfig(
         level=logging.WARNING,
@@ -613,9 +613,11 @@ def serve_design(
         drc_cache = DrcCache()
 
         cell, file_path, _ = load_design(design)
+        config_path = find_design_config(file_path)
         json_str, cell_tree = _prepare_design(cell)
-        layer_defs = _load_layer_map_safe()
-        drc_rules = _load_drc_rules_safe()
+        with design_config_context(file_path):
+            layer_defs = _load_layer_map_safe(config_path)
+            drc_rules = _load_drc_rules_safe(config_path)
         drc = _run_drc_safe(cell, drc_rules, drc_cache)
 
         server.set_design_json(
@@ -642,35 +644,40 @@ def serve_design(
             from watchfiles import watch
 
             watch_paths = [file_path]
-            components_dir = Path.cwd() / "components"
-            if components_dir.exists():
-                watch_paths.append(components_dir)
+            project_dir = (
+                config_path.parent if config_path is not None else file_path.parent.resolve()
+            )
+            component_dirs = {
+                project_dir / "components",
+                file_path.parent.resolve() / "components",
+            }
+            watch_paths.extend(path for path in component_dirs if path.exists())
 
             # Also watch rosette.toml for layer changes
-            toml_path = Path.cwd() / "rosette.toml"
-            if toml_path.exists():
-                watch_paths.append(toml_path)
+            if config_path is not None:
+                watch_paths.append(config_path)
 
             for _changes in watch(*watch_paths):
                 try:
                     # Clear module cache for all project files
-                    project_dir = str(Path.cwd())
+                    project_dir_str = str(project_dir)
                     stale = [
                         name
                         for name, mod in list(sys.modules.items())
                         if hasattr(mod, "__file__")
                         and mod.__file__
-                        and mod.__file__.startswith(project_dir)
+                        and mod.__file__.startswith(project_dir_str)
                     ]
                     for name in stale:
                         del sys.modules[name]
 
                     cell, _, _ = load_design(design)
                     json_str, cell_tree = _prepare_design(cell)
-                    layer_defs = _load_layer_map_safe()
-                    # Reload DRC rules each iteration so edits to the [drc]
-                    # section in rosette.toml take effect live.
-                    drc_rules = _load_drc_rules_safe()
+                    with design_config_context(file_path):
+                        layer_defs = _load_layer_map_safe(config_path)
+                        # Reload DRC rules each iteration so edits to the [drc]
+                        # section in rosette.toml take effect live.
+                        drc_rules = _load_drc_rules_safe(config_path)
                     drc = _run_drc_safe(cell, drc_rules, drc_cache)
 
                     server.set_design_json(

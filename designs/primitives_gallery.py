@@ -18,13 +18,14 @@ Primitives covered:
                           rule, plus array placement
 * Labels                - ``add_text`` on an annotation layer
 
-The CLI loads the ``design`` variable below. Preview it live::
+The CLI loads the ``design`` variable below. From the repository root,
+preview it live::
 
-    rosette serve primitives_gallery.py
+    uv run rosette serve designs/primitives_gallery.py
 
 or build it to GDS::
 
-    rosette build primitives_gallery.py
+    uv run rosette build designs/primitives_gallery.py
 """
 
 from rosette import (
@@ -79,7 +80,7 @@ donut_cell = Cell("donut")
 outer = Polygon.regular(Point(0, 0), radius=20, sides=32)
 inner = Polygon.regular(Point(0, 0), radius=8, sides=32)
 # subtract() cuts the inner disk out of the outer disk, producing a single
-# keyholed polygon (a true hole) rather than two overlapping solids.
+# polygon whose hole is represented by a zero-width keyhole bridge.
 for part in outer.subtract(inner):
     donut_cell.add_polygon(part, silicon)
 
@@ -96,7 +97,7 @@ def _boolean_cell(name: str, parts: list[Polygon]) -> Cell:
     return cell
 
 
-union_cell = _boolean_cell("bool_union", a.union(b))  # combined L-shape
+union_cell = _boolean_cell("bool_union", a.union(b))  # combined stepped shape
 intersect_cell = _boolean_cell("bool_intersect", a.intersect(b))  # small overlap square
 xor_cell = _boolean_cell("bool_xor", a.xor(b))  # everything except the overlap
 
@@ -169,5 +170,9 @@ design.add_text("paths", Point(-60, 115), text, height=4.0)
 design.add_text("booleans", Point(-60, 175), text, height=4.0)
 design.add_text("array", Point(-60, 225), text, height=4.0)
 
-# An overall extent marker so the full layout is easy to frame in the viewer.
-design.add_polygon(Polygon.rect(Point(-10, -10), 210, 250), marker)
+# A thin extent frame makes the full layout easy to identify without placing
+# an opaque fabrication polygon behind every example.
+design.add_polygon(Polygon.rect(Point(-10, -10), 210, 0.25), marker)
+design.add_polygon(Polygon.rect(Point(-10, 239.75), 210, 0.25), marker)
+design.add_polygon(Polygon.rect(Point(-10, -10), 0.25, 250), marker)
+design.add_polygon(Polygon.rect(Point(199.75, -10), 0.25, 250), marker)

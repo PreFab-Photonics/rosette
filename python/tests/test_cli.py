@@ -13,9 +13,11 @@ from rosette.cli import (
     _check_reference_staleness,
     _cli_manifest,
     _parse_tool_spec,
+    _resolve_design_config,
     _sanitize_project_name,
     build_design,
     init_project,
+    load_design,
     main,
     update_project,
 )
@@ -79,6 +81,51 @@ class TestSanitizeProjectName:
         assert _sanitize_project_name("", "fallback") == "fallback"
         assert _sanitize_project_name("   ", "fallback") == "fallback"
         assert _sanitize_project_name('"', "fallback") == "fallback"
+
+
+class TestResolveDesignConfig:
+    def test_finds_nearest_config_above_design(self, tmp_path: Path):
+        project = tmp_path / "project"
+        designs = project / "designs"
+        designs.mkdir(parents=True)
+        config = project / "rosette.toml"
+        config.write_text('[project]\nname = "test"\n')
+        design = designs / "chip.py"
+        design.write_text("")
+
+        assert _resolve_design_config(None, design) == str(config)
+
+    def test_explicit_config_takes_precedence(self, tmp_path: Path):
+        design = tmp_path / "design.py"
+        design.write_text("")
+
+        assert _resolve_design_config("custom.toml", design) == "custom.toml"
+
+    def test_design_import_resolves_implicit_config(self, tmp_path: Path, monkeypatch):
+        project = tmp_path / "project"
+        designs = project / "designs"
+        designs.mkdir(parents=True)
+        (project / "rosette.toml").write_text("[layers.custom]\nnumber = 77\n")
+        (project / "project_values.py").write_text("EXPECTED_LAYER = 77\n")
+        (designs / "design_values.py").write_text("CELL_PREFIX = 'layer'\n")
+        design = designs / "design.py"
+        design.write_text(
+            "from rosette import Cell\n"
+            "from rosette.project import load_layer_map\n"
+            "from project_values import EXPECTED_LAYER\n"
+            "from design_values import CELL_PREFIX\n"
+            "def design():\n"
+            "    layers = load_layer_map()\n"
+            "    assert layers.custom.layer.number == EXPECTED_LAYER\n"
+            '    return Cell(f"{CELL_PREFIX}_{EXPECTED_LAYER}")\n'
+        )
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        monkeypatch.chdir(outside)
+
+        cell, _, _ = load_design(str(design))
+
+        assert cell.name == "layer_77"
 
 
 class TestParseToolSpec:

@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -122,6 +123,49 @@ class TestShotDesign:
         )
         assert out.exists()
         assert not out.with_suffix(".png.json").exists()
+
+    def test_render_uses_design_config_outside_cwd(self, tmp_path: Path, monkeypatch):
+        import rosette.render as render_module
+        from rosette.project import load_layer_map
+
+        project = tmp_path / "design-project"
+        designs = project / "designs"
+        designs.mkdir(parents=True)
+        (project / "rosette.toml").write_text('[layers.silicon]\nnumber = 1\ncolor = "#ff69b4"\n')
+        design = designs / "smoke.py"
+        design.write_text(DESIGN_SOURCE)
+
+        caller = tmp_path / "caller-project"
+        caller.mkdir()
+        (caller / "rosette.toml").write_text('[layers.silicon]\nnumber = 1\ncolor = "#00ff00"\n')
+        monkeypatch.chdir(caller)
+
+        observed: dict[str, str] = {}
+
+        def fake_render(*_args, **_kwargs):
+            observed["color"] = load_layer_map().silicon.color
+            return SimpleNamespace(
+                png=PNG_MAGIC,
+                view={"canvas_px": (1, 1)},
+                layers_rendered=[(1, 0)],
+            )
+
+        monkeypatch.setattr(render_module, "render_png", fake_render)
+        shot_design(
+            design=str(design),
+            out=str(tmp_path / "shot.png"),
+            cell=None,
+            bbox_str=None,
+            layer_str=None,
+            width=128,
+            height=None,
+            pad=0.1,
+            bg="#1a1a1a",
+            fill_alpha=178,
+            sidecar=False,
+        )
+
+        assert observed["color"] == "#ff69b4"
 
     def test_default_output_path(self, design_file: Path, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)

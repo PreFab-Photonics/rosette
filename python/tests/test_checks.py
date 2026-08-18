@@ -419,9 +419,9 @@ class TestChecksCli:
 
     def test_run_checks_check_passing(self, tmp_path):
         """_run_checks_check returns passing result for connected design."""
-        design_py, config_file = _write_connected_design(tmp_path, connected=True)
+        design_py, _ = _write_connected_design(tmp_path, connected=True)
 
-        result, file_path = _run_checks_check(str(design_py), str(config_file))
+        result, file_path = _run_checks_check(str(design_py))
         assert result.passed
         assert file_path.name == "design.py"
 

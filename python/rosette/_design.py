@@ -8,11 +8,38 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from rosette import Cell
+
+
+def find_design_config(file_path: str | Path) -> Path | None:
+    """Find the nearest rosette.toml at or above a design file's directory."""
+    path = Path(file_path).resolve()
+    directory = path if path.is_dir() else path.parent
+    for candidate_dir in (directory, *directory.parents):
+        candidate = candidate_dir / "rosette.toml"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+@contextmanager
+def design_config_context(file_path: str | Path) -> Generator[None, None, None]:
+    """Resolve implicit config lookups from a design's directory."""
+    from rosette._api import _CONFIG_SEARCH_ROOT
+
+    path = Path(file_path).resolve()
+    directory = path if path.is_dir() else path.parent
+    token = _CONFIG_SEARCH_ROOT.set(directory)
+    try:
+        yield
+    finally:
+        _CONFIG_SEARCH_ROOT.reset(token)
 
 
 def load_design(path_spec: str) -> tuple[Cell, Path, str]:
@@ -52,10 +79,15 @@ def load_design(path_spec: str) -> tuple[Cell, Path, str]:
         print(f"Error: Design file not found: {file_path}")
         sys.exit(1)
 
-    # Add project directory to path for imports
-    project_dir = Path.cwd()
-    if str(project_dir) not in sys.path:
-        sys.path.insert(0, str(project_dir))
+    # Resolve project-local imports from the config root (or the design's own
+    # directory when no project config exists), independent of caller cwd.
+    config_path = find_design_config(file_path)
+    design_dir = file_path.parent.resolve()
+    project_dir = (config_path.parent if config_path is not None else design_dir).resolve()
+    for import_dir in reversed((design_dir, project_dir, Path.cwd())):
+        import_path = str(import_dir)
+        if import_path not in sys.path:
+            sys.path.insert(0, import_path)
 
     # Import the module
     spec = importlib.util.spec_from_file_location("design_module", file_path)
@@ -65,7 +97,8 @@ def load_design(path_spec: str) -> tuple[Cell, Path, str]:
 
     module = importlib.util.module_from_spec(spec)
     try:
-        spec.loader.exec_module(module)
+        with design_config_context(file_path):
+            spec.loader.exec_module(module)
     except Exception as e:
         print(f"Error loading design: {e}")
         sys.exit(1)
@@ -102,7 +135,8 @@ def load_design(path_spec: str) -> tuple[Cell, Path, str]:
     # If callable, call it
     if callable(target):
         try:
-            cell = target()
+            with design_config_context(file_path):
+                cell = target()
         except Exception as e:
             print(f"Error calling {target_name}(): {e}")
             sys.exit(1)

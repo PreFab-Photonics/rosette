@@ -6,6 +6,7 @@ These tests verify the component functions generate valid cells with ports.
 
 import importlib
 import math
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -810,6 +811,45 @@ class TestRing:
         bb = cell.bbox()
         assert bb.min.y == pytest.approx(-bb.max.y)
 
+    def test_cell_name_distinguishes_geometry_parameters(self, layer):
+        base = ring(layer)
+
+        assert ring(layer, coupling_length=10.0).name != base.name
+        assert ring(layer, coupling_length=0.01).name != ring(layer, coupling_length=0.04).name
+        assert ring(layer, coupling_length=2.05).name != ring(layer, coupling_length=7.793).name
+        assert ring(layer, bus_extension=7.0).name != base.name
+        assert ring(layer, num_segments=64).name != base.name
+        assert ring(Layer(2, 0)).name != base.name
+
+    def test_racetrack_keyhole_bridge_is_radial(self):
+        from rosette.components.ring import _ring_polygon
+
+        center_x = 12.0
+        center_y = 8.0
+        radius = 6.0
+        width = 0.5
+        coupling_length = 10.0
+        polygon = _ring_polygon(
+            center_x=center_x,
+            center_y=center_y,
+            radius=radius,
+            width=width,
+            coupling_length=coupling_length,
+            num_segments=128,
+        )
+        vertices = polygon.vertices()
+        seam_x = center_x - coupling_length / 2
+        outer_y = center_y - radius - width / 2
+        inner_y = center_y - radius + width / 2
+
+        assert any(
+            first.x == pytest.approx(seam_x)
+            and first.y == pytest.approx(outer_y)
+            and second.x == pytest.approx(seam_x)
+            and second.y == pytest.approx(inner_y)
+            for first, second in pairwise(vertices)
+        )
+
     # ------------------------------------------------------------------
     # Parametrized validation — every ValueError branch in ``ring``.
     # ------------------------------------------------------------------
@@ -1537,6 +1577,31 @@ class TestBraggGrating:
         a = bragg_grating(layer, num_periods=80, apodization="uniform")
         b = bragg_grating(layer, num_periods=80, apodization="gaussian")
         assert a.name != b.name
+
+    def test_cell_name_distinguishes_geometry_parameters(self, layer):
+        base = bragg_grating(layer, num_periods=80)
+
+        assert bragg_grating(layer, num_periods=80, duty_cycle=0.4).name != base.name
+        assert (
+            bragg_grating(layer, num_periods=80, duty_cycle=0.5001).name
+            != bragg_grating(layer, num_periods=80, duty_cycle=0.5004).name
+        )
+        assert bragg_grating(layer, num_periods=80, phase_shift=math.pi).name != base.name
+        assert bragg_grating(Layer(2, 0), num_periods=80).name != base.name
+        assert (
+            bragg_grating(
+                layer,
+                num_periods=80,
+                apodization="gaussian",
+                apodization_sigma=0.2,
+            ).name
+            != bragg_grating(
+                layer,
+                num_periods=80,
+                apodization="gaussian",
+                apodization_sigma=0.3,
+            ).name
+        )
 
     def test_port_positions_and_widths(self, layer):
         """Ports sit at (0, 0) and (length, 0) with mean waveguide width.

@@ -378,10 +378,13 @@ def bragg_grating(
     # winding; that's fine for GDS (Polygon does not require CCW).
     vertices = top + bottom[::-1]
 
+    apodization_tag = "uni" if apodization == "uniform" else f"gau{apodization_sigma!r}"
+    phase_tag = "psnone" if phase_shift is None else f"ps{phase_shift!r}_pp{phase_shift_position!r}"
     cell = Cell(
         safe_cell_name(
-            f"bg_w{waveguide_width:.3f}_p{period:.3f}_c{corrugation_width:.3f}"
-            f"_n{num_periods}_{apodization[:3]}"
+            f"bg_l{layer.number}_{layer.datatype}_w{waveguide_width!r}_p{period!r}"
+            f"_c{corrugation_width!r}_n{num_periods}_d{duty_cycle!r}"
+            f"_{apodization_tag}_{phase_tag}"
         )
     )
     cell.add_polygon(Polygon(vertices), layer)

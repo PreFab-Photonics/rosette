@@ -2031,12 +2031,36 @@ class TestDrcCli:
 
     def test_run_drc_check_passing(self, tmp_path):
         """_run_drc_check returns passing result for valid design."""
-        design_py, config_file = _write_design_and_config(tmp_path, passing=True)
+        design_py, _ = _write_design_and_config(tmp_path, passing=True)
 
-        result, file_path = _run_drc_check(str(design_py), str(config_file))
+        result, file_path = _run_drc_check(str(design_py))
         assert result.passed
         assert result.rules_checked == 2
         assert file_path.name == "design.py"
+
+    def test_explicit_config_overrides_design_config(self, tmp_path):
+        design_py, _ = _write_design_and_config(tmp_path, passing=True)
+        explicit = tmp_path / "explicit.toml"
+        explicit.write_text('[drc.layers."1/0"]\nmin_width = 20.0\n')
+
+        result, _ = _run_drc_check(str(design_py), str(explicit))
+
+        assert not result.passed
+
+    def test_configless_design_does_not_use_caller_config(self, tmp_path, monkeypatch):
+        caller = tmp_path / "caller"
+        caller.mkdir()
+        (caller / "rosette.toml").write_text('[drc.layers."1/0"]\nmin_width = 20.0\n')
+        design_dir = tmp_path / "external"
+        design_dir.mkdir()
+        design = design_dir / "design.py"
+        design.write_text('from rosette import Cell\ndesign = Cell("external")\n')
+        monkeypatch.chdir(caller)
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_drc_check(str(design))
+
+        assert exc_info.value.code == 1
 
     def test_run_drc_check_failing(self, tmp_path):
         """_run_drc_check returns violations for invalid design."""

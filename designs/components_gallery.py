@@ -9,27 +9,29 @@ layer so components are easy to find in a wide layout.
 Components covered:
 
 * ``sbend``                 — cosine, circular, and euler variants
-* ``bragg_grating``         — uniform and gaussian-apodized
+* ``bragg_grating``         — uniform, gaussian-apodized, and phase-shifted
 * ``mmi``                   — 1x2, 2x1, 2x2
 * ``directional_coupler``
-* ``ring``                  — allpass and add-drop
+* ``ring``                  — allpass, add-drop, and racetrack
 * ``crossing``              — simple, elliptical, and mmi variants
-* ``edge_coupler``          — plain + with oxide cladding
-* ``grating_coupler``       — uniform and apodized
+* ``edge_coupler``          — linear, parabolic, exponential, and clad
+* ``grating_coupler``       — focused uniform/apodized and straight
 
 This file is intentionally flat — no routes between components, no
 connections. It's a visual catalog, not a design. Preview it live::
 
-    rosette serve components_gallery.py
+    uv run rosette serve designs/components_gallery.py
 
 or build it to GDS::
 
-    rosette build components_gallery.py
+    uv run rosette build designs/components_gallery.py
 """
 
 from __future__ import annotations
 
-from rosette import Cell, Point
+import math
+
+from rosette import Cell, Layer, Point
 from rosette.components import (
     bragg_grating,
     crossing,
@@ -56,10 +58,20 @@ text = layers.text.layer
 class Gallery:
     """Accumulate components into a grid, one row per component family."""
 
-    def __init__(self, top: Cell, *, row_pitch: float = 70.0, label_gap: float = 22.0) -> None:
+    def __init__(
+        self,
+        top: Cell,
+        label_layer: Layer,
+        *,
+        cell_gap: float = 15.0,
+        label_gap: float = 10.0,
+        row_gap: float = 25.0,
+    ) -> None:
         self.top = top
-        self.row_pitch = row_pitch
+        self.label_layer = label_layer
+        self.cell_gap = cell_gap
         self.label_gap = label_gap
+        self.row_gap = row_gap
         self._next_y = 0.0
 
     def row(
@@ -67,10 +79,9 @@ class Gallery:
         label: str,
         cells_in_row: list[Cell],
         *,
-        x_pitch: float = 40.0,
         x_start: float = 0.0,
     ) -> None:
-        """Place each cell in `cells_in_row` along +X at the current row y.
+        """Place cells left-to-right using their actual geometry bounds.
 
         The text label sits on its own line *above* the geometry, so it never
         overlaps the components regardless of how long the label is.
@@ -78,20 +89,26 @@ class Gallery:
         Args:
             label: Text annotation placed above the row.
             cells_in_row: Component cells to place left-to-right.
-            x_pitch: Spacing between successive cells.
-            x_start: X offset for the first cell. Use a positive value for
-                components whose body extends in -X from their port (e.g.
-                ``edge_coupler``, ``grating_coupler``) so the body stays
-                clear of the left margin.
+            x_start: X coordinate of the row's left edge.
         """
-        y = self._next_y
-        # Row label, on its own line above the geometry.
-        self.top.add_text(label, Point(0.0, y + self.label_gap), text, height=4.0)
+        top_y = self._next_y
+        bounds = [cell.bbox() for cell in cells_in_row]
+        if any(bound is None for bound in bounds):
+            raise ValueError(f"Gallery row {label!r} contains an empty cell")
+
+        row_height = max(bound.height() for bound in bounds if bound is not None)
+        self.top.add_text(
+            label,
+            Point(x_start, top_y + self.label_gap),
+            self.label_layer,
+            height=4.0,
+        )
         x = x_start
-        for c in cells_in_row:
-            self.top.add_ref(c.at(x, y))
-            x += x_pitch
-        self._next_y -= self.row_pitch
+        for cell, bound in zip(cells_in_row, bounds, strict=True):
+            assert bound is not None
+            self.top.add_ref(cell.at(x - bound.min.x, top_y - bound.max.y))
+            x += bound.width() + self.cell_gap
+        self._next_y -= row_height + self.label_gap + self.row_gap
 
 
 # -----------------------------------------------------------------------------
@@ -99,7 +116,7 @@ class Gallery:
 # -----------------------------------------------------------------------------
 
 design = Cell("components_gallery")
-gallery = Gallery(design, row_pitch=70.0)
+gallery = Gallery(design, text)
 
 # --- sbend: cosine / circular / euler profiles ---
 # Note: sbend(bend_type="euler") uses a whole-S-bend anisotropic clothoid,
@@ -111,17 +128,16 @@ gallery.row(
         sbend(silicon, length=20.0, offset=5.0, bend_type="circular"),
         sbend(silicon, length=20.0, offset=5.0, bend_type="euler"),
     ],
-    x_pitch=35.0,
 )
 
 # --- bragg_grating: uniform vs gaussian apodization ---
 gallery.row(
-    "bragg_grating (uniform, gaussian)",
+    "bragg_grating (uniform, gaussian, phase-shifted)",
     [
         bragg_grating(silicon, num_periods=80, apodization="uniform"),
         bragg_grating(silicon, num_periods=80, apodization="gaussian"),
+        bragg_grating(silicon, num_periods=80, phase_shift=math.pi),
     ],
-    x_pitch=40.0,
 )
 
 # --- mmi: 1x2 / 2x1 / 2x2 ---
@@ -132,7 +148,6 @@ gallery.row(
         mmi(silicon, n_in=2, n_out=1),
         mmi(silicon, n_in=2, n_out=2, length=15.0),
     ],
-    x_pitch=40.0,
 )
 
 # --- directional_coupler: default + longer coupling length ---
@@ -142,17 +157,16 @@ gallery.row(
         directional_coupler(silicon, coupling_length=10.0, gap=0.2),
         directional_coupler(silicon, coupling_length=30.0, gap=0.2),
     ],
-    x_pitch=80.0,
 )
 
 # --- ring: allpass vs add-drop ---
 gallery.row(
-    "ring (allpass, adddrop)",
+    "ring (allpass, adddrop, racetrack)",
     [
         ring(silicon, radius=8.0, coupling="allpass"),
         ring(silicon, radius=8.0, coupling="adddrop"),
+        ring(silicon, radius=8.0, coupling_length=12.0),
     ],
-    x_pitch=40.0,
 )
 
 # --- crossing: simple / elliptical / mmi ---
@@ -163,30 +177,25 @@ gallery.row(
         crossing(silicon, crossing_type="elliptical"),
         crossing(silicon, crossing_type="mmi", center_width=3.0),
     ],
-    x_pitch=30.0,
 )
 
-# --- edge_coupler: plain + with oxide cladding ---
-# This component extends in -X from its opt port, so shift the first cell
-# right by the taper length (and space the variants well apart).
+# --- edge_coupler: taper profiles + oxide cladding ---
 gallery.row(
-    "edge_coupler (plain, w/ cladding)",
+    "edge_coupler (linear, parabolic, exponential, clad)",
     [
         edge_coupler(silicon, taper_length=80.0),
+        edge_coupler(silicon, taper_length=80.0, taper_profile="parabolic"),
+        edge_coupler(silicon, taper_length=80.0, taper_profile="exponential"),
         edge_coupler(silicon, taper_length=80.0, cladding_layer=oxide, cladding_width=3.0),
     ],
-    x_pitch=120.0,
-    x_start=100.0,
 )
 
-# --- grating_coupler: uniform + apodized ---
-# Also extends in -X from its opt port, so give it an x_start too.
+# --- grating_coupler: focused uniform/apodized + straight ---
 gallery.row(
-    "grating_coupler (uniform, apodized)",
+    "grating_coupler (focused uniform, focused apodized, straight)",
     [
         grating_coupler(silicon, grating_type="uniform"),
         grating_coupler(silicon, grating_type="apodized"),
+        grating_coupler(silicon, focusing_angle=None),
     ],
-    x_pitch=60.0,
-    x_start=40.0,
 )

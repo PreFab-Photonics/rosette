@@ -15,7 +15,8 @@ def safe_cell_name(name: str) -> str:
     """
     if len(name) <= _MAX_CELL_NAME_LEN:
         return name
-    # Keep as much of the prefix as possible, append a 6-char hash
-    digest = hashlib.sha256(name.encode()).hexdigest()[:6]
+    # Keep a readable prefix and enough digest bits to make accidental
+    # collisions negligible even in large generated component libraries.
+    digest = hashlib.sha256(name.encode()).hexdigest()[:16]
     prefix_len = _MAX_CELL_NAME_LEN - len(digest) - 1  # 1 for separator
     return f"{name[:prefix_len]}_{digest}"

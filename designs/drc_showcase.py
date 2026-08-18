@@ -1,101 +1,161 @@
 #!/usr/bin/env python3
-"""DRC violations showcase — intentionally breaks rules to exercise live DRC.
+"""Labelled examples for every active rule in ``designs/rosette.toml``.
 
-This file is deliberately NOT clean — it exists to demonstrate DRC behaviour,
-not as an example of good layout. Each numbered section trips exactly one rule
-from `designs/rosette.toml`, laid out in its own horizontal band so the markers
-don't overlap.
+This design is deliberately invalid. Each geometry group targets one active
+rule and is spaced far enough from the other groups to avoid accidental
+cross-violations. From the repository root, inspect it with::
 
-See the violations two ways:
+    uv run rosette drc designs/drc_showcase.py
+    uv run rosette serve designs/drc_showcase.py
 
-    rosette drc drc_showcase.py          # headless — prints the violation list
-    rosette serve drc_showcase.py        # live — open the Violations panel (Shift+V)
-
-Coverage: one clean demo per *active* rule in rosette.toml. Rules that the
-config supports but does not currently enable (no_self_intersection,
-min_edge_length, max_width, density, snap_to_grid) are not exercised here.
+The active configuration contains 23 rules: three basic dimensional rules on
+each of six fabrication layers, two additional silicon rules, and three
+inter-layer rules.
 """
 
-from rosette import Cell, Point, Polygon
+from __future__ import annotations
+
+import math
+
+from rosette import Cell, Layer, Point, Polygon
 from rosette.project import load_layer_map
 
 layers = load_layer_map()
 silicon = layers.silicon.layer
 oxide = layers.oxide.layer
+marker = layers.marker.layer
 p_doping = layers.p_doping.layer
 n_doping = layers.n_doping.layer
 exclusion = layers.exclusion.layer
+text = layers.text.layer
 
-# Use 'design' as the conventional top-cell name for `rosette serve`.
 design = Cell("drc_showcase")
 
-# -----------------------------------------------------------------------------
-# 1. min_width — silicon min_width is 0.12 um.
-#    A 0.05 um-wide wire is too narrow.
-# -----------------------------------------------------------------------------
-design.add_polygon(Polygon.rect(Point(0, 0), 8.0, 0.05), silicon)
 
-# -----------------------------------------------------------------------------
-# 2. min_spacing — silicon min_spacing is 0.13 um.
-#    Two wires with a 0.05 um gap are too close.
-#    (top of lower rect = 5.0 + 0.5 = 5.5; bottom of upper rect = 5.55)
-# -----------------------------------------------------------------------------
-design.add_polygon(Polygon.rect(Point(0, 5.0), 8.0, 0.5), silicon)
-design.add_polygon(Polygon.rect(Point(0, 5.55), 8.0, 0.5), silicon)  # 0.05 gap
+def _label(value: str, x: float, y: float) -> None:
+    design.add_text(value, Point(x, y), text, height=2.0)
 
-# -----------------------------------------------------------------------------
-# 3. min_area — silicon min_area is 0.01 um^2.
-#    A 0.05 x 0.05 = 0.0025 um^2 speck is too small.
-# -----------------------------------------------------------------------------
-design.add_polygon(Polygon.rect(Point(0, 10.0), 0.05, 0.05), silicon)
 
-# -----------------------------------------------------------------------------
-# 4. acute_angle — silicon requires convex interior angles >= 60 deg.
-#    This triangle has ~56 deg base angles (at (0,14) and (4,14)),
-#    which are too sharp.
-# -----------------------------------------------------------------------------
-design.add_polygon(
-    Polygon([Point(0, 14), Point(4, 14), Point(2, 17)]),
-    silicon,
+def _rect(layer: Layer, x: float, y: float, width: float, height: float) -> None:
+    design.add_polygon(Polygon.rect(Point(x, y), width, height), layer)
+
+
+def _equilateral(layer: Layer, x: float, y: float, altitude: float) -> None:
+    half_base = altitude / math.sqrt(3.0)
+    design.add_polygon(
+        Polygon(
+            [
+                Point(x, y),
+                Point(x + 2.0 * half_base, y),
+                Point(x + half_base, y + altitude),
+            ]
+        ),
+        layer,
+    )
+
+
+def _basic_rule_examples(
+    *,
+    name: str,
+    layer: Layer,
+    x: float,
+    min_width: float,
+    min_spacing: float,
+    min_area: float,
+    square_area_example: bool = False,
+) -> None:
+    """Add isolated min-width, min-spacing, and min-area examples."""
+    narrow_width = min_width * 0.6
+    narrow_length = max(1.0, min_area / narrow_width * 1.5)
+    _rect(layer, x, 0.0, narrow_length, narrow_width)
+    _label(f"{name}.min_width", x, 3.0)
+
+    feature_size = max(min_width * 1.2, math.sqrt(min_area) * 1.2)
+    gap = min_spacing * 0.5
+    _rect(layer, x, 25.0, feature_size, feature_size)
+    _rect(layer, x + feature_size + gap, 25.0, feature_size, feature_size)
+    _label(f"{name}.min_spacing", x, 25.0 + feature_size + 2.0)
+
+    area_altitude = min_width * 1.05
+    if square_area_example:
+        _rect(layer, x, 50.0, area_altitude, area_altitude)
+    else:
+        # A triangle can satisfy min-width while remaining below min-area.
+        _equilateral(layer, x, 50.0, area_altitude)
+    _label(f"{name}.min_area", x, 50.0 + area_altitude + 2.0)
+
+
+_basic_rule_examples(
+    name="silicon",
+    layer=silicon,
+    x=0.0,
+    min_width=0.12,
+    min_spacing=0.13,
+    min_area=0.02,
+    square_area_example=True,
+)
+_basic_rule_examples(
+    name="oxide",
+    layer=oxide,
+    x=40.0,
+    min_width=0.18,
+    min_spacing=0.20,
+    min_area=0.05,
+)
+_basic_rule_examples(
+    name="marker",
+    layer=marker,
+    x=80.0,
+    min_width=0.25,
+    min_spacing=0.30,
+    min_area=0.10,
+)
+_basic_rule_examples(
+    name="p_doping",
+    layer=p_doping,
+    x=120.0,
+    min_width=0.30,
+    min_spacing=0.40,
+    min_area=0.10,
+)
+_basic_rule_examples(
+    name="n_doping",
+    layer=n_doping,
+    x=160.0,
+    min_width=0.30,
+    min_spacing=0.40,
+    min_area=0.10,
+)
+_basic_rule_examples(
+    name="exclusion",
+    layer=exclusion,
+    x=210.0,
+    min_width=5.0,
+    min_spacing=10.0,
+    min_area=25.0,
 )
 
-# -----------------------------------------------------------------------------
-# 5. no_overlap — silicon polygons on the same layer must not overlap.
-#    These two rectangles overlap in their corner.
-# -----------------------------------------------------------------------------
-design.add_polygon(Polygon.rect(Point(0, 20.0), 4.0, 4.0), silicon)
-design.add_polygon(Polygon.rect(Point(2.0, 22.0), 4.0, 4.0), silicon)
+# Silicon-only rules.
+design.add_polygon(
+    Polygon([Point(0.0, 75.0), Point(4.0, 75.0), Point(2.0, 78.0)]),
+    silicon,
+)
+_label("silicon.acute_angle", 0.0, 80.0)
 
-# -----------------------------------------------------------------------------
-# 6. oxide min_width — oxide min_width is 0.18 um.
-#    A 0.10 um oxide stripe is too narrow.
-# -----------------------------------------------------------------------------
-design.add_polygon(Polygon.rect(Point(0, 28.0), 8.0, 0.10), oxide)
+_rect(silicon, 0.0, 100.0, 4.0, 4.0)
+_rect(silicon, 2.0, 102.0, 4.0, 4.0)
+_label("silicon.no_overlap", 0.0, 108.0)
 
-# -----------------------------------------------------------------------------
-# 7. spacing (inter-layer) — P+ and N+ doping must stay >= 0.50 um apart (PN_SPC).
-#    These regions don't overlap, but the 0.20 um gap is too small.
-#    (right edge of left rect = 4.0; left edge of right rect = 4.2)
-# -----------------------------------------------------------------------------
-design.add_polygon(Polygon.rect(Point(0, 33.0), 4.0, 4.0), p_doping)
-design.add_polygon(Polygon.rect(Point(4.2, 33.0), 4.0, 4.0), n_doping)  # 0.20 gap
+# Inter-layer rules. Spacing ignores touching or overlapping polygons, leaving
+# the overlap example attributable only to PN_NOOVLP.
+_rect(p_doping, 120.0, 125.0, 4.0, 4.0)
+_rect(n_doping, 124.2, 125.0, 4.0, 4.0)
+_label("PN_SPC", 120.0, 131.0)
 
-# -----------------------------------------------------------------------------
-# 8. forbid_overlap (inter-layer) — P+ and N+ doping must not overlap (PN_NOOVLP).
-#    These two regions overlap.
-# -----------------------------------------------------------------------------
-design.add_polygon(Polygon.rect(Point(0, 40.0), 4.0, 4.0), p_doping)
-design.add_polygon(Polygon.rect(Point(2.0, 42.0), 4.0, 4.0), n_doping)
+_rect(p_doping, 120.0, 150.0, 4.0, 4.0)
+_rect(n_doping, 122.0, 152.0, 4.0, 4.0)
+_label("PN_NOOVLP", 120.0, 158.0)
 
-# -----------------------------------------------------------------------------
-# 9. not_inside (inter-layer) — silicon must not sit fully inside an
-#    exclusion / keep-out zone (EXCL_KEEPOUT). This small silicon square is
-#    fully contained by the larger exclusion rectangle.
-# -----------------------------------------------------------------------------
-design.add_polygon(Polygon.rect(Point(0, 48.0), 20.0, 12.0), exclusion)
-design.add_polygon(Polygon.rect(Point(6.0, 52.0), 4.0, 4.0), silicon)
-
-# -----------------------------------------------------------------------------
-# A clean reference shape so the design isn't entirely violations.
-# -----------------------------------------------------------------------------
-design.add_polygon(Polygon.rect(Point(0, 65.0), 10.0, 2.0), silicon)
+_rect(exclusion, 210.0, 125.0, 20.0, 12.0)
+_rect(silicon, 216.0, 129.0, 4.0, 4.0)
+_label("EXCL_KEEPOUT", 210.0, 139.0)

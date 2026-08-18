@@ -3,7 +3,7 @@
 
 [project]
 name = "librosette"
-version = "0.1.0"
+template = "generic"
 
 # Note: the output directory is set by the `rosette build -o/--output` flag
 # (default: "output/"), not by this config file.
@@ -121,7 +121,7 @@ description = "Text annotations"
 [drc.layers.silicon]
 min_width = 0.12      # Minimum waveguide width
 min_spacing = 0.13    # Minimum spacing between waveguides
-min_area = 0.01       # Minimum polygon area
+min_area = 0.02       # Minimum polygon area
 acute_angle = 60      # Min convex interior angle (deg); sharp tips are fab-risky
 # angles omitted — all edge angles allowed (curved/all-angle geometry permitted)
 no_overlap = true     # Forbid overlapping polygons on same layer
@@ -210,37 +210,10 @@ name = "EXCL_KEEPOUT"
 # DFM (Design for Manufacturability) Prediction
 # =============================================================================
 #
-# Virtual nanofabrication prediction. Rasterizes geometry, applies a
-# fabrication model, and compares the predicted result to the design.
-#
-# Models:
-#   gaussian - Approximate proximity effect simulation via Gaussian blur.
-#              Useful for catching gross issues (features too narrow, gaps
-#              too small) but not a substitute for calibrated models.
-#   (PreFab foundry-calibrated models coming soon)
-#
-# =============================================================================
-
-[dfm]
-resolution = 0.01     # Pixel size in um (smaller = more accurate, slower)
-padding = 1.0         # Margin around cell bounding box in um
-model = "gaussian"    # Prediction model (approximate — PreFab models coming soon)
-sigma = 0.08          # Gaussian sigma in um (models lithography proximity blur)
-threshold = 0.5       # Binarization threshold (0.0-1.0) — when is a pixel "filled"?
-                      #   (alias: contour_threshold; set only one)
-layers = ["silicon"]  # Layers to predict (waveguide layer)
-# keep_raster = false # Debug: keep intermediate rasters instead of discarding
-
-# Tolerances — deviations beyond these limits are reported as violations.
-# Note: the Gaussian model is an approximation. Set tolerances accordingly.
-# Foundry-calibrated PreFab models will enable tighter, meaningful limits.
-max_area_deviation = 0.10   # relative — max area change (10%)
-severity = "warning"        # "warning" to inform, "error" to fail the check
-
-# Per-layer overrides — override model params and tolerances per layer.
-# [dfm.layer.silicon]
-# sigma = 0.05              # tighter process on waveguide layer
-# max_area_deviation = 0.05
+# EXPERIMENTAL — disabled for this shared gallery config. DFM raster cost scales
+# with the full design extent, so the large galleries are intentionally not
+# valid prediction targets. Use a dedicated compact fixture and config when
+# demonstrating fabrication prediction.
 
 # =============================================================================
 # Design Checks

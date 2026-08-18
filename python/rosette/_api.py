@@ -33,6 +33,7 @@ import sys
 import tomllib
 import warnings
 from collections.abc import Iterator
+from contextvars import ContextVar
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
@@ -84,6 +85,10 @@ _DFM_DEFAULT_SIGMA = 0.08
 
 # Max columns/rows for GDS AREF (COLROW record is INT16).
 _GDS_ARRAY_MAX = 32767
+
+_CONFIG_SEARCH_ROOT: ContextVar[Path | None] = ContextVar(
+    "rosette_config_search_root", default=None
+)
 
 
 def _apply_repetition(
@@ -1525,8 +1530,8 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
 
 
 def _find_rosette_toml() -> Path | None:
-    """Search for rosette.toml in current directory and parents."""
-    current = Path.cwd()
+    """Search for rosette.toml from the active design directory or cwd."""
+    current = _CONFIG_SEARCH_ROOT.get() or Path.cwd()
     for directory in [current, *current.parents]:
         candidate = directory / "rosette.toml"
         if candidate.exists():
