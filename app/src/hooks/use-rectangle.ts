@@ -27,8 +27,8 @@ function snapToGrid(value: number): number {
 // Pre-allocated typed arrays to avoid GC pressure during drawing.
 // These are reused on every mouse move — safe because wasm-bindgen copies
 // the data into the WASM heap synchronously in set_preview_shape().
-const _previewPoints = new Float64Array(8);
-const _previewColor = new Float32Array(4);
+const previewPoints = new Float64Array(8);
+const previewColor = new Float32Array(4);
 
 /**
  * Hook for rectangle drawing tool.
@@ -122,23 +122,23 @@ export function useRectangle(
       const maxY = Math.max(start.y, worldY);
 
       // Write into pre-allocated buffer (counter-clockwise)
-      _previewPoints[0] = minX;
-      _previewPoints[1] = minY;
-      _previewPoints[2] = maxX;
-      _previewPoints[3] = minY;
-      _previewPoints[4] = maxX;
-      _previewPoints[5] = maxY;
-      _previewPoints[6] = minX;
-      _previewPoints[7] = maxY;
+      previewPoints[0] = minX;
+      previewPoints[1] = minY;
+      previewPoints[2] = maxX;
+      previewPoints[3] = minY;
+      previewPoints[4] = maxX;
+      previewPoints[5] = maxY;
+      previewPoints[6] = minX;
+      previewPoints[7] = maxY;
 
       // Write cached color into pre-allocated buffer
       const c = cachedColorRef.current;
-      _previewColor[0] = c[0];
-      _previewColor[1] = c[1];
-      _previewColor[2] = c[2];
-      _previewColor[3] = c[3];
+      previewColor[0] = c[0];
+      previewColor[1] = c[1];
+      previewColor[2] = c[2];
+      previewColor[3] = c[3];
 
-      renderer.set_preview_shape(_previewPoints, _previewColor);
+      renderer.set_preview_shape(previewPoints, previewColor);
       renderer.mark_dirty();
       return true;
     },

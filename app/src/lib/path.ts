@@ -117,7 +117,7 @@ export function computePathLength(waypoints: Point[], cornerRadius: number = 0):
   });
 
   // Resolve conflicts on shared segments (iterative)
-  for (let _iter = 0; _iter < 3; _iter++) {
+  for (let iteration = 0; iteration < 3; iteration++) {
     for (let k = 0; k < segLengths.length; k++) {
       const capacity = segLengths[k] * 0.95;
       const outCorner = k > 0 ? k - 1 : null;
@@ -236,7 +236,7 @@ export function checkBendRadiusReductions(
   });
 
   // Pass 2: resolve conflicts (iterative)
-  for (let _iter = 0; _iter < 3; _iter++) {
+  for (let iteration = 0; iteration < 3; iteration++) {
     for (let k = 0; k < segLengths.length; k++) {
       const capacity = segLengths[k] * 0.95;
       const outCorner = k > 0 ? k - 1 : null;

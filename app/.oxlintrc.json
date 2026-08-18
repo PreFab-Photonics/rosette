@@ -8,6 +8,7 @@
   },
   "rules": {
     "jsx-a11y/no-autofocus": "off",
+    "no-underscore-dangle": ["warn", { "allow": ["__APP_VERSION__"] }],
     "react/react-in-jsx-scope": "off"
   },
   "settings": {

@@ -8,6 +8,10 @@ import { useWasmContextStore } from "@/stores/wasm-context";
 import type { WasmLibrary } from "@/wasm/rosette_wasm";
 import { InstanceLabels } from "./InstanceLabels";
 
+const actEnvironment = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT: boolean;
+};
+
 vi.mock("@/stores/ui", () => ({
   useUIStore: (selector: (state: { theme: "dark" }) => unknown) => selector({ theme: "dark" }),
 }));
@@ -17,6 +21,7 @@ describe("InstanceLabels", () => {
   let root: Root;
 
   beforeEach(() => {
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -32,6 +37,7 @@ describe("InstanceLabels", () => {
     act(() => root.unmount());
     container.remove();
     useWasmContextStore.setState({ library: null, renderer: null, syncGeneration: 0 });
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
   });
 
   it("reuses instance metadata across selection and viewport renders", () => {

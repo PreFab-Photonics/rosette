@@ -81,6 +81,10 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # wasm-pack is pinned and installed below; do not restore a stale
+          # executable from an earlier cache entry.
+          cache-bin: false
 
       # Pin wasm-pack so the regenerated stub matches what other environments
       # produce. The .d.ts member ordering is governed by the wasm-bindgen crate
