@@ -81,18 +81,7 @@ const reasons = [
 
 function WhyRosette() {
   return (
-    <section className="relative mx-auto max-w-6xl px-6 py-16">
-      <div className="flex items-center gap-3 mb-3">
-        <span
-          aria-hidden="true"
-          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
-        >
-          ◇
-        </span>
-        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
-          Principles
-        </span>
-      </div>
+    <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
       <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Why Rosette?
       </h2>
@@ -119,21 +108,10 @@ function WhyRosette() {
 
 function EditorPreview() {
   return (
-    <section className="relative mx-auto max-w-6xl px-6 py-16">
+    <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
       {/* Subtle divider */}
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
-      <div className="flex items-center gap-3 mb-3">
-        <span
-          aria-hidden="true"
-          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
-        >
-          ◎
-        </span>
-        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
-          Editor
-        </span>
-      </div>
       <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Inspect and modify layouts
       </h2>
@@ -218,21 +196,10 @@ const capabilities = [
 
 function WhatsInside() {
   return (
-    <section className="relative mx-auto max-w-6xl px-6 py-16">
+    <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
       {/* Subtle divider */}
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
-      <div className="flex items-center gap-3 mb-3">
-        <span
-          aria-hidden="true"
-          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
-        >
-          ▣
-        </span>
-        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
-          Features
-        </span>
-      </div>
       <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         What&rsquo;s inside
       </h2>
@@ -331,20 +298,9 @@ const sourceAreas = [
 
 function OpenSource() {
   return (
-    <section className="relative mx-auto max-w-6xl px-6 py-16">
+    <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
-      <div className="flex items-center gap-3 mb-3">
-        <span
-          aria-hidden="true"
-          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
-        >
-          {"<>"}
-        </span>
-        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
-          Open source
-        </span>
-      </div>
       <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Fit Rosette to your process
       </h2>
@@ -518,21 +474,10 @@ function RecentPosts() {
   if (posts.length === 0) return null;
 
   return (
-    <section className="relative mx-auto max-w-6xl px-6 py-16">
+    <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
       {/* Subtle divider */}
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
-      <div className="flex items-center gap-3 mb-3">
-        <span
-          aria-hidden="true"
-          className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground"
-        >
-          ›
-        </span>
-        <span className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
-          Updates
-        </span>
-      </div>
       <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Latest writing
       </h2>
@@ -610,14 +555,11 @@ function RecentPosts() {
 
 function ClosingCTA() {
   return (
-    <section className="relative mx-auto max-w-6xl px-6 py-14">
+    <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
 
       <div className="mx-auto max-w-xl">
-        <p className="font-[family-name:var(--font-geist-mono)] text-[11px] font-medium tracking-widest text-fd-muted-foreground uppercase">
-          Start with one command
-        </p>
-        <div className="mt-4 flex min-w-0 items-center border-fd-border border-b pb-3 font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
+        <div className="flex min-w-0 items-center border-fd-border border-b pb-3 font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
           <span className="select-none text-fd-muted-foreground">$</span>
           <code className="ml-3 min-w-0 flex-1 overflow-x-auto whitespace-nowrap">
             {INIT_COMMAND}
