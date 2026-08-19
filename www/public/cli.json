@@ -3,7 +3,7 @@
   "prog": "rosette",
   "description": "Photonic layout tool for creating and building GDS designs",
   "json_schema": 1,
-  "package_version": "0.4.2",
+  "package_version": "0.5.0",
   "arguments": [
     {
       "flags": [
