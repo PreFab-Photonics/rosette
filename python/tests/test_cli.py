@@ -12,6 +12,7 @@ from rosette.cli import (
     _build_parser,
     _check_reference_staleness,
     _cli_manifest,
+    _cli_manifest_json,
     _parse_tool_spec,
     _resolve_design_config,
     _sanitize_project_name,
@@ -920,7 +921,7 @@ class TestRosetteInit:
         assert {path.name for path in skill_root.iterdir()} == FOCUSED_SKILLS
         authoring = (skill_root / "component-authoring" / "SKILL.md").read_text()
         assert "not for one-off design geometry" in authoring
-        assert "Component factories return geometry" in authoring
+        assert "Component functions return geometry" in authoring
         assert "separately named metric function" in authoring
         assert "cell.path_length" not in authoring
         assert not (project_dir / ".claude").exists()
@@ -1641,12 +1642,14 @@ class TestCliManifest:
 
     def test_manifest_shape(self):
         """The manifest carries both schema versions and one entry per command."""
+        import argparse
         import json
         from typing import Any, cast
 
         m = _cli_manifest()
         # Round-trips through JSON (no argparse sentinels leak through).
-        json.dumps(m)
+        serialized = json.dumps(m)
+        assert argparse.SUPPRESS not in serialized
 
         assert m["prog"] == "rosette"
         assert cast("int", m["schema"]) >= 1  # manifest schema
@@ -1655,6 +1658,8 @@ class TestCliManifest:
         from rosette import __version__
 
         assert m["package_version"] == __version__
+        root_flags = {flag for arg in m["arguments"] for flag in arg["flags"]}
+        assert {"-V", "--version"} <= root_flags
         commands = cast("dict[str, Any]", m["commands"])
         assert isinstance(commands, dict)
         # Every user-facing command is represented, including dfm and shot
@@ -1662,6 +1667,11 @@ class TestCliManifest:
         for name in ("build", "check", "drc", "dfm", "shot", "serve", "run", "init", "update"):
             assert name in commands, f"{name} missing from manifest"
         assert commands["shot"]["needs"] == "design"
+
+    def test_website_manifest_matches_parser(self):
+        """The published website artifact is the current parser manifest."""
+        website_manifest = Path(__file__).resolve().parents[2] / "www" / "public" / "cli.json"
+        assert website_manifest.read_text() == _cli_manifest_json()
 
     def test_manifest_documents_check_family_contract(self):
         """drc/check/dfm document the --json schema and exit codes in their epilog."""
@@ -1680,6 +1690,19 @@ class TestCliManifest:
             # The --json flag is present in the argument list.
             flags = {flag for arg in cmd["arguments"] for flag in arg["flags"]}
             assert "--json" in flags
+
+    def test_manifest_help_is_display_ready(self):
+        """Argparse percent escapes are normalized in the published contract."""
+        from typing import Any, cast
+
+        commands = cast("dict[str, Any]", _cli_manifest()["commands"])
+        fill_alpha = next(
+            argument
+            for argument in commands["shot"]["arguments"]
+            if "--fill-alpha" in argument["flags"]
+        )
+        assert "~70%" in fill_alpha["help"]
+        assert "%%" not in fill_alpha["help"]
 
     def test_manifest_matches_parser(self):
         """Guardrail: every subparser command/flag appears in the manifest.

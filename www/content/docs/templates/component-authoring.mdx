@@ -1,0 +1,101 @@
+---
+title: Component Authoring
+description: Add or modify reusable project-local components in any Rosette template.
+---
+
+Every Rosette project owns its `components/` package. Use this workflow whether you
+are adding the first component to a blank project or adapting an included generic
+component to your process.
+
+Before editing, read `components/__init__.py`, the relevant component source, and the
+shared helper modules. Project-local source and docstrings are authoritative after
+initialization.
+
+## Create a component
+
+Put reusable geometry in `components/<name>.py`. Accept the target layer first,
+orient the canonical component along +X, and point every port away from the body.
+
+```python title="components/straight.py"
+from math import isfinite
+
+from rosette import Cell, Layer, Point, Polygon, Port, Vector2
+
+from ._utils import safe_cell_name
+
+
+def straight(
+    layer: Layer,
+    length: float = 10.0,
+    waveguide_width: float = 0.5,
+) -> Cell:
+    if not isfinite(length) or not isfinite(waveguide_width):
+        raise ValueError("length and waveguide_width must be finite")
+    if length <= 0 or waveguide_width <= 0:
+        raise ValueError("length and waveguide_width must be positive")
+
+    cell = Cell(safe_cell_name(f"straight_l{length:.3f}_w{waveguide_width:.3f}"))
+    cell.add_polygon(
+        Polygon.rect(Point(0, -waveguide_width / 2), length, waveguide_width),
+        layer,
+    )
+    cell.add_port(Port("in", Point(0, 0), -Vector2.unit_x(), waveguide_width))
+    cell.add_port(Port("out", Point(length, 0), Vector2.unit_x(), waveguide_width))
+    return cell
+
+
+def straight_length(length: float) -> float:
+    if not isfinite(length) or length <= 0:
+        raise ValueError("length must be finite and positive")
+    return length
+```
+
+Use a separate, semantically named metric function only when the measurement is
+meaningful and unambiguous.
+
+## Export it
+
+Add the component and metric to `components/__init__.py`:
+
+```python
+from .straight import straight, straight_length
+
+__all__ = ["straight", "straight_length"]
+```
+
+Design scripts can then use the project-owned API:
+
+```python
+from components import straight
+from rosette.project import load_layer_map
+
+layers = load_layer_map()
+waveguide = straight(layers.silicon.layer, length=50.0)
+```
+
+Use semantic layer names from `rosette.toml`; do not bake foundry layer numbers into
+reusable component source.
+
+## Authoring conventions
+
+- Dimensions are in microns and geometric angles are in degrees.
+- Validate non-finite and physically invalid parameters before mutating the cell.
+- Keep the input near the origin and orient the canonical geometry along +X.
+- Set port widths to the physical boundary widths and point directions outward.
+- Use relative imports for local helpers so project edits take effect.
+- Use `safe_cell_name()` for parameterized cell names.
+- Reuse `_curves` and `_tapers` instead of duplicating shared geometry math.
+- Update docstrings and `__all__` when the project-owned component API changes.
+
+## Verify the component
+
+Create a small design that places and connects the component, then run:
+
+```bash
+uv run rosette build designs/component_test.py
+uv run rosette check designs/component_test.py
+uv run rosette shot designs/component_test.py
+```
+
+Treat the build, checks, and visual snapshot as one authoring loop. A component is not
+finished merely because it can be imported.

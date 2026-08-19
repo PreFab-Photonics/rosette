@@ -1,5 +1,6 @@
 ---
 title: DrcResult
+description: Result of running design rule checks.
 ---
 
 Result of running DRC.
@@ -33,7 +34,7 @@ List of all DRC violations found, including both errors and warnings.
 
 `True` if no error-severity violations were found.
 
-Warnings (see [`DrcRules.warning_margin`](./DrcRules)) do not cause this to
+Warnings (see [`DrcRules.warning_margin`](/docs/api-reference/DrcRules#warning_margin)) do not cause this to
 be `False`. A run with only warnings still passes. `rosette drc` and
 `rosette check` use this attribute for their exit code.
 
@@ -71,7 +72,7 @@ Elapsed time in milliseconds.
 
 <PyAttribute name={"suppressed_violations"} type={"int"}>
 
-Number of violations suppressed by explicit [`DrcPolicy`](./DrcPolicy) cell
+Number of violations suppressed by explicit [`DrcPolicy`](/docs/api-reference/DrcPolicy) cell
 skips.
 
 A violation is suppressed when every cell it names is within the
@@ -98,7 +99,7 @@ them via child-cell references.
 <PyAttribute name={"waived_violations"} type={"int"}>
 
 Number of violations suppressed by a
-[`DrcPolicy.waive_region()`](./DrcPolicy) waiver.
+[`DrcPolicy.waive_region()`](/docs/api-reference/DrcPolicy#waive_region) waiver.
 
 A violation is waived when it was not already suppressed by a policy cell
 skip and its location is fully contained within at least one waiver region

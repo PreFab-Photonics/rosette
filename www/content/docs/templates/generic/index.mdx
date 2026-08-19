@@ -1,0 +1,30 @@
+---
+title: Generic Template
+description: Start with silicon-photonics layers, DRC rules, and an editable component catalog.
+---
+
+The generic template is the quickest starting point for silicon-photonics designs.
+It includes:
+
+- A semantic layer map and starter DRC configuration in `rosette.toml`.
+- The full standard component catalog copied into `components/`.
+- Routing, verification, and component-authoring skills when an agent harness is selected.
+- Generated `.rosette/` contracts matching the installed Rosette package.
+
+```bash
+uvx --from librosette rosette init my-chip --template generic
+cd my-chip
+```
+
+The copied components are normal Python source, not opaque library objects. Edit them
+to match your PDK, naming conventions, and process assumptions. Once edited, the
+project-local source is authoritative; the
+[starter catalog](/docs/templates/generic/components) documents
+only the initial state.
+
+## Next steps
+
+- Browse the [included components](/docs/templates/generic/components).
+- Follow the shared [component-authoring guide](/docs/templates/component-authoring).
+- Tighten the [DRC configuration](/docs/guides/design-rule-checking).
+- Follow the [agent workflow](/docs/guides/agent-workflows) to build and verify a design.

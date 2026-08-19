@@ -1,0 +1,33 @@
+---
+title: Project Templates
+description: Choose the starter project structure and component library that fit your process.
+---
+
+`rosette init` offers two project templates. Both include project configuration,
+generated API contracts, and a project-local `components/` package. When you select
+an agent harness, Rosette also installs its routing, verification, and
+component-authoring skills. The templates differ in how much process and component
+content they provide.
+
+<Cards>
+
+<Card
+  href={"/docs/templates/generic"}
+  title={"Generic"}
+  description={"Preconfigured silicon-photonics layers, DRC, and the full editable component catalog."}
+/>
+
+<Card
+  href={"/docs/templates/blank"}
+  title={"Blank"}
+  description={"Minimal configuration and component-authoring helpers, with no public components."}
+/>
+
+</Cards>
+
+After initialization, the files in your project are authoritative. In particular,
+agents should read `components/__init__.py` and the relevant component source rather
+than assuming that the starter catalog is unchanged.
+
+The [component-authoring guide](/docs/templates/component-authoring) applies to both templates:
+extend the generic catalog or build a project-specific library from the blank scaffold.

@@ -160,7 +160,7 @@ the constant-width sections on either side.
 
 ## Component path metrics
 
-Component factories also return geometry-only Cells. Use the companion metric
+Component functions also return geometry-only Cells. Use the companion metric
 whose name identifies the optical path you mean:
 
 ```python
@@ -194,7 +194,7 @@ If your `Route` width is `0.5` but the port you connect to is `1.0`, the
 route inherits the port's width at the start and end, but the
 [design-checks](/docs/api-reference#run_checks) pass will still flag
 *other* width mismatches on connected ports. Run
-`rosette check designs/foo.py` (or
+`uv run rosette check designs/foo.py` (or
 [`run_checks`](/docs/api-reference#run_checks)) to catch these.
 </Callout>
 

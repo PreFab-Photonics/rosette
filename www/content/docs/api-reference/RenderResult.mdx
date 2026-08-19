@@ -1,8 +1,9 @@
 ---
 title: RenderResult
+description: PNG bytes and world-to-pixel transform metadata returned by render_png.
 ---
 
-Result of a [`render_png()`](./index#render_png) call: the PNG image bytes plus
+Result of a [`render_png()`](/docs/api-reference#render_png) call: the PNG image bytes plus
 the world↔pixel transform metadata needed to map between design (micron) and
 image (pixel) coordinates.
 
@@ -50,6 +51,21 @@ the current key set, which may change.
 Convert a pixel coordinate in the rendered image back to design (micron)
 coordinates.
 
+<div>
+
+<PyParameter name={"px"} type={"float"}>
+
+Horizontal pixel coordinate.
+
+</PyParameter>
+<PyParameter name={"py"} type={"float"}>
+
+Vertical pixel coordinate.
+
+</PyParameter>
+
+</div>
+
 <PyFunctionReturn type={"tuple[float, float]"} />
 
 </PyFunction>
@@ -57,6 +73,21 @@ coordinates.
 <PyFunction name={"world_to_px"} type={"(x, y) -> tuple[float, float]"}>
 
 Convert design (micron) coordinates to a pixel position in the rendered image.
+
+<div>
+
+<PyParameter name={"x"} type={"float"}>
+
+Horizontal design coordinate in microns.
+
+</PyParameter>
+<PyParameter name={"y"} type={"float"}>
+
+Vertical design coordinate in microns.
+
+</PyParameter>
+
+</div>
 
 <PyFunctionReturn type={"tuple[float, float]"} />
 

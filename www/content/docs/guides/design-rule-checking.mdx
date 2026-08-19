@@ -13,9 +13,9 @@ taping out. Rosette lets you encode a subset of those rules in
 ## When to run DRC
 
 - **While you design**, to catch mistakes early: run
-  `rosette build designs/my_design.py --check` or
+  `uv run rosette build designs/my_design.py --check` or
   [`run_drc`](/docs/api-reference#run_drc) in your script.
-- **Before tapeout**, to enforce the full deck: run `rosette drc` and gate
+- **Before tapeout**, to enforce the full deck: run `uv run rosette drc` and gate
   your build on a clean result. Foundry tools will still be the final
   source of truth, but Rosette catches most of the cheap mistakes.
 
@@ -82,8 +82,10 @@ name = "PN_NOOVLP"
 | `min_edge_length` | Shortest allowed polygon edge. |
 | `angles` | Allowed edge angles in degrees (e.g. `[0, 45, 90, 135]`). |
 | `acute_angle` | Minimum allowed convex interior angle in degrees. |
+| `snap_to_grid` | Manufacturing grid pitch in design units (for example, `0.001` for 1 nm). |
 | `no_overlap` | Forbid overlapping polygons on the same layer. |
 | `no_self_intersection` | Forbid self-intersecting polygons. |
+| `density` | Grouped subtable defining density bounds, window size, step, and optional region layer. |
 
 ### Supported inter-layer rules
 
@@ -101,15 +103,15 @@ violation messages.
 
 ### Near-threshold warnings
 
-The top-level `[drc]` table accepts `warning_margin` (a relative
-fraction). Numeric violations within that margin are downgraded to
+The top-level `[drc]` table accepts `warning_margin` in design units,
+typically microns. Length-based numeric violations within that absolute margin are downgraded to
 warnings instead of errors. This is useful while you iterate on a design
-and don't want to treat a 0.119 um wire (spec: 0.12) as a tapeout-blocking
+and don't want to treat a 0.115 um wire (spec: 0.12) as a tapeout-blocking
 error.
 
 ```toml
 [drc]
-warning_margin = 0.05   # within 5% of the threshold -> warning, not error
+warning_margin = 0.01   # within 0.01 um of a length threshold -> warning
 ```
 
 See [`DrcRules.warning_margin`](/docs/api-reference/DrcRules) for details.
@@ -189,24 +191,24 @@ Three CLI entry points hit DRC:
 
 ```bash
 # Just DRC, against the cell defined in the script.
-rosette drc designs/my_design.py
+uv run rosette drc designs/my_design.py
 
 # All enabled design checks (DRC, connectivity, bend radius, ...).
-rosette check designs/my_design.py
+uv run rosette check designs/my_design.py
 
 # Build to GDS with a DRC pre-check. The build always proceeds; DRC
 # results are printed to stderr.
-rosette build designs/my_design.py --check
+uv run rosette build designs/my_design.py --check
 ```
 
-Both `rosette drc` and `rosette check` accept `--json` to emit a single
+Both `uv run rosette drc` and `uv run rosette check` accept `--json` to emit a single
 machine-readable object on stdout instead of prose — see the
 [agent workflows guide](/docs/guides/agent-workflows#machine-readable-output).
 
 <Callout title={"--check does not gate the build"} type={"info"}>
-`rosette build --check` runs DRC and reports violations, but it still
+`uv run rosette build --check` runs DRC and reports violations, but it still
 writes the GDS file. If you want a hard gate for CI, run
-`rosette drc` and check the exit code, or call `run_drc` in your script
+`uv run rosette drc` and check the exit code, or call `run_drc` in your script
 and raise on `result.passed == False`.
 </Callout>
 

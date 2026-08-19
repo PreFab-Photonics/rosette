@@ -47,7 +47,7 @@ All components follow these conventions:
 * **Gap parameters** -- Where a component has a ``gap`` parameter (ring,
   directional coupler), it means the **edge-to-edge** distance between
   the nearest physical surfaces of the two waveguides.
-* **Measurements** -- Component factories return geometry. When a metric is
+* **Measurements** -- Component functions return geometry. When a metric is
   meaningful and unambiguous, the module exposes a semantically named companion
   function such as ``ring_round_trip_length`` rather than attaching generic
   metadata to the returned ``Cell``.

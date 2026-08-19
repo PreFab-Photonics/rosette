@@ -98,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   policy belongs to `rosette-route`. `Route.to_cell()` returns geometry while route
   diagnostics remain available on `Route` and in private check/JSON sidecars.
 - Core and public `Cell` now contain geometry, hierarchy, and ports only. Component
-  factories return geometry-only Cells, and DRC suppression is supplied explicitly
+  functions return geometry-only Cells, and DRC suppression is supplied explicitly
   through `DrcPolicy`.
 - Typed `LayoutDocument` sidecars keep editor, route, and DRC annotations outside
   core while preserving the existing `rosette-layout` JSON V1 wire shape.

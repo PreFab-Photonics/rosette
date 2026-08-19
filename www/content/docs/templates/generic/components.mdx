@@ -1,0 +1,257 @@
+---
+title: Generic Components
+description: Starter components copied into projects created from the generic template.
+---
+
+The generic template copies these components and their helper modules into your
+project's `components/` package. Import them from `components`, not
+`rosette.components`, so local edits take effect:
+
+```python
+from components import grating_coupler, mmi, ring
+```
+
+This page describes the starter version. Once you edit a component, its project-local
+source and docstring are authoritative. Use the shared
+[component-authoring guide](/docs/templates/component-authoring) when modifying an
+included component or adding a new one.
+
+## Shared conventions
+
+- Dimensions are in microns and geometric angles are in degrees.
+- The first component parameter is the target `Layer`.
+- Components use a canonical +X orientation and ports point outward.
+- A port's width matches the physical waveguide width at that boundary.
+- `gap` is edge-to-edge for rings and directional couplers.
+- Component functions return geometry-only `Cell` objects. Named metric functions report
+  unambiguous optical path lengths.
+
+| Component | Ports | Purpose |
+| --- | --- | --- |
+| `bragg_grating` | `in`, `out` | Inline sidewall-corrugated reflector. |
+| `crossing` | `in1`, `out1`, `in2`, `out2` | Cardinal-axis waveguide crossing. |
+| `directional_coupler` | `in1`, `in2`, `out1`, `out2` | Evanescent two-arm coupler. |
+| `edge_coupler` | `opt` | Inverse taper for coupling at a chip edge. |
+| `grating_coupler` | `opt` | Focused or straight fiber-to-chip coupler. |
+| `mmi` | `in`/`in1`/`in2`, `out`/`out1`/`out2` | 1x1, 1x2, 2x1, or 2x2 MMI. |
+| `ring` | all-pass or add-drop ports | Ring or racetrack resonator. |
+| `sbend` | `in`, `out` | Lateral offset with horizontal endpoints. |
+
+## `bragg_grating`
+
+```python
+bragg_grating(
+    layer,
+    waveguide_width=0.5,
+    corrugation_width=0.05,
+    period=0.32,
+    num_periods=200,
+    duty_cycle=0.5,
+    apodization="uniform",
+    apodization_sigma=0.25,
+    phase_shift=None,
+    phase_shift_position=0.5,
+) -> Cell
+```
+
+Creates an inline uniform or Gaussian-apodized Bragg reflector with `in` and
+`out` ports. `phase_shift`, when provided, is in radians.
+
+## `crossing`
+
+```python
+crossing(
+    layer,
+    waveguide_width=0.5,
+    arm_length=5.0,
+    crossing_type="elliptical",
+    center_width=None,
+) -> Cell
+```
+
+Creates a simple, elliptical, or MMI-style crossing centered at the origin.
+The west/east axis uses `in1` and `out1`; the south/north axis uses `in2` and
+`out2`.
+
+## `directional_coupler`
+
+```python
+directional_coupler(
+    layer,
+    waveguide_width=0.5,
+    coupling_length=20.0,
+    gap=0.2,
+    bend_length=10.0,
+    port_spacing=5.0,
+    num_segments=32,
+) -> Cell
+```
+
+Creates two S-bent arms around a parallel coupling region. The `gap` is the
+edge-to-edge spacing between the coupled waveguides.
+
+## `edge_coupler`
+
+```python
+edge_coupler(
+    layer,
+    waveguide_width=0.5,
+    tip_width=0.15,
+    taper_length=200.0,
+    taper_profile="linear",
+    cladding_layer=None,
+    cladding_width=3.0,
+) -> Cell
+```
+
+Creates an inverse taper or spot-size converter. It has one routable `opt` port;
+the narrow tip is a physical chip edge rather than a second port.
+
+## `grating_coupler`
+
+```python
+grating_coupler(
+    layer,
+    waveguide_width=0.5,
+    period=0.63,
+    fill_factor=0.5,
+    num_periods=25,
+    grating_type="uniform",
+    focusing_angle=20.0,
+    grating_width=None,
+    taper_length=20.0,
+) -> Cell
+```
+
+Creates a focused coupler by default. Set `focusing_angle=None` for a straight
+grating and use `grating_width` to set its width. The single `opt` port faces +X.
+
+## `mmi`
+
+```python
+mmi(
+    layer,
+    *,
+    n_in=1,
+    n_out=2,
+    waveguide_width=0.5,
+    length=10.0,
+    mmi_width=6.0,
+    taper_length=5.0,
+    taper_width=1.2,
+    port_separation=2.0,
+) -> Cell
+```
+
+Creates a 1x1, 1x2, 2x1, or 2x2 MMI. A single-port side uses `in` or `out`;
+a two-port side uses numbered ports with `1` below `2`.
+
+## `ring`
+
+```python
+ring(
+    layer,
+    waveguide_width=0.5,
+    radius=10.0,
+    gap=0.2,
+    coupling="allpass",
+    coupling_length=0.0,
+    bus_extension=5.0,
+    num_segments=128,
+) -> Cell
+```
+
+Creates a circular ring when `coupling_length=0` and a racetrack otherwise.
+All-pass mode exposes `in` and `out`; add-drop mode exposes `in`, `through`,
+`add`, and `drop`.
+
+## `sbend`
+
+```python
+sbend(
+    layer,
+    waveguide_width=0.5,
+    length=20.0,
+    offset=5.0,
+    bend_type="cosine",
+    num_segments=None,
+) -> Cell
+```
+
+Creates a cosine, circular, or Euler-profile lateral offset. The `in` port is
+at `(0, 0)` and the `out` port is at `(length, offset)`, with horizontal endpoint
+directions.
+
+## `bragg_grating_length`
+
+```python
+bragg_grating_length(period, num_periods, duty_cycle, phase_shift=None) -> float
+```
+
+Returns the complete inline grating length, including the terminator and optional
+phase-shift stub.
+
+## `crossing_through_length`
+
+```python
+crossing_through_length(arm_length) -> float
+```
+
+Returns the through length across either crossing axis.
+
+## `directional_coupler_arm_length`
+
+```python
+directional_coupler_arm_length(
+    bend_length,
+    coupling_length,
+    port_spacing,
+    gap,
+    waveguide_width,
+    num_segments=32,
+) -> float
+```
+
+Returns the centerline length of either symmetric coupler arm.
+
+## `mmi_through_length`
+
+```python
+mmi_through_length(length, taper_length) -> float
+```
+
+Returns the straight through length across both tapers and the MMI body.
+
+## `ring_round_trip_length`
+
+```python
+ring_round_trip_length(radius, coupling_length=0.0) -> float
+```
+
+Returns the ring or racetrack round-trip centerline length.
+
+## `sbend_path_length`
+
+```python
+sbend_path_length(
+    length,
+    offset,
+    bend_type="cosine",
+    num_segments=None,
+) -> float
+```
+
+Returns the numerically integrated S-bend centerline length.
+
+## Verify local changes
+
+After editing a component, place it in a small design and run:
+
+```bash
+uv run rosette build designs/component_test.py
+uv run rosette check designs/component_test.py
+uv run rosette shot designs/component_test.py
+```
+
+The build confirms serialization, checks catch physical and connectivity problems,
+and the snapshot provides a visual inspection loop.

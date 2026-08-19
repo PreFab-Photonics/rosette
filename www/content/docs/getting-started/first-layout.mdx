@@ -71,17 +71,15 @@ You have two ways to see the result: build a GDS file and open it in the
 viewer, or run the dev server for live reload while you edit.
 
 <Callout title={"Running rosette commands with uv"} type={"info"}>
-If you installed Rosette via `uv add librosette`, prefix every
-`rosette` command below with `uv run` (for example,
-`uv run rosette serve designs/hello.py`). If you installed via
-`uv tool install librosette` or inside an activated `pip` venv, the
-`rosette` command is on your `PATH` directly.
+The examples below use `uv run`, which guarantees the command and design import
+the project-local Rosette version. If you installed via `uv tool install
+librosette` or inside an activated `pip` venv, you can omit the `uv run` prefix.
 </Callout>
 
 ### Live preview (recommended)
 
 ```bash
-rosette serve designs/hello.py
+uv run rosette serve designs/hello.py
 ```
 
 The dev server opens `http://localhost:5173` in your browser with an
@@ -94,11 +92,11 @@ result immediately.
 If you just want the GDS file:
 
 ```bash
-rosette build designs/hello.py
+uv run rosette build designs/hello.py
 ```
 
 The output is written to `output/hello.gds`. Open it later with
-`rosette run output/hello.gds`.
+`uv run rosette run output/hello.gds`.
 
 ## What you should see
 
@@ -107,7 +105,7 @@ word `hello` rendered just above it on a different layer. Two port markers
 sit at the ends of the waveguide, pointing outward.
 
 <Callout title={"Build summary"} type={"info"}>
-`rosette build` and `write_gds` print a short summary to the terminal:
+`uv run rosette build` and `write_gds` print a short summary to the terminal:
 cell count, polygon count, and output path. If nothing shows up, pass
 `verbose=True` to `write_gds` for a more detailed breakdown, including
 port positions.

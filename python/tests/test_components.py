@@ -101,7 +101,7 @@ def test_public_component_catalog_matches_modules():
         (bragg_grating_length, (0.32, 10, 0.5, 0.0), "Phase shift"),
     ],
 )
-def test_component_measurements_validate_factory_inputs(measurement, args, match):
+def test_component_measurements_validate_component_inputs(measurement, args, match):
     with pytest.raises(ValueError, match=match):
         measurement(*args)
 
@@ -170,7 +170,7 @@ def test_component_measurements_reject_non_finite_float_inputs(
 
 
 @pytest.mark.parametrize(
-    "component_factory,expected_ports",
+    "component_fn,expected_ports",
     [
         # Two-port components (new API: layer first)
         (lambda layer: sbend(layer, waveguide_width=0.5, length=20.0, offset=5.0), ["in", "out"]),
@@ -206,9 +206,9 @@ def test_component_measurements_reject_non_finite_float_inputs(
         "bragg_grating",
     ],
 )
-def test_component_ports(component_factory, expected_ports, layer):
+def test_component_ports(component_fn, expected_ports, layer):
     """Components have expected port names."""
-    cell = component_factory(layer)
+    cell = component_fn(layer)
     assert isinstance(cell, Cell)
     port_names = [p.name for p in cell.ports()]
     for port_name in expected_ports:
@@ -216,7 +216,7 @@ def test_component_ports(component_factory, expected_ports, layer):
 
 
 @pytest.mark.parametrize(
-    "component_factory",
+    "component_fn",
     [
         lambda layer: sbend(layer, waveguide_width=0.5, length=20.0, offset=5.0),
         lambda layer: mmi(layer),
@@ -242,9 +242,9 @@ def test_component_ports(component_factory, expected_ports, layer):
         "bragg_grating",
     ],
 )
-def test_component_has_polygons(component_factory, layer):
+def test_component_has_polygons(component_fn, layer):
     """All components generate cells with polygons."""
-    cell = component_factory(layer)
+    cell = component_fn(layer)
     assert cell.polygon_count() > 0
 
 
