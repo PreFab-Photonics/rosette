@@ -316,7 +316,7 @@ function OpenSource() {
             <span className="font-medium text-fd-foreground">
               Project level
             </span>
-            <span className="text-emerald-600 dark:text-emerald-400">
+            <span className="text-emerald-700 dark:text-emerald-400">
               no fork required
             </span>
           </div>
@@ -499,7 +499,7 @@ function RecentPosts() {
                 })}
               </time>
               {i === 0 && (
-                <span className="rounded-full bg-fd-muted px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium text-fd-muted-foreground uppercase">
+                <span className="rounded-full bg-fd-muted px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium text-fd-foreground/70 uppercase">
                   Latest
                 </span>
               )}

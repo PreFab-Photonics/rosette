@@ -49,10 +49,10 @@ describe("LLM page rendering", () => {
     });
 
     expect(markdown).toContain(
-      'canonical_url: "https://rosette.dev/docs/api-reference/Cell"',
+      'canonical_url: "https://www.rosette.dev/docs/api-reference/Cell"',
     );
     expect(markdown).toContain(
-      'markdown_url: "https://rosette.dev/docs/api-reference/Cell.md"',
+      'markdown_url: "https://www.rosette.dev/docs/api-reference/Cell.md"',
     );
     expect(markdown).toContain("> **Warning: Stable API**");
     expect(markdown).toContain("### `create`");
@@ -102,7 +102,7 @@ describe("LLM page rendering", () => {
       "/docs/guides/routing.md",
     );
     expect(getCanonicalUrl("/docs/guides/routing")).toBe(
-      "https://rosette.dev/docs/guides/routing",
+      "https://www.rosette.dev/docs/guides/routing",
     );
     expect(getSourceUrl("guides/routing.mdx")).toMatch(
       /^https:\/\/github\.com\/PreFab-Photonics\/rosette\/blob\/[^/]+\/www\/content\/docs\/guides\/routing\.mdx$/,
@@ -114,7 +114,7 @@ describe("LLM page rendering", () => {
 
     expect(headers.get("content-type")).toBe("text/markdown; charset=utf-8");
     expect(headers.get("link")).toBe(
-      '<https://rosette.dev/docs/guides/routing>; rel="canonical"',
+      '<https://www.rosette.dev/docs/guides/routing>; rel="canonical"',
     );
     expect(headers.get("vary")).toBeNull();
   });

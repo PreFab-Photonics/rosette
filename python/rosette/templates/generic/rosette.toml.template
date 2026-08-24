@@ -5,7 +5,7 @@ template = "generic"
 # A realistic silicon-photonics baseline: multi-layer stack, active per-layer
 # DRC, inter-layer rules, DFM prediction, and design checks. Tune the values
 # to your foundry. Full schema reference:
-# https://rosette.dev/docs/guides/design-rule-checking
+# https://www.rosette.dev/docs/guides/design-rule-checking
 
 # =============================================================================
 # Layer Definitions

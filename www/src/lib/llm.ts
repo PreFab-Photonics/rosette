@@ -3,7 +3,7 @@ import {
   renderPlaceholder,
 } from "fumadocs-core/mdx-plugins/remark-llms.runtime";
 
-const SITE_URL = "https://rosette.dev";
+const SITE_URL = "https://www.rosette.dev";
 const REPOSITORY_URL = "https://github.com/PreFab-Photonics/rosette";
 
 function attributeText(

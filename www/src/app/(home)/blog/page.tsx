@@ -34,7 +34,7 @@ export default function BlogIndex() {
                 timeZone: "UTC",
               })}
             </time>
-            <span className="rounded-full bg-fd-muted px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium text-fd-muted-foreground uppercase">
+            <span className="rounded-full bg-fd-muted px-2.5 py-0.5 font-[family-name:var(--font-geist-mono)] text-[10px] font-medium text-fd-foreground/70 uppercase">
               Latest
             </span>
           </div>

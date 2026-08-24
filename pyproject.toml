@@ -28,7 +28,7 @@ keywords = ["photonics", "gdsii", "layout", "silicon-photonics", "eda", "pdk"]
 
 [project.urls]
 Repository = "https://github.com/prefab-photonics/rosette"
-Homepage = "https://rosette.dev"
+Homepage = "https://www.rosette.dev"
 "Bug Tracker" = "https://github.com/prefab-photonics/rosette/issues"
 
 [project.scripts]

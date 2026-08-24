@@ -10,4 +10,4 @@ template = "blank"
 # Add a [layers] section to define named layers, plus [drc], [dfm], and
 # [checks] to configure design-rule checking, manufacturability prediction,
 # and connectivity/bend-radius checks. Full schema reference:
-# https://rosette.dev/docs/guides/design-rule-checking
+# https://www.rosette.dev/docs/guides/design-rule-checking

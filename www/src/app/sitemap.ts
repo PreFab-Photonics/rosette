@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { blog, source } from "@/lib/source";
 
-const BASE_URL = "https://rosette.dev";
+const BASE_URL = "https://www.rosette.dev";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const docs = source.getPages().map((page) => ({
@@ -23,6 +23,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       url: `${BASE_URL}/blog`,
       changeFrequency: "weekly",
+    },
+    {
+      url: `${BASE_URL}/about`,
+      changeFrequency: "monthly",
     },
   ];
 

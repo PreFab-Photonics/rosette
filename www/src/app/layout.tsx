@@ -1,9 +1,9 @@
-import { Analytics } from "@vercel/analytics/next";
 import { RootProvider } from "fumadocs-ui/provider/next";
 import "./global.css";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import { SystemThemeSync } from "@/components/system-theme-sync";
+import { SITE_STRUCTURED_DATA } from "@/lib/structured-data";
 
 const geist = Geist({
   subsets: ["latin"],
@@ -22,13 +22,18 @@ const instrumentSerif = Instrument_Serif({
   variable: "--font-instrument-serif",
 });
 
+const structuredData = JSON.stringify(SITE_STRUCTURED_DATA).replaceAll(
+  "<",
+  "\\u003c",
+);
+
 export const metadata: Metadata = {
   title: {
     default: "Rosette - The modern GDSII layout editor",
     template: "%s | Rosette",
   },
   description: "The modern GDSII layout editor",
-  metadataBase: new URL("https://rosette.dev"),
+  metadataBase: new URL("https://www.rosette.dev"),
   alternates: {
     canonical: "./",
   },
@@ -51,6 +56,7 @@ export default function Layout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="flex flex-col min-h-screen font-[family-name:var(--font-geist-sans)]">
+        <script type="application/ld+json">{structuredData}</script>
         <RootProvider
           theme={{
             // The `d` hotkey can override the OS preference. SystemThemeSync
@@ -65,7 +71,6 @@ export default function Layout({ children }: LayoutProps<"/">) {
           <SystemThemeSync />
           {children}
         </RootProvider>
-        <Analytics />
       </body>
     </html>
   );

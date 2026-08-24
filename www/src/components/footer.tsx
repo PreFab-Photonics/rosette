@@ -4,6 +4,7 @@ import Link from "next/link";
 const footerLinks = [
   { label: "Docs", href: "/docs", external: false },
   { label: "Writing", href: "/blog", external: false },
+  { label: "About", href: "/about", external: false },
   {
     label: "GitHub",
     href: "https://github.com/prefab-photonics/rosette",
@@ -42,7 +43,7 @@ export function Footer() {
           </p>
         </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
           {footerLinks.map((link) =>
             link.external ? (
               <a

@@ -4,7 +4,7 @@ import { extname, join, relative, resolve, sep } from "node:path";
 const root = resolve(import.meta.dir, "..");
 const appDir = join(root, ".next", "server", "app");
 const publicDir = join(root, "public");
-const origin = "https://rosette.dev";
+const origin = "https://www.rosette.dev";
 
 interface Rewrite {
   source: string;
