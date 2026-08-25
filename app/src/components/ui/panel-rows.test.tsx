@@ -542,6 +542,28 @@ describe("panel row structure", () => {
     expect(useExplorerStore.getState().isFocused).toBe(true);
   });
 
+  it("releases Explorer focus after pointer-selecting a Cell", () => {
+    useExplorerStore.setState({
+      cells: ["alpha", "beta"],
+      cellTree: null,
+      cellListMode: "flat",
+      activeCell: "alpha",
+      hiddenCells: new Set(),
+    });
+    act(() => root.render(<Explorer />));
+
+    const beta = container.querySelector<HTMLElement>('[role="treeitem"][aria-label="beta"]')!;
+    act(() => beta.focus());
+    expect(useExplorerStore.getState().isFocused).toBe(true);
+
+    act(() => beta.click());
+
+    expect(useExplorerStore.getState().activeCell).toBe("beta");
+    expect(useExplorerStore.getState().isFocused).toBe(false);
+    expect(container.contains(document.activeElement)).toBe(false);
+    expect(useKeyboardFocusStore.getState().isCanvasActive()).toBe(true);
+  });
+
   it("restores Cell row focus after canceling inline rename", async () => {
     act(() =>
       root.render(
@@ -773,12 +795,10 @@ describe("panel row structure", () => {
 
     expect(container.querySelector('input[aria-label="Filter cells"]')).toBeNull();
     expect(useExplorerStore.getState().activeCell).toBe("beta");
-    expect(useExplorerStore.getState().focusedItem).toEqual({
-      type: "cell",
-      occurrenceId: cellOccurrenceId(["beta"]),
-      name: "beta",
-    });
-    expect(document.activeElement).toBe(beta);
+    expect(useExplorerStore.getState().isFocused).toBe(false);
+    expect(useExplorerStore.getState().focusedItem).toBeNull();
+    expect(document.activeElement).not.toBe(beta);
+    expect(useKeyboardFocusStore.getState().isCanvasActive()).toBe(true);
   });
 
   it("closes the filter and restores row focus when a filtered drag begins", async () => {

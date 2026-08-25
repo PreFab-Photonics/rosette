@@ -214,6 +214,14 @@ export function Explorer() {
   const cellFilterReturnFocusRef = useRef<HTMLElement>(null);
   const cellFilterReturnItemRef = useRef<typeof focusedItem>(null);
 
+  const releaseExplorerFocus = useCallback(() => {
+    setFocused(false);
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && drawerRef.current?.contains(activeElement)) {
+      activeElement.blur();
+    }
+  }, [setFocused]);
+
   const openCellFilter = useCallback(() => {
     const activeElement = document.activeElement;
     cellFilterReturnFocusRef.current =
@@ -982,9 +990,9 @@ export function Explorer() {
               onSelect={() => {
                 handleSelectCell(row.name);
                 if (isCellFilterOpen) {
-                  cellFilterReturnItemRef.current = focusedItemForRow(row);
-                  closeCellFilter();
+                  dismissCellFilter();
                 }
+                releaseExplorerFocus();
               }}
               onRename={(newName) => {
                 const returnItem = cellFilterReturnItemRef.current;
