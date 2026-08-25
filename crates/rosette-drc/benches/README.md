@@ -1,15 +1,13 @@
 # `rosette-drc` benchmarks
 
-Criterion-based performance harness for the DRC engine. These benches exist to
-(a) establish a baseline before the planned perf work in ROS-496 and ROS-511,
-and (b) detect regressions as the engine evolves.
+Criterion-based performance harness for the DRC engine. These benches
+characterize scaling and detect regressions as the engine evolves.
 
 ## Baseline
 
-The initial baseline (captured on an Apple M1 Pro) is posted as a comment on
-[ROS-494](https://linear.app/prefabphotonics/issue/ROS-494/drc-performance-baseline-and-benchmarks).
-Compare local runs against it via the baseline flags below. Raw criterion
-estimates live under `target/criterion/` (gitignored — they're per-machine).
+Use Criterion's baseline flags below to compare changes on the same machine.
+Raw estimates live under `target/criterion/` (gitignored — they're
+machine-specific).
 
 ## Running
 
@@ -49,11 +47,11 @@ flags statistically significant shifts.
 | -------------------- | -------------------------------------------------------- | ------------------------------------------------ |
 | `pairwise_spacing`   | `min_spacing` at N ∈ {100, 1K, 10K}, three densities     | R-tree path health; scales as N log N            |
 | `pairwise_overlap`   | `forbid_overlap` + `require_overlap` at same N sweep     | R-tree-backed overlap checks                     |
-| `pairwise_enclosure` | `enclosure` at {100, 1K} (capped low; see below)         | **Baseline for ROS-496** (enclosure is O(I·O) today) |
-| `per_polygon`        | `min_width` + self-int + edge-length stacked, V ∈ {100, 1K} | Per-polygon scaling (ray-casting, etc.)       |
-| `self_intersection`  | dedicated sweep-line check, V ∈ {100, 1K, 10K}           | Sweep-line scaling (ROS-549) isolated from stack |
-| `min_width`          | `min_width` alone, V ∈ {100, 1K}                         | **Baseline for ROS-554** (min_width is O(V²) today) |
-| `array_expansion`    | Full deck on an AREF (10², 30², 100² copies)             | **Baseline for ROS-511** (AREF flattening cost)  |
+| `pairwise_enclosure` | `enclosure` at N ∈ {100, 1K, 10K}                       | R-tree-backed enclosure scaling                 |
+| `per_polygon`        | `min_width` + self-int + edge-length stacked, V ∈ {100, 1K, 10K} | Per-polygon scaling (ray-casting, etc.)   |
+| `self_intersection`  | dedicated sweep-line check, V ∈ {100, 1K, 10K}           | Sweep-line scaling isolated from the stack       |
+| `min_width`          | `min_width` at V ∈ {100, 1K, 10K}, threshold variants, Bragg outlines | Bounded-query scaling and realistic cases |
+| `array_expansion`    | Full deck on an AREF (10², 30², 100² copies)             | AREF flattening and instance-pair costs          |
 | `full_deck_realistic`| 1K polygons, 3 layers, 2-level hierarchy, mixed deck     | Overall throughput number                        |
 | `incremental`        | `full_rerun` vs `cached_single_edit`, N ∈ {100, 1K} cells | Detection-cache win: re-checking after a one-leaf edit |
 
@@ -69,8 +67,8 @@ Three density regimes exercise different parts of the R-tree path:
   per polygon. Exercises the regime where R-tree prefilter cost matters and
   the inner distance/dedup loop dominates. Most inner comparisons bail early
   on the `distance < 1e-10` skip (touching/overlapping geometry), so this
-  doesn't fully model a PDK with many near-miss violations — it models the
-  worst-case *candidate-set size*, which was the shortcoming noted in ROS-551.
+  doesn't fully model a PDK with many near-miss violations — it primarily
+  stresses worst-case *candidate-set size*.
 
 ### Throughput units
 
@@ -94,12 +92,7 @@ detection cache in `runner/mod.rs`). The
 `array_expansion` bench therefore does *not* scale linearly with AREF size for
 per-polygon checks — those run once on the child and are trivially cheap.
 Pairwise checks (`min_spacing`, `forbid_overlap`) still pay the per-copy cost,
-which is where the ROS-511 optimization will show up.
-
-**The enclosure check has no spatial index yet.** `pairwise_enclosure` is
-intentionally capped at 1K pairs — the un-indexed O(I·O) cost at 10K would
-be tens of seconds per sample. Once ROS-496 lands, extend the sweep back up to
-10K to confirm the scaling win.
+which is where expansion and instance-pair costs show up.
 
 **Wall-clock microbench noise.** Expect ±5% run-to-run variance on a laptop,
 more if other processes contend for cores. For trustworthy comparisons:
@@ -109,9 +102,8 @@ more if other processes contend for cores. For trustworthy comparisons:
 - Use `--baseline` / `--save-baseline` so Criterion compares within a single
   execution environment.
 
-**Hardware matters.** Baseline numbers in the Linear issue are tagged with the
-machine that produced them. Large cross-machine deltas don't necessarily
-indicate regressions.
+**Hardware matters.** Large cross-machine deltas don't necessarily indicate
+regressions.
 
 **No parallelism.** The engine is single-threaded today; these numbers
 characterize serial performance. Any future rayon work will need a different

@@ -1,8 +1,29 @@
 //! Minimum width check using ray-casting sampling and vertex-to-edge distances.
 
 use rosette_core::{Layer, Point, Polygon};
+use rstar::{AABB, RTree, RTreeObject};
 
 use crate::violation::{DrcViolation, RuleType, Severity};
+
+const SPATIAL_INDEX_MIN_EDGES: usize = 64;
+
+#[derive(Clone, Copy)]
+struct IndexedEdge {
+    index: usize,
+    start: Point,
+    end: Point,
+}
+
+impl RTreeObject for IndexedEdge {
+    type Envelope = AABB<[f64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        AABB::from_corners(
+            [self.start.x.min(self.end.x), self.start.y.min(self.end.y)],
+            [self.start.x.max(self.end.x), self.start.y.max(self.end.y)],
+        )
+    }
+}
 
 /// Check that polygon meets minimum width requirement.
 ///
@@ -23,9 +44,7 @@ pub fn check_width(
         return None;
     }
 
-    let min_measured = estimate_min_width_sampling(polygon, 10);
-
-    if min_measured < min_width {
+    if let Some(min_measured) = find_width_violation(polygon, 10, min_width) {
         let mut violation = DrcViolation::new(
             RuleType::MinWidth {
                 required: min_width,
@@ -48,6 +67,141 @@ pub fn check_width(
     } else {
         None
     }
+}
+
+/// Find the sampled minimum width only when it violates `limit`.
+///
+/// High-vertex polygons use an edge R-tree with queries bounded by the current
+/// best violating distance. The broad phase changes which edges are visited,
+/// but the exact predicates and topological exclusions remain identical to
+/// [`estimate_min_width_sampling`].
+fn find_width_violation(polygon: &Polygon, samples_per_edge: usize, limit: f64) -> Option<f64> {
+    let vertices = polygon.vertices();
+    let n = vertices.len();
+
+    // Preserve the cheap legacy path for ordinary polygons and unusual rule
+    // values. Non-positive finite limits cannot be violated by a distance.
+    if limit.is_finite() && limit <= 0.0 {
+        return None;
+    }
+    if n < SPATIAL_INDEX_MIN_EDGES || !limit.is_finite() {
+        return legacy_width_violation(polygon, samples_per_edge, limit);
+    }
+
+    let signed_area = polygon.signed_area();
+    let winding_sign = if signed_area >= 0.0 { 1.0 } else { -1.0 };
+    let edges: Vec<(Point, Point)> = (0..n)
+        .map(|i| (vertices[i], vertices[(i + 1) % n]))
+        .collect();
+    let max_coordinate = vertices.iter().fold(0.0_f64, |max_coordinate, vertex| {
+        max_coordinate.max(vertex.x.abs()).max(vertex.y.abs())
+    });
+    let envelope_bound = max_coordinate + limit;
+    let query_padding = envelope_bound.max(1.0) * f64::EPSILON * 16.0 + 1e-12;
+    if !envelope_bound.is_finite() || !(envelope_bound + query_padding).is_finite() {
+        return legacy_width_violation(polygon, samples_per_edge, limit);
+    }
+
+    let tree = RTree::bulk_load(
+        edges
+            .iter()
+            .enumerate()
+            .map(|(index, &(start, end))| IndexedEdge { index, start, end })
+            .collect(),
+    );
+    let mut best = limit;
+
+    for (edge_idx, &(p1, p2)) in edges.iter().enumerate() {
+        let edge_vec = (p2.x - p1.x, p2.y - p1.y);
+        let edge_len = (edge_vec.0.powi(2) + edge_vec.1.powi(2)).sqrt();
+        if edge_len < 1e-10 {
+            continue;
+        }
+
+        let normal = (
+            -edge_vec.1 / edge_len * winding_sign,
+            edge_vec.0 / edge_len * winding_sign,
+        );
+
+        for j in 1..=samples_per_edge {
+            let t = j as f64 / (samples_per_edge + 1) as f64;
+            let sample = Point::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+            let endpoint = Point::new(sample.x + normal.0 * best, sample.y + normal.1 * best);
+            let envelope = AABB::from_corners(
+                [
+                    sample.x.min(endpoint.x) - query_padding,
+                    sample.y.min(endpoint.y) - query_padding,
+                ],
+                [
+                    sample.x.max(endpoint.x) + query_padding,
+                    sample.y.max(endpoint.y) + query_padding,
+                ],
+            );
+
+            for candidate in tree.locate_in_envelope_intersecting(&envelope) {
+                let i = candidate.index;
+                if i == edge_idx || i == (edge_idx + 1) % n || i == (edge_idx + n - 1) % n {
+                    continue;
+                }
+
+                let (e1, e2) = edges[i];
+                if let Some(dist) = ray_segment_intersection(sample, normal, e1, e2)
+                    && dist > 1e-10
+                    && dist < best
+                {
+                    best = dist;
+                }
+            }
+        }
+    }
+
+    let skip_radius = (n / 4).max(1);
+    for (vi, &vertex) in vertices.iter().enumerate() {
+        let envelope = AABB::from_corners(
+            [
+                vertex.x - best - query_padding,
+                vertex.y - best - query_padding,
+            ],
+            [
+                vertex.x + best + query_padding,
+                vertex.y + best + query_padding,
+            ],
+        );
+
+        for candidate in tree.locate_in_envelope_intersecting(&envelope) {
+            let ei = candidate.index;
+            let fwd = (ei + n - vi) % n;
+            let bwd = (vi + n - ei) % n;
+            if fwd.min(bwd) <= skip_radius {
+                continue;
+            }
+
+            let (e1, e2) = edges[ei];
+            let dist = point_to_segment_distance(vertex, e1, e2);
+            if dist > 1e-10 && dist < best {
+                best = dist;
+            }
+        }
+    }
+
+    if best < limit {
+        return Some(best);
+    }
+
+    // If no bounded candidate violated, the only remaining ambiguity is the
+    // legacy bbox fallback used when no valid measurement exists (triangles and
+    // heavily degenerate polygons). Resolve uncommon narrow-bbox cases exactly.
+    let bbox = polygon.bbox();
+    if bbox.width().min(bbox.height()) < limit {
+        return legacy_width_violation(polygon, samples_per_edge, limit);
+    }
+
+    None
+}
+
+fn legacy_width_violation(polygon: &Polygon, samples_per_edge: usize, limit: f64) -> Option<f64> {
+    let measured = estimate_min_width_sampling(polygon, samples_per_edge);
+    (measured < limit).then_some(measured)
 }
 
 /// Estimate minimum width by sampling perpendicular distances from edges.
@@ -608,6 +762,92 @@ mod tests {
             measured > 0.4,
             "Curved taper width {} should be reasonable (>0.4)",
             measured
+        );
+    }
+
+    fn sampled_ribbon(segments: usize, width: f64) -> Polygon {
+        let mut vertices = Vec::with_capacity(2 * (segments + 1));
+        for i in 0..=segments {
+            vertices.push(Point::new(i as f64, -width / 2.0));
+        }
+        for i in (0..=segments).rev() {
+            vertices.push(Point::new(i as f64, width / 2.0));
+        }
+        Polygon::new(vertices).unwrap()
+    }
+
+    fn assert_bounded_matches_legacy(polygon: &Polygon) {
+        let measured = estimate_min_width_sampling(polygon, 10);
+        for limit in [measured * 0.9, measured, measured * 1.1] {
+            let bounded = find_width_violation(polygon, 10, limit);
+            if measured < limit {
+                let actual = bounded.expect("legacy estimator reports a violation");
+                assert_eq!(
+                    actual.to_bits(),
+                    measured.to_bits(),
+                    "bounded query must preserve the reported actual width"
+                );
+            } else {
+                assert!(bounded.is_none(), "legacy estimator reports a pass");
+            }
+        }
+    }
+
+    #[test]
+    fn test_threshold_bounded_matches_legacy_for_high_vertex_shapes() {
+        let regular = Polygon::regular(Point::origin(), 10.0, 128).unwrap();
+        assert_bounded_matches_legacy(&regular);
+
+        let ribbon = sampled_ribbon(96, 1.0);
+        assert_bounded_matches_legacy(&ribbon);
+
+        let mut reversed_vertices = ribbon.vertices().to_vec();
+        reversed_vertices.reverse();
+        let reversed = Polygon::new(reversed_vertices).unwrap();
+        assert_bounded_matches_legacy(&reversed);
+
+        let mut duplicate_vertices = ribbon.vertices().to_vec();
+        duplicate_vertices.insert(10, duplicate_vertices[10]);
+        let with_zero_length_edge = Polygon::new(duplicate_vertices).unwrap();
+        assert_bounded_matches_legacy(&with_zero_length_edge);
+
+        // Non-uniform density: a densely sampled curved top faces one long
+        // bottom edge, exercising the existing n/4 topological skip.
+        let mut taper_vertices = vec![Point::new(0.0, -0.25), Point::new(10.0, -1.0)];
+        for i in 0..=96 {
+            let t = 1.0 - i as f64 / 96.0;
+            taper_vertices.push(Point::new(10.0 * t, 0.25 + 0.75 * t * t.sqrt()));
+        }
+        let taper = Polygon::new(taper_vertices).unwrap();
+        assert_bounded_matches_legacy(&taper);
+    }
+
+    #[test]
+    fn test_threshold_bounded_preserves_fallback_and_unusual_limits() {
+        let triangle = Polygon::new(vec![
+            Point::new(0.0, 0.0),
+            Point::new(3.0, 0.0),
+            Point::new(0.0, 4.0),
+        ])
+        .unwrap();
+        let measured = estimate_min_width_sampling(&triangle, 10);
+        assert_eq!(measured, 3.0);
+
+        assert!(find_width_violation(&triangle, 10, measured).is_none());
+        assert_eq!(find_width_violation(&triangle, 10, 4.0), Some(measured));
+        assert!(find_width_violation(&triangle, 10, 0.0).is_none());
+        assert!(find_width_violation(&triangle, 10, -1.0).is_none());
+        assert!(find_width_violation(&triangle, 10, f64::NAN).is_none());
+        assert_eq!(
+            find_width_violation(&triangle, 10, f64::INFINITY),
+            Some(measured)
+        );
+
+        let regular = Polygon::regular(Point::origin(), 1.0, SPATIAL_INDEX_MIN_EDGES).unwrap();
+        let regular_measured = estimate_min_width_sampling(&regular, 10);
+        assert_eq!(
+            find_width_violation(&regular, 10, f64::MAX),
+            Some(regular_measured)
         );
     }
 

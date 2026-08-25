@@ -134,6 +134,51 @@ pub fn build_high_vertex_polygon(vertices: usize) -> Cell {
     cell
 }
 
+/// Build the same single-polygon stepped outline as the Python Bragg grating
+/// component. Each period contributes eight polygon vertices; the default 200
+/// periods therefore produce 1,608 vertices.
+pub fn build_bragg_outline(periods: usize) -> Cell {
+    let waveguide_width = 0.5;
+    let corrugation_width = 0.05;
+    let period = 0.32;
+    let duty_cycle = 0.5;
+    let half_port = waveguide_width / 2.0;
+    let half_wide = (waveguide_width + corrugation_width) / 2.0;
+    let half_narrow = (waveguide_width - corrugation_width) / 2.0;
+
+    let mut top = Vec::with_capacity(4 * periods + 4);
+    let mut bottom = Vec::with_capacity(4 * periods + 4);
+    let mut x = 0.0;
+    top.push(Point::new(x, half_port));
+    bottom.push(Point::new(x, -half_port));
+
+    for _ in 0..periods {
+        top.push(Point::new(x, half_wide));
+        bottom.push(Point::new(x, -half_wide));
+        let x_mid = x + duty_cycle * period;
+        top.push(Point::new(x_mid, half_wide));
+        bottom.push(Point::new(x_mid, -half_wide));
+        top.push(Point::new(x_mid, half_narrow));
+        bottom.push(Point::new(x_mid, -half_narrow));
+        x += period;
+        top.push(Point::new(x, half_narrow));
+        bottom.push(Point::new(x, -half_narrow));
+    }
+
+    top.push(Point::new(x, half_wide));
+    bottom.push(Point::new(x, -half_wide));
+    x += duty_cycle * period;
+    top.push(Point::new(x, half_wide));
+    bottom.push(Point::new(x, -half_wide));
+    top.push(Point::new(x, half_port));
+    bottom.push(Point::new(x, -half_port));
+    top.extend(bottom.into_iter().rev());
+
+    let mut cell = Cell::new(format!("bragg_{periods}")).unwrap();
+    cell.add_polygon(Polygon::new(top).unwrap(), L1);
+    cell
+}
+
 /// Build a library with a child cell containing 5 small rectangles, referenced
 /// by a top cell that places them as an `rows × cols` AREF with `pitch`
 /// center-to-center spacing.

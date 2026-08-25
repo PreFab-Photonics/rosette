@@ -10,12 +10,12 @@
 //! - `pairwise_enclosure` — `enclosure` at N ∈ {100, 1K, 10K} with R-tree
 //!   spatial indexing (ROS-496).
 //! - `per_polygon` — `min_width` + `self_intersection` + `min_edge_length` on
-//!   a single polygon with V ∈ {100, 1000} vertices.
+//!   a single polygon with V ∈ {100, 1K, 10K} vertices.
 //! - `self_intersection` — dedicated sweep-line check (ROS-549) across
 //!   V ∈ {100, 1K, 10K}; isolates the scaling from the other per-polygon
 //!   checks.
-//! - `min_width` — dedicated `min_width`-only sweep (V ∈ {100, 1K}); isolates
-//!   the still-O(V²) ray-cast pole tracked by ROS-554.
+//! - `min_width` — dedicated `min_width`-only sweep (V ∈ {100, 1K, 10K}) plus
+//!   threshold and realistic Bragg cases tracked by ROS-554.
 //! - `array_expansion` — AREF 10×10 / 30×30 / 100×100, full deck (baseline
 //!   for ROS-511).
 //! - `full_deck_realistic` — ~1K polygons, 3 layers, 2-level hierarchy,
@@ -41,7 +41,7 @@ use fixtures::{L1, L2, L3};
 const PAIRWISE_SIZES: &[usize] = &[100, 1_000, 10_000];
 
 // Vertices for the per-polygon sweep.
-const VERTEX_COUNTS: &[usize] = &[100, 1_000];
+const VERTEX_COUNTS: &[usize] = &[100, 1_000, 10_000];
 
 // Vertices for the dedicated self-intersection sweep. Extended to 10K to
 // cement the O(V^2) -> O(V log V) scaling win landed in ROS-549.
@@ -213,18 +213,17 @@ fn bench_per_polygon(c: &mut Criterion) {
     let mut group = c.benchmark_group("per_polygon");
     configure_group(&mut group);
     // Stack three per-polygon checks so each bench call exercises the common
-    // Phase-1 path plus three distinct check implementations.
+    // Phase-1 path plus three distinct check implementations. Keep the edge
+    // threshold below the 10K-gon's ~0.0063 edge length so every sweep size is
+    // a passing fixture rather than materializing 10K edge violations.
     let rules = DrcRules::new()
         .min_width(L1, 0.1, Some("M1.W"))
         .no_self_intersection(L1, Some("M1.SI"))
-        .min_edge_length(L1, 0.01, Some("M1.EL"));
+        .min_edge_length(L1, 0.001, Some("M1.EL"));
 
     for &v in VERTEX_COUNTS {
         group.throughput(Throughput::Elements(v as u64));
-        // `min_width` and `min_edge_length` combined are roughly O(V^2) at
-        // this scale (ray casting on high-vertex polygons). V=1K is ~45 ms
-        // per iter, so reduce sample count to keep bench time reasonable.
-        if v >= 1_000 {
+        if v >= 10_000 {
             group.sample_size(10);
         }
         let cell = fixtures::build_high_vertex_polygon(v);
@@ -265,10 +264,7 @@ fn bench_self_intersection(c: &mut Criterion) {
 fn bench_min_width(c: &mut Criterion) {
     let mut group = c.benchmark_group("min_width");
     configure_group(&mut group);
-    // Dedicated min_width-only bench. Capped at V ∈ {100, 1K}: min_width is
-    // still O(V²) (the perpendicular ray-cast in `estimate_min_width_sampling`
-    // scans ~half the edges for convex shapes), so V=10K is ~4.4 s per sample.
-    // Extend to 10K once ROS-554 lands an algorithmic fix.
+    // Far-passing regular polygons exercise the threshold-bounded common path.
     let rules = DrcRules::new().min_width(L1, 0.1, Some("M1.W"));
 
     for &v in VERTEX_COUNTS {
@@ -279,6 +275,31 @@ fn bench_min_width(c: &mut Criterion) {
         let cell = fixtures::build_high_vertex_polygon(v);
         group.bench_with_input(BenchmarkId::from_parameter(v), &v, |b, _| {
             b.iter(|| run_drc(black_box(&cell), black_box(&rules), None));
+        });
+    }
+
+    // The regular-polygon vertex heuristic measures about sqrt(2) * radius.
+    // These cases keep candidate sets large and expose near-threshold/failing
+    // behavior rather than only measuring the easy far-passing path.
+    let near_rules = DrcRules::new().min_width(L1, 14.0, Some("M1.W.NEAR"));
+    let failing_rules = DrcRules::new().min_width(L1, 15.0, Some("M1.W.FAIL"));
+    let regular_1k = fixtures::build_high_vertex_polygon(1_000);
+    group.throughput(Throughput::Elements(1_000));
+    group.bench_function(BenchmarkId::new("regular_near_pass", 1_000), |b| {
+        b.iter(|| run_drc(black_box(&regular_1k), black_box(&near_rules), None));
+    });
+    group.bench_function(BenchmarkId::new("regular_fail", 1_000), |b| {
+        b.iter(|| run_drc(black_box(&regular_1k), black_box(&failing_rules), None));
+    });
+
+    // Project-owned Bragg fixtures mirror the default 200-period component
+    // and its documented 400-period example (8N + 8 outline vertices).
+    for &periods in &[200, 400] {
+        let vertices = 8 * periods + 8;
+        let bragg = fixtures::build_bragg_outline(periods);
+        group.throughput(Throughput::Elements(vertices as u64));
+        group.bench_function(BenchmarkId::new("bragg_pass", vertices), |b| {
+            b.iter(|| run_drc(black_box(&bragg), black_box(&rules), None));
         });
     }
 
