@@ -23,7 +23,7 @@ import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
-from rosette._design import design_config_context
+from rosette._design import DesignLoadError, design_config_context
 
 if TYPE_CHECKING:
     from rosette import BBox, Cell
@@ -2105,12 +2105,19 @@ def update_project():
     print(f"Updated project to latest templates (tools: {tool_names})")
 
 
-def load_design(path_spec: str) -> tuple[Cell, Path, str]:
+def load_design(
+    path_spec: str,
+    config_path: str | Path | None = None,
+    *,
+    raise_errors: bool = False,
+) -> tuple[Cell, Path, str]:
     """Load a design from a file using the 'design' convention.
 
     Args:
         path_spec: Path to design file, optionally with :target suffix
                    (e.g., "designs/chip.py" or "designs/chip.py:my_cell")
+        config_path: Exact config file to use for implicit config lookups.
+        raise_errors: Raise design import/execution errors for caller formatting.
 
     Returns:
         Tuple of (cell, file_path, target_name)
@@ -2123,7 +2130,7 @@ def load_design(path_spec: str) -> tuple[Cell, Path, str]:
     """
     from rosette._design import load_design as _load_design
 
-    return _load_design(path_spec)
+    return _load_design(path_spec, config_path, raise_errors=raise_errors)
 
 
 def _resolve_design_config(config_path: str | None, file_path: Path | None) -> str | None:
@@ -2596,7 +2603,10 @@ def _run_drc_check(
     from rosette.drc import load_drc_rules, run_drc
 
     # Load design
-    cell, file_path, _ = load_design(design_spec)
+    try:
+        cell, file_path, _ = load_design(design_spec, config_path, raise_errors=json_output)
+    except DesignLoadError as e:
+        _emit_json_error("drc", design_spec, str(e))
     config_path = _resolve_design_config(config_path, file_path)
 
     # Load DRC rules from rosette.toml
@@ -2735,6 +2745,8 @@ def _run_dfm_check(
     config_path: str | None = None,
     cell: Cell | None = None,
     file_path: Path | None = None,
+    *,
+    raise_design_errors: bool = False,
 ) -> tuple[DfmResult, Path | None, bool, Cell] | None:
     """Run DFM prediction on a design and return (result, file_path, has_tolerances, cell).
 
@@ -2751,7 +2763,7 @@ def _run_dfm_check(
 
     # Load design if not provided
     if cell is None:
-        cell, file_path, _ = load_design(design_spec)
+        cell, file_path, _ = load_design(design_spec, config_path, raise_errors=raise_design_errors)
     config_path = _resolve_design_config(config_path, file_path)
 
     # Load DFM config from rosette.toml. None => no [dfm] section (skip);
@@ -2875,7 +2887,9 @@ def dfm_design(
 ):
     """Run DFM prediction on a design."""
     try:
-        checked = _run_dfm_check(design, config)
+        checked = _run_dfm_check(design, config, raise_design_errors=json_output)
+    except DesignLoadError as e:
+        _emit_json_error("dfm", design, str(e))
     except FileNotFoundError as e:
         if json_output:
             _emit_json_error("dfm", design, str(e))
@@ -2941,7 +2955,7 @@ def _run_checks_check(
 
     # Load design if not provided
     if cell is None:
-        cell, file_path, _ = load_design(design_spec)
+        cell, file_path, _ = load_design(design_spec, config_path)
     config_path = _resolve_design_config(config_path, file_path)
 
     # Load config (returns defaults if no [checks] section)
@@ -3032,7 +3046,7 @@ def check_design(
     all_passed = True
 
     # Load the design once — shared by all checks
-    cell, file_path, _ = load_design(design)
+    cell, file_path, _ = load_design(design, config)
     config = _resolve_design_config(config, file_path)
 
     # DRC
@@ -3101,7 +3115,10 @@ def _check_design_json(design: str, config: str | None, include_dfm: bool) -> No
     all_passed = True
 
     # Load the design once — shared by all checks
-    cell, file_path, _ = load_design(design)
+    try:
+        cell, file_path, _ = load_design(design, config, raise_errors=True)
+    except DesignLoadError as e:
+        _emit_json_error("check", design, str(e))
     config = _resolve_design_config(config, file_path)
 
     # DRC — a config error here is fatal (matches prose path's sys.exit(1)).
@@ -3183,7 +3200,7 @@ def build_design(
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Load design using convention
-    cell, file_path, _ = load_design(design)
+    cell, file_path, _ = load_design(design, config)
     config = _resolve_design_config(config, file_path)
 
     # Run DRC before building if --check is set

@@ -89,6 +89,9 @@ _GDS_ARRAY_MAX = 32767
 _CONFIG_SEARCH_ROOT: ContextVar[Path | None] = ContextVar(
     "rosette_config_search_root", default=None
 )
+_CONFIG_PATH_OVERRIDE: ContextVar[Path | None] = ContextVar(
+    "rosette_config_path_override", default=None
+)
 
 
 def _apply_repetition(
@@ -1531,6 +1534,10 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
 
 def _find_rosette_toml() -> Path | None:
     """Search for rosette.toml from the active design directory or cwd."""
+    override = _CONFIG_PATH_OVERRIDE.get()
+    if override is not None:
+        return override
+
     current = _CONFIG_SEARCH_ROOT.get() or Path.cwd()
     for directory in [current, *current.parents]:
         candidate = directory / "rosette.toml"

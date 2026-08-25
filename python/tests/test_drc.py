@@ -2239,6 +2239,22 @@ class TestDrcJson:
         assert out["passed"] is False
         assert "error" in out
 
+    def test_json_config_error_during_design_import_is_structured(self, tmp_path, capsys):
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette.project import load_layer_map\nlayers = load_layer_map()\n"
+        )
+        fake_config = str(tmp_path / "nonexistent.toml")
+
+        with pytest.raises(SystemExit) as exc_info:
+            drc_design(str(design_py), fake_config, json_output=True)
+        assert exc_info.value.code == 1
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["command"] == "drc"
+        assert out["passed"] is False
+        assert "Error loading design" in out["error"]
+
 
 class TestCheckJson:
     """Tests for `rosette check --json` combined output."""
@@ -2268,6 +2284,22 @@ class TestCheckJson:
         out = json.loads(capsys.readouterr().out)
         assert out["passed"] is False
         assert out["drc"]["passed"] is False
+
+    def test_json_config_error_during_design_import_is_structured(self, tmp_path, capsys):
+        design_py = tmp_path / "design.py"
+        design_py.write_text(
+            "from rosette.project import load_layer_map\nlayers = load_layer_map()\n"
+        )
+        fake_config = str(tmp_path / "nonexistent.toml")
+
+        with pytest.raises(SystemExit) as exc_info:
+            check_design(str(design_py), fake_config, json_output=True)
+        assert exc_info.value.code == 1
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["command"] == "check"
+        assert out["passed"] is False
+        assert "Error loading design" in out["error"]
 
 
 class TestWarningMargin:

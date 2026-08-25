@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import traceback
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,6 +16,10 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from rosette import Cell
+
+
+class DesignLoadError(RuntimeError):
+    """Error raised when a caller needs to control design-load reporting."""
 
 
 def find_design_config(file_path: str | Path) -> Path | None:
@@ -29,25 +34,66 @@ def find_design_config(file_path: str | Path) -> Path | None:
 
 
 @contextmanager
-def design_config_context(file_path: str | Path) -> Generator[None, None, None]:
-    """Resolve implicit config lookups from a design's directory."""
-    from rosette._api import _CONFIG_SEARCH_ROOT
+def design_config_context(
+    file_path: str | Path, config_path: str | Path | None = None
+) -> Generator[None, None, None]:
+    """Resolve implicit config lookups from an override or design directory."""
+    from rosette._api import _CONFIG_PATH_OVERRIDE, _CONFIG_SEARCH_ROOT
 
     path = Path(file_path).resolve()
     directory = path if path.is_dir() else path.parent
-    token = _CONFIG_SEARCH_ROOT.set(directory)
+    root_token = _CONFIG_SEARCH_ROOT.set(directory)
+    config_token = _CONFIG_PATH_OVERRIDE.set(
+        Path(config_path).resolve() if config_path is not None else None
+    )
     try:
         yield
     finally:
-        _CONFIG_SEARCH_ROOT.reset(token)
+        _CONFIG_PATH_OVERRIDE.reset(config_token)
+        _CONFIG_SEARCH_ROOT.reset(root_token)
 
 
-def load_design(path_spec: str) -> tuple[Cell, Path, str]:
+def _format_design_error(error: Exception, file_path: Path) -> str:
+    """Format an exception with the most relevant source location."""
+    location: str | None = None
+    if isinstance(error, SyntaxError) and error.filename is not None:
+        location = error.filename
+        if error.lineno is not None:
+            location += f":{error.lineno}"
+    else:
+        frames = traceback.extract_tb(error.__traceback__)
+        design_path = file_path.resolve()
+        frame = next(
+            (
+                candidate
+                for candidate in reversed(frames)
+                if Path(candidate.filename).resolve() == design_path
+            ),
+            frames[-1] if frames else None,
+        )
+        if frame is not None:
+            location = f"{frame.filename}:{frame.lineno}"
+
+    detail = type(error).__name__
+    if str(error):
+        detail += f": {error}"
+    return f"{location}: {detail}" if location is not None else detail
+
+
+def load_design(
+    path_spec: str,
+    config_path: str | Path | None = None,
+    *,
+    raise_errors: bool = False,
+) -> tuple[Cell, Path, str]:
     """Load a design from a file using the 'design' convention.
 
     Args:
         path_spec: Path to design file, optionally with :target suffix
                    (e.g., "designs/chip.py" or "designs/chip.py:my_cell")
+        config_path: Exact config file to use for implicit config lookups.
+        raise_errors: Raise ``DesignLoadError`` instead of printing import or
+                      design-function errors and exiting.
 
     Returns:
         Tuple of (cell, file_path, target_name)
@@ -81,9 +127,11 @@ def load_design(path_spec: str) -> tuple[Cell, Path, str]:
 
     # Resolve project-local imports from the config root (or the design's own
     # directory when no project config exists), independent of caller cwd.
-    config_path = find_design_config(file_path)
+    discovered_config = find_design_config(file_path)
     design_dir = file_path.parent.resolve()
-    project_dir = (config_path.parent if config_path is not None else design_dir).resolve()
+    project_dir = (
+        discovered_config.parent if discovered_config is not None else design_dir
+    ).resolve()
     for import_dir in reversed((design_dir, project_dir, Path.cwd())):
         import_path = str(import_dir)
         if import_path not in sys.path:
@@ -97,10 +145,13 @@ def load_design(path_spec: str) -> tuple[Cell, Path, str]:
 
     module = importlib.util.module_from_spec(spec)
     try:
-        with design_config_context(file_path):
+        with design_config_context(file_path, config_path):
             spec.loader.exec_module(module)
     except Exception as e:
-        print(f"Error loading design: {e}")
+        message = f"Error loading design: {_format_design_error(e, file_path)}"
+        if raise_errors:
+            raise DesignLoadError(message) from e
+        print(message)
         sys.exit(1)
 
     # Get the target attribute
@@ -135,10 +186,13 @@ def load_design(path_spec: str) -> tuple[Cell, Path, str]:
     # If callable, call it
     if callable(target):
         try:
-            with design_config_context(file_path):
+            with design_config_context(file_path, config_path):
                 cell = target()
         except Exception as e:
-            print(f"Error calling {target_name}(): {e}")
+            message = f"Error calling {target_name}(): {_format_design_error(e, file_path)}"
+            if raise_errors:
+                raise DesignLoadError(message) from e
+            print(message)
             sys.exit(1)
     else:
         cell = target

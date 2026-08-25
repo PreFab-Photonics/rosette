@@ -15,6 +15,7 @@ from rosette.cli import (
     _cli_manifest_json,
     _parse_tool_spec,
     _resolve_design_config,
+    _run_drc_check,
     _sanitize_project_name,
     build_design,
     init_project,
@@ -127,6 +128,80 @@ class TestResolveDesignConfig:
         cell, _, _ = load_design(str(design))
 
         assert cell.name == "layer_77"
+
+    def test_design_import_uses_exact_explicit_config(self, tmp_path: Path, monkeypatch):
+        project = tmp_path / "project"
+        designs = project / "designs"
+        designs.mkdir(parents=True)
+        (project / "rosette.toml").write_text("[layers.custom]\nnumber = 11\n")
+        (project / "explicit_project_values.py").write_text("CELL_PREFIX = 'layer'\n")
+        design = designs / "design.py"
+        design.write_text(
+            "from rosette import Cell\n"
+            "from rosette.project import load_layer_map\n"
+            "from explicit_project_values import CELL_PREFIX\n"
+            "IMPORTED_LAYER = load_layer_map().custom.layer.number\n"
+            "def design():\n"
+            "    called_layer = load_layer_map().custom.layer.number\n"
+            "    return Cell(f'{CELL_PREFIX}_{IMPORTED_LAYER}_{called_layer}')\n"
+        )
+        configs = tmp_path / "configs"
+        configs.mkdir()
+        explicit = configs / "alternate.toml"
+        explicit.write_text("[layers.custom]\nnumber = 77\n")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        monkeypatch.chdir(outside)
+
+        cell, _, _ = load_design(str(design), explicit)
+
+        assert cell.name == "layer_77_77"
+
+    def test_drc_uses_explicit_config_while_loading_design(self, tmp_path: Path):
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "rosette.toml").write_text("[layers.custom]\nnumber = 11\n")
+        design = project / "design.py"
+        design.write_text(
+            "from rosette import Cell, Point, Polygon\n"
+            "from rosette.project import load_layer_map\n"
+            "layers = load_layer_map()\n"
+            "design = Cell('thin')\n"
+            "design.add_polygon(Polygon.rect(Point.origin(), 0.1, 2.0), layers.custom.layer)\n"
+        )
+        explicit = tmp_path / "verification.toml"
+        explicit.write_text(
+            "[layers.custom]\nnumber = 77\n\n[drc.layers.custom]\nmin_width = 0.5\n"
+        )
+
+        result, _ = _run_drc_check(str(design), str(explicit))
+
+        assert result.passed is False
+        assert result.violations[0].layer == (77, 0)
+
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            (
+                "from rosette import Cell\nraise RuntimeError('import failed')\n",
+                "2: RuntimeError: import failed",
+            ),
+            (
+                "from rosette import Cell\ndef design():\n    raise ValueError('call failed')\n",
+                "3: ValueError: call failed",
+            ),
+        ],
+    )
+    def test_design_errors_include_source_location(
+        self, tmp_path: Path, capsys, source: str, expected: str
+    ):
+        design = tmp_path / "design.py"
+        design.write_text(source)
+
+        with pytest.raises(SystemExit):
+            load_design(str(design))
+
+        assert f"{design}:{expected}" in capsys.readouterr().out
 
 
 class TestParseToolSpec:
