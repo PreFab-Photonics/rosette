@@ -9,7 +9,7 @@ use geo::BooleanOps;
 use geo::algorithm::line_intersection::{LineIntersection, line_intersection};
 use geo::{Coord, LineString, Polygon as GeoPolygon};
 
-use crate::library::REF_UUID_PREFIX;
+use crate::library::{REF_UUID_PREFIX, RenderPolygon, TopologySource};
 
 /// A shape stored in the renderer.
 #[derive(Debug, Clone)]
@@ -37,6 +37,8 @@ pub struct Shape {
     /// GDS polygons and rectangles are always simple, so we skip the
     /// expensive O(n^2) `is_self_intersecting()` check for them.
     pub known_simple: bool,
+    /// Source element shared by affine-transformed hierarchy copies.
+    topology_source: Option<TopologySource>,
 }
 
 /// Cached triangulation result for a single shape.
@@ -765,6 +767,7 @@ impl ShapeManager {
                 shape.points = points;
                 shape.color = color;
                 shape.bbox = bbox;
+                shape.topology_source = None;
             }
         } else {
             // Add new shape
@@ -777,6 +780,7 @@ impl ShapeManager {
                     hole_indices: vec![],
                     fill_pattern: 0,
                     known_simple: false,
+                    topology_source: None,
                 },
             );
             self.order.push(id.clone());
@@ -792,6 +796,7 @@ impl ShapeManager {
         if let Some(shape) = self.shapes.get_mut(id) {
             shape.bbox = compute_bbox(&points);
             shape.points = points;
+            shape.topology_source = None;
             self.dirty_ids.insert(id.to_string());
             self.dirty = true;
             self.outlines_dirty = true;
@@ -832,6 +837,16 @@ impl ShapeManager {
         &mut self,
         polygons: Vec<(String, Vec<[f64; 2]>, [f32; 4], u32)>,
     ) -> bool {
+        self.sync_from_library_polygons(
+            polygons
+                .into_iter()
+                .map(|(id, points, color, fill_pattern)| (id, points, color, fill_pattern, None))
+                .collect(),
+        )
+    }
+
+    /// Sync polygons while preserving their shared hierarchy source.
+    pub(crate) fn sync_from_library_polygons(&mut self, polygons: Vec<RenderPolygon>) -> bool {
         // Build set of incoming IDs for removal detection
         let new_ids: HashSet<String> = polygons.iter().map(|(id, ..)| id.clone()).collect();
 
@@ -855,12 +870,13 @@ impl ShapeManager {
         let order_changed = self.order != new_order;
 
         // Add or update shapes
-        for (id, points, color, fill_pattern) in polygons.into_iter() {
+        for (id, points, color, fill_pattern, topology_source) in polygons.into_iter() {
             let is_new_or_changed = if let Some(existing) = self.shapes.get(&id) {
                 // Check if anything changed that affects triangulation
                 existing.points != points
                     || existing.color != color
                     || existing.fill_pattern != fill_pattern
+                    || existing.topology_source != topology_source
             } else {
                 true
             };
@@ -877,6 +893,7 @@ impl ShapeManager {
                         fill_pattern,
                         // Polygons from the library (GDS) are known to be simple
                         known_simple: true,
+                        topology_source,
                     },
                 );
                 self.dirty_ids.insert(id);
@@ -923,6 +940,7 @@ impl ShapeManager {
             hole_indices: vec![],
             fill_pattern: 0,
             known_simple: false,
+            topology_source: None,
         });
         self.preview_dirty = true;
         self.preview_borders_dirty = true; // Only preview border needs regeneration
@@ -996,16 +1014,36 @@ impl ShapeManager {
     /// Returns (vertices, indices) ready for GPU upload.
     /// The preview shape is rendered in a separate buffer via `triangulate_preview()`.
     pub fn triangulate(&mut self) -> (Vec<PolygonVertex>, Vec<u32>) {
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
+        let vertex_capacity = self.shapes.values().map(|shape| shape.points.len()).sum();
+        let index_capacity = self
+            .shapes
+            .values()
+            .map(|shape| shape.points.len().saturating_sub(2) * 3)
+            .sum();
+        let mut vertices = Vec::with_capacity(vertex_capacity);
+        let mut indices = Vec::with_capacity(index_capacity);
+        let mut topology_cache = HashMap::new();
 
         // Re-triangulate only dirty shapes and update their cache
         for dirty_id in &self.dirty_ids {
             if let Some(shape) = self.shapes.get(dirty_id) {
-                let mut shape_verts = Vec::new();
-                let mut shape_idxs = Vec::new();
+                let mut shape_verts = Vec::with_capacity(shape.points.len());
+                let mut shape_idxs = Vec::with_capacity(shape.points.len().saturating_sub(2) * 3);
                 // Triangulate with base_index = 0 (local indices)
-                self.triangulate_shape(shape, &mut shape_verts, &mut shape_idxs);
+                if let Some(source) = &shape.topology_source
+                    && shape.known_simple
+                    && shape.hole_indices.is_empty()
+                {
+                    Self::triangulate_with_cached_topology(
+                        shape,
+                        source,
+                        &mut topology_cache,
+                        &mut shape_verts,
+                        &mut shape_idxs,
+                    );
+                } else {
+                    self.triangulate_shape(shape, &mut shape_verts, &mut shape_idxs);
+                }
                 self.tri_cache.insert(
                     dirty_id.clone(),
                     TriangulationCache {
@@ -1234,6 +1272,51 @@ impl ShapeManager {
             indices.push(base_index + idx as u32);
         }
     }
+
+    fn triangulate_with_cached_topology(
+        shape: &Shape,
+        source: &TopologySource,
+        topology_cache: &mut HashMap<(TopologySource, usize), Vec<u32>>,
+        vertices: &mut Vec<PolygonVertex>,
+        indices: &mut Vec<u32>,
+    ) {
+        if shape.points.len() < 3 || shape.color[3] <= 0.0 {
+            return;
+        }
+
+        let base_index = vertices.len() as u32;
+        let bbox_center = [
+            ((shape.bbox[0] + shape.bbox[2]) * 0.5) as f32,
+            ((shape.bbox[1] + shape.bbox[3]) * 0.5) as f32,
+        ];
+        let bbox_size = [
+            (shape.bbox[2] - shape.bbox[0]) as f32,
+            (shape.bbox[3] - shape.bbox[1]) as f32,
+        ];
+        vertices.extend(shape.points.iter().map(|point| PolygonVertex {
+            position: [point[0] as f32, point[1] as f32],
+            color: shape.color,
+            fill_pattern: shape.fill_pattern,
+            move_selected: 0,
+            bbox_center,
+            bbox_size,
+        }));
+
+        let key = (source.clone(), shape.points.len());
+        let local_indices = topology_cache.entry(key).or_insert_with(|| {
+            let flat_coords: Vec<f64> = shape
+                .points
+                .iter()
+                .flat_map(|point| [point[0], point[1]])
+                .collect();
+            earcutr::earcut(&flat_coords, &[], 2)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|index| index as u32)
+                .collect()
+        });
+        indices.extend(local_indices.iter().map(|index| base_index + index));
+    }
 }
 
 #[cfg(test)]
@@ -1273,6 +1356,61 @@ mod tests {
         assert_eq!(vertices[0].bbox_size, [100.0, 50.0]);
         // Rectangle triangulates to 2 triangles = 6 indices
         assert_eq!(indices.len(), 6);
+    }
+
+    #[test]
+    fn shared_topology_triangulates_affine_copies_correctly() {
+        fn triangle_area(vertices: &[PolygonVertex], indices: &[u32]) -> f64 {
+            indices
+                .chunks_exact(3)
+                .map(|triangle| {
+                    let a = vertices[triangle[0] as usize].position;
+                    let b = vertices[triangle[1] as usize].position;
+                    let c = vertices[triangle[2] as usize].position;
+                    f64::from(
+                        ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() * 0.5,
+                    )
+                })
+                .sum()
+        }
+
+        let source = Some(("leaf".to_string(), 0));
+        let original = vec![
+            [0.0, 0.0],
+            [4.0, 0.0],
+            [4.0, 1.0],
+            [1.0, 1.0],
+            [1.0, 4.0],
+            [0.0, 4.0],
+        ];
+        let transformed = original
+            .iter()
+            .map(|point| [10.0 - 2.0 * point[0], 2.0 * point[1]])
+            .collect();
+        let mut manager = ShapeManager::new();
+        manager.sync_from_library_polygons(vec![
+            (
+                "original".to_string(),
+                original,
+                [1.0, 1.0, 1.0, 1.0],
+                0,
+                source.clone(),
+            ),
+            (
+                "transformed".to_string(),
+                transformed,
+                [1.0, 1.0, 1.0, 1.0],
+                0,
+                source,
+            ),
+        ]);
+
+        let (vertices, indices) = manager.triangulate();
+
+        assert_eq!(vertices.len(), 12);
+        assert_eq!(indices.len(), 24);
+        assert_eq!(triangle_area(&vertices, &indices[..12]), 7.0);
+        assert_eq!(triangle_area(&vertices, &indices[12..]), 28.0);
     }
 
     #[test]

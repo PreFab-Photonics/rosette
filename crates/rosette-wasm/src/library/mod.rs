@@ -26,9 +26,10 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use wasm_bindgen::prelude::*;
 
-/// A rendered polygon: (uuid, vertices, color, fill_pattern).
+/// A rendered polygon: (uuid, vertices, color, fill_pattern, topology_source).
 /// fill_pattern: 0=solid, 1=hatched, 2=crosshatched, 3=dotted, 4=horizontal, 5=vertical, 6=zigzag, 7=brick.
-type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4], u32);
+pub(crate) type TopologySource = (String, usize);
+pub(crate) type RenderPolygon = (String, Vec<[f64; 2]>, [f32; 4], u32, Option<TopologySource>);
 
 /// Iterate over canonical SREF/AREF copy transforms.
 fn array_transforms(cell_ref: &CellRef) -> impl ExactSizeIterator<Item = Transform> + '_ {
@@ -426,7 +427,11 @@ impl WasmLibrary {
                         let uuid =
                             Self::format_ref_uuid(cellref_elem_idx, *poly_counter, cellref_uuid);
                         *poly_counter += 1;
-                        result.push((uuid, vertices, color, fill_pattern));
+                        let source = Some((
+                            placed.placement.cell.name().to_string(),
+                            placed.element_index,
+                        ));
+                        result.push((uuid, vertices, color, fill_pattern, source));
                     }
                     Element::Path(path) => {
                         if let Some(ribbon) = stroke_path_transformed(
@@ -453,7 +458,7 @@ impl WasmLibrary {
                                     *poly_counter,
                                     cellref_uuid,
                                 );
-                                result.push((uuid, vertices, color, fill_pattern));
+                                result.push((uuid, vertices, color, fill_pattern, None));
                             }
                         }
                         *poly_counter += 1;
@@ -1176,7 +1181,13 @@ impl WasmLibrary {
                         let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
                         let vertices: Vec<[f64; 2]> =
                             polygon.vertices().iter().map(|p| [p.x, p.y]).collect();
-                        result.push((uuid.clone(), vertices, color, fill_pattern));
+                        result.push((
+                            uuid.clone(),
+                            vertices,
+                            color,
+                            fill_pattern,
+                            Some((cell_name.clone(), elem_idx)),
+                        ));
                     }
                 }
                 Element::CellRef(cell_ref) => {
@@ -1220,7 +1231,7 @@ impl WasmLibrary {
                         let fill_pattern = self.layer_fill_patterns.get(&key).copied().unwrap_or(0);
                         let vertices: Vec<[f64; 2]> =
                             ribbon.vertices().iter().map(|p| [p.x, p.y]).collect();
-                        result.push((uuid.clone(), vertices, color, fill_pattern));
+                        result.push((uuid.clone(), vertices, color, fill_pattern, None));
                     }
                 }
                 // Text elements don't produce rendered polygons
@@ -1231,15 +1242,13 @@ impl WasmLibrary {
         // Sort by area descending so large shapes draw first and small shapes
         // render on top. This ensures features like waveguides and vias are never
         // hidden behind substrate or cladding polygons.
-        result.sort_by(|a, b| {
-            let area_a = polygon_area(&a.1);
-            let area_b = polygon_area(&b.1);
-            area_b
-                .partial_cmp(&area_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        let mut by_area: Vec<_> = result
+            .into_iter()
+            .map(|polygon| (polygon_area(&polygon.1), polygon))
+            .collect();
+        by_area.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-        result
+        by_area.into_iter().map(|(_, polygon)| polygon).collect()
     }
 
     /// Get the underlying library reference.
@@ -1335,6 +1344,78 @@ impl WasmLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "performance benchmark; run explicitly with --release --ignored --nocapture"]
+    fn benchmark_loopback_array_render_pipeline() {
+        use crate::shapes::ShapeManager;
+        use std::f64::consts::TAU;
+        use std::time::Instant;
+
+        fn regular_polygon(vertices: usize, radius: f64, offset: f64) -> Vec<f64> {
+            (0..vertices)
+                .flat_map(|index| {
+                    let angle = TAU * index as f64 / vertices as f64;
+                    [offset + radius * angle.cos(), radius * angle.sin()]
+                })
+                .collect()
+        }
+
+        let mut library = WasmLibrary::new("benchmark");
+        library.add_cell("grating").unwrap();
+        library
+            .add_polygon(&regular_polygon(67, 20.0, 0.0), 1, 0)
+            .unwrap();
+        for tooth in 0..25 {
+            library
+                .add_polygon(
+                    &regular_polygon(130, 20.0 + tooth as f64, tooth as f64 * 2.0),
+                    1,
+                    0,
+                )
+                .unwrap();
+        }
+        library.add_cell("loopback").unwrap();
+        library.set_active_cell("loopback");
+        library.add_cell_ref("grating", 0.0, 0.0).unwrap();
+        library.add_cell_ref("grating", 0.0, 127.0).unwrap();
+        for vertices in [4, 362, 4, 362, 4] {
+            library
+                .add_polygon(&regular_polygon(vertices, 20.0, 40.0), 1, 0)
+                .unwrap();
+        }
+        library.add_cell("top").unwrap();
+        library.set_active_cell("top");
+        let array = library.add_cell_ref("loopback", 0.0, 0.0).unwrap();
+        library.set_cell_ref_array(&array, 10, 10, 100.0, 200.0);
+
+        let started = Instant::now();
+        let polygons = library.get_render_polygons_internal();
+        let flatten = started.elapsed();
+        let polygon_count = polygons.len();
+
+        let started = Instant::now();
+        let bounds = library.get_all_bounds();
+        let bounds_time = started.elapsed();
+
+        let mut shapes = ShapeManager::new();
+        let started = Instant::now();
+        shapes.sync_from_library_polygons(polygons);
+        let sync = started.elapsed();
+        let started = Instant::now();
+        let (vertices, indices) = shapes.triangulate();
+        let triangulate = started.elapsed();
+
+        assert_eq!(polygon_count, 5_700);
+        assert_eq!(vertices.len(), 737_000);
+        assert_eq!(indices.len(), 2_176_800);
+
+        eprintln!(
+            "polygons={polygon_count} vertices={} indices={} bounds={bounds:?} flatten={flatten:?} bounds_time={bounds_time:?} sync={sync:?} triangulate={triangulate:?}",
+            vertices.len(),
+            indices.len(),
+        );
+    }
 
     #[test]
     fn extreme_text_bounds_are_omitted_before_reaching_bbox_outputs() {

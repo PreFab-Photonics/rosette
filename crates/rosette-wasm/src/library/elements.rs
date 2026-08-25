@@ -522,7 +522,11 @@ impl WasmLibrary {
     /// # Errors
     /// Returns a JsValue error if serialization fails.
     pub fn get_render_polygons(&self) -> Result<JsValue, JsValue> {
-        let polygons = self.get_render_polygons_internal();
+        let polygons: Vec<_> = self
+            .get_render_polygons_internal()
+            .into_iter()
+            .map(|(id, vertices, color, fill_pattern, _)| (id, vertices, color, fill_pattern))
+            .collect();
 
         serde_wasm_bindgen::to_value(&polygons)
             .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))

@@ -2267,7 +2267,7 @@ impl WasmRenderer {
     /// The preview shape is preserved.
     pub fn sync_from_library(&mut self, library: &WasmLibrary) {
         let polygons = library.get_render_polygons_internal();
-        let shapes_changed = self.shape_manager.sync_from_polygons(polygons);
+        let shapes_changed = self.shape_manager.sync_from_library_polygons(polygons);
 
         // Cache instance bounding boxes for outline rendering on selection/hover
         let instance_bboxes = library.get_instance_bboxes();
