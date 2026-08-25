@@ -255,6 +255,26 @@ mod tests {
     }
 
     #[test]
+    fn hit_test_rect_returns_canonical_selection_ids_once() {
+        let mut lib = WasmLibrary::new("test");
+        lib.add_cell("child").unwrap();
+        lib.add_rectangle(0.0, 0.0, 1.0, 1.0, 1, 0).unwrap();
+        lib.add_cell("top").unwrap();
+        assert!(lib.set_active_cell("top"));
+
+        let direct_id = lib.add_rectangle(0.0, 0.0, 1.0, 1.0, 1, 0).unwrap();
+        let real_ref_id = lib.add_cell_ref("child", 10.0, 0.0).unwrap();
+        let canonical_ref_id = lib.get_canonical_element_id(&real_ref_id).unwrap();
+
+        let mut hits = lib.hit_test_rect(-1.0, -1.0, 12.0, 2.0);
+        hits.sort();
+        let mut expected = vec![direct_id, canonical_ref_id];
+        expected.sort();
+
+        assert_eq!(hits, expected);
+    }
+
+    #[test]
     fn hidden_layer_is_excluded_from_hit_tests() {
         let (mut lib, ids) = three_squares();
 

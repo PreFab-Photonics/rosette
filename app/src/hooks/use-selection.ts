@@ -13,7 +13,6 @@ import {
   findRulersInScreenRect,
 } from "@/lib/ruler-hittest";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
-import { syntheticRefTargetKey } from "@/lib/element-id";
 import { hitTestLayout } from "@/lib/layout-hit-test";
 
 /**
@@ -33,43 +32,6 @@ const MIN_MARQUEE_SIZE = 5;
  */
 function expandToGroup(library: WasmLibrary, hitId: string): string[] {
   return library.get_group_ids(hitId);
-}
-
-/**
- * Expand a list of hit IDs to include all group members.
- * Deduplicates the result.
- *
- * For tokenized CellRef synthetic UUIDs, IDs sharing an element index and
- * stable token belong to the same group. We track which targets have
- * already been expanded so we call get_group_ids at most once per instance,
- * avoiding O(N^2) WASM calls for large AREF arrays.
- */
-function expandAllToGroups(library: WasmLibrary, hitIds: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  const expandedRefs = new Set<string>();
-  for (const id of hitIds) {
-    const refTarget = syntheticRefTargetKey(id);
-    if (refTarget) {
-      if (expandedRefs.has(refTarget)) {
-        // Already expanded this instance group — just add this ID if new
-        if (!seen.has(id)) {
-          seen.add(id);
-          result.push(id);
-        }
-        continue;
-      }
-      expandedRefs.add(refTarget);
-    }
-    const groupIds = library.get_group_ids(id);
-    for (const gid of groupIds) {
-      if (!seen.has(gid)) {
-        seen.add(gid);
-        result.push(gid);
-      }
-    }
-  }
-  return result;
 }
 
 /**
@@ -126,8 +88,8 @@ export function useSelection(
 
   // RAF throttle for the marquee preview query. The marquee rectangle itself
   // updates immediately on every mousemove (smooth rubber-banding), but the
-  // expensive preview work — rect hit-test, group expansion, and ruler/image
-  // queries — runs at most once per animation frame. Pointer events fire far
+  // expensive preview work — rect hit-test and ruler/image queries — runs at
+  // most once per animation frame. Pointer events fire far
   // faster than the display refresh (120+ Hz on trackpads), so coalescing this
   // to RAF avoids redundant per-event work when sweeping across dense geometry.
   const marqueePreviewRafRef = useRef<number>(0);
@@ -316,8 +278,8 @@ export function useSelection(
         // Update the rubber-band rectangle immediately for smooth tracking.
         updateBox(screenX, screenY);
 
-        // Defer the expensive preview query (hit-test + group expansion +
-        // ruler/image checks) to the next animation frame, coalescing bursts of
+        // Defer the expensive preview query (hit-test + ruler/image checks) to
+        // the next animation frame, coalescing bursts of
         // pointer events into a single query per frame.
         if (marqueePreviewRafRef.current === 0) {
           marqueePreviewRafRef.current = requestAnimationFrame(() => {
@@ -356,10 +318,9 @@ export function useSelection(
             const worldMinY = Math.min(worldY1, worldY2);
             const worldMaxY = Math.max(worldY1, worldY2);
 
-            const rawHitIds = library
+            const hitIds = library
               ? library.hit_test_rect(worldMinX, worldMinY, worldMaxX, worldMaxY)
               : [];
-            const hitIds = library ? expandAllToGroups(library, rawHitIds) : rawHitIds;
             const imageHitIds = hitTestImagesRect(worldMinX, worldMinY, worldMaxX, worldMaxY);
             const allHitIds = [...hitIds, ...imageHitIds];
 
@@ -515,11 +476,10 @@ export function useSelection(
       const worldMinY = Math.min(worldY1, worldY2);
       const worldMaxY = Math.max(worldY1, worldY2);
 
-      // Query library for intersecting elements, expanding to instance groups
-      const rawHitIds = library
+      // Rectangle hits are already canonical selection IDs.
+      const hitIds = library
         ? library.hit_test_rect(worldMinX, worldMinY, worldMaxX, worldMaxY)
         : [];
-      const hitIds = library ? expandAllToGroups(library, rawHitIds) : rawHitIds;
 
       // Also hit-test image overlays in the marquee rect
       const imageHitIds = hitTestImagesRect(worldMinX, worldMinY, worldMaxX, worldMaxY);

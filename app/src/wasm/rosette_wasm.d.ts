@@ -506,12 +506,12 @@ export class WasmLibrary {
     /**
      * Hit test a rectangle to find all intersecting elements.
      *
-     * Returns UUIDs of all elements whose bounding boxes intersect
-     * the given rectangle (specified in world coordinates).
+     * Returns canonical selection IDs for all elements whose bounding boxes
+     * intersect the given rectangle (specified in world coordinates). Direct
+     * element UUIDs are returned unchanged, with at most one ID per element.
      *
-     * For CellRef instances, returns a single representative UUID
-     * (`ref:N:0:UUID`) per instance rather than all synthetic UUIDs.
-     * The caller should expand to the full group via `get_group_ids`.
+     * For CellRef instances, returns the canonical representative
+     * (`ref:N:0:UUID`) rather than a resolved child-geometry ID.
      */
     hit_test_rect(min_x: number, min_y: number, max_x: number, max_y: number): string[];
     /**

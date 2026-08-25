@@ -153,12 +153,12 @@ impl WasmLibrary {
 
     /// Hit test a rectangle to find all intersecting elements.
     ///
-    /// Returns UUIDs of all elements whose bounding boxes intersect
-    /// the given rectangle (specified in world coordinates).
+    /// Returns canonical selection IDs for all elements whose bounding boxes
+    /// intersect the given rectangle (specified in world coordinates). Direct
+    /// element UUIDs are returned unchanged, with at most one ID per element.
     ///
-    /// For CellRef instances, returns a single representative UUID
-    /// (`ref:N:0:UUID`) per instance rather than all synthetic UUIDs.
-    /// The caller should expand to the full group via `get_group_ids`.
+    /// For CellRef instances, returns the canonical representative
+    /// (`ref:N:0:UUID`) rather than a resolved child-geometry ID.
     pub fn hit_test_rect(&self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> Vec<String> {
         let Ok(query_bbox) = BBox::new(Point::new(min_x, min_y), Point::new(max_x, max_y)) else {
             return Vec::new();

@@ -15,8 +15,3 @@ export function parseSyntheticRefId(id: string): SyntheticRefId | null {
   if (elementIndex < 0 || copyIndex < 0) return null;
   return { elementIndex, copyIndex, token: parts[3] };
 }
-
-export function syntheticRefTargetKey(id: string): string | null {
-  const parsed = parseSyntheticRefId(id);
-  return parsed ? `ref:${parsed.elementIndex}:${parsed.token}` : null;
-}
