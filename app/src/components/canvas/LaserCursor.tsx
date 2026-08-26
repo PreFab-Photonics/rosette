@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
-/** Laser color matching rosette-web (#ff0000). */
-const LASER_COLOR = "#ff0000";
+const LASER_COLOR = "var(--theme-laser)";
 
 /** Laser glow blur radius in pixels. */
 const GLOW_BLUR = 4;

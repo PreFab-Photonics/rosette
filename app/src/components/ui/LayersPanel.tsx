@@ -9,7 +9,6 @@ import {
 import { useContextMenuStore } from "@/stores/context-menu";
 import { useHistoryStore } from "@/stores/history";
 import { useWasmContextStore } from "@/stores/wasm-context";
-import { useUIStore } from "@/stores/ui";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
@@ -136,12 +135,10 @@ function FillPatternIcon({ pattern, className }: { pattern: FillPattern; classNa
  */
 function ColorPicker({
   color,
-  isDark,
   onChange,
   hexTabIdx,
 }: {
   color: string;
-  isDark: boolean;
   onChange: (color: string) => void;
   hexTabIdx?: number;
 }) {
@@ -194,13 +191,8 @@ function ColorPicker({
             className={cn(
               "h-5 w-full rounded border outline-none transition-all",
               preset === color
-                ? "ring-1 ring-offset-1 " +
-                    (isDark
-                      ? "ring-white/60 ring-offset-[rgb(29,29,29)]"
-                      : "ring-black/60 ring-offset-[rgb(241,241,241)]")
-                : isDark
-                  ? "border-white/10 hover:border-white/30"
-                  : "border-black/10 hover:border-black/30",
+                ? "ring-1 ring-focus-ring ring-offset-1 ring-offset-surface"
+                : "border-theme-border hover:border-focus-ring",
             )}
             style={{ backgroundColor: preset }}
             tabIndex={-1}
@@ -211,10 +203,7 @@ function ColorPicker({
       {/* Hex input */}
       <div className="flex items-center gap-1.5">
         <div
-          className={cn(
-            "h-5 w-5 flex-shrink-0 rounded border",
-            isDark ? "border-white/10" : "border-black/10",
-          )}
+          className="h-5 w-5 flex-shrink-0 rounded border border-theme-border"
           style={{ backgroundColor: color }}
         />
         <input
@@ -227,12 +216,7 @@ function ColorPicker({
           onKeyDown={handleHexKeyDown}
           onClick={(e) => e.stopPropagation()}
           tabIndex={-1}
-          className={cn(
-            "h-6 min-w-0 flex-1 rounded border px-1.5 font-mono text-xs outline-none",
-            isDark
-              ? "border-white/10 bg-white/5 text-white/90"
-              : "border-black/10 bg-black/5 text-black/90",
-          )}
+          className="h-6 min-w-0 flex-1 rounded border border-theme-border bg-input px-1.5 font-mono text-xs text-foreground outline-none"
         />
       </div>
     </div>
@@ -244,12 +228,10 @@ function ColorPicker({
  */
 function FillTypeSelector({
   value,
-  isDark,
   onChange,
   baseTabIdx,
 }: {
   value: FillPattern;
-  isDark: boolean;
   onChange: (pattern: FillPattern) => void;
   baseTabIdx?: number;
 }) {
@@ -269,12 +251,8 @@ function FillTypeSelector({
             className={cn(
               "flex flex-col items-center gap-0.5 rounded-lg border px-1 py-1 text-[10px] outline-none transition-colors",
               isActive
-                ? isDark
-                  ? "border-white/20 bg-white/10 text-white/90"
-                  : "border-black/20 bg-black/10 text-black/90"
-                : isDark
-                  ? "border-white/5 text-white/40 hover:border-white/15 hover:text-white/70 focus:border-white/15 focus:text-white/70"
-                  : "border-black/5 text-black/40 hover:border-black/15 hover:text-black/70 focus:border-black/15 focus:text-black/70",
+                ? "border-theme-border-strong bg-theme-border text-foreground"
+                : "border-input text-foreground-subtle hover:border-theme-border-strong hover:text-foreground-secondary focus:border-theme-border-strong focus:text-foreground-secondary",
             )}
             tabIndex={-1}
           >
@@ -295,13 +273,11 @@ function FillTypeSelector({
 function LayerNumberField({
   label,
   value,
-  isDark,
   onChange,
   tabIdx,
 }: {
   label: string;
   value: number;
-  isDark: boolean;
   onChange: (value: number) => void;
   tabIdx?: number;
 }) {
@@ -325,9 +301,7 @@ function LayerNumberField({
 
   return (
     <div className="flex items-center justify-between">
-      <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-        {label}
-      </span>
+      <span className="text-xs text-foreground-muted select-none">{label}</span>
       <input
         ref={inputRef}
         type="text"
@@ -358,12 +332,8 @@ function LayerNumberField({
         className={cn(
           "w-16 cursor-text rounded border px-1.5 py-0.5 text-right font-mono text-xs outline-none transition-colors",
           focused
-            ? isDark
-              ? "border-white/10 bg-white/5 text-white/90"
-              : "border-black/10 bg-black/5 text-black/90"
-            : isDark
-              ? "border-transparent text-white/90 hover:bg-white/5"
-              : "border-transparent text-black/90 hover:bg-black/5",
+            ? "border-theme-border bg-input text-foreground"
+            : "border-transparent text-foreground hover:bg-input",
         )}
       />
     </div>
@@ -378,13 +348,11 @@ function LayerNumberField({
 function LayerTextField({
   label,
   value,
-  isDark,
   onChange,
   tabIdx,
 }: {
   label: string;
   value: string;
-  isDark: boolean;
   onChange: (value: string) => void;
   tabIdx?: number;
 }) {
@@ -408,9 +376,7 @@ function LayerTextField({
 
   return (
     <div className="flex items-center justify-between">
-      <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-        {label}
-      </span>
+      <span className="text-xs text-foreground-muted select-none">{label}</span>
       <input
         ref={inputRef}
         type="text"
@@ -441,12 +407,8 @@ function LayerTextField({
         className={cn(
           "w-28 cursor-text truncate rounded border px-1.5 py-0.5 text-right text-xs outline-none transition-colors",
           focused
-            ? isDark
-              ? "border-white/10 bg-white/5 text-white/90"
-              : "border-black/10 bg-black/5 text-black/90"
-            : isDark
-              ? "border-transparent text-white/90 hover:bg-white/5"
-              : "border-transparent text-black/90 hover:bg-black/5",
+            ? "border-theme-border bg-input text-foreground"
+            : "border-transparent text-foreground hover:bg-input",
         )}
       />
     </div>
@@ -456,14 +418,9 @@ function LayerTextField({
 /**
  * Section header matching the inspector panel style.
  */
-function SectionLabel({ label, isDark }: { label: string; isDark: boolean }) {
+function SectionLabel({ label }: { label: string }) {
   return (
-    <span
-      className={cn(
-        "text-[10px] font-semibold uppercase tracking-wider select-none",
-        isDark ? "text-white/30" : "text-black/30",
-      )}
-    >
+    <span className="text-[10px] font-semibold tracking-wider text-foreground-faint uppercase select-none">
       {label}
     </span>
   );
@@ -477,11 +434,9 @@ function SectionLabel({ label, isDark }: { label: string; isDark: boolean }) {
  */
 function LayerEditor({
   layer,
-  isDark,
   onRestoreRowFocus,
 }: {
   layer: Layer;
-  isDark: boolean;
   onRestoreRowFocus: () => void;
 }) {
   const library = useWasmContextStore((s) => s.library);
@@ -605,56 +560,51 @@ function LayerEditor({
       <LayerTextField
         label="Name"
         value={layer.name}
-        isDark={isDark}
         onChange={(name) => handleChange({ name })}
         tabIdx={0}
       />
 
       {/* Divider */}
-      <div className={cn("h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+      <div className="h-px bg-input" />
 
       {/* Color */}
       <div className="flex flex-col gap-1.5">
-        <SectionLabel label="Color" isDark={isDark} />
+        <SectionLabel label="Color" />
         <ColorPicker
           color={layer.color}
-          isDark={isDark}
           onChange={(color) => handleChange({ color })}
           hexTabIdx={1}
         />
       </div>
 
       {/* Divider */}
-      <div className={cn("h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+      <div className="h-px bg-input" />
 
       {/* Layer number + Datatype */}
       <div className="flex flex-col gap-1">
-        <SectionLabel label="GDS" isDark={isDark} />
+        <SectionLabel label="GDS" />
         <LayerNumberField
           label="Layer"
           value={layer.layerNumber}
-          isDark={isDark}
           onChange={(layerNumber) => handleChange({ layerNumber })}
           tabIdx={2}
         />
         <LayerNumberField
           label="Datatype"
           value={layer.datatype}
-          isDark={isDark}
           onChange={(datatype) => handleChange({ datatype })}
           tabIdx={3}
         />
       </div>
 
       {/* Divider */}
-      <div className={cn("h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+      <div className="h-px bg-input" />
 
       {/* Fill pattern */}
       <div className="flex flex-col gap-1.5">
-        <SectionLabel label="Fill" isDark={isDark} />
+        <SectionLabel label="Fill" />
         <FillTypeSelector
           value={layer.fillPattern}
-          isDark={isDark}
           onChange={(fillPattern) => handleChange({ fillPattern })}
           baseTabIdx={4}
         />
@@ -673,7 +623,6 @@ function LayerRow({
   isActive,
   isFocused,
   isExpanded,
-  isDark,
   inUse,
   onSelect,
   onToggleExpand,
@@ -689,7 +638,6 @@ function LayerRow({
   /** Whether this layer has the keyboard navigation cursor. */
   isFocused: boolean;
   isExpanded: boolean;
-  isDark: boolean;
   /** Whether any geometry in the library sits on this layer. */
   inUse: boolean;
   onSelect: () => void;
@@ -785,7 +733,7 @@ function LayerRow({
       <div
         className={cn(
           "group relative mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center gap-2 rounded-lg px-[7px] py-1.5 text-left transition-colors",
-          panelRowStateClassName({ isActive, isFocused, isDark }),
+          panelRowStateClassName({ isActive, isFocused }),
         )}
         onContextMenu={handleContextMenu}
         title={!inUse ? "No shapes use this layer" : undefined}
@@ -815,9 +763,7 @@ function LayerRow({
           aria-label={`Edit layer color (${layer.color})`}
           className={cn(
             "relative z-10 h-4.5 w-4.5 flex-shrink-0 cursor-pointer rounded border outline-none transition-shadow",
-            isDark
-              ? "border-white/10 hover:border-white/30"
-              : "border-black/10 hover:border-black/30",
+            "border-theme-border hover:border-focus-ring",
             !layer.visible && "opacity-40",
           )}
           style={{ backgroundColor: layer.color }}
@@ -841,10 +787,7 @@ function LayerRow({
               onBlur={handleNameSubmit}
               onKeyDown={handleRenameKeyDown}
               onClick={(e) => e.stopPropagation()}
-              className={cn(
-                "pointer-events-auto m-0 min-w-0 flex-1 border-0 bg-transparent p-0 text-sm leading-5 outline-none focus:ring-0",
-                isDark ? "text-white/90" : "text-gray-900",
-              )}
+              className="pointer-events-auto m-0 min-w-0 flex-1 border-0 bg-transparent p-0 text-sm leading-5 text-foreground outline-none focus:ring-0"
             />
           ) : (
             <span className="min-w-0 flex-1 truncate text-sm leading-5 select-none">
@@ -856,9 +799,7 @@ function LayerRow({
       </div>
 
       {/* Expanded editor */}
-      {isExpanded && (
-        <LayerEditor layer={layer} isDark={isDark} onRestoreRowFocus={onRestoreRowFocus} />
-      )}
+      {isExpanded && <LayerEditor layer={layer} onRestoreRowFocus={onRestoreRowFocus} />}
     </li>
   );
 }
@@ -891,9 +832,6 @@ function LayerNumber({ layer }: { layer: Layer }) {
  * - Keyboard navigation (Shift+L to focus, arrows to navigate, Space/Enter/Delete for actions)
  */
 export function LayersPanel() {
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
-
   const { getAllLayers, activeLayerId, setActiveLayer } = useLayerStore();
   const editingLayerId = useLayerStore((s) => s.editingLayerId);
   const expandedLayerId = useLayerStore((s) => s.expandedLayerId);
@@ -1035,7 +973,6 @@ export function LayersPanel() {
               isActive={layer.id === activeLayerId}
               isFocused={isFocused && layer.id === focusedLayerId}
               isExpanded={expandedLayerId === layer.id}
-              isDark={isDark}
               inUse={usedLayerKeys.has(`${layer.layerNumber}/${layer.datatype}`)}
               onSelect={() => setActiveLayer(layer.id)}
               onToggleExpand={() => handleToggleExpand(layer.id)}

@@ -4,7 +4,6 @@ import { useWasmContextStore } from "@/stores/wasm-context";
 import { useTextStore } from "@/stores/text";
 import { useSelectionStore } from "@/stores/selection";
 import { useLayerStore } from "@/stores/layer";
-import { useUIStore } from "@/stores/ui";
 import { useExplorerStore } from "@/stores/explorer";
 import { getNormalizedSelection } from "@/lib/text";
 import { TEXT_DEFAULT_HEIGHT, TEXT_FONT_FAMILY, TEXT_CAP_HEIGHT_RATIO } from "@/lib/constants";
@@ -87,7 +86,7 @@ function CommittedTextLabel({
   if (showOutline) {
     const widthPx = width * zoom;
     const heightPx = totalHeight * zoom;
-    const outlineColor = isSelected ? "rgba(68, 255, 68, 0.8)" : color;
+    const outlineColor = isSelected ? "var(--theme-selection)" : "var(--theme-hover-outline)";
     outlineStyle = {
       position: "absolute" as const,
       left: "-3px",
@@ -108,7 +107,7 @@ function CommittedTextLabel({
         fontSize: `${fontSizePx}px`,
         lineHeight: 1.2,
         fontFamily: TEXT_FONT_FAMILY,
-        color: isSelected ? "rgb(68, 255, 68)" : color,
+        color: isSelected ? "var(--theme-selection)" : color,
       }}
     >
       {showOutline && <div style={outlineStyle} />}
@@ -207,8 +206,8 @@ function ActiveTextEditor({
             {selectedText && (
               <span
                 style={{
-                  backgroundColor: "rgba(65, 105, 225, 0.7)",
-                  color: "#ffffff",
+                  backgroundColor: "var(--theme-text-selection)",
+                  color: "var(--theme-text-selection-foreground)",
                 }}
               >
                 {selectedText}
@@ -255,8 +254,6 @@ function ActiveTextEditor({
 export function TextOverlay() {
   const { zoom, offset } = useViewportStore();
   const library = useWasmContextStore((s) => s.library);
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
   const isEditing = useTextStore((s) => s.isEditingText);
 
   // Re-render when library syncs (new text added, undo/redo)
@@ -291,7 +288,7 @@ export function TextOverlay() {
 
   // Get the active layer color for the editing text
   const activeLayer = layers.get(activeLayerId);
-  const editingColor = activeLayer?.color ?? (isDark ? "#ffffff" : "#000000");
+  const editingColor = activeLayer?.color ?? "var(--theme-canvas-label)";
 
   // Helper to get layer color from layer number
   const getLayerColor = (layerNumber: number, datatype: number): string => {
@@ -300,7 +297,7 @@ export function TextOverlay() {
         return layer.color;
       }
     }
-    return isDark ? "#ffffff" : "#000000";
+    return "var(--theme-canvas-label)";
   };
 
   const hasContent = textLabels.length > 0 || isEditing;

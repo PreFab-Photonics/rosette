@@ -14,7 +14,6 @@ import { Explorer } from "./Explorer";
 import { LayersPanel } from "./LayersPanel";
 
 const mockUIState = vi.hoisted(() => ({
-  theme: "dark" as const,
   explorerCollapsed: false,
   explorerWidth: 288,
   toggleExplorerCollapsed: vi.fn(),
@@ -44,7 +43,6 @@ describe("panel row structure", () => {
   beforeEach(() => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
     window.dispatchEvent(new Event("resize"));
-    mockUIState.theme = "dark";
     mockUIState.explorerCollapsed = false;
     mockUIState.explorerWidth = 288;
     mockUIState.toggleExplorerCollapsed.mockReset();
@@ -90,7 +88,6 @@ describe("panel row structure", () => {
           isAriaSelected={false}
           isFocused={false}
           isTabStop={false}
-          isDark={true}
           depth={1}
           guideLevels={[]}
           posInSet={1}
@@ -147,7 +144,6 @@ describe("panel row structure", () => {
           isAriaSelected={false}
           isFocused
           isTabStop
-          isDark
           depth={0}
           guideLevels={[]}
           posInSet={1}
@@ -197,7 +193,6 @@ describe("panel row structure", () => {
           isAriaSelected={false}
           isFocused={false}
           isTabStop
-          isDark
           depth={0}
           guideLevels={[]}
           posInSet={1}
@@ -236,7 +231,6 @@ describe("panel row structure", () => {
           isAriaSelected={false}
           isFocused={false}
           isTabStop
-          isDark
           depth={1}
           guideLevels={[]}
           posInSet={1}
@@ -297,7 +291,6 @@ describe("panel row structure", () => {
           isAriaSelected={false}
           isFocused
           isTabStop
-          isDark
           depth={0}
           guideLevels={[]}
           posInSet={1}
@@ -354,7 +347,6 @@ describe("panel row structure", () => {
           isAriaSelected={false}
           isFocused={false}
           isTabStop={false}
-          isDark
           depth={0}
           guideLevels={[]}
           posInSet={1}
@@ -439,7 +431,6 @@ describe("panel row structure", () => {
             isAriaSelected={name === "first"}
             isFocused={name === focusedName}
             isTabStop={name === focusedName}
-            isDark
             depth={0}
             guideLevels={[]}
             posInSet={name === "first" ? 1 : 2}
@@ -481,7 +472,6 @@ describe("panel row structure", () => {
               isAriaSelected={occurrenceId === firstId}
               isFocused={occurrenceId === secondId}
               isTabStop={occurrenceId === secondId}
-              isDark
               depth={1}
               guideLevels={[]}
               posInSet={index + 1}
@@ -516,7 +506,6 @@ describe("panel row structure", () => {
           isAriaSelected
           isFocused={false}
           isTabStop
-          isDark
           depth={0}
           guideLevels={[]}
           posInSet={1}
@@ -574,7 +563,6 @@ describe("panel row structure", () => {
           isAriaSelected
           isFocused
           isTabStop
-          isDark
           depth={0}
           guideLevels={[]}
           posInSet={1}
@@ -627,7 +615,6 @@ describe("panel row structure", () => {
             state.focusedItem.occurrenceId === occurrenceId
           }
           isTabStop
-          isDark
           depth={0}
           guideLevels={[]}
           posInSet={1}
@@ -1238,7 +1225,7 @@ describe("panel row structure", () => {
     act(() =>
       root.render(
         <>
-          <TabList isDark focusedItem={{ type: "tab", id: "one" }} isKeyboardNavigationActive />
+          <TabList focusedItem={{ type: "tab", id: "one" }} isKeyboardNavigationActive />
           <button type="button">Outside</button>
         </>,
       ),

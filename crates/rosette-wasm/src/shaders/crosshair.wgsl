@@ -7,7 +7,7 @@
 struct Viewport {
     offset: vec2<f32>,          // Screen position of world origin
     zoom: f32,                  // Pixels per world unit
-    theme: f32,                 // 0.0 = light, 1.0 = dark
+    _padding0: f32,
     size: vec2<f32>,            // Canvas size in pixels
     dpr: f32,                   // Device pixel ratio for HiDPI/retina support
     _padding: f32,
@@ -18,6 +18,12 @@ struct Viewport {
 }
 
 @group(0) @binding(0) var<uniform> viewport: Viewport;
+
+struct CrosshairUniforms {
+    color: vec4<f32>,
+}
+
+@group(0) @binding(1) var<uniform> crosshair: CrosshairUniforms;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -83,9 +89,6 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Crosshair color: rgba(51, 192, 51, ...) = rgb(0.2, 0.75, 0.2)
-    let color = vec3<f32>(0.2, 0.75, 0.2);
-
     // Scale thresholds by DPR (local_pos is already in physical pixels)
     let crosshair_size = BASE_CROSSHAIR_SIZE * viewport.dpr;
     let crosshair_thickness = BASE_CROSSHAIR_THICKNESS * viewport.dpr;
@@ -108,8 +111,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let in_line = dist <= half_thickness && arm_dist <= crosshair_size;
 
     if in_line {
-        // Solid line: rgba(51, 192, 51, 0.8)
-        return vec4<f32>(color, 0.8);
+        return crosshair.color;
     }
     
     // Fully transparent outside (no blur/shadow)

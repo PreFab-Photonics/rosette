@@ -33,7 +33,6 @@ import { useWasmContextStore } from "@/stores/wasm-context";
  * preview mode (`rosette serve`), and Tauri desktop mode.
  */
 export default function App() {
-  const theme = useUIStore((s) => s.theme);
   const zenMode = useUIStore((s) => s.zenMode);
   const { isLg, isMd, isSm } = useBreakpoint();
   const embed = isEmbedMode();
@@ -238,13 +237,9 @@ export default function App() {
   }, [embed]);
 
   // Embed mode: full app experience (Explorer, Sidebar, StatusBar, CommandPalette)
-  // NOTE: the bg-black / bg-white root colors below are mirrored in
-  // app/public/theme-preload.js (the anti-flash preload). Keep them in sync.
   if (embed) {
     return (
-      <div
-        className={`flex h-screen w-screen flex-col ${theme === "dark" ? "bg-black" : "bg-white"}`}
-      >
+      <div className="flex h-screen w-screen flex-col bg-app">
         <div className="relative min-h-0 flex-1">
           <Canvas />
           {!zenMode && <Toolbar compact={!isLg} minimal={isSm} />}
@@ -262,9 +257,7 @@ export default function App() {
   }
 
   return (
-    <div
-      className={`flex h-screen w-screen flex-col ${theme === "dark" ? "bg-black" : "bg-white"}`}
-    >
+    <div className="flex h-screen w-screen flex-col bg-app">
       {/* Canvas area with floating overlays */}
       <div className="relative min-h-0 flex-1">
         <Canvas />

@@ -62,11 +62,9 @@ interface TopLevelMenu {
  */
 export function FlyoutSubmenu({
   buildItems,
-  isDark,
   onAction,
 }: {
   buildItems: () => SubMenuEntry[];
-  isDark: boolean;
   onAction: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -88,7 +86,6 @@ export function FlyoutSubmenu({
   return (
     <MenuSurface
       ref={menuRef}
-      isDark={isDark}
       className={cn(
         "absolute -top-px z-50 min-w-[170px]",
         openLeft ? "right-full mr-1" : "left-full ml-1",
@@ -96,12 +93,11 @@ export function FlyoutSubmenu({
     >
       {items.map((entry) => {
         if (isSubSeparator(entry)) {
-          return <MenuSeparator key={entry.id} isDark={isDark} />;
+          return <MenuSeparator key={entry.id} />;
         }
         return (
           <MenuItem
             key={entry.id}
-            isDark={isDark}
             disabled={entry.disabled}
             onClick={() => {
               if (!entry.disabled) {
@@ -119,7 +115,7 @@ export function FlyoutSubmenu({
             }}
           >
             <span>{entry.label}</span>
-            {entry.shortcut && <MenuShortcut isDark={isDark} shortcut={entry.shortcut} />}
+            {entry.shortcut && <MenuShortcut shortcut={entry.shortcut} />}
           </MenuItem>
         );
       })}
@@ -133,7 +129,7 @@ export function FlyoutSubmenu({
  * Provides File, Edit, View, and Preferences submenus with flyout panels.
  * Edit and View mirror keyboard-shortcut actions; Preferences controls theme.
  */
-export function HamburgerMenu({ isDark }: { isDark: boolean }) {
+export function HamburgerMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -506,20 +502,19 @@ export function HamburgerMenu({ isDark }: { isDark: boolean }) {
         }}
         className={cn(
           "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg transition-colors focus:outline-none",
-          isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-          isOpen && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+          "hover:bg-interactive",
+          isOpen && "bg-interactive",
         )}
       >
-        <Menu className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")} />
+        <Menu className="h-4 w-4 text-foreground-secondary" />
       </button>
 
       {/* Dropdown menu */}
       {isOpen && (
-        <MenuSurface isDark={isDark} className="absolute top-full right-0 z-50 mt-1 min-w-[140px]">
+        <MenuSurface className="absolute top-full right-0 z-50 mt-1 min-w-[140px]">
           {menus.map((menu) => (
             <div key={menu.id}>
               <MenuItem
-                isDark={isDark}
                 active={activeSubmenu === menu.id}
                 onMouseEnter={() => setActiveSubmenu(menu.id)}
                 onClick={() => setActiveSubmenu(activeSubmenu === menu.id ? null : menu.id)}
@@ -532,7 +527,7 @@ export function HamburgerMenu({ isDark }: { isDark: boolean }) {
 
               {/* Flyout submenu */}
               {activeSubmenu === menu.id && (
-                <FlyoutSubmenu buildItems={menu.buildItems} isDark={isDark} onAction={close} />
+                <FlyoutSubmenu buildItems={menu.buildItems} onAction={close} />
               )}
             </div>
           ))}

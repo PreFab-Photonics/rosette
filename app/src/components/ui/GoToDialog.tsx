@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGoToDialogStore } from "@/stores/goto-dialog";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
-import { useUIStore } from "@/stores/ui";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { getEffectiveViewport } from "@/lib/utils";
-import { cn } from "@/lib/utils";
 
 /** Micron display scale: 1 µm = 1000 nm. */
 const UM_SCALE = 1_000;
@@ -16,14 +14,12 @@ function CoordinateField({
   label,
   value,
   onChange,
-  isDark,
   autoFocus,
   onSubmit,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
-  isDark: boolean;
   autoFocus?: boolean;
   /** Called when the user presses Enter — should confirm the whole form. */
   onSubmit?: () => void;
@@ -63,9 +59,7 @@ function CoordinateField({
 
   return (
     <div className="flex items-center justify-between gap-3">
-      <label className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-        {label}
-      </label>
+      <label className="text-xs text-foreground-muted select-none">{label}</label>
       <div className="flex items-center gap-1">
         <input
           ref={inputRef}
@@ -97,19 +91,12 @@ function CoordinateField({
               }
             }
           }}
-          className={cn(
-            "w-20 rounded border px-1.5 py-1 text-right font-mono text-xs outline-none",
-            isDark
-              ? "border-white/10 bg-white/5 text-white/90 focus:border-white/30"
-              : "border-black/10 bg-black/5 text-black/90 focus:border-black/30",
-          )}
+          className="w-20 rounded border border-theme-border bg-input px-1.5 py-1 text-right font-mono text-xs text-foreground outline-none focus:border-focus-ring"
           step={0.1}
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus={autoFocus}
         />
-        <span className={cn("w-6 text-xs select-none", isDark ? "text-white/40" : "text-black/40")}>
-          {"\u00B5m"}
-        </span>
+        <span className="w-6 text-xs text-foreground-subtle select-none">{"\u00B5m"}</span>
       </div>
     </div>
   );
@@ -122,13 +109,11 @@ function CoordinateField({
  * center on that world position without changing the zoom level.
  *
  * Styled consistently with ArrayDialog and CommandPalette (centered overlay,
- * backdrop-blur, dark/light theming). Uses the keyboard-focus stack to
+ * backdrop-blur theming). Uses the keyboard-focus stack to
  * disable canvas shortcuts.
  */
 export function GoToDialog() {
   const { isOpen, close } = useGoToDialogStore();
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
 
   useKeyboardFocus("goto-dialog", isOpen);
 
@@ -200,10 +185,7 @@ export function GoToDialog() {
           open
           ref={contentRef}
           aria-label="Go to Coordinate"
-          className={cn(
-            "static m-0 w-full max-w-[320px] overflow-hidden rounded-xl border p-0 shadow-md backdrop-blur-xl",
-            isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
-          )}
+          className="static m-0 w-full max-w-[320px] overflow-hidden rounded-xl border border-theme-border bg-surface p-0 shadow-md backdrop-blur-xl"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();
@@ -212,12 +194,7 @@ export function GoToDialog() {
           }}
         >
           {/* Header */}
-          <div
-            className={cn(
-              "border-b px-4 py-3 text-sm font-medium select-none",
-              isDark ? "border-white/10 text-white/90" : "border-black/10 text-black/90",
-            )}
-          >
+          <div className="border-b border-theme-border px-4 py-3 text-sm font-medium text-foreground select-none">
             Go to Coordinate
           </div>
 
@@ -233,48 +210,26 @@ export function GoToDialog() {
               label="X"
               value={x}
               onChange={setX}
-              isDark={isDark}
               autoFocus
               onSubmit={handleConfirm}
             />
-            <CoordinateField
-              label="Y"
-              value={y}
-              onChange={setY}
-              isDark={isDark}
-              onSubmit={handleConfirm}
-            />
+            <CoordinateField label="Y" value={y} onChange={setY} onSubmit={handleConfirm} />
           </form>
 
           {/* Footer */}
-          <div
-            className={cn(
-              "flex items-center justify-end border-t px-4 py-3",
-              isDark ? "border-white/10" : "border-black/10",
-            )}
-          >
+          <div className="flex items-center justify-end border-t border-theme-border px-4 py-3">
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={close}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs transition-colors",
-                  isDark
-                    ? "border-white/10 text-white/70 hover:bg-white/5"
-                    : "border-black/10 text-black/70 hover:bg-black/5",
-                )}
+                className="rounded-lg border border-theme-border px-3 py-1.5 text-xs text-foreground-secondary transition-colors hover:bg-input"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirm}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-                  isDark
-                    ? "border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
-                    : "border-black/20 bg-black/10 text-black/90 hover:bg-black/15",
-                )}
+                className="rounded-lg border border-theme-border-strong bg-theme-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-theme-border-strong"
               >
                 Go To
               </button>

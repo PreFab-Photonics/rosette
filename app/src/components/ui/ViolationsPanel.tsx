@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { WarningCircle, WarningTriangle } from "iconoir-react";
-import { useUIStore } from "@/stores/ui";
 import { useViolationsStore, type SeverityFilter, type Violation } from "@/stores/violations";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
 import { getEffectiveViewport, cn } from "@/lib/utils";
@@ -35,7 +34,6 @@ function cellHint(v: Violation): string | null {
  * viewport to the violation's bounding box.
  */
 export function ViolationsPanel() {
-  const isDark = useUIStore((s) => s.theme) === "dark";
   const violations = useViolationsStore((s) => s.violations);
   const errorCount = useViolationsStore((s) => s.errorCount);
   const warningCount = useViolationsStore((s) => s.warningCount);
@@ -77,12 +75,9 @@ export function ViolationsPanel() {
     useViewportStore.getState().zoomToBounds(bounds, vp.width, vp.height, vp.screenCenter);
   };
 
-  const mutedText = isDark ? "text-white/50" : "text-black/50";
-  const rowHover = isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]";
-
   if (!configured) {
     return (
-      <div className={cn("px-3 py-4 text-xs", mutedText)}>
+      <div className="px-3 py-4 text-xs text-foreground-muted">
         DRC is not configured. Add a <code>[drc]</code> section to <code>rosette.toml</code> to see
         violations here.
       </div>
@@ -100,25 +95,20 @@ export function ViolationsPanel() {
       id: "error",
       label: "Errors",
       count: errorCount,
-      icon: <WarningCircle className="h-3.5 w-3.5 text-red-500" />,
+      icon: <WarningCircle className="h-3.5 w-3.5 text-danger-strong" />,
     },
     {
       id: "warning",
       label: "Warnings",
       count: warningCount,
-      icon: <WarningTriangle className="h-3.5 w-3.5 text-amber-500" />,
+      icon: <WarningTriangle className="h-3.5 w-3.5 text-warning-strong" />,
     },
   ];
 
   return (
     <div className="flex flex-col">
       {/* Severity filter buttons with integrated counts */}
-      <div
-        className={cn(
-          "flex flex-wrap items-center gap-1 px-3 py-2 text-xs",
-          isDark ? "text-white/80" : "text-black/80",
-        )}
-      >
+      <div className="flex flex-wrap items-center gap-1 px-3 py-2 text-xs text-foreground">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -127,10 +117,8 @@ export function ViolationsPanel() {
             className={cn(
               "flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors focus:outline-none",
               severityFilter === f.id
-                ? isDark
-                  ? "bg-[rgb(54,54,54)] text-white/90"
-                  : "bg-[rgb(217,217,217)] text-black/90"
-                : cn(mutedText, rowHover),
+                ? "bg-interactive text-foreground"
+                : "text-foreground-muted hover:bg-interactive",
             )}
           >
             {f.icon}
@@ -139,7 +127,7 @@ export function ViolationsPanel() {
           </button>
         ))}
         {(suppressed > 0 || waived > 0) && (
-          <span className={cn("ml-auto", mutedText)}>
+          <span className="ml-auto text-foreground-muted">
             {[
               suppressed > 0 ? `${suppressed} suppressed` : null,
               waived > 0 ? `${waived} waived` : null,
@@ -150,11 +138,11 @@ export function ViolationsPanel() {
         )}
       </div>
 
-      <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+      <div className="h-px bg-theme-border" />
 
       {/* Violation list */}
       {filtered.length === 0 ? (
-        <div className={cn("px-3 py-4 text-xs", mutedText)}>No matching violations.</div>
+        <div className="px-3 py-4 text-xs text-foreground-muted">No matching violations.</div>
       ) : (
         <ul className="py-1">
           {filtered.map(({ v, index }) => {
@@ -168,27 +156,27 @@ export function ViolationsPanel() {
                   onClick={() => handleRowClick(index, v)}
                   className={cn(
                     "flex w-full cursor-pointer flex-col gap-0.5 px-3 py-1.5 text-left transition-colors focus:outline-none",
-                    rowHover,
-                    isSelected && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+                    "hover:bg-interactive",
+                    isSelected && "bg-interactive",
                   )}
                 >
                   <span className="flex items-center gap-1.5 text-xs">
                     <span
                       className={cn(
                         "inline-block h-2 w-2 shrink-0 rounded-full",
-                        isError ? "bg-red-500" : "bg-amber-500",
+                        isError ? "bg-danger-strong" : "bg-warning-strong",
                       )}
                     />
-                    <span className={cn("font-medium", isDark ? "text-white/90" : "text-black/90")}>
-                      {v.rule}
-                    </span>
-                    <span className={cn("ml-auto shrink-0 tabular-nums", mutedText)}>
+                    <span className="font-medium text-foreground">{v.rule}</span>
+                    <span className="ml-auto shrink-0 text-foreground-muted tabular-nums">
                       {formatLayer(v.layer)}
                       {v.layer2 ? `, ${formatLayer(v.layer2)}` : ""}
                     </span>
                   </span>
-                  <span className={cn("text-[11px] leading-snug", mutedText)}>{v.message}</span>
-                  {hint && <span className={cn("text-[10px] italic", mutedText)}>{hint}</span>}
+                  <span className="text-[11px] leading-snug text-foreground-muted">
+                    {v.message}
+                  </span>
+                  {hint && <span className="text-[10px] text-foreground-muted italic">{hint}</span>}
                 </button>
               </li>
             );

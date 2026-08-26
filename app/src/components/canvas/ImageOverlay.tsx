@@ -5,7 +5,6 @@ import { useHistoryStore } from "@/stores/history";
 import { useImageStore, imageKeyToId, type ImageEntry } from "@/stores/image";
 import { useSelectionStore } from "@/stores/selection";
 import { useExplorerStore } from "@/stores/explorer";
-import { useUIStore } from "@/stores/ui";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -24,14 +23,12 @@ function ImageElement({
   offset,
   isSelected,
   isHovered,
-  isDark,
 }: {
   entry: ImageEntry;
   zoom: number;
   offset: { x: number; y: number };
   isSelected: boolean;
   isHovered: boolean;
-  isDark: boolean;
 }) {
   const screenX = entry.x * zoom + offset.x;
   const screenY = entry.y * zoom + offset.y;
@@ -41,13 +38,9 @@ function ImageElement({
   // Don't render if too small to see
   if (screenWidth < 1 && screenHeight < 1) return null;
 
-  // Outline color: green for selected, white/black for hovered
+  // Outline color: selection green for selected, theme contrast for hovered
   const showOutline = isSelected || isHovered;
-  const outlineColor = isSelected
-    ? "rgba(68, 255, 68, 0.8)"
-    : isDark
-      ? "rgba(255, 255, 255, 0.8)"
-      : "rgba(0, 0, 0, 0.8)";
+  const outlineColor = isSelected ? "var(--theme-selection)" : "var(--theme-hover-outline)";
 
   return (
     <div
@@ -193,8 +186,6 @@ export function ImageOverlay() {
   const library = useWasmContextStore((s) => s.library);
   const selectedIds = useSelectionStore((s) => s.selectedIds);
   const hoveredId = useSelectionStore((s) => s.hoveredId);
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
 
   // Re-read instance contexts when library content changes (undo/redo, cell switch).
   const undoCount = useHistoryStore((s) => s.undoStack.length);
@@ -324,7 +315,6 @@ export function ImageOverlay() {
               offset={offset}
               isSelected={selectedIds.has(prefixedId)}
               isHovered={hoveredId === prefixedId}
-              isDark={isDark}
             />
           );
         })}

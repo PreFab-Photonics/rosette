@@ -7,10 +7,13 @@ mod buffers;
 
 use crate::grid::GridConfig;
 use crate::library::WasmLibrary;
+use crate::render_theme::{RenderTheme, normalize_color};
 use crate::shaders;
 use crate::shapes::{ColoredSegment, OutlineSegment, OutlineUniform, PolygonVertex, ShapeManager};
 use crate::viewport::{Viewport, ViewportUniform};
-use crate::violation_markers::parse_violations;
+use crate::violation_markers::{
+    DEFAULT_VIOLATION_ERROR_COLOR, DEFAULT_VIOLATION_WARN_COLOR, parse_violations,
+};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
@@ -27,6 +30,9 @@ const BUFFER_GROWTH_FACTOR: usize = 2;
 /// Fixed capacity for the DRC violation marker segment buffer. Markers are
 /// sparse in practice; segments beyond this are dropped (with a warning).
 const VIOLATION_SEGMENT_CAPACITY: usize = 16_384;
+
+/// Existing crosshair color: rgb(0.2, 0.75, 0.2) at 80% opacity.
+const DEFAULT_CROSSHAIR_COLOR: [f32; 4] = [0.2, 0.75, 0.2, 0.8];
 
 /// Maximum allowed buffer sizes to prevent runaway allocation.
 /// These are set high enough to handle very large designs.
@@ -56,6 +62,20 @@ struct GridPointGpu {
     screen_pos: [f32; 2], // Screen position in pixels (always small, fits f32)
     opacity: f32,
     _padding: f32,
+}
+
+/// GPU-compatible grid theme data.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct GridUniformGpu {
+    color: [f32; 4],
+}
+
+/// GPU-compatible crosshair color data.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CrosshairUniformGpu {
+    color: [f32; 4],
 }
 
 /// GPU-compatible laser segment data (vertex instance buffer).
@@ -119,12 +139,16 @@ pub struct WasmRenderer {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     viewport: Viewport,
+    render_theme: RenderTheme,
     viewport_buffer: wgpu::Buffer,
-    viewport_bind_group: wgpu::BindGroup,
     grid_pipeline: wgpu::RenderPipeline,
     grid_points_buffer: wgpu::Buffer,
+    grid_uniform_buffer: wgpu::Buffer,
     grid_bind_group: wgpu::BindGroup,
     crosshair_pipeline: wgpu::RenderPipeline,
+    crosshair_uniform_buffer: wgpu::Buffer,
+    crosshair_bind_group: wgpu::BindGroup,
+    crosshair_color: [f32; 4],
     grid_point_count: u32,
     grid_config: GridConfig,
     grid_visible: bool,
@@ -185,6 +209,8 @@ pub struct WasmRenderer {
     violation_segment_buffer: wgpu::Buffer,
     violation_bind_group: wgpu::BindGroup,
     violation_segment_count: u32,
+    violation_error_color: [f32; 4],
+    violation_warning_color: [f32; 4],
     /// Violation markers in world coords: (bbox [minX,minY,maxX,maxY], is_error).
     violations: Vec<([f64; 4], bool)>,
     /// Index of the currently selected violation (emphasized), if any.
@@ -220,7 +246,7 @@ pub struct WasmRenderer {
     /// Borders are in world coordinates, so they don't need to update on pan/zoom.
     borders_dirty: bool,
     /// Last viewport state to detect changes.
-    last_viewport_state: (f64, f64, f64, bool), // (offset_x, offset_y, zoom, dark_theme)
+    last_viewport_state: (f64, f64, f64), // (offset_x, offset_y, zoom)
 
     /// Cell origin in world coordinates for crosshair positioning.
     crosshair_origin: [f32; 2],
@@ -378,6 +404,18 @@ impl WasmRenderer {
         });
         queue.write_buffer(&viewport_buffer, 0, bytemuck::bytes_of(&viewport_uniform));
 
+        let render_theme = RenderTheme::default();
+        let grid_uniform = GridUniformGpu {
+            color: render_theme.grid_color,
+        };
+        let grid_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("grid-uniform"),
+            size: std::mem::size_of::<GridUniformGpu>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&grid_uniform_buffer, 0, bytemuck::bytes_of(&grid_uniform));
+
         // Create grid points buffer (will be updated each frame)
         let max_grid_points = 100_000u64;
         let grid_points_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -403,38 +441,47 @@ impl WasmRenderer {
                 }],
             });
 
-        let viewport_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("viewport-bind-group"),
-            layout: &viewport_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: viewport_buffer.as_entire_binding(),
-            }],
-        });
-
-        // Create grid bind group layout (viewport only - points are now vertex instance buffers)
+        // Grid points are vertex instances; colors use a renderer-owned uniform.
         let grid_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("grid-bind-group-layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
             });
 
         let grid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("grid-bind-group"),
             layout: &grid_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: viewport_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: grid_uniform_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         // Create grid pipeline
@@ -499,6 +546,64 @@ impl WasmRenderer {
         });
 
         // Create crosshair pipeline
+        let crosshair_color = DEFAULT_CROSSHAIR_COLOR;
+        let crosshair_uniform = CrosshairUniformGpu {
+            color: crosshair_color,
+        };
+        let crosshair_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("crosshair-uniform"),
+            size: std::mem::size_of::<CrosshairUniformGpu>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(
+            &crosshair_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&crosshair_uniform),
+        );
+
+        let crosshair_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("crosshair-bind-group-layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let crosshair_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("crosshair-bind-group"),
+            layout: &crosshair_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: crosshair_uniform_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         let crosshair_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("crosshair-shader"),
             source: wgpu::ShaderSource::Wgsl(shaders::CROSSHAIR_SHADER.into()),
@@ -507,7 +612,7 @@ impl WasmRenderer {
         let crosshair_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("crosshair-pipeline-layout"),
-                bind_group_layouts: &[&viewport_bind_group_layout],
+                bind_group_layouts: &[&crosshair_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -840,13 +945,13 @@ impl WasmRenderer {
         });
 
         // Initialize uniforms with default values
-        let selection_uniform = OutlineUniform::selection(true);
+        let selection_uniform = OutlineUniform::selection();
         queue.write_buffer(
             &selection_uniform_buffer,
             0,
             bytemuck::bytes_of(&selection_uniform),
         );
-        let hover_uniform = OutlineUniform::hover(true);
+        let hover_uniform = OutlineUniform::hover();
         queue.write_buffer(&hover_uniform_buffer, 0, bytemuck::bytes_of(&hover_uniform));
 
         let outline_bind_group_layout =
@@ -1170,12 +1275,16 @@ impl WasmRenderer {
             surface,
             surface_config,
             viewport,
+            render_theme,
             viewport_buffer,
-            viewport_bind_group,
             grid_pipeline,
             grid_points_buffer,
+            grid_uniform_buffer,
             grid_bind_group,
             crosshair_pipeline,
+            crosshair_uniform_buffer,
+            crosshair_bind_group,
+            crosshair_color,
             grid_point_count: 0,
             grid_config: GridConfig::default(),
             grid_visible: true,
@@ -1222,6 +1331,8 @@ impl WasmRenderer {
             violation_segment_buffer,
             violation_bind_group,
             violation_segment_count: 0,
+            violation_error_color: DEFAULT_VIOLATION_ERROR_COLOR,
+            violation_warning_color: DEFAULT_VIOLATION_WARN_COLOR,
             violations: Vec::new(),
             selected_violation: None,
             violations_dirty: false,
@@ -1239,7 +1350,7 @@ impl WasmRenderer {
             grid_dirty: true,
             outlines_viewport_dirty: true,
             borders_dirty: true,
-            last_viewport_state: (0.0, 0.0, 0.0, true),
+            last_viewport_state: (0.0, 0.0, 0.0),
             crosshair_origin: [0.0, 0.0],
             move_delta: [0.0, 0.0],
             // View frustum culling - start with values that force initial cull
@@ -1341,22 +1452,7 @@ impl WasmRenderer {
             });
 
         {
-            // Background color based on theme (matches rosette-web)
-            let clear_color = if self.viewport.dark_theme {
-                wgpu::Color {
-                    r: 0.07,
-                    g: 0.07,
-                    b: 0.07,
-                    a: 1.0,
-                }
-            } else {
-                wgpu::Color {
-                    r: 1.0,
-                    g: 1.0,
-                    b: 1.0,
-                    a: 1.0,
-                }
-            };
+            let clear_color = self.render_theme.background_color();
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render-pass"),
@@ -1383,7 +1479,7 @@ impl WasmRenderer {
 
             // Draw crosshair (2 instances: horizontal arm, vertical arm)
             render_pass.set_pipeline(&self.crosshair_pipeline);
-            render_pass.set_bind_group(0, &self.viewport_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.crosshair_bind_group, &[]);
             render_pass.draw(0..4, 0..2);
 
             // Draw polygons/shapes (main buffer)
@@ -1473,7 +1569,7 @@ impl WasmRenderer {
     /// * `offset_y` - Screen Y position of world origin in pixels.
     /// * `zoom` - Zoom level (pixels per world unit).
     pub fn set_viewport(&mut self, offset_x: f64, offset_y: f64, zoom: f64) {
-        let new_state = (offset_x, offset_y, zoom, self.viewport.dark_theme);
+        let new_state = (offset_x, offset_y, zoom);
 
         // Only mark dirty if something actually changed
         if new_state != self.last_viewport_state {
@@ -1530,18 +1626,99 @@ impl WasmRenderer {
         self.outlines_viewport_dirty = true;
     }
 
-    /// Set the color theme.
+    /// Set concrete renderer theme values.
     ///
-    /// # Arguments
-    /// * `dark` - true for dark theme, false for light theme.
-    pub fn set_theme(&mut self, dark: bool) {
-        if self.viewport.dark_theme != dark {
-            self.viewport.set_dark_theme(dark);
-            // Update last state to include new theme
-            self.last_viewport_state.3 = dark;
-            self.needs_render = true;
-            self.grid_dirty = true; // Grid opacity depends on theme
+    /// All color components and `grid_opacity` use the 0.0-1.0 range. Finite
+    /// values are clamped to that range; an update containing a non-finite
+    /// value is ignored.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_render_theme(
+        &mut self,
+        canvas_r: f32,
+        canvas_g: f32,
+        canvas_b: f32,
+        canvas_a: f32,
+        grid_r: f32,
+        grid_g: f32,
+        grid_b: f32,
+        grid_a: f32,
+        grid_opacity: f32,
+    ) {
+        let Some(render_theme) = RenderTheme::new(
+            [canvas_r, canvas_g, canvas_b, canvas_a],
+            [grid_r, grid_g, grid_b, grid_a],
+            grid_opacity,
+        ) else {
+            return;
+        };
+
+        if render_theme == self.render_theme {
+            return;
         }
+
+        if render_theme.grid_color != self.render_theme.grid_color {
+            let grid_uniform = GridUniformGpu {
+                color: render_theme.grid_color,
+            };
+            self.queue.write_buffer(
+                &self.grid_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&grid_uniform),
+            );
+        }
+        if render_theme.grid_opacity != self.render_theme.grid_opacity {
+            self.grid_dirty = true;
+        }
+
+        self.render_theme = render_theme;
+        self.needs_render = true;
+    }
+
+    /// Set the crosshair RGBA color.
+    pub fn set_crosshair_color(&mut self, r: f32, g: f32, b: f32, a: f32) {
+        let Some(color) = normalize_color([r, g, b, a]) else {
+            return;
+        };
+        if color == self.crosshair_color {
+            return;
+        }
+
+        self.crosshair_color = color;
+        let uniform = CrosshairUniformGpu { color };
+        self.queue.write_buffer(
+            &self.crosshair_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&uniform),
+        );
+        self.needs_render = true;
+    }
+
+    /// Set the RGBA color for DRC error violation markers.
+    pub fn set_violation_error_color(&mut self, r: f32, g: f32, b: f32, a: f32) {
+        let Some(color) = normalize_color([r, g, b, a]) else {
+            return;
+        };
+        if color == self.violation_error_color {
+            return;
+        }
+
+        self.violation_error_color = color;
+        self.violations_dirty = true;
+        self.needs_render = true;
+    }
+
+    /// Set the RGBA color for DRC warning violation markers.
+    pub fn set_violation_warning_color(&mut self, r: f32, g: f32, b: f32, a: f32) {
+        let Some(color) = normalize_color([r, g, b, a]) else {
+            return;
+        };
+        if color == self.violation_warning_color {
+            return;
+        }
+
+        self.violation_warning_color = color;
+        self.violations_dirty = true;
+        self.needs_render = true;
     }
 
     /// Set the selection outline color.
@@ -1717,6 +1894,24 @@ impl WasmRenderer {
         );
 
         self.laser_segment_count = num_segments as u32;
+        self.needs_render = true;
+    }
+
+    /// Set the laser pointer RGB color without changing its animated opacity.
+    pub fn set_laser_color(&mut self, r: f32, g: f32, b: f32) {
+        let Some(color) = normalize_color([r, g, b]) else {
+            return;
+        };
+        if color == self.laser_uniform.color {
+            return;
+        }
+
+        self.laser_uniform.color = color;
+        self.queue.write_buffer(
+            &self.laser_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&self.laser_uniform),
+        );
         self.needs_render = true;
     }
 
@@ -2066,21 +2261,7 @@ impl WasmRenderer {
 
         // Run the same render passes as render(), but targeting the offscreen texture
         {
-            let clear_color = if self.viewport.dark_theme {
-                wgpu::Color {
-                    r: 0.07,
-                    g: 0.07,
-                    b: 0.07,
-                    a: 1.0,
-                }
-            } else {
-                wgpu::Color {
-                    r: 1.0,
-                    g: 1.0,
-                    b: 1.0,
-                    a: 1.0,
-                }
-            };
+            let clear_color = self.render_theme.background_color();
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("screenshot-render-pass"),
@@ -2107,7 +2288,7 @@ impl WasmRenderer {
 
             // Crosshair
             render_pass.set_pipeline(&self.crosshair_pipeline);
-            render_pass.set_bind_group(0, &self.viewport_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.crosshair_bind_group, &[]);
             render_pass.draw(0..4, 0..2);
 
             // Polygons

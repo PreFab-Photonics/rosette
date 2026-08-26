@@ -1,20 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useWasm } from "@/hooks/use-wasm";
-import { HOVER_COLORS, SELECTION_COLORS, useUIStore } from "@/stores/ui";
+import { useUIStore } from "@/stores/ui";
 import { useViolationsStore } from "@/stores/violations";
 import type { WasmRenderer } from "@/wasm/rosette_wasm";
 import { applyRendererViewport, subscribeRendererToViewport } from "./renderer-viewport";
-
-/**
- * Convert hex color to RGBA floats for WASM.
- */
-function hexToRgba(hex: string): [number, number, number, number] {
-  const cleanHex = hex.replace("#", "");
-  const r = Number.parseInt(cleanHex.slice(0, 2), 16) / 255;
-  const g = Number.parseInt(cleanHex.slice(2, 4), 16) / 255;
-  const b = Number.parseInt(cleanHex.slice(4, 6), 16) / 255;
-  return [r, g, b, 1.0];
-}
+import { applyRendererTheme } from "./renderer-theme";
 
 /**
  * Hook to create and manage the WASM renderer.
@@ -52,15 +42,7 @@ export function useRenderer(canvasId: string | null) {
           return;
         }
 
-        r.set_theme(theme === "dark");
-        // Set selection color based on theme
-        const selectionColor = SELECTION_COLORS[theme];
-        const [sr, sg, sb, sa] = hexToRgba(selectionColor);
-        r.set_selection_color(sr, sg, sb, sa);
-        // Set hover color based on theme
-        const hoverColor = HOVER_COLORS[theme];
-        const [hr, hg, hb, ha] = hexToRgba(hoverColor);
-        r.set_hover_color(hr, hg, hb, ha);
+        applyRendererTheme(r);
         // Set device pixel ratio for proper HiDPI scaling
         r.set_dpr(window.devicePixelRatio || 1);
         rendererRef.current = r;
@@ -84,23 +66,14 @@ export function useRenderer(canvasId: string | null) {
         rendererRef.current = null;
       }
     };
-    // theme is intentionally NOT in deps - we use set_theme() to update it
-    // without recreating the entire renderer
+    // Theme is intentionally not in deps; it updates the existing renderer below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasmReady, wasm, canvasId]);
 
-  // Update theme and outline colors when theme changes
+  // Update concrete renderer colors when the resolved document theme changes.
   useEffect(() => {
     if (renderer && isReady) {
-      renderer.set_theme(theme === "dark");
-      // Update selection color based on theme
-      const selectionColor = SELECTION_COLORS[theme];
-      const [sr, sg, sb, sa] = hexToRgba(selectionColor);
-      renderer.set_selection_color(sr, sg, sb, sa);
-      // Update hover color based on theme
-      const hoverColor = HOVER_COLORS[theme];
-      const [hr, hg, hb, ha] = hexToRgba(hoverColor);
-      renderer.set_hover_color(hr, hg, hb, ha);
+      applyRendererTheme(renderer);
     }
   }, [renderer, isReady, theme]);
 

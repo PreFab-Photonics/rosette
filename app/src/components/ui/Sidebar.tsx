@@ -35,20 +35,9 @@ const TABS: Tab[] = [
  * Collapsed sidebar — narrow icon rail with tab icons.
  * Clicking an icon expands to that tab.
  */
-function CollapsedSidebar({
-  isDark,
-  onExpand,
-}: {
-  isDark: boolean;
-  onExpand: (tab: SidebarTab) => void;
-}) {
+function CollapsedSidebar({ onExpand }: { onExpand: (tab: SidebarTab) => void }) {
   return (
-    <div
-      className={cn(
-        "fixed top-4 right-4 z-40 flex w-[38px] flex-col items-center gap-1 rounded-xl border py-1",
-        isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
-      )}
-    >
+    <div className="fixed top-4 right-4 z-40 flex w-[38px] flex-col items-center gap-1 rounded-xl border border-theme-border bg-surface py-1">
       {TABS.map((tab) => {
         const Icon = tab.icon;
         return (
@@ -60,13 +49,10 @@ function CollapsedSidebar({
           >
             <button
               onClick={() => onExpand(tab.id)}
-              className={cn(
-                "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-                isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-              )}
+              className="cursor-pointer rounded-lg p-1.5 transition-colors hover:bg-interactive focus:outline-none"
             >
               <div className="flex h-4 w-4 items-center justify-center">
-                <Icon className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")} />
+                <Icon className="h-4 w-4 text-foreground-secondary" />
               </div>
             </button>
           </Tooltip>
@@ -92,8 +78,6 @@ function CollapsedSidebar({
  * - On sm: expanding opens as an overlay drawer
  */
 export function Sidebar() {
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleCollapsed = useUIStore((s) => s.toggleSidebarCollapsed);
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
@@ -144,7 +128,7 @@ export function Sidebar() {
 
   // Show collapsed rail when collapsed (and not in sm drawer-open state)
   if (collapsed && !(isSm && drawerOpen)) {
-    return <CollapsedSidebar isDark={isDark} onExpand={handleExpand} />;
+    return <CollapsedSidebar onExpand={handleExpand} />;
   }
 
   const isOverlay = isSm && drawerOpen;
@@ -156,8 +140,7 @@ export function Sidebar() {
       <div
         ref={drawerRef}
         className={cn(
-          "fixed top-4 right-4 z-40 rounded-xl border",
-          isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
+          "fixed top-4 right-4 z-40 rounded-xl border border-theme-border bg-surface",
           isOverlay && "shadow-xl",
         )}
         style={{ width: sidebarWidth }}
@@ -179,12 +162,12 @@ export function Sidebar() {
                   onClick={() => setSidebarTab(tab.id)}
                   className={cn(
                     "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-                    isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-                    isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+                    "hover:bg-interactive",
+                    isActive && "bg-interactive",
                   )}
                 >
                   <div className="flex h-4 w-4 items-center justify-center">
-                    <Icon className={cn("h-4 w-4", isDark ? "text-white/90" : "text-black/90")} />
+                    <Icon className="h-4 w-4 text-foreground" />
                   </div>
                 </button>
               </Tooltip>
@@ -196,20 +179,15 @@ export function Sidebar() {
             <button
               type="button"
               onClick={toggleCollapsed}
-              className={cn(
-                "ml-auto cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-                isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-              )}
+              className="ml-auto cursor-pointer rounded-lg p-1.5 transition-colors hover:bg-interactive focus:outline-none"
             >
-              <NavArrowRight
-                className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")}
-              />
+              <NavArrowRight className="h-4 w-4 text-foreground-secondary" />
             </button>
           )}
         </div>
 
         {/* Divider */}
-        <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+        <div className="h-px bg-theme-border" />
 
         {/* Panel content */}
         <div

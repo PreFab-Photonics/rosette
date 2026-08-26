@@ -35,13 +35,13 @@ describe("menu presentation", () => {
   it("keeps items compact while rendering shortcut badges", () => {
     act(() =>
       root.render(
-        <MenuSurface isDark={true}>
-          <MenuItem isDark={true}>
+        <MenuSurface>
+          <MenuItem>
             <span>Copy</span>
-            <MenuShortcut isDark={true} shortcut={{ modifiers: ["Command"], key: "C" }} />
+            <MenuShortcut shortcut={{ modifiers: ["Command"], key: "C" }} />
           </MenuItem>
-          <MenuSeparator isDark={true} />
-          <MenuItem isDark={true}>Delete</MenuItem>
+          <MenuSeparator />
+          <MenuItem>Delete</MenuItem>
         </MenuSurface>,
       ),
     );
@@ -49,14 +49,14 @@ describe("menu presentation", () => {
     const surface = container.firstElementChild as HTMLElement;
     const items = [...container.querySelectorAll<HTMLButtonElement>("button")];
 
-    expect(surface.className).toContain("bg-[rgb(29,29,29)]");
+    expect(surface.className).toContain("bg-surface");
     expect(items).toHaveLength(2);
     expect(items.every((item) => item.className.includes("h-7"))).toBe(true);
     expect([...container.querySelectorAll("kbd")].map((key) => key.textContent)).toEqual([
       "Command",
       "C",
     ]);
-    expect(surface.children[1].className).toContain("bg-white/10");
+    expect(surface.children[1].className).toContain("bg-theme-border");
   });
 
   it("applies active and disabled states without changing button behavior", () => {
@@ -65,11 +65,11 @@ describe("menu presentation", () => {
 
     act(() =>
       root.render(
-        <MenuSurface isDark={false}>
-          <MenuItem isDark={false} active onClick={onActive}>
+        <MenuSurface>
+          <MenuItem active onClick={onActive}>
             View
           </MenuItem>
-          <MenuItem isDark={false} disabled onClick={onDisabled}>
+          <MenuItem disabled onClick={onDisabled}>
             Delete
           </MenuItem>
         </MenuSurface>,
@@ -79,8 +79,8 @@ describe("menu presentation", () => {
     const surface = container.firstElementChild as HTMLElement;
     const [activeItem, disabledItem] = [...container.querySelectorAll<HTMLButtonElement>("button")];
 
-    expect(surface.className).toContain("bg-[rgb(241,241,241)]");
-    expect(activeItem.className).toContain("bg-[rgb(217,217,217)]");
+    expect(surface.className).toContain("bg-surface");
+    expect(activeItem.className).toContain("bg-interactive");
     expect(disabledItem.className).toContain("opacity-40");
 
     act(() => {

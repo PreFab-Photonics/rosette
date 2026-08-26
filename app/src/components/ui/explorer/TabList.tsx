@@ -14,7 +14,6 @@ export function TabRow({
   isActive,
   isFocused,
   isKeyboardNavigationActive,
-  isDark,
   onFocus,
   onSelect,
   onClose,
@@ -25,7 +24,6 @@ export function TabRow({
   /** Whether this tab has the keyboard navigation cursor. */
   isFocused: boolean;
   isKeyboardNavigationActive: boolean;
-  isDark: boolean;
   onFocus: () => void;
   onSelect: () => void;
   onClose: (e: React.MouseEvent) => void;
@@ -51,7 +49,7 @@ export function TabRow({
       aria-selected={isActive}
       className={cn(
         "group mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center gap-1.5 rounded-lg py-1.5 pr-1 pl-2 transition-colors",
-        panelRowStateClassName({ isActive, isFocused, isDark }),
+        panelRowStateClassName({ isActive, isFocused }),
       )}
       onClick={onSelect}
       onFocus={onFocus}
@@ -65,12 +63,7 @@ export function TabRow({
     >
       {/* Dirty indicator dot */}
       {tab.isDirty ? (
-        <span
-          className={cn(
-            "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-            isDark ? "bg-white/50" : "bg-black/50",
-          )}
-        />
+        <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-foreground-muted" />
       ) : (
         <span className="h-1.5 w-1.5 flex-shrink-0" />
       )}
@@ -86,9 +79,7 @@ export function TabRow({
         className={cn(
           "flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-sm transition-opacity",
           "opacity-0 group-hover:opacity-100",
-          isDark
-            ? "hover:bg-white/15 text-white/50 hover:text-white/80"
-            : "hover:bg-black/15 text-black/50 hover:text-black/80",
+          "text-foreground-muted hover:bg-theme-border-strong hover:text-foreground",
         )}
       >
         <svg
@@ -115,11 +106,9 @@ export function TabRow({
  * Only shown when there are 2+ tabs (a single tab is implicit).
  */
 export function TabList({
-  isDark,
   focusedItem,
   isKeyboardNavigationActive,
 }: {
-  isDark: boolean;
   focusedItem: FocusedItem | null;
   isKeyboardNavigationActive: boolean;
 }) {
@@ -178,7 +167,6 @@ export function TabList({
             isActive={tab.id === activeTabId}
             isFocused={focusedItem?.type === "tab" && focusedItem.id === tab.id}
             isKeyboardNavigationActive={isKeyboardNavigationActive}
-            isDark={isDark}
             onFocus={() => {
               const store = useExplorerStore.getState();
               if (!store.isFocused) store.setFocused(true);
@@ -191,7 +179,7 @@ export function TabList({
         ))}
       </div>
       {/* Divider below tabs */}
-      <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+      <div className="h-px bg-theme-border" />
     </>
   );
 }

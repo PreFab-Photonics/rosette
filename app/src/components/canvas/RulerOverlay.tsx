@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useViewportStore, GRID_SIZE } from "@/stores/viewport";
-import { useUIStore, SELECTION_COLORS } from "@/stores/ui";
+import { useUIStore } from "@/stores/ui";
 import {
   useRulerStore,
   type Ruler,
@@ -18,26 +18,17 @@ import { useHistoryStore } from "@/stores/history";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { UpdateRulerPropsCommand } from "@/lib/commands";
 
-/**
- * Ruler color schemes for dark and light themes.
- */
+/** Semantic colors shared by all ruler graphics. */
 const RULER_COLORS = {
-  dark: {
-    line: "#8b959f",
-    text: "#8b959f",
-    background: "#1a1d21",
-    border: "#8b959f",
-    endpoint: "#8b959f",
-    hover: "#ffffff",
-  },
-  light: {
-    line: "#4b5563",
-    text: "#4b5563",
-    background: "rgba(255, 255, 255, 0.95)",
-    border: "#4b5563",
-    endpoint: "#4b5563",
-    hover: "#000000",
-  },
+  line: "var(--theme-ruler)",
+  text: "var(--theme-ruler)",
+  background: "var(--theme-ruler-surface)",
+  border: "var(--theme-ruler)",
+  endpoint: "var(--theme-ruler)",
+  hover: "var(--theme-ruler-hover)",
+  selection: "var(--theme-selection)",
+  snapFill: "var(--theme-selection-translucent)",
+  snapStroke: "var(--theme-selection)",
 } as const;
 
 /** Endpoint dot radius in pixels. */
@@ -54,20 +45,6 @@ const SUPER_BOX_HEIGHT_WITH_LABEL = 90;
 
 /** Endpoint coordinate badge dimensions (screen pixels). */
 const COORD_BADGE_OFFSET = 14;
-
-/**
- * Snap indicator color schemes - uses selection green for consistency.
- */
-const SNAP_COLORS = {
-  dark: {
-    fill: "rgba(68, 255, 68, 0.3)", // #44ff44 with alpha
-    stroke: SELECTION_COLORS.dark,
-  },
-  light: {
-    fill: "rgba(68, 255, 68, 0.3)", // #44ff44 with alpha
-    stroke: SELECTION_COLORS.light,
-  },
-} as const;
 
 /**
  * Calculate linear measurements between two points.
@@ -117,15 +94,13 @@ function formatAngle(deg: number): string {
 interface SnapIndicatorProps {
   point: Point;
   worldToScreen: (p: Point) => { x: number; y: number };
-  theme: "dark" | "light";
 }
 
 /**
  * Renders a snap indicator when snapping to geometry.
  * Shows a circle with crosshair at the snap target.
  */
-function SnapIndicator({ point, worldToScreen, theme }: SnapIndicatorProps) {
-  const colors = SNAP_COLORS[theme];
+function SnapIndicator({ point, worldToScreen }: SnapIndicatorProps) {
   const screen = worldToScreen(point);
   const r = SNAP_INDICATOR_RADIUS;
 
@@ -136,8 +111,8 @@ function SnapIndicator({ point, worldToScreen, theme }: SnapIndicatorProps) {
         cx={screen.x}
         cy={screen.y}
         r={r}
-        fill={colors.fill}
-        stroke={colors.stroke}
+        fill={RULER_COLORS.snapFill}
+        stroke={RULER_COLORS.snapStroke}
         strokeWidth={2}
       />
       {/* Crosshair lines */}
@@ -146,7 +121,7 @@ function SnapIndicator({ point, worldToScreen, theme }: SnapIndicatorProps) {
         y1={screen.y}
         x2={screen.x + r + 2}
         y2={screen.y}
-        stroke={colors.stroke}
+        stroke={RULER_COLORS.snapStroke}
         strokeWidth={1.5}
       />
       <line
@@ -154,7 +129,7 @@ function SnapIndicator({ point, worldToScreen, theme }: SnapIndicatorProps) {
         y1={screen.y - r - 2}
         x2={screen.x}
         y2={screen.y + r + 2}
-        stroke={colors.stroke}
+        stroke={RULER_COLORS.snapStroke}
         strokeWidth={1.5}
       />
     </g>
@@ -167,7 +142,6 @@ interface TwoPointGraphicCommonProps {
   isSelected: boolean;
   isHovered: boolean;
   isDragging: boolean;
-  theme: "dark" | "light";
   zoom: number;
 }
 
@@ -182,15 +156,14 @@ function SimpleRulerGraphic({
   isSelected,
   isHovered,
   isDragging,
-  theme,
   zoom,
 }: TwoPointGraphicCommonProps & { ruler: Ruler & { kind: "simple" } }) {
-  const colors = RULER_COLORS[theme];
-  const selectionColor = SELECTION_COLORS[theme];
+  const colors = RULER_COLORS;
+  const selectionColor = colors.selection;
   const startScreen = worldToScreen(ruler.start);
   const endScreen = worldToScreen(ruler.end);
 
-  // Determine colors based on state - green for selection, white/black for hover
+  // Determine colors based on interaction state.
   const lineColor = isSelected ? selectionColor : isHovered ? colors.hover : colors.line;
   const borderColor = isSelected ? selectionColor : isHovered ? colors.hover : colors.border;
   const lineWidth = isSelected || isHovered || isDragging ? 2 : 1.5;
@@ -277,7 +250,6 @@ function SimpleRulerGraphic({
         endScreen={endScreen}
         hoveredEndpoint={hoveredEndpoint}
         isSelected={isSelected}
-        theme={theme}
       />
     </g>
   );
@@ -296,7 +268,7 @@ function SimpleRulerGraphic({
  * in the undo history exactly once per rename, and is skipped entirely
  * when the label didn't change — matching the old window.prompt flow.
  */
-function RulerLabelEditor({ ruler, theme }: { ruler: SuperRuler; theme: "dark" | "light" }) {
+function RulerLabelEditor({ ruler }: { ruler: SuperRuler }) {
   const initialValue = ruler.label ?? "";
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -341,7 +313,7 @@ function RulerLabelEditor({ ruler, theme }: { ruler: SuperRuler; theme: "dark" |
     useHistoryStore.getState().execute(cmd, { library, renderer });
   };
 
-  const colors = RULER_COLORS[theme];
+  const colors = RULER_COLORS;
 
   return (
     <input
@@ -404,11 +376,10 @@ function SuperRulerGraphic({
   isSelected,
   isHovered,
   isDragging,
-  theme,
   zoom,
 }: TwoPointGraphicCommonProps & { ruler: SuperRuler }) {
-  const colors = RULER_COLORS[theme];
-  const selectionColor = SELECTION_COLORS[theme];
+  const colors = RULER_COLORS;
+  const selectionColor = colors.selection;
   const startScreen = worldToScreen(ruler.start);
   const endScreen = worldToScreen(ruler.end);
 
@@ -491,7 +462,7 @@ function SuperRulerGraphic({
             }}
           >
             {isEditingLabel ? (
-              <RulerLabelEditor ruler={ruler} theme={theme} />
+              <RulerLabelEditor ruler={ruler} />
             ) : (
               hasLabel && (
                 <div
@@ -531,25 +502,14 @@ function SuperRulerGraphic({
       </foreignObject>
 
       {/* Endpoint coord badges */}
-      <CoordBadge
-        screen={startScreen}
-        text={formatXY(ruler.start)}
-        theme={theme}
-        offsetY={-COORD_BADGE_OFFSET}
-      />
-      <CoordBadge
-        screen={endScreen}
-        text={formatXY(ruler.end)}
-        theme={theme}
-        offsetY={COORD_BADGE_OFFSET}
-      />
+      <CoordBadge screen={startScreen} text={formatXY(ruler.start)} offsetY={-COORD_BADGE_OFFSET} />
+      <CoordBadge screen={endScreen} text={formatXY(ruler.end)} offsetY={COORD_BADGE_OFFSET} />
 
       <EndpointDots
         startScreen={startScreen}
         endScreen={endScreen}
         hoveredEndpoint={hoveredEndpoint}
         isSelected={isSelected}
-        theme={theme}
       />
     </g>
   );
@@ -561,16 +521,14 @@ function EndpointDots({
   endScreen,
   hoveredEndpoint,
   isSelected,
-  theme,
 }: {
   startScreen: { x: number; y: number };
   endScreen: { x: number; y: number };
   hoveredEndpoint: RulerEndpoint | null;
   isSelected: boolean;
-  theme: "dark" | "light";
 }) {
-  const colors = RULER_COLORS[theme];
-  const selectionColor = SELECTION_COLORS[theme];
+  const colors = RULER_COLORS;
+  const selectionColor = colors.selection;
 
   return (
     <>
@@ -604,15 +562,13 @@ function EndpointDots({
 function CoordBadge({
   screen,
   text,
-  theme,
   offsetY,
 }: {
   screen: { x: number; y: number };
   text: string;
-  theme: "dark" | "light";
   offsetY: number;
 }) {
-  const colors = RULER_COLORS[theme];
+  const colors = RULER_COLORS;
   const width = 160;
   const height = 18;
   return (
@@ -670,7 +626,6 @@ function PolylineRulerGraphic({
   isSelected,
   isHovered,
   isDragging,
-  theme,
   zoom,
 }: {
   ruler: PolylineRuler;
@@ -679,11 +634,10 @@ function PolylineRulerGraphic({
   isSelected: boolean;
   isHovered: boolean;
   isDragging: boolean;
-  theme: "dark" | "light";
   zoom: number;
 }) {
-  const colors = RULER_COLORS[theme];
-  const selectionColor = SELECTION_COLORS[theme];
+  const colors = RULER_COLORS;
+  const selectionColor = colors.selection;
   const pts = ruler.points;
   if (pts.length < 2) return null;
 
@@ -747,7 +701,6 @@ function PolylineRulerGraphic({
             key={`${mid.x},${mid.y}`}
             screen={mid}
             text={formatLength(lenNm, unitInfo)}
-            theme={theme}
             offsetY={0}
           />
         );
@@ -825,7 +778,6 @@ function AngleRulerGraphic({
   isSelected,
   isHovered,
   isDragging,
-  theme,
   zoom: _zoom,
 }: {
   ruler: AngleRuler;
@@ -834,11 +786,10 @@ function AngleRulerGraphic({
   isSelected: boolean;
   isHovered: boolean;
   isDragging: boolean;
-  theme: "dark" | "light";
   zoom: number;
 }) {
-  const colors = RULER_COLORS[theme];
-  const selectionColor = SELECTION_COLORS[theme];
+  const colors = RULER_COLORS;
+  const selectionColor = colors.selection;
 
   const v = worldToScreen(ruler.vertex);
   const a = worldToScreen(ruler.armA);
@@ -916,7 +867,7 @@ function AngleRulerGraphic({
       {/* Arc */}
       <path d={arcPath} fill="none" stroke={lineColor} strokeWidth={lineWidth} />
       {/* Angle label */}
-      <CoordBadge screen={labelPos} text={`θ ${formatAngle(thetaDeg)}`} theme={theme} offsetY={0} />
+      <CoordBadge screen={labelPos} text={`θ ${formatAngle(thetaDeg)}`} offsetY={0} />
       {/* Vertex handles */}
       {handlePoints.map((p, i) => {
         const hovered = hoveredEndpoint?.pointIndex === i;
@@ -951,7 +902,6 @@ function RadiusRulerGraphic({
   isSelected,
   isHovered,
   isDragging,
-  theme,
   zoom,
 }: {
   ruler: RadiusRuler;
@@ -960,11 +910,10 @@ function RadiusRulerGraphic({
   isSelected: boolean;
   isHovered: boolean;
   isDragging: boolean;
-  theme: "dark" | "light";
   zoom: number;
 }) {
-  const colors = RULER_COLORS[theme];
-  const selectionColor = SELECTION_COLORS[theme];
+  const colors = RULER_COLORS;
+  const selectionColor = colors.selection;
 
   const c = worldToScreen(ruler.center);
   const ePt = worldToScreen(ruler.edge);
@@ -1098,7 +1047,6 @@ function RulerGraphic(
           isSelected={props.isSelected}
           isHovered={props.isHovered}
           isDragging={props.isDragging}
-          theme={props.theme}
           zoom={props.zoom}
         />
       );
@@ -1113,7 +1061,6 @@ function RulerGraphic(
           isSelected={props.isSelected}
           isHovered={props.isHovered}
           isDragging={props.isDragging}
-          theme={props.theme}
           zoom={props.zoom}
         />
       );
@@ -1128,7 +1075,6 @@ function RulerGraphic(
           isSelected={props.isSelected}
           isHovered={props.isHovered}
           isDragging={props.isDragging}
-          theme={props.theme}
           zoom={props.zoom}
         />
       );
@@ -1143,7 +1089,6 @@ function RulerGraphic(
  */
 export function RulerOverlay() {
   const { zoom, offset } = useViewportStore();
-  const theme = useUIStore((s) => s.theme);
   const showRulers = useUIStore((s) => s.showRulers);
   const {
     rulers,
@@ -1204,13 +1149,12 @@ export function RulerOverlay() {
             isSelected={isSelected}
             isHovered={isHovered && !isSelected}
             isDragging={isDragging || isVertexDragging || isActive}
-            theme={theme}
             zoom={zoom}
           />
         );
       })}
       {/* Snap indicator when snapping to geometry */}
-      {snapPoint && <SnapIndicator point={snapPoint} worldToScreen={worldToScreen} theme={theme} />}
+      {snapPoint && <SnapIndicator point={snapPoint} worldToScreen={worldToScreen} />}
     </svg>
   );
 }

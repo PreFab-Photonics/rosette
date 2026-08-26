@@ -33,6 +33,8 @@
 #[allow(dead_code)]
 mod grid;
 mod library;
+#[allow(dead_code)]
+mod render_theme;
 #[cfg(target_arch = "wasm32")]
 mod renderer;
 #[allow(dead_code)]

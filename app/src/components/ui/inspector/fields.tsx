@@ -15,14 +15,12 @@ export function NumberField({
   label,
   value,
   unit,
-  isDark,
   onChange,
   readOnly,
 }: {
   label: string;
   value: string;
   unit?: string;
-  isDark: boolean;
   onChange?: (value: number) => void;
   readOnly?: boolean;
 }) {
@@ -92,13 +90,7 @@ export function NumberField({
       <span
         className={cn(
           "text-xs select-none",
-          readOnly
-            ? isDark
-              ? "text-white/30"
-              : "text-black/30"
-            : isDark
-              ? "text-white/50"
-              : "text-black/50",
+          readOnly ? "text-foreground-faint" : "text-foreground-muted",
         )}
       >
         {label}
@@ -113,12 +105,7 @@ export function NumberField({
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
             onClick={(e) => e.stopPropagation()}
-            className={cn(
-              "w-20 rounded border px-1.5 py-0.5 text-right font-mono text-xs outline-none",
-              isDark
-                ? "border-white/10 bg-white/5 text-white/90"
-                : "border-black/10 bg-black/5 text-black/90",
-            )}
+            className="w-20 rounded border border-theme-border bg-input px-1.5 py-0.5 text-right font-mono text-xs text-foreground outline-none"
           />
         ) : (
           <button
@@ -137,13 +124,7 @@ export function NumberField({
             }}
             className={cn(
               "w-20 rounded border border-transparent px-1.5 py-0.5 text-right font-mono text-xs outline-none transition-colors",
-              readOnly
-                ? isDark
-                  ? "text-white/30"
-                  : "text-black/30"
-                : isDark
-                  ? "cursor-text text-white/90 hover:bg-white/5"
-                  : "cursor-text text-black/90 hover:bg-black/5",
+              readOnly ? "text-foreground-faint" : "cursor-text text-foreground hover:bg-input",
             )}
             tabIndex={readOnly ? -1 : 0}
           >
@@ -154,13 +135,7 @@ export function NumberField({
           <span
             className={cn(
               "w-6 text-xs select-none",
-              readOnly
-                ? isDark
-                  ? "text-white/20"
-                  : "text-black/20"
-                : isDark
-                  ? "text-white/40"
-                  : "text-black/40",
+              readOnly ? "text-foreground-ghost" : "text-foreground-subtle",
             )}
           >
             {unit}
@@ -179,12 +154,10 @@ export function NumberField({
 export function TextField({
   label,
   value,
-  isDark,
   onChange,
 }: {
   label: string;
   value: string;
-  isDark: boolean;
   onChange: (value: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -245,9 +218,7 @@ export function TextField({
 
   return (
     <div className="flex items-center justify-between gap-2 px-3 py-1" data-field={label}>
-      <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-        {label}
-      </span>
+      <span className="text-xs text-foreground-muted select-none">{label}</span>
       {editing ? (
         <input
           ref={inputRef}
@@ -257,12 +228,7 @@ export function TextField({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           onClick={(e) => e.stopPropagation()}
-          className={cn(
-            "w-32 rounded border px-1.5 py-0.5 text-right text-xs outline-none",
-            isDark
-              ? "border-white/10 bg-white/5 text-white/90"
-              : "border-black/10 bg-black/5 text-black/90",
-          )}
+          className="w-32 rounded border border-theme-border bg-input px-1.5 py-0.5 text-right text-xs text-foreground outline-none"
         />
       ) : (
         <button
@@ -271,9 +237,7 @@ export function TextField({
           onFocus={() => setEditing(true)}
           className={cn(
             "w-32 truncate rounded border border-transparent px-1.5 py-0.5 text-right text-xs outline-none transition-colors",
-            isDark
-              ? "cursor-text text-white/90 hover:bg-white/5"
-              : "cursor-text text-black/90 hover:bg-black/5",
+            "cursor-text text-foreground hover:bg-input",
           )}
           tabIndex={0}
         >
@@ -293,12 +257,10 @@ export function TextField({
 export function TextAreaField({
   label,
   value,
-  isDark,
   onChange,
 }: {
   label: string;
   value: string;
-  isDark: boolean;
   onChange: (value: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -364,9 +326,7 @@ export function TextAreaField({
   return (
     <div className="px-3 py-1" data-field={label}>
       <div className="flex items-center justify-between gap-2 pb-1">
-        <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-          {label}
-        </span>
+        <span className="text-xs text-foreground-muted select-none">{label}</span>
       </div>
       {editing ? (
         <textarea
@@ -377,12 +337,7 @@ export function TextAreaField({
           onKeyDown={handleKeyDown}
           onClick={(e) => e.stopPropagation()}
           rows={Math.min(6, Math.max(2, editValue.split("\n").length))}
-          className={cn(
-            "w-full resize-none rounded border px-1.5 py-1 font-mono text-xs leading-relaxed outline-none",
-            isDark
-              ? "border-white/10 bg-white/5 text-white/90"
-              : "border-black/10 bg-black/5 text-black/90",
-          )}
+          className="w-full resize-none rounded border border-theme-border bg-input px-1.5 py-1 font-mono text-xs leading-relaxed text-foreground outline-none"
         />
       ) : (
         <button
@@ -391,13 +346,11 @@ export function TextAreaField({
           onFocus={() => setEditing(true)}
           className={cn(
             "w-full whitespace-pre-wrap rounded border border-transparent px-1.5 py-1 text-left font-mono text-xs leading-relaxed outline-none transition-colors",
-            isDark
-              ? "cursor-text text-white/90 hover:bg-white/5"
-              : "cursor-text text-black/90 hover:bg-black/5",
+            "cursor-text text-foreground hover:bg-input",
           )}
           tabIndex={0}
         >
-          {preview || <span className={isDark ? "text-white/30" : "text-black/30"}>Empty</span>}
+          {preview || <span className="text-foreground-faint">Empty</span>}
         </button>
       )}
     </div>
@@ -418,12 +371,10 @@ export function TextAreaField({
 export function LayerSelector({
   currentLayer,
   currentDatatype,
-  isDark,
   onChange,
 }: {
   currentLayer: number;
   currentDatatype: number;
-  isDark: boolean;
   onChange: (layer: number, datatype: number) => void;
 }) {
   const layers = useLayerStore((s) => s.getAllLayers)();
@@ -544,9 +495,7 @@ export function LayerSelector({
 
   return (
     <div className="flex items-center justify-between gap-2 px-3 py-1">
-      <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-        Layer
-      </span>
+      <span className="text-xs text-foreground-muted select-none">Layer</span>
 
       <button
         ref={triggerRef}
@@ -555,17 +504,12 @@ export function LayerSelector({
         onKeyDown={handleTriggerKeyDown}
         className={cn(
           "flex max-w-36 items-center gap-1.5 rounded-lg border px-1.5 py-0.5 text-xs outline-none transition-colors",
-          isDark
-            ? "border-white/10 bg-white/5 text-white/90 hover:bg-white/10 focus-visible:border-white/40"
-            : "border-black/10 bg-black/5 text-black/90 hover:bg-black/10 focus-visible:border-black/40",
+          "border-theme-border bg-input text-foreground hover:bg-theme-border focus-visible:border-focus-ring",
         )}
       >
         {selectedLayer && (
           <div
-            className={cn(
-              "h-3 w-3 flex-shrink-0 rounded-sm border",
-              isDark ? "border-white/10" : "border-black/10",
-            )}
+            className="h-3 w-3 flex-shrink-0 rounded-sm border border-theme-border"
             style={{ backgroundColor: selectedLayer.color }}
           />
         )}
@@ -577,9 +521,8 @@ export function LayerSelector({
           height="12"
           viewBox="0 0 16 16"
           className={cn(
-            "flex-shrink-0 transition-transform",
+            "flex-shrink-0 text-foreground-subtle transition-transform",
             isOpen && "rotate-180",
-            isDark ? "text-white/40" : "text-black/40",
           )}
         >
           <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -596,12 +539,7 @@ export function LayerSelector({
             role="listbox"
             tabIndex={-1}
             onKeyDown={handleDropdownKeyDown}
-            className={cn(
-              "fixed z-50 overflow-y-auto rounded-xl border py-1 shadow-lg outline-none",
-              isDark
-                ? "border-white/10 bg-[rgb(29,29,29)]"
-                : "border-black/10 bg-[rgb(241,241,241)]",
-            )}
+            className="fixed z-50 overflow-y-auto rounded-xl border border-theme-border bg-surface py-1 shadow-lg outline-none"
             style={{
               top: dropdownPos.top,
               right: dropdownPos.right,
@@ -625,13 +563,7 @@ export function LayerSelector({
                   aria-selected={isSelected}
                   className={cn(
                     "mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
-                    isHighlighted
-                      ? isDark
-                        ? "bg-[rgb(54,54,54)] text-white/90"
-                        : "bg-[rgb(217,217,217)] text-black/90"
-                      : isDark
-                        ? "text-white/70"
-                        : "text-black/70",
+                    isHighlighted ? "bg-interactive text-foreground" : "text-foreground-secondary",
                   )}
                   onMouseDown={(e) => {
                     e.preventDefault();
@@ -640,19 +572,11 @@ export function LayerSelector({
                   onMouseEnter={() => setHighlightIndex(i)}
                 >
                   <div
-                    className={cn(
-                      "h-3.5 w-3.5 flex-shrink-0 rounded-sm border",
-                      isDark ? "border-white/10" : "border-black/10",
-                    )}
+                    className="h-3.5 w-3.5 flex-shrink-0 rounded-sm border border-theme-border"
                     style={{ backgroundColor: l.color }}
                   />
                   <span className="flex-1 truncate">{l.name}</span>
-                  <span
-                    className={cn(
-                      "flex-shrink-0 font-mono text-[11px]",
-                      isDark ? "text-white/40" : "text-black/40",
-                    )}
-                  >
+                  <span className="flex-shrink-0 font-mono text-[11px] text-foreground-subtle">
                     {l.layerNumber}/{l.datatype}
                   </span>
                   {isSelected && (
@@ -660,7 +584,7 @@ export function LayerSelector({
                       width="14"
                       height="14"
                       viewBox="0 0 16 16"
-                      className={cn("flex-shrink-0", isDark ? "text-white/70" : "text-black/70")}
+                      className="flex-shrink-0 text-foreground-secondary"
                     >
                       <path
                         d="M3.5 8.5l3 3 6-7"
@@ -685,14 +609,9 @@ export function LayerSelector({
 /**
  * Section header for grouping inspector fields.
  */
-export function SectionHeader({ label, isDark }: { label: string; isDark: boolean }) {
+export function SectionHeader({ label }: { label: string }) {
   return (
-    <div
-      className={cn(
-        "px-3 pt-2.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider select-none",
-        isDark ? "text-white/30" : "text-black/30",
-      )}
-    >
+    <div className="px-3 pt-2.5 pb-0.5 text-[10px] font-semibold tracking-wider text-foreground-faint uppercase select-none">
       {label}
     </div>
   );

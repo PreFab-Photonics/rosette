@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { useUIStore } from "@/stores/ui";
 import { cn } from "@/lib/utils";
 
 export interface Shortcut {
@@ -25,11 +24,8 @@ export function Tooltip({
   className,
   children,
 }: TooltipProps) {
-  const isDark = useUIStore((s) => s.theme) === "dark";
-  const kbdClass = cn(
-    "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border px-1 text-[11px]",
-    isDark ? "border-white/15 bg-white/10" : "border-black/15 bg-black/10",
-  );
+  const kbdClass =
+    "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-theme-border-strong bg-theme-border px-1 text-[11px]";
 
   const isHorizontal = position === "left" || position === "right";
   const positionClass = isHorizontal
@@ -44,11 +40,8 @@ export function Tooltip({
       {children}
       <div
         className={cn(
-          "pointer-events-none select-none absolute z-50 flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100",
+          "pointer-events-none select-none absolute z-50 flex items-center gap-1.5 rounded-lg border border-theme-border bg-surface px-2 py-0.5 text-[11px] text-foreground whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100",
           positionClass,
-          isDark
-            ? "border-white/10 bg-[rgb(29,29,29)] text-white/90"
-            : "border-black/10 bg-[rgb(241,241,241)] text-black/90",
         )}
       >
         <span>{label}</span>

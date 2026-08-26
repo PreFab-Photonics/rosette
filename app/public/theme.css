@@ -1,0 +1,119 @@
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --theme-app: #000000;
+  --theme-canvas: #121212;
+  --theme-surface: #1d1d1d;
+  --theme-surface-translucent: rgb(29 29 29 / 95%);
+  --theme-interactive: #363636;
+  --theme-interactive-focus: #2c2c2c;
+  --theme-input: rgb(255 255 255 / 5%);
+
+  --theme-foreground: rgb(255 255 255 / 90%);
+  --theme-foreground-secondary: rgb(255 255 255 / 70%);
+  --theme-foreground-muted: rgb(255 255 255 / 50%);
+  --theme-foreground-subtle: rgb(255 255 255 / 40%);
+  --theme-foreground-faint: rgb(255 255 255 / 30%);
+  --theme-foreground-ghost: rgb(255 255 255 / 20%);
+
+  --theme-border: rgb(255 255 255 / 10%);
+  --theme-border-strong: rgb(255 255 255 / 15%);
+  --theme-focus-ring: rgb(255 255 255 / 30%);
+  --theme-scrim: rgb(0 0 0 / 50%);
+
+  --theme-danger: rgb(248 113 113 / 80%);
+  --theme-danger-strong: #ef4444;
+  --theme-error-surface: #450a0a;
+  --theme-error-foreground: #fecaca;
+  --theme-warning: rgb(250 204 21 / 80%);
+  --theme-warning-strong: #f59e0b;
+  --theme-info: rgb(125 211 252 / 70%);
+  --theme-highlight: rgb(14 165 233 / 25%);
+
+  --theme-selection: #44ff44;
+  --theme-selection-translucent: rgb(68 255 68 / 30%);
+  --theme-text-selection: rgb(65 105 225 / 70%);
+  --theme-text-selection-foreground: #ffffff;
+  --theme-hover-outline: #ffffff;
+  --theme-canvas-grid: #ffffff;
+  --theme-canvas-grid-opacity: 0.5;
+  --theme-canvas-label: #ffffff;
+  --theme-canvas-label-muted: rgb(255 255 255 / 50%);
+  --theme-ruler: #8b959f;
+  --theme-ruler-surface: #1a1d21;
+  --theme-ruler-hover: #ffffff;
+  --theme-minimap-viewport: rgb(255 255 255 / 90%);
+  --theme-minimap-viewport-fill: rgb(255 255 255 / 10%);
+  --theme-minimap-image-fill: rgb(200 200 200 / 30%);
+  --theme-minimap-image-stroke: rgb(200 200 200 / 50%);
+  --theme-crosshair: rgb(51 191 51 / 80%);
+  --theme-laser: #ff0000;
+  --theme-marquee-fill: rgb(59 130 246 / 10%);
+  --theme-marquee-stroke: rgb(59 130 246 / 60%);
+  --theme-zoom-fill: rgb(46 229 120 / 10%);
+  --theme-zoom-stroke: rgb(46 229 120 / 60%);
+  --theme-violation-error: rgb(237 41 56 / 95%);
+  --theme-violation-warning: rgb(245 158 10 / 95%);
+
+  background-color: var(--theme-app);
+  color: var(--theme-foreground);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --theme-app: #ffffff;
+  --theme-canvas: #ffffff;
+  --theme-surface: #f1f1f1;
+  --theme-surface-translucent: rgb(241 241 241 / 95%);
+  --theme-interactive: #d9d9d9;
+  --theme-interactive-focus: #e3e3e3;
+  --theme-input: rgb(0 0 0 / 5%);
+
+  --theme-foreground: rgb(0 0 0 / 90%);
+  --theme-foreground-secondary: rgb(0 0 0 / 70%);
+  --theme-foreground-muted: rgb(0 0 0 / 50%);
+  --theme-foreground-subtle: rgb(0 0 0 / 40%);
+  --theme-foreground-faint: rgb(0 0 0 / 30%);
+  --theme-foreground-ghost: rgb(0 0 0 / 20%);
+
+  --theme-border: rgb(0 0 0 / 10%);
+  --theme-border-strong: rgb(0 0 0 / 15%);
+  --theme-focus-ring: rgb(0 0 0 / 30%);
+  --theme-scrim: rgb(0 0 0 / 30%);
+
+  --theme-danger: rgb(220 38 38 / 80%);
+  --theme-danger-strong: #ef4444;
+  --theme-error-surface: #450a0a;
+  --theme-error-foreground: #fecaca;
+  --theme-warning: rgb(202 138 4 / 80%);
+  --theme-warning-strong: #f59e0b;
+  --theme-info: rgb(3 105 161 / 80%);
+  --theme-highlight: rgb(14 165 233 / 25%);
+
+  --theme-selection: #44ff44;
+  --theme-selection-translucent: rgb(68 255 68 / 30%);
+  --theme-text-selection: rgb(65 105 225 / 70%);
+  --theme-text-selection-foreground: #ffffff;
+  --theme-hover-outline: #000000;
+  --theme-canvas-grid: #000000;
+  --theme-canvas-grid-opacity: 0.8;
+  --theme-canvas-label: #000000;
+  --theme-canvas-label-muted: rgb(0 0 0 / 50%);
+  --theme-ruler: #4b5563;
+  --theme-ruler-surface: rgb(255 255 255 / 95%);
+  --theme-ruler-hover: #000000;
+  --theme-minimap-viewport: rgb(0 0 0 / 90%);
+  --theme-minimap-viewport-fill: rgb(0 0 0 / 10%);
+  --theme-minimap-image-fill: rgb(200 200 200 / 30%);
+  --theme-minimap-image-stroke: rgb(200 200 200 / 50%);
+  --theme-crosshair: rgb(51 191 51 / 80%);
+  --theme-laser: #ff0000;
+  --theme-marquee-fill: rgb(59 130 246 / 10%);
+  --theme-marquee-stroke: rgb(59 130 246 / 60%);
+  --theme-zoom-fill: rgb(46 229 120 / 10%);
+  --theme-zoom-stroke: rgb(46 229 120 / 60%);
+  --theme-violation-error: rgb(237 41 56 / 95%);
+  --theme-violation-warning: rgb(245 158 10 / 95%);
+}

@@ -3,8 +3,6 @@ import { useViewportStore } from "@/stores/viewport";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useSelectionStore } from "@/stores/selection";
 import { useExplorerStore } from "@/stores/explorer";
-import { useUIStore } from "@/stores/ui";
-import { cn } from "@/lib/utils";
 
 /**
  * Instance label data from the WASM library.
@@ -71,8 +69,6 @@ function getInstanceOriginScreen(
 export function InstanceLabels({ hidden = false }: { hidden?: boolean }) {
   const { zoom, offset } = useViewportStore();
   const library = useWasmContextStore((s) => s.library);
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
 
   // Re-render when library syncs (e.g. during drag moves)
   const syncGeneration = useWasmContextStore((s) => s.syncGeneration);
@@ -109,8 +105,6 @@ export function InstanceLabels({ hidden = false }: { hidden?: boolean }) {
   const visibleLabels = allLabels.filter((label) => activeIds.has(label.id));
   if (visibleLabels.length === 0) return null;
 
-  const crossColor = isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)";
-
   return (
     <>
       {visibleLabels.map((label) => {
@@ -125,10 +119,7 @@ export function InstanceLabels({ hidden = false }: { hidden?: boolean }) {
           <div key={`inst-${label.elementIndex}`}>
             {/* Instance name label */}
             <div
-              className={cn(
-                "pointer-events-none absolute text-[13px] leading-none font-mono select-none",
-                isDark ? "text-white" : "text-black",
-              )}
+              className="text-canvas-label pointer-events-none absolute font-mono text-[13px] leading-none select-none"
               style={{
                 left: `${screenX}px`,
                 top: `${screenY}px`,
@@ -158,7 +149,7 @@ export function InstanceLabels({ hidden = false }: { hidden?: boolean }) {
                   y1={CROSS_ARM}
                   x2={CROSS_ARM * 2}
                   y2={CROSS_ARM}
-                  stroke={crossColor}
+                  stroke="var(--theme-canvas-label-muted)"
                   strokeWidth="1"
                 />
                 {/* Vertical arm */}
@@ -167,7 +158,7 @@ export function InstanceLabels({ hidden = false }: { hidden?: boolean }) {
                   y1="0"
                   x2={CROSS_ARM}
                   y2={CROSS_ARM * 2}
-                  stroke={crossColor}
+                  stroke="var(--theme-canvas-label-muted)"
                   strokeWidth="1"
                 />
               </svg>

@@ -12,10 +12,6 @@ const actEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT: boolean;
 };
 
-vi.mock("@/stores/ui", () => ({
-  useUIStore: (selector: (state: { theme: "dark" }) => unknown) => selector({ theme: "dark" }),
-}));
-
 describe("InstanceLabels", () => {
   let container: HTMLDivElement;
   let root: Root;

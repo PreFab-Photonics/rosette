@@ -15,7 +15,6 @@ export function VertexRow({
   x,
   y,
   unit,
-  isDark,
   canRemove,
   onChangeX,
   onChangeY,
@@ -26,7 +25,6 @@ export function VertexRow({
   x: string;
   y: string;
   unit: string;
-  isDark: boolean;
   canRemove: boolean;
   onChangeX: (value: number) => void;
   onChangeY: (value: number) => void;
@@ -37,14 +35,7 @@ export function VertexRow({
     <div data-vertex-row>
       {/* Vertex header: index label + remove button */}
       <div className="flex items-center justify-between px-3 pt-1.5 pb-0">
-        <span
-          className={cn(
-            "text-[10px] font-mono select-none",
-            isDark ? "text-white/30" : "text-black/30",
-          )}
-        >
-          V{index}
-        </span>
+        <span className="font-mono text-[10px] text-foreground-faint select-none">V{index}</span>
         {!readOnly && (
           <button
             type="button"
@@ -54,12 +45,8 @@ export function VertexRow({
             className={cn(
               "flex-shrink-0 rounded p-0.5 transition-colors",
               canRemove
-                ? isDark
-                  ? "text-white/40 hover:bg-white/10 hover:text-white/70"
-                  : "text-black/40 hover:bg-black/10 hover:text-black/70"
-                : isDark
-                  ? "cursor-not-allowed text-white/10"
-                  : "cursor-not-allowed text-black/10",
+                ? "text-foreground-subtle hover:bg-theme-border hover:text-foreground-secondary"
+                : "cursor-not-allowed text-theme-border",
             )}
             tabIndex={canRemove ? 0 : -1}
           >
@@ -77,22 +64,8 @@ export function VertexRow({
         )}
       </div>
       {/* X / Y coordinate fields */}
-      <NumberField
-        label="X"
-        value={x}
-        unit={unit}
-        isDark={isDark}
-        onChange={onChangeX}
-        readOnly={readOnly}
-      />
-      <NumberField
-        label="Y"
-        value={y}
-        unit={unit}
-        isDark={isDark}
-        onChange={onChangeY}
-        readOnly={readOnly}
-      />
+      <NumberField label="X" value={x} unit={unit} onChange={onChangeX} readOnly={readOnly} />
+      <NumberField label="Y" value={y} unit={unit} onChange={onChangeY} readOnly={readOnly} />
     </div>
   );
 }
@@ -106,7 +79,6 @@ export function VertexRow({
 export function VerticesSection({
   vertices,
   unitInfo,
-  isDark,
   onChangeVertex,
   onRemoveVertex,
   onAddVertex,
@@ -115,7 +87,6 @@ export function VerticesSection({
 }: {
   vertices: Float64Array;
   unitInfo: UnitInfo;
-  isDark: boolean;
   onChangeVertex: (index: number, axis: "x" | "y", displayValue: number) => void;
   onRemoveVertex: (index: number) => void;
   onAddVertex: () => void;
@@ -197,7 +168,6 @@ export function VerticesSection({
         x={displayX}
         y={displayY}
         unit={unitInfo.unit}
-        isDark={isDark}
         canRemove={canRemove}
         onChangeX={(v) => onChangeVertex(i, "x", v)}
         onChangeY={(v) => onChangeVertex(i, "y", v)}
@@ -209,7 +179,7 @@ export function VerticesSection({
 
   return (
     <>
-      <SectionHeader label={label ?? "Vertices"} isDark={isDark} />
+      <SectionHeader label={label ?? "Vertices"} />
       <div ref={scrollRef} className="flex max-h-48 flex-col overflow-y-auto">
         {rows}
       </div>
@@ -218,12 +188,7 @@ export function VerticesSection({
           <button
             type="button"
             onClick={handleAdd}
-            className={cn(
-              "flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
-              isDark
-                ? "border-white/10 text-white/50 hover:bg-white/5 hover:text-white/70"
-                : "border-black/10 text-black/50 hover:bg-black/5 hover:text-black/70",
-            )}
+            className="flex w-full items-center justify-center gap-1 rounded-lg border border-theme-border px-2 py-1 text-xs text-foreground-muted transition-colors hover:bg-input hover:text-foreground-secondary"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">
               <path d="M8 4v8M4 8h8" strokeWidth="1.5" strokeLinecap="round" />

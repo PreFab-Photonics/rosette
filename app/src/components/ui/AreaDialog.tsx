@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useAreaDialogStore, type LayerArea } from "@/stores/area-dialog";
-import { useUIStore } from "@/stores/ui";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { GRID_SIZE } from "@/stores/viewport";
-import { cn } from "@/lib/utils";
 
 // =============================================================================
 // Helpers
@@ -34,37 +32,25 @@ function formatArea(worldAreaSq: number): string {
 /**
  * A single row in the area table.
  */
-function AreaRow({ item, isDark }: { item: LayerArea; isDark: boolean }) {
+function AreaRow({ item }: { item: LayerArea }) {
   return (
-    <tr className={cn("border-b last:border-b-0", isDark ? "border-white/5" : "border-black/5")}>
+    <tr className="border-b border-input last:border-b-0">
       {/* Color swatch */}
       <td className="py-1.5 pr-2 pl-0">
         <span
           aria-label={`Color for ${item.name}`}
-          className={cn(
-            "inline-block h-3 w-3 rounded border",
-            isDark ? "border-white/15" : "border-black/15",
-          )}
+          className="inline-block h-3 w-3 rounded border border-theme-border-strong"
           style={{ backgroundColor: item.color }}
         />
       </td>
       {/* Layer name */}
-      <td className={cn("py-1.5 pr-3 text-xs", isDark ? "text-white/80" : "text-black/80")}>
-        {item.name}
-      </td>
+      <td className="py-1.5 pr-3 text-xs text-foreground">{item.name}</td>
       {/* Layer/datatype */}
-      <td
-        className={cn("py-1.5 pr-3 font-mono text-xs", isDark ? "text-white/40" : "text-black/40")}
-      >
+      <td className="py-1.5 pr-3 font-mono text-xs text-foreground-subtle">
         {item.layerNumber}/{item.datatype}
       </td>
       {/* Area */}
-      <td
-        className={cn(
-          "py-1.5 text-right font-mono text-xs",
-          isDark ? "text-white/80" : "text-black/80",
-        )}
-      >
+      <td className="py-1.5 text-right font-mono text-xs text-foreground">
         {formatArea(item.area)}
       </td>
     </tr>
@@ -80,13 +66,11 @@ function AreaRow({ item, isDark }: { item: LayerArea; isDark: boolean }) {
  *
  * Computes area recursively across all instanced cells. Styled consistently
  * with GoToDialog and ArrayDialog (centered overlay, backdrop-blur,
- * dark/light theming). Uses the keyboard-focus stack to disable canvas
+ * theming). Uses the keyboard-focus stack to disable canvas
  * shortcuts while open.
  */
 export function AreaDialog() {
   const { isOpen, close, layerAreas, totalArea, cellName } = useAreaDialogStore();
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
 
   useKeyboardFocus("area-dialog", isOpen);
 
@@ -119,10 +103,7 @@ export function AreaDialog() {
           open
           ref={contentRef}
           aria-label="Area Calculator"
-          className={cn(
-            "static m-0 w-full max-w-[420px] overflow-hidden rounded-xl border p-0 shadow-md backdrop-blur-xl outline-none",
-            isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
-          )}
+          className="static m-0 w-full max-w-[420px] overflow-hidden rounded-xl border border-theme-border bg-surface p-0 shadow-md backdrop-blur-xl outline-none"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();
@@ -133,12 +114,7 @@ export function AreaDialog() {
           tabIndex={-1}
         >
           {/* Header */}
-          <div
-            className={cn(
-              "border-b px-4 py-3 text-sm font-medium select-none",
-              isDark ? "border-white/10 text-white/90" : "border-black/10 text-black/90",
-            )}
-          >
+          <div className="border-b border-theme-border px-4 py-3 text-sm font-medium text-foreground select-none">
             Area: {cellName}
           </div>
 
@@ -148,18 +124,11 @@ export function AreaDialog() {
             onWheel={(e) => e.stopPropagation()}
           >
             {layerAreas.length === 0 ? (
-              <p className={cn("text-xs", isDark ? "text-white/50" : "text-black/50")}>
-                No geometry in this cell.
-              </p>
+              <p className="text-xs text-foreground-muted">No geometry in this cell.</p>
             ) : (
               <table className="w-full">
                 <thead>
-                  <tr
-                    className={cn(
-                      "border-b text-left text-[11px]",
-                      isDark ? "border-white/10 text-white/40" : "border-black/10 text-black/40",
-                    )}
-                  >
+                  <tr className="border-b border-theme-border text-left text-[11px] text-foreground-subtle">
                     <th className="pb-1.5 pr-2 font-normal">
                       <span className="sr-only">Color</span>
                     </th>
@@ -170,11 +139,7 @@ export function AreaDialog() {
                 </thead>
                 <tbody>
                   {layerAreas.map((item) => (
-                    <AreaRow
-                      key={`${item.layerNumber}:${item.datatype}`}
-                      item={item}
-                      isDark={isDark}
-                    />
+                    <AreaRow key={`${item.layerNumber}:${item.datatype}`} item={item} />
                   ))}
                 </tbody>
               </table>
@@ -182,28 +147,13 @@ export function AreaDialog() {
           </div>
 
           {/* Footer — total + close */}
-          <div
-            className={cn(
-              "flex items-center justify-between border-t px-4 py-3",
-              isDark ? "border-white/10" : "border-black/10",
-            )}
-          >
+          <div className="flex items-center justify-between border-t border-theme-border px-4 py-3">
             {layerAreas.length > 0 ? (
               <div className="flex items-center gap-3">
-                <span
-                  className={cn(
-                    "text-xs font-medium select-none",
-                    isDark ? "text-white/60" : "text-black/60",
-                  )}
-                >
+                <span className="text-xs font-medium text-foreground-secondary select-none">
                   Total
                 </span>
-                <span
-                  className={cn(
-                    "font-mono text-xs font-medium",
-                    isDark ? "text-white/90" : "text-black/90",
-                  )}
-                >
+                <span className="font-mono text-xs font-medium text-foreground">
                   {formatArea(totalArea)} {"\u00B5m\u00B2"}
                 </span>
               </div>
@@ -213,12 +163,7 @@ export function AreaDialog() {
             <button
               type="button"
               onClick={close}
-              className={cn(
-                "rounded-lg border px-3 py-1.5 text-xs transition-colors",
-                isDark
-                  ? "border-white/10 text-white/70 hover:bg-white/5"
-                  : "border-black/10 text-black/70 hover:bg-black/5",
-              )}
+              className="rounded-lg border border-theme-border px-3 py-1.5 text-xs text-foreground-secondary transition-colors hover:bg-input"
             >
               Close
             </button>

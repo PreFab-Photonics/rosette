@@ -10,13 +10,14 @@ import { useExplorerStore } from "@/stores/explorer";
 import {
   calculateMinimapBounds,
   drawViewportRect,
-  getMinimapColors,
   minimapToWorld,
   renderMinimapPolygons,
   worldToMinimap,
   type MinimapBounds,
+  type MinimapColors,
   type RenderPolygon,
 } from "@/lib/minimap";
+import { readThemeTokens } from "@/lib/theme";
 
 /** Pixel size of the expanded minimap canvas (square). */
 const MINIMAP_SIZE = 180;
@@ -40,7 +41,7 @@ export function Minimap() {
   // Store state
   const zoom = useViewportStore((s) => s.zoom);
   const offset = useViewportStore((s) => s.offset);
-  const theme = useUIStore((s) => s.theme);
+  const resolvedTheme = useUIStore((s) => s.theme);
   const library = useWasmContextStore((s) => s.library);
   const layers = useLayerStore((s) => s.layers);
   const isMinimized = useMinimapStore((s) => s.isMinimized);
@@ -54,8 +55,17 @@ export function Minimap() {
   const allImages = useImageStore((s) => s.images);
   const activeCell = useExplorerStore((s) => s.activeCell);
 
-  const isDark = theme === "dark";
-  const colors = useMemo(() => getMinimapColors(isDark), [isDark]);
+  const colors = useMemo<MinimapColors>(() => {
+    void resolvedTheme;
+    const tokens = readThemeTokens();
+    return {
+      canvasBg: tokens.canvas,
+      viewportStroke: tokens.minimapViewport,
+      viewportFill: tokens.minimapViewportFill,
+      imageFill: tokens.minimapImageFill,
+      imageStroke: tokens.minimapImageStroke,
+    };
+  }, [resolvedTheme]);
 
   // ============================================================
   // Forward wheel events to the main canvas so scroll-zoom works
@@ -287,8 +297,8 @@ export function Minimap() {
 
     // Render image overlays as semi-transparent rectangles
     if (hasImages) {
-      offCtx.fillStyle = "rgba(200, 200, 200, 0.3)";
-      offCtx.strokeStyle = "rgba(200, 200, 200, 0.5)";
+      offCtx.fillStyle = colors.imageFill;
+      offCtx.strokeStyle = colors.imageStroke;
       offCtx.lineWidth = 0.5;
 
       // Direct images (axis-aligned)
@@ -331,7 +341,7 @@ export function Minimap() {
 
     shapeCacheRef.current = offscreen;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [library, layers, isMinimized, undoCount, redoCount, allImages, activeCell]);
+  }, [library, layers, isMinimized, undoCount, redoCount, allImages, activeCell, colors]);
 
   // ============================================================
   // Composite: draw cached shapes + viewport rect.
@@ -383,13 +393,12 @@ export function Minimap() {
   // ============================================================
   if (isMinimized) return null;
 
-  const containerClasses = `rounded-xl border p-1 ${
-    isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]"
-  }`;
-
   return (
     <div className="pointer-events-none absolute bottom-4 right-4 select-none">
-      <div ref={containerRef} className={`pointer-events-auto relative ${containerClasses}`}>
+      <div
+        ref={containerRef}
+        className="pointer-events-auto relative rounded-xl border border-theme-border bg-surface p-1"
+      >
         <canvas
           ref={canvasRef}
           width={MINIMAP_SIZE}

@@ -33,6 +33,8 @@ export interface MinimapColors {
   canvasBg: string;
   viewportStroke: string;
   viewportFill: string;
+  imageFill: string;
+  imageStroke: string;
 }
 
 /**
@@ -210,17 +212,4 @@ export function drawViewportRect(
   ctx.fillRect(rectX, rectY, rectW, rectH);
 
   ctx.setLineDash([]);
-}
-
-// ============================================================
-// Theme colors
-// ============================================================
-
-/** Get minimap colors for the current theme. */
-export function getMinimapColors(isDark: boolean): MinimapColors {
-  return {
-    canvasBg: isDark ? "rgb(29,29,29)" : "rgb(241,241,241)",
-    viewportStroke: isDark ? "rgba(255, 255, 255, 0.9)" : "rgba(0, 0, 0, 0.9)",
-    viewportFill: isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)",
-  };
 }

@@ -38,53 +38,37 @@ const CONTAINED_EXPLORER_KEYS = new Set([
  * Collapsed explorer — narrow icon rail with app icon and expand button.
  * Shows a tab count badge when 2+ tabs are open.
  */
-function CollapsedExplorer({ isDark, onExpand }: { isDark: boolean; onExpand: () => void }) {
+function CollapsedExplorer({ onExpand }: { onExpand: () => void }) {
   const tabCount = useTabsStore((s) => s.tabs.length);
 
   return (
-    <div
-      className={cn(
-        "fixed top-4 left-4 z-40 flex w-[38px] flex-col items-center gap-1 rounded-xl border pt-1 pb-[5px]",
-        isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
-      )}
-    >
+    <div className="fixed top-4 left-4 z-40 flex w-[38px] flex-col items-center gap-1 rounded-xl border border-theme-border bg-surface pt-1 pb-[5px]">
       {/* App icon with tab count badge */}
       <div className="relative p-1">
         <img
           src="/icon.svg"
           alt=""
           draggable={false}
-          className={cn(
-            "h-5 w-5 select-none pointer-events-none rounded border",
-            isDark ? "border-white/40" : "border-black/40",
-          )}
+          className="pointer-events-none h-5 w-5 rounded border border-foreground-subtle select-none"
         />
         {tabCount > 1 && (
-          <span
-            className={cn(
-              "absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 text-[9px] font-medium leading-none",
-              isDark ? "bg-white/20 text-white/80" : "bg-black/20 text-black/80",
-            )}
-          >
+          <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-foreground-ghost px-0.5 text-[9px] leading-none font-medium text-foreground">
             {tabCount}
           </span>
         )}
       </div>
 
       {/* Divider */}
-      <div className={cn("mx-1 h-px w-5", isDark ? "bg-white/10" : "bg-black/10")} />
+      <div className="mx-1 h-px w-5 bg-theme-border" />
 
       {/* Expand button */}
       <button
         type="button"
         aria-label="Expand Explorer"
         onClick={onExpand}
-        className={cn(
-          "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-          isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-        )}
+        className="cursor-pointer rounded-lg p-1.5 transition-colors hover:bg-interactive focus:outline-none"
       >
-        <NavArrowRight className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")} />
+        <NavArrowRight className="h-4 w-4 text-foreground-secondary" />
       </button>
     </div>
   );
@@ -116,8 +100,6 @@ function CollapsedExplorer({ isDark, onExpand }: { isDark: boolean; onExpand: ()
  * - Keyboard navigation (Shift+E to focus, arrows to navigate, Space/Enter/Delete for actions)
  */
 export function Explorer() {
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
   const collapsed = useUIStore((s) => s.explorerCollapsed);
   const toggleCollapsed = useUIStore((s) => s.toggleExplorerCollapsed);
   const explorerWidth = useUIStore((s) => s.explorerWidth);
@@ -705,7 +687,7 @@ export function Explorer() {
 
   // Show collapsed rail when collapsed (and not in sm drawer-open state)
   if (collapsed && !(isSm && drawerOpen)) {
-    return <CollapsedExplorer isDark={isDark} onExpand={handleExpand} />;
+    return <CollapsedExplorer onExpand={handleExpand} />;
   }
 
   // On sm with drawer open, show as overlay
@@ -721,7 +703,7 @@ export function Explorer() {
         className={cn(
           "fixed top-4 left-4 z-40 rounded-xl border transition-opacity duration-200",
           cellsLoaded ? "opacity-100" : "pointer-events-none opacity-0",
-          isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
+          "border-theme-border bg-surface",
           isOverlay && "shadow-xl",
         )}
         style={{ width: explorerWidth }}
@@ -736,10 +718,7 @@ export function Explorer() {
               src="/icon.svg"
               alt=""
               draggable={false}
-              className={cn(
-                "h-5 w-5 select-none pointer-events-none rounded border",
-                isDark ? "border-white/40" : "border-black/40",
-              )}
+              className="pointer-events-none h-5 w-5 rounded border border-foreground-subtle select-none"
             />
           </div>
           <div className="relative h-5 min-w-0 flex-1">
@@ -753,19 +732,13 @@ export function Explorer() {
                 onBlur={handleSubmit}
                 onKeyDown={handleKeyDown}
                 onClick={(e) => e.stopPropagation()}
-                className={cn(
-                  "absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-xs font-medium leading-5 outline-none focus:ring-0",
-                  isDark ? "text-white/90" : "text-black/90",
-                )}
+                className="absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-xs leading-5 font-medium text-foreground outline-none focus:ring-0"
               />
             ) : (
               <button
                 type="button"
                 aria-label="Rename project"
-                className={cn(
-                  "absolute inset-0 cursor-text truncate border-0 bg-transparent p-0 text-left text-xs font-medium leading-5 select-none focus:outline-none",
-                  isDark ? "text-white/60" : "text-black/60",
-                )}
+                className="absolute inset-0 cursor-text truncate border-0 bg-transparent p-0 text-left text-xs leading-5 font-medium text-foreground-secondary select-none focus:outline-none"
                 onClick={() => {
                   setEditValue(projectName);
                   setIsEditing(true);
@@ -787,9 +760,7 @@ export function Explorer() {
             onClick={isCellFilterOpen ? closeCellFilter : openCellFilter}
             className={cn(
               "flex-shrink-0 cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none focus-visible:ring-1",
-              isDark
-                ? "hover:bg-[rgb(54,54,54)] focus-visible:ring-white/30"
-                : "hover:bg-[rgb(217,217,217)] focus-visible:ring-black/30",
+              "hover:bg-interactive focus-visible:ring-focus-ring",
             )}
           >
             {isCellFilterOpen ? (
@@ -802,7 +773,7 @@ export function Explorer() {
                 stroke="currentColor"
                 strokeWidth="2"
                 strokeLinecap="round"
-                className={isDark ? "text-white/60" : "text-black/60"}
+                className="text-foreground-secondary"
               >
                 <path d="M18 6 6 18M6 6l12 12" />
               </svg>
@@ -816,7 +787,7 @@ export function Explorer() {
                 stroke="currentColor"
                 strokeWidth="2"
                 strokeLinecap="round"
-                className={isDark ? "text-white/60" : "text-black/60"}
+                className="text-foreground-secondary"
               >
                 <circle cx="11" cy="11" r="7" />
                 <path d="m20 20-4-4" />
@@ -825,7 +796,7 @@ export function Explorer() {
           </button>
 
           {/* Hamburger menu */}
-          <HamburgerMenu isDark={isDark} />
+          <HamburgerMenu />
 
           {/* Collapse button (not shown on sm — use drawer dismiss instead) */}
           {!isSm && (
@@ -833,32 +804,21 @@ export function Explorer() {
               type="button"
               aria-label="Collapse Explorer"
               onClick={handleCollapse}
-              className={cn(
-                "ml-1 flex h-7 w-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors focus:outline-none",
-                isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-              )}
+              className="ml-1 flex h-7 w-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors hover:bg-interactive focus:outline-none"
             >
-              <NavArrowLeft
-                strokeWidth={2}
-                className={cn("h-4 w-4", isDark ? "text-white/60" : "text-black/60")}
-              />
+              <NavArrowLeft strokeWidth={2} className="h-4 w-4 text-foreground-secondary" />
             </button>
           )}
         </div>
 
         {/* Divider */}
-        <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+        <div className="h-px bg-theme-border" />
 
         {isCellFilterOpen && (
           <div data-explorer-filter-row className="px-1 pt-1.5 pb-1">
             <div
               id="explorer-cell-filter"
-              className={cn(
-                "flex h-6 items-center gap-1.5 rounded-lg border px-1.5 transition-colors focus-within:ring-1",
-                isDark
-                  ? "border-white/10 bg-white/5 text-white/40 focus-within:border-white/20 focus-within:ring-white/10"
-                  : "border-black/10 bg-black/5 text-black/40 focus-within:border-black/20 focus-within:ring-black/10",
-              )}
+              className="flex h-6 items-center gap-1.5 rounded-lg border border-theme-border bg-input px-1.5 text-foreground-subtle transition-colors focus-within:border-focus-ring focus-within:ring-1 focus-within:ring-focus-ring"
             >
               <svg
                 aria-hidden="true"
@@ -894,12 +854,7 @@ export function Explorer() {
                 }}
                 onKeyDown={handleCellFilterKeyDown}
                 placeholder="Filter cells"
-                className={cn(
-                  "min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-xs leading-5 outline-none [&::-webkit-search-cancel-button]:hidden",
-                  isDark
-                    ? "text-white/90 placeholder:text-white/30"
-                    : "text-black/90 placeholder:text-black/30",
-                )}
+                className="min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-xs leading-5 text-foreground outline-none placeholder:text-foreground-faint [&::-webkit-search-cancel-button]:hidden"
               />
               {cellFilter && (
                 <button
@@ -910,12 +865,7 @@ export function Explorer() {
                     setCellFilter("");
                     requestAnimationFrame(() => cellFilterRef.current?.focus());
                   }}
-                  className={cn(
-                    "flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0",
-                    isDark
-                      ? "text-white/40 hover:text-white/80"
-                      : "text-black/40 hover:text-black/80",
-                  )}
+                  className="flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-foreground-subtle hover:text-foreground"
                 >
                   <svg
                     aria-hidden="true"
@@ -937,7 +887,6 @@ export function Explorer() {
 
         {/* Vertical tab list (shown when 2+ tabs are open) */}
         <TabList
-          isDark={isDark}
           focusedItem={isFocused ? focusedItem : null}
           isKeyboardNavigationActive={isFocused}
         />
@@ -968,7 +917,6 @@ export function Explorer() {
                 cellFilterCursorRow?.occurrenceId === row.occurrenceId
               }
               isTabStop={row.occurrenceId === cellTabStopOccurrenceId}
-              isDark={isDark}
               depth={row.depth}
               guideLevels={row.guideLevels}
               posInSet={row.posInSet}
@@ -1036,25 +984,15 @@ export function Explorer() {
           ))}
         </ul>
         {filterQuery && cellRows.length === 0 && (
-          <output
-            className={cn(
-              "block px-3 py-5 text-center text-xs",
-              isDark ? "text-white/40" : "text-black/40",
-            )}
-          >
+          <output className="block px-3 py-5 text-center text-xs text-foreground-subtle">
             No cells match &ldquo;{filterQuery}&rdquo;
           </output>
         )}
 
         {/* Hierarchy level footer — controls rendering depth on canvas */}
-        <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+        <div className="h-px bg-theme-border" />
         <div className="flex items-center justify-between pl-2 pr-[5.5px] py-1.5">
-          <span
-            className={cn(
-              "text-xs select-none pointer-events-none",
-              isDark ? "text-white/40" : "text-black/40",
-            )}
-          >
+          <span className="pointer-events-none text-xs text-foreground-subtle select-none">
             Level
           </span>
           <div className="flex items-center gap-1">
@@ -1089,12 +1027,7 @@ export function Explorer() {
                   e.currentTarget.blur();
                 }
               }}
-              className={cn(
-                "h-6 w-12 rounded-lg border px-2 text-xs tabular-nums outline-none",
-                isDark
-                  ? "border-white/10 bg-white/5 text-white/90"
-                  : "border-black/10 bg-black/5 text-black/90",
-              )}
+              className="h-6 w-12 rounded-lg border border-theme-border bg-input px-2 text-xs text-foreground tabular-nums outline-none"
             />
             {/* "All levels" button */}
             <Tooltip label="All levels" position="bottom">
@@ -1102,12 +1035,7 @@ export function Explorer() {
                 type="button"
                 aria-label="All levels"
                 onClick={() => setHierarchyLevelLimit(Infinity)}
-                className={cn(
-                  "flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg border transition-colors",
-                  isDark
-                    ? "border-white/10 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/90"
-                    : "border-black/10 bg-black/5 text-black/40 hover:bg-black/10 hover:text-black/90",
-                )}
+                className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg border border-theme-border bg-input text-foreground-subtle transition-colors hover:bg-theme-border hover:text-foreground"
               >
                 <svg
                   width="14"

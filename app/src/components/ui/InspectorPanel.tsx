@@ -227,8 +227,6 @@ function useSelectedElementData(): {
 const UNIT_UM: UnitInfo = { unit: "\u00B5m", scale: 1_000 };
 
 export function InspectorPanel() {
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
   const unitInfo = UNIT_UM;
 
   const data = useSelectedElementData();
@@ -661,30 +659,18 @@ export function InspectorPanel() {
       <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
         {/* Image header */}
         <div className="px-3 pt-2 pb-1">
-          <span
-            className={cn(
-              "text-xs font-medium select-none",
-              isDark ? "text-white/70" : "text-black/70",
-            )}
-          >
-            Image
-          </span>
+          <span className="text-xs font-medium text-foreground-secondary select-none">Image</span>
         </div>
 
         {/* Divider */}
-        <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 h-px bg-input" />
 
         {/* Filename */}
-        <SectionHeader label="File" isDark={isDark} />
+        <SectionHeader label="File" />
         <div className="flex items-center justify-between gap-2 px-3 py-1">
-          <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-            Name
-          </span>
+          <span className="text-xs text-foreground-muted select-none">Name</span>
           <span
-            className={cn(
-              "max-w-32 truncate text-right text-xs",
-              isDark ? "text-white/90" : "text-black/90",
-            )}
+            className="max-w-32 truncate text-right text-xs text-foreground"
             title={selectedImage.filename}
           >
             {selectedImage.filename}
@@ -692,62 +678,52 @@ export function InspectorPanel() {
         </div>
 
         {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 mt-1 h-px bg-input" />
 
         {/* Position */}
-        <SectionHeader label="Position" isDark={isDark} />
+        <SectionHeader label="Position" />
         <NumberField
           label="X"
           value={imgX}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handleImagePositionChange("x", v)}
         />
         <NumberField
           label="Y"
           value={imgY}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handleImagePositionChange("y", v)}
         />
 
         {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 mt-1 h-px bg-input" />
 
         {/* Size */}
-        <SectionHeader label="Size" isDark={isDark} />
+        <SectionHeader label="Size" />
         <NumberField
           label="W"
           value={imgW}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handleImageSizeChange("width", v)}
         />
         <NumberField
           label="H"
           value={imgH}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handleImageSizeChange("height", v)}
         />
 
         {/* Lock aspect ratio toggle */}
         <div className="flex items-center justify-between gap-2 px-3 py-1.5">
-          <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-            Lock ratio
-          </span>
+          <span className="text-xs text-foreground-muted select-none">Lock ratio</span>
           <button
             type="button"
             onClick={handleToggleLockAspectRatio}
             className={cn(
               "flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-xs transition-colors",
               isLocked
-                ? isDark
-                  ? "border-white/20 bg-white/10 text-white/80"
-                  : "border-black/20 bg-black/10 text-black/80"
-                : isDark
-                  ? "border-white/10 text-white/40 hover:text-white/60"
-                  : "border-black/10 text-black/40 hover:text-black/60",
+                ? "border-theme-border-strong bg-theme-border text-foreground"
+                : "border-theme-border text-foreground-subtle hover:text-foreground-secondary",
             )}
           >
             <svg
@@ -788,53 +764,37 @@ export function InspectorPanel() {
       <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
         {/* Cell header */}
         <div className="px-3 pt-2 pb-1">
-          <span
-            className={cn(
-              "text-xs font-medium select-none",
-              isDark ? "text-white/70" : "text-black/70",
-            )}
-          >
-            Cell
-          </span>
+          <span className="text-xs font-medium text-foreground-secondary select-none">Cell</span>
         </div>
 
         {/* Divider */}
-        <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 h-px bg-input" />
 
         {/* Name */}
-        <SectionHeader label="Name" isDark={isDark} />
+        <SectionHeader label="Name" />
         {activeCell ? (
-          <TextField label="Name" value={activeCell} isDark={isDark} onChange={handleCellRename} />
+          <TextField label="Name" value={activeCell} onChange={handleCellRename} />
         ) : (
           <div className="px-3 py-1">
-            <span
-              className={cn(
-                "text-xs italic select-none",
-                isDark ? "text-white/40" : "text-black/40",
-              )}
-            >
-              No cell
-            </span>
+            <span className="text-xs text-foreground-subtle italic select-none">No cell</span>
           </div>
         )}
 
         {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 mt-1 h-px bg-input" />
 
         {/* Origin */}
-        <SectionHeader label="Origin" isDark={isDark} />
+        <SectionHeader label="Origin" />
         <NumberField
           label="X"
           value={originX}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handleCellOriginChange("x", v)}
         />
         <NumberField
           label="Y"
           value={originY}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handleCellOriginChange("y", v)}
         />
       </div>
@@ -911,75 +871,59 @@ export function InspectorPanel() {
         <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
           {/* Text header */}
           <div className="px-3 pt-2 pb-1">
-            <span
-              className={cn(
-                "text-xs font-medium select-none",
-                isDark ? "text-white/70" : "text-black/70",
-              )}
-            >
-              Text
-            </span>
+            <span className="text-xs font-medium text-foreground-secondary select-none">Text</span>
           </div>
 
           {/* Divider */}
-          <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+          <div className="mx-3 h-px bg-input" />
 
           {/* Layer */}
-          <SectionHeader label="Layer" isDark={isDark} />
+          <SectionHeader label="Layer" />
           <LayerSelector
             currentLayer={textInfo.layer}
             currentDatatype={textInfo.datatype}
-            isDark={isDark}
             onChange={handleTextLayerChange}
           />
 
           {/* Divider */}
-          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+          <div className="mx-3 mt-1 h-px bg-input" />
 
           {/* Content */}
-          <SectionHeader label="Content" isDark={isDark} />
-          <TextAreaField
-            label="Text"
-            value={textInfo.text}
-            isDark={isDark}
-            onChange={handleTextContentChange}
-          />
+          <SectionHeader label="Content" />
+          <TextAreaField label="Text" value={textInfo.text} onChange={handleTextContentChange} />
 
           {/* Divider */}
-          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+          <div className="mx-3 mt-1 h-px bg-input" />
 
           {/* Position */}
-          <SectionHeader label="Position" isDark={isDark} />
+          <SectionHeader label="Position" />
           <NumberField
             label="X"
             value={textX}
             unit={unitInfo.unit}
-            isDark={isDark}
             onChange={(v) => handleTextPositionChange("x", v)}
           />
           <NumberField
             label="Y"
             value={textY}
             unit={unitInfo.unit}
-            isDark={isDark}
             onChange={(v) => handleTextPositionChange("y", v)}
           />
 
           {/* Divider */}
-          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+          <div className="mx-3 mt-1 h-px bg-input" />
 
           {/* Text size */}
-          <SectionHeader label="Size" isDark={isDark} />
+          <SectionHeader label="Size" />
           <NumberField
             label="Size"
             value={textHeight}
             unit={unitInfo.unit}
-            isDark={isDark}
             onChange={handleTextHeightChange}
           />
 
           {/* Divider */}
-          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+          <div className="mx-3 mt-1 h-px bg-input" />
 
           {/* Convert to polygons */}
           <div className="px-3 pt-2">
@@ -992,9 +936,7 @@ export function InspectorPanel() {
               }}
               className={cn(
                 "flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition-colors",
-                isDark
-                  ? "border-white/10 text-white/60 hover:bg-white/5 hover:text-white/80"
-                  : "border-black/10 text-black/60 hover:bg-black/5 hover:text-black/80",
+                "border-theme-border text-foreground-secondary hover:bg-input hover:text-foreground",
               )}
             >
               Convert to Polygons
@@ -1042,7 +984,6 @@ export function InspectorPanel() {
           x={displayX}
           y={displayY}
           unit={unitInfo.unit}
-          isDark={isDark}
           canRemove={pathMeta.waypoints.length > 2}
           onChangeX={(v) => handlePathWaypointChange(i, "x", v)}
           onChangeY={(v) => handlePathWaypointChange(i, "y", v)}
@@ -1069,74 +1010,64 @@ export function InspectorPanel() {
       <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
         {/* Path header */}
         <div className="px-3 pt-2 pb-1">
-          <span
-            className={cn(
-              "text-xs font-medium select-none",
-              isDark ? "text-white/70" : "text-black/70",
-            )}
-          >
+          <span className="text-xs font-medium text-foreground-secondary select-none">
             Path · {pathMeta.waypoints.length} waypoints · length: {pathLengthDisplay}{" "}
             {unitInfo.unit}
           </span>
         </div>
 
         {/* Divider */}
-        <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 h-px bg-input" />
 
         {/* Layer */}
-        <SectionHeader label="Layer" isDark={isDark} />
+        <SectionHeader label="Layer" />
         <LayerSelector
           currentLayer={first.layer}
           currentDatatype={first.datatype}
-          isDark={isDark}
           onChange={handleLayerChange}
         />
 
         {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 mt-1 h-px bg-input" />
 
         {/* Path properties */}
-        <SectionHeader label="Path" isDark={isDark} />
+        <SectionHeader label="Path" />
         <NumberField
           label="Width"
           value={pathWidthDisplay}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={handlePathWidthChange}
         />
         <NumberField
           label="Radius"
           value={cornerRadiusDisplay}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={handlePathCornerRadiusChange}
         />
 
         {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 mt-1 h-px bg-input" />
 
         {/* Position */}
-        <SectionHeader label="Position" isDark={isDark} />
+        <SectionHeader label="Position" />
         <NumberField
           label="X"
           value={posX}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handlePositionChange("x", v)}
         />
         <NumberField
           label="Y"
           value={posY}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handlePositionChange("y", v)}
         />
 
         {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 mt-1 h-px bg-input" />
 
         {/* Waypoints */}
-        <SectionHeader label="Waypoints" isDark={isDark} />
+        <SectionHeader label="Waypoints" />
         <div className="flex max-h-48 flex-col overflow-y-auto">{waypointRows}</div>
         <div className="px-3 pt-1">
           <button
@@ -1144,9 +1075,7 @@ export function InspectorPanel() {
             onClick={handlePathWaypointAdd}
             className={cn(
               "flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
-              isDark
-                ? "border-white/10 text-white/50 hover:bg-white/5 hover:text-white/70"
-                : "border-black/10 text-black/50 hover:bg-black/5 hover:text-black/70",
+              "border-theme-border text-foreground-muted hover:bg-input hover:text-foreground-secondary",
             )}
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">
@@ -1326,70 +1255,55 @@ export function InspectorPanel() {
       <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
         {/* Instance header */}
         <div className="px-3 pt-2 pb-1">
-          <span
-            className={cn(
-              "text-xs font-medium select-none",
-              isDark ? "text-white/70" : "text-black/70",
-            )}
-          >
+          <span className="text-xs font-medium text-foreground-secondary select-none">
             Instance · {inst.cellName}
           </span>
         </div>
 
         {/* Divider */}
-        <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 h-px bg-input" />
 
         {/* Position */}
-        <SectionHeader label="Position" isDark={isDark} />
+        <SectionHeader label="Position" />
         <NumberField
           label="X"
           value={instX}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handleInstancePositionChange("x", v)}
         />
         <NumberField
           label="Y"
           value={instY}
           unit={unitInfo.unit}
-          isDark={isDark}
           onChange={(v) => handleInstancePositionChange("y", v)}
         />
 
         {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 mt-1 h-px bg-input" />
 
         {/* Transform */}
-        <SectionHeader label="Transform" isDark={isDark} />
+        <SectionHeader label="Transform" />
         <NumberField
           label="Rotation"
           value={rotationDisplay}
           unit="°"
-          isDark={isDark}
           onChange={handleInstanceRotationChange}
         />
-        <NumberField
-          label="Scale"
-          value={scaleDisplay}
-          isDark={isDark}
-          onChange={handleInstanceScaleChange}
-        />
+        <NumberField label="Scale" value={scaleDisplay} onChange={handleInstanceScaleChange} />
 
         {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 mt-1 h-px bg-input" />
 
         {/* Array */}
-        <SectionHeader label="Array" isDark={isDark} />
+        <SectionHeader label="Array" />
         <NumberField
           label="Columns"
           value={String(arrayCols)}
-          isDark={isDark}
           onChange={(v) => handleInstanceArrayChange("columns", v)}
         />
         <NumberField
           label="Rows"
           value={String(arrayRows)}
-          isDark={isDark}
           onChange={(v) => handleInstanceArrayChange("rows", v)}
         />
         {isArrayed && (
@@ -1400,51 +1314,46 @@ export function InspectorPanel() {
               label="Col ΔX"
               value={colXDisplay}
               unit={unitInfo.unit}
-              isDark={isDark}
               onChange={(v) => handleInstanceArrayChange("colX", v)}
             />
             <NumberField
               label="Col ΔY"
               value={colYDisplay}
               unit={unitInfo.unit}
-              isDark={isDark}
               onChange={(v) => handleInstanceArrayChange("colY", v)}
             />
             <NumberField
               label="Row ΔX"
               value={rowXDisplay}
               unit={unitInfo.unit}
-              isDark={isDark}
               onChange={(v) => handleInstanceArrayChange("rowX", v)}
             />
             <NumberField
               label="Row ΔY"
               value={rowYDisplay}
               unit={unitInfo.unit}
-              isDark={isDark}
               onChange={(v) => handleInstanceArrayChange("rowY", v)}
             />
           </>
         )}
 
         {/* Divider */}
-        <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+        <div className="mx-3 mt-1 h-px bg-input" />
 
         {/* Size (read-only bounding box) */}
-        <SectionHeader label="Size" isDark={isDark} />
-        <NumberField label="W" value={instW} unit={unitInfo.unit} isDark={isDark} readOnly />
-        <NumberField label="H" value={instH} unit={unitInfo.unit} isDark={isDark} readOnly />
+        <SectionHeader label="Size" />
+        <NumberField label="W" value={instW} unit={unitInfo.unit} readOnly />
+        <NumberField label="H" value={instH} unit={unitInfo.unit} readOnly />
 
         {/* Path length (read-only, shown only when the referenced cell has it) */}
         {cellPathLengthDisplay != null && (
           <>
-            <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
-            <SectionHeader label="Path" isDark={isDark} />
+            <div className="mx-3 mt-1 h-px bg-input" />
+            <SectionHeader label="Path" />
             <NumberField
               label="Length"
               value={cellPathLengthDisplay}
               unit={unitInfo.unit}
-              isDark={isDark}
               readOnly
             />
           </>
@@ -1469,61 +1378,43 @@ export function InspectorPanel() {
     <div ref={panelRef} className="flex flex-col pb-2" onWheel={(e) => e.stopPropagation()}>
       {/* Selection summary */}
       <div className="px-3 pt-2 pb-1">
-        <span
-          className={cn(
-            "text-xs font-medium select-none",
-            isDark ? "text-white/70" : "text-black/70",
-          )}
-        >
+        <span className="text-xs font-medium text-foreground-secondary select-none">
           {isSingle ? `Polygon · ${first.vertexCount} vertices` : `${elements.length} elements`}
         </span>
       </div>
 
       {/* Divider */}
-      <div className={cn("mx-3 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+      <div className="mx-3 h-px bg-input" />
 
       {/* Layer */}
       {!isFromRef && (
         <>
-          <SectionHeader label="Layer" isDark={isDark} />
+          <SectionHeader label="Layer" />
 
           {isMixed ? (
             <div className="flex items-center justify-between gap-2 px-3 py-1">
-              <span
-                className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}
-              >
-                Layer
-              </span>
-              <span
-                className={cn(
-                  "text-xs italic select-none",
-                  isDark ? "text-white/40" : "text-black/40",
-                )}
-              >
-                Mixed
-              </span>
+              <span className="text-xs text-foreground-muted select-none">Layer</span>
+              <span className="text-xs text-foreground-subtle italic select-none">Mixed</span>
             </div>
           ) : (
             <LayerSelector
               currentLayer={first.layer}
               currentDatatype={first.datatype}
-              isDark={isDark}
               onChange={handleLayerChange}
             />
           )}
 
           {/* Divider */}
-          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+          <div className="mx-3 mt-1 h-px bg-input" />
         </>
       )}
 
       {/* Position */}
-      <SectionHeader label="Position" isDark={isDark} />
+      <SectionHeader label="Position" />
       <NumberField
         label="X"
         value={posX}
         unit={unitInfo.unit}
-        isDark={isDark}
         onChange={positionEditable ? (v) => handlePositionChange("x", v) : undefined}
         readOnly={!positionEditable}
       />
@@ -1531,21 +1422,19 @@ export function InspectorPanel() {
         label="Y"
         value={posY}
         unit={unitInfo.unit}
-        isDark={isDark}
         onChange={positionEditable ? (v) => handlePositionChange("y", v) : undefined}
         readOnly={!positionEditable}
       />
 
       {/* Divider */}
-      <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+      <div className="mx-3 mt-1 h-px bg-input" />
 
       {/* Dimensions */}
-      <SectionHeader label="Size" isDark={isDark} />
+      <SectionHeader label="Size" />
       <NumberField
         label="W"
         value={width}
         unit={unitInfo.unit}
-        isDark={isDark}
         onChange={isSingle && !isFromRef ? (v) => handleDimensionChange("width", v) : undefined}
         readOnly={!isSingle || isFromRef}
       />
@@ -1553,7 +1442,6 @@ export function InspectorPanel() {
         label="H"
         value={height}
         unit={unitInfo.unit}
-        isDark={isDark}
         onChange={isSingle && !isFromRef ? (v) => handleDimensionChange("height", v) : undefined}
         readOnly={!isSingle || isFromRef}
       />
@@ -1562,7 +1450,7 @@ export function InspectorPanel() {
       {(isSingle || isFromRef) && (
         <>
           {/* Divider */}
-          <div className={cn("mx-3 mt-1 h-px", isDark ? "bg-white/5" : "bg-black/5")} />
+          <div className="mx-3 mt-1 h-px bg-input" />
 
           {isFromRef && !isSingle ? (
             // Show vertices from all elements (read-only) for ref instances
@@ -1571,7 +1459,6 @@ export function InspectorPanel() {
                 key={el.id}
                 vertices={el.vertices}
                 unitInfo={unitInfo}
-                isDark={isDark}
                 onChangeVertex={handleVertexChange}
                 onRemoveVertex={handleVertexRemove}
                 onAddVertex={handleVertexAdd}
@@ -1585,7 +1472,6 @@ export function InspectorPanel() {
             <VerticesSection
               vertices={first.vertices}
               unitInfo={unitInfo}
-              isDark={isDark}
               onChangeVertex={handleVertexChange}
               onRemoveVertex={handleVertexRemove}
               onAddVertex={handleVertexAdd}

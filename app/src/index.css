@@ -9,6 +9,43 @@
   --color-brand-yellow: #e6b01b;
 }
 
+@theme inline {
+  --color-app: var(--theme-app);
+  --color-canvas: var(--theme-canvas);
+  --color-surface: var(--theme-surface);
+  --color-surface-translucent: var(--theme-surface-translucent);
+  --color-interactive: var(--theme-interactive);
+  --color-interactive-focus: var(--theme-interactive-focus);
+  --color-input: var(--theme-input);
+  --color-foreground: var(--theme-foreground);
+  --color-foreground-secondary: var(--theme-foreground-secondary);
+  --color-foreground-muted: var(--theme-foreground-muted);
+  --color-foreground-subtle: var(--theme-foreground-subtle);
+  --color-foreground-faint: var(--theme-foreground-faint);
+  --color-foreground-ghost: var(--theme-foreground-ghost);
+  --color-theme-border: var(--theme-border);
+  --color-theme-border-strong: var(--theme-border-strong);
+  --color-focus-ring: var(--theme-focus-ring);
+  --color-scrim: var(--theme-scrim);
+  --color-danger: var(--theme-danger);
+  --color-danger-strong: var(--theme-danger-strong);
+  --color-error-surface: var(--theme-error-surface);
+  --color-error-foreground: var(--theme-error-foreground);
+  --color-warning: var(--theme-warning);
+  --color-warning-strong: var(--theme-warning-strong);
+  --color-info: var(--theme-info);
+  --color-highlight: var(--theme-highlight);
+  --color-selection: var(--theme-selection);
+  --color-selection-translucent: var(--theme-selection-translucent);
+  --color-hover-outline: var(--theme-hover-outline);
+  --color-canvas-label: var(--theme-canvas-label);
+  --color-canvas-label-muted: var(--theme-canvas-label-muted);
+  --color-ruler: var(--theme-ruler);
+  --color-ruler-surface: var(--theme-ruler-surface);
+  --color-ruler-hover: var(--theme-ruler-hover);
+  --color-laser: var(--theme-laser);
+}
+
 /* Source Code Pro — used for text tool labels (matches the embedded WASM font
    so "Convert Text to Polygons" produces identical outlines). */
 @font-face {
@@ -28,10 +65,6 @@
     sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #0d0d0d;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;

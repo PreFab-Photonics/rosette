@@ -10,8 +10,6 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useUIStore } from "@/stores/ui";
-import { cn } from "@/lib/utils";
 import { isTauri } from "@/lib/tauri";
 
 type UpdateState =
@@ -28,7 +26,6 @@ const CHECK_DELAY = 5_000;
 export function UpdateNotification() {
   const [state, setState] = useState<UpdateState>({ status: "idle" });
   const [dismissed, setDismissed] = useState(false);
-  const isDark = useUIStore((s) => s.theme) === "dark";
   // Hold the update handle so we can download + install later.
   // biome-ignore lint/suspicious/noExplicitAny: Tauri plugin types are dynamic-imported
   const updateRef = useRef<any>(null);
@@ -123,14 +120,7 @@ export function UpdateNotification() {
   }
 
   return (
-    <div
-      className={cn(
-        "fixed bottom-10 right-4 z-[200] flex w-72 flex-col gap-2 rounded-xl border p-3 shadow-lg backdrop-blur-xl animate-[update-toast-in_0.3s_ease-out]",
-        isDark
-          ? "border-white/10 bg-[rgb(29,29,29)]/95 text-white/90"
-          : "border-black/10 bg-[rgb(241,241,241)]/95 text-black/90",
-      )}
-    >
+    <div className="fixed bottom-10 right-4 z-[200] flex w-72 flex-col gap-2 rounded-xl border border-theme-border bg-surface-translucent p-3 text-foreground shadow-lg backdrop-blur-xl animate-[update-toast-in_0.3s_ease-out]">
       {/* Header row */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium">
@@ -140,10 +130,7 @@ export function UpdateNotification() {
           type="button"
           aria-label="Dismiss"
           onClick={() => setDismissed(true)}
-          className={cn(
-            "flex h-5 w-5 items-center justify-center rounded transition-colors",
-            isDark ? "hover:bg-white/10 text-white/40" : "hover:bg-black/10 text-black/40",
-          )}
+          className="flex h-5 w-5 items-center justify-center rounded text-foreground-subtle transition-colors hover:bg-theme-border"
         >
           <svg
             width="10"
@@ -162,26 +149,15 @@ export function UpdateNotification() {
 
       {/* Version info */}
       {state.status !== "error" && (
-        <p className={cn("text-[11px]", isDark ? "text-white/50" : "text-black/50")}>
-          v{state.version} is ready to install
-        </p>
+        <p className="text-[11px] text-foreground-muted">v{state.version} is ready to install</p>
       )}
 
       {/* Error message */}
-      {state.status === "error" && (
-        <p className={cn("text-[11px]", isDark ? "text-red-400/80" : "text-red-600/80")}>
-          {state.message}
-        </p>
-      )}
+      {state.status === "error" && <p className="text-[11px] text-danger">{state.message}</p>}
 
       {/* Progress bar */}
       {state.status === "downloading" && (
-        <div
-          className={cn(
-            "h-1 w-full overflow-hidden rounded-full",
-            isDark ? "bg-white/10" : "bg-black/10",
-          )}
-        >
+        <div className="h-1 w-full overflow-hidden rounded-full bg-theme-border">
           <div
             className="h-full rounded-full bg-brand-purple transition-[width] duration-300 ease-out"
             style={{ width: `${Math.round(state.progress * 100)}%` }}
@@ -201,7 +177,7 @@ export function UpdateNotification() {
       )}
 
       {state.status === "downloading" && (
-        <p className={cn("text-center text-[11px]", isDark ? "text-white/40" : "text-black/40")}>
+        <p className="text-center text-[11px] text-foreground-subtle">
           Downloading... {Math.round(state.progress * 100)}%
         </p>
       )}
@@ -220,12 +196,7 @@ export function UpdateNotification() {
         <button
           type="button"
           onClick={() => setDismissed(true)}
-          className={cn(
-            "mt-0.5 flex h-7 items-center justify-center rounded-lg border px-3 text-xs font-medium transition-colors active:translate-y-px",
-            isDark
-              ? "border-white/10 text-white/70 hover:bg-white/5"
-              : "border-black/10 text-black/70 hover:bg-black/5",
-          )}
+          className="mt-0.5 flex h-7 items-center justify-center rounded-lg border border-theme-border px-3 text-xs font-medium text-foreground-secondary transition-colors hover:bg-input active:translate-y-px"
         >
           Dismiss
         </button>

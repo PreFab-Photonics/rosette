@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useRenderer } from "./use-renderer";
+import { parseThemeColor } from "./renderer-theme";
 import { useViewportStore, GRID_SIZE, type WorldBounds } from "@/stores/viewport";
 import { useUIStore } from "@/stores/ui";
 import { isRulerTool, useToolStore } from "@/stores/tool";
@@ -32,6 +33,7 @@ import { AddCellRefCommand } from "@/lib/commands";
 import { getEffectiveViewport, zoomToFitAll } from "@/lib/utils";
 import { findRulerAtScreenPoint } from "@/lib/ruler-hittest";
 import { hitTestLayout } from "@/lib/layout-hit-test";
+import { readThemeTokens } from "@/lib/theme";
 import { LaserCursor } from "@/components/canvas/LaserCursor";
 import { ZoomBox } from "@/components/canvas/ZoomBox";
 import { MarqueeBox } from "@/components/canvas/MarqueeBox";
@@ -817,6 +819,7 @@ export function Canvas() {
     if (!canvas || !renderer || !library) return;
 
     const { bounds, origin } = useCellDragStore.getState();
+    const crossColor = new Float32Array(parseThemeColor(readThemeTokens().canvasLabelMuted));
 
     const handleCellDragMove = (e: MouseEvent) => {
       if (!bounds) return;
@@ -846,11 +849,6 @@ export function Canvas() {
       // Convert 9 CSS pixels to world units using current zoom.
       const { zoom: currentZoom, offset: currentOffset } = useViewportStore.getState();
       const armWorld = 9 / currentZoom;
-      // Match InstanceLabels cross color: white 50% on dark, black 50% on light
-      const isDarkTheme = useUIStore.getState().theme === "dark";
-      const crossColor = isDarkTheme
-        ? new Float32Array([1.0, 1.0, 1.0, 0.5])
-        : new Float32Array([0.0, 0.0, 0.0, 0.5]);
       renderer.set_preview_origin(worldPos.x, worldPos.y, armWorld, crossColor);
       renderer.mark_dirty();
 
@@ -901,7 +899,7 @@ export function Canvas() {
       renderer.clear_preview();
       renderer.mark_dirty();
     };
-  }, [cellDragName, library, renderer, screenToWorld]);
+  }, [cellDragName, library, renderer, screenToWorld, theme]);
 
   // Attach wheel listener (need passive: false)
   useEffect(() => {
@@ -917,7 +915,7 @@ export function Canvas() {
 
   if (error) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-red-950 text-red-200">
+      <div className="flex h-full w-full items-center justify-center bg-error-surface text-error-foreground">
         <div className="text-center">
           <p className="text-lg font-semibold">Failed to initialize renderer</p>
           <p className="mt-2 text-sm opacity-75">{error.message}</p>
@@ -957,7 +955,10 @@ export function Canvas() {
   const cursorClass = getCursorClass();
 
   return (
-    <div ref={containerRef} className="relative h-full w-full select-none overflow-hidden">
+    <div
+      ref={containerRef}
+      className="relative h-full w-full select-none overflow-hidden bg-canvas"
+    >
       <canvas
         ref={canvasRef}
         id={CANVAS_ID}
@@ -991,7 +992,7 @@ export function Canvas() {
       {cellDragName && (
         <div
           ref={dragLabelRef}
-          className={`pointer-events-none absolute top-0 left-0 text-[13px] leading-none font-mono select-none ${theme === "dark" ? "text-white" : "text-black"}`}
+          className="pointer-events-none absolute top-0 left-0 text-[13px] leading-none font-mono text-canvas-label select-none"
           style={{ display: "none", paddingBottom: "2px" }}
         >
           {cellDragName}

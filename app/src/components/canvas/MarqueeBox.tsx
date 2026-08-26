@@ -1,9 +1,7 @@
 import type { MarqueeBox as MarqueeBoxType } from "@/stores/marquee";
 
-/** Marquee box fill color (blue with 10% opacity). */
-const FILL_COLOR = "rgba(59, 130, 246, 0.1)";
-/** Marquee box stroke color (blue with 60% opacity). */
-const STROKE_COLOR = "rgba(59, 130, 246, 0.6)";
+const FILL_COLOR = "var(--theme-marquee-fill)";
+const STROKE_COLOR = "var(--theme-marquee-stroke)";
 
 interface MarqueeBoxProps {
   /** The marquee box coordinates and dimensions. */

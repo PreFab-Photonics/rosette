@@ -926,6 +926,10 @@ export class WasmRenderer {
      */
     screen_to_world(screen_x: number, screen_y: number): Float64Array;
     /**
+     * Set the crosshair RGBA color.
+     */
+    set_crosshair_color(r: number, g: number, b: number, a: number): void;
+    /**
      * Set the crosshair origin in world coordinates.
      *
      * The crosshair is rendered at this position instead of world (0,0).
@@ -972,6 +976,10 @@ export class WasmRenderer {
      */
     set_hover_multiple(ids: string[]): void;
     /**
+     * Set the laser pointer RGB color without changing its animated opacity.
+     */
+    set_laser_color(r: number, g: number, b: number): void;
+    /**
      * Set laser pointer opacity (for fade animation).
      *
      * # Arguments
@@ -1014,6 +1022,14 @@ export class WasmRenderer {
      */
     set_preview_shape(points: Float64Array, color: Float32Array): void;
     /**
+     * Set concrete renderer theme values.
+     *
+     * All color components and `grid_opacity` use the 0.0-1.0 range. Finite
+     * values are clamped to that range; an update containing a non-finite
+     * value is ignored.
+     */
+    set_render_theme(canvas_r: number, canvas_g: number, canvas_b: number, canvas_a: number, grid_r: number, grid_g: number, grid_b: number, grid_a: number, grid_opacity: number): void;
+    /**
      * Highlight a single violation by index (emphasized outline), or clear the
      * highlight by passing `None`/an out-of-range index.
      */
@@ -1032,13 +1048,6 @@ export class WasmRenderer {
      */
     set_selection_color(r: number, g: number, b: number, a: number): void;
     /**
-     * Set the color theme.
-     *
-     * # Arguments
-     * * `dark` - true for dark theme, false for light theme.
-     */
-    set_theme(dark: boolean): void;
-    /**
      * Set the viewport transformation using offset-based coordinates.
      *
      * # Arguments
@@ -1047,6 +1056,14 @@ export class WasmRenderer {
      * * `zoom` - Zoom level (pixels per world unit).
      */
     set_viewport(offset_x: number, offset_y: number, zoom: number): void;
+    /**
+     * Set the RGBA color for DRC error violation markers.
+     */
+    set_violation_error_color(r: number, g: number, b: number, a: number): void;
+    /**
+     * Set the RGBA color for DRC warning violation markers.
+     */
+    set_violation_warning_color(r: number, g: number, b: number, a: number): void;
     /**
      * Set the DRC violation markers to display.
      *
@@ -1105,6 +1122,37 @@ export interface InitOutput {
     readonly nativepathinfo_datatype: (a: number) => number;
     readonly nativepathinfo_layer: (a: number) => number;
     readonly nativepathinfo_width: (a: number) => number;
+    readonly wasmlibrary_add_polygon: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_add_rectangle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_boolean_operation: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_create_path: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly wasmlibrary_create_path_rounded: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
+    readonly wasmlibrary_element_count: (a: number) => number;
+    readonly wasmlibrary_flatten_active_cell: (a: number) => number;
+    readonly wasmlibrary_from_gds_bytes: (a: number, b: number) => [number, number, number];
+    readonly wasmlibrary_from_library_json: (a: number, b: number) => [number, number, number];
+    readonly wasmlibrary_get_area_by_layer: (a: number) => [number, number];
+    readonly wasmlibrary_get_canonical_element_id: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_path_length: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_element_index: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_get_elements_on_layer: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_render_polygons: (a: number) => [number, number, number];
+    readonly wasmlibrary_get_used_layers: (a: number) => [number, number];
+    readonly wasmlibrary_is_dirty: (a: number) => number;
+    readonly wasmlibrary_mark_clean: (a: number) => void;
+    readonly wasmlibrary_move_element_to_index: (a: number, b: number, c: number, d: number) => number;
+    readonly wasmlibrary_path_preview: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly wasmlibrary_remove_element: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_elements: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_elements_on_layer: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_layer_color: (a: number, b: number, c: number) => void;
+    readonly wasmlibrary_restore_native_path: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_set_layer_color: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly wasmlibrary_set_layer_fill_pattern: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmlibrary_to_gds: (a: number) => [number, number, number, number];
+    readonly wasmlibrary_to_library_json: (a: number) => [number, number, number, number];
+    readonly wasmlibrary_translate_element: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_translate_elements: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly wasmlibrary_active_cell_name: (a: number) => [number, number];
     readonly wasmlibrary_add_cell: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_add_text: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
@@ -1143,37 +1191,6 @@ export interface InitOutput {
     readonly wasmlibrary_text_to_polygons: (a: number, b: number, c: number) => [number, number];
     readonly wasmlibrary_update_text: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly wasmlibrary_get_group_representative_ids: (a: number) => [number, number];
-    readonly wasmlibrary_add_polygon: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmlibrary_add_rectangle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_boolean_operation: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_create_path: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
-    readonly wasmlibrary_create_path_rounded: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
-    readonly wasmlibrary_element_count: (a: number) => number;
-    readonly wasmlibrary_flatten_active_cell: (a: number) => number;
-    readonly wasmlibrary_from_gds_bytes: (a: number, b: number) => [number, number, number];
-    readonly wasmlibrary_from_library_json: (a: number, b: number) => [number, number, number];
-    readonly wasmlibrary_get_area_by_layer: (a: number) => [number, number];
-    readonly wasmlibrary_get_canonical_element_id: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_path_length: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_element_index: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_get_elements_on_layer: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_render_polygons: (a: number) => [number, number, number];
-    readonly wasmlibrary_get_used_layers: (a: number) => [number, number];
-    readonly wasmlibrary_is_dirty: (a: number) => number;
-    readonly wasmlibrary_mark_clean: (a: number) => void;
-    readonly wasmlibrary_move_element_to_index: (a: number, b: number, c: number, d: number) => number;
-    readonly wasmlibrary_path_preview: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
-    readonly wasmlibrary_remove_element: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_elements: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_elements_on_layer: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_layer_color: (a: number, b: number, c: number) => void;
-    readonly wasmlibrary_restore_native_path: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_set_layer_color: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly wasmlibrary_set_layer_fill_pattern: (a: number, b: number, c: number, d: number) => void;
-    readonly wasmlibrary_to_gds: (a: number) => [number, number, number, number];
-    readonly wasmlibrary_to_library_json: (a: number) => [number, number, number, number];
-    readonly wasmlibrary_translate_element: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_translate_elements: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly __wbg_wasmrenderer_free: (a: number, b: number) => void;
     readonly wasmrenderer_add_shape: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasmrenderer_add_to_selection: (a: number, b: number, c: number) => void;
@@ -1195,28 +1212,33 @@ export interface InitOutput {
     readonly wasmrenderer_render: (a: number) => void;
     readonly wasmrenderer_resize: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_screen_to_world: (a: number, b: number, c: number) => [number, number];
+    readonly wasmrenderer_set_crosshair_color: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmrenderer_set_crosshair_origin: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_dpr: (a: number, b: number) => void;
     readonly wasmrenderer_set_grid_visible: (a: number, b: number) => void;
     readonly wasmrenderer_set_hover: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_hover_color: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmrenderer_set_hover_multiple: (a: number, b: number, c: number) => void;
+    readonly wasmrenderer_set_laser_color: (a: number, b: number, c: number, d: number) => void;
     readonly wasmrenderer_set_laser_opacity: (a: number, b: number) => void;
     readonly wasmrenderer_set_laser_points: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_move_preview_delta: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_move_preview_targets: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_preview_origin: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmrenderer_set_preview_shape: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmrenderer_set_render_theme: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
     readonly wasmrenderer_set_selected_violation: (a: number, b: number) => void;
     readonly wasmrenderer_set_selection: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_set_selection_color: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly wasmrenderer_set_theme: (a: number, b: number) => void;
     readonly wasmrenderer_set_viewport: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrenderer_set_violation_error_color: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmrenderer_set_violation_warning_color: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmrenderer_set_violations: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_shape_count: (a: number) => number;
     readonly wasmrenderer_sync_from_library: (a: number, b: number) => void;
     readonly wasmrenderer_toggle_selection: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_update_shape: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly init: () => void;
     readonly wasmlibrary_add_cell_ref: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly wasmlibrary_add_cell_ref_to: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly wasmlibrary_add_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
@@ -1237,7 +1259,6 @@ export interface InitOutput {
     readonly wasmlibrary_set_cell_ref_array: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly wasmlibrary_set_cell_ref_array_vectors: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
     readonly wasmlibrary_set_cell_ref_transform: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly init: () => void;
     readonly wasm_bindgen__closure__destroy__h200b07e2cd2d62ec: (a: number, b: number) => void;
     readonly wasm_bindgen__closure__destroy__h2d6fab434757b308: (a: number, b: number) => void;
     readonly wasm_bindgen__convert__closures_____invoke__hbd2a77e27682db99: (a: number, b: number, c: any) => [number, number];

@@ -10,7 +10,7 @@
 struct Viewport {
     offset: vec2<f32>,          // Screen position of world origin (unused - already in screen coords)
     zoom: f32,                  // Pixels per world unit (unused - already in screen coords)
-    theme: f32,                 // 0.0 = light, 1.0 = dark
+    _padding0: f32,
     size: vec2<f32>,            // Canvas size in pixels
     dpr: f32,                   // Device pixel ratio for HiDPI/retina support
     _padding: f32,

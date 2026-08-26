@@ -156,7 +156,7 @@ impl Default for OutlineUniform {
 
 impl OutlineUniform {
     /// Create uniform for selection outline.
-    pub fn selection(_dark_theme: bool) -> Self {
+    pub fn selection() -> Self {
         Self {
             color: [0.267, 1.0, 0.267, 1.0], // Bright green #44ff44
             line_width: 2.0,
@@ -166,7 +166,7 @@ impl OutlineUniform {
     }
 
     /// Create uniform for hover outline.
-    pub fn hover(_dark_theme: bool) -> Self {
+    pub fn hover() -> Self {
         Self {
             color: [0.0, 0.0, 0.0, 1.0], // Black
             line_width: 2.0,

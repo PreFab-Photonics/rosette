@@ -425,7 +425,12 @@ impl WasmRenderer {
     /// is emphasized by emitting a second, slightly inset outline so it reads as
     /// a thicker/brighter box.
     pub(super) fn update_violation_buffers(&mut self) {
-        let mut segments = build_violation_segments(&self.violations, self.selected_violation);
+        let mut segments = build_violation_segments(
+            &self.violations,
+            self.selected_violation,
+            self.violation_error_color,
+            self.violation_warning_color,
+        );
 
         if segments.len() > VIOLATION_SEGMENT_CAPACITY {
             log::warn!(
@@ -661,12 +666,11 @@ impl WasmRenderer {
                 let is_major = grid_index_x % self.grid_config.major_interval as i64 == 0
                     && grid_index_y % self.grid_config.major_interval as i64 == 0;
 
-                // Calculate opacity matching rosette-web
-                let theme_opacity = if self.viewport.dark_theme { 0.5 } else { 0.8 };
+                // Calculate opacity using the renderer's concrete theme values.
                 let base_opacity = if is_major {
-                    self.grid_config.major_opacity * theme_opacity
+                    self.grid_config.major_opacity * self.render_theme.grid_opacity
                 } else {
-                    self.grid_config.minor_opacity * fade_opacity * theme_opacity
+                    self.grid_config.minor_opacity * fade_opacity * self.render_theme.grid_opacity
                 };
 
                 // Compute screen position in f64 for precision

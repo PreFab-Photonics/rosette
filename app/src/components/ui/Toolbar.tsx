@@ -118,12 +118,10 @@ function ToolButton({
   tool,
   isActive,
   onClick,
-  isDark,
 }: {
   tool: ToolDef;
   isActive: boolean;
   onClick: () => void;
-  isDark: boolean;
 }) {
   const Icon = tool.icon;
 
@@ -133,12 +131,12 @@ function ToolButton({
         onClick={onClick}
         className={cn(
           "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-          isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-          isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+          "hover:bg-interactive",
+          isActive && "bg-interactive",
         )}
       >
         <div className="flex h-5 w-5 items-center justify-center">
-          <Icon className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")} />
+          <Icon className="h-5 w-5 text-foreground" />
         </div>
       </button>
     </Tooltip>
@@ -148,22 +146,20 @@ function ToolButton({
 /**
  * Separator between tool groups.
  */
-function Separator({ isDark }: { isDark: boolean }) {
-  return <div className={cn("mx-0 h-6 w-[1px]", isDark ? "bg-white/10" : "bg-black/10")} />;
+function Separator() {
+  return <div className="mx-0 h-6 w-px bg-theme-border" />;
 }
 
 /**
  * Overflow menu button that shows hidden tools in a dropdown.
  */
 function OverflowMenuButton({
-  isDark,
   overflowBaseTools,
   overflowShapeTools,
   overflowRulerTools,
   showInstance,
   showCommands,
 }: {
-  isDark: boolean;
   overflowBaseTools: ToolDef[];
   overflowShapeTools: ToolDef[];
   overflowRulerTools: ToolDef[];
@@ -226,13 +222,12 @@ function OverflowMenuButton({
           onClick={() => setMenuOpen(!menuOpen)}
           className={cn(
             "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-            isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-            (isOverflowActive || menuOpen) &&
-              (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+            "hover:bg-interactive",
+            (isOverflowActive || menuOpen) && "bg-interactive",
           )}
         >
           <div className="flex h-5 w-5 items-center justify-center">
-            <MoreHoriz className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")} />
+            <MoreHoriz className="h-5 w-5 text-foreground" />
           </div>
         </button>
       </Tooltip>
@@ -241,12 +236,7 @@ function OverflowMenuButton({
         createPortal(
           <div
             ref={menuRef}
-            className={cn(
-              "fixed z-[9999] min-w-[180px] rounded-xl border p-1 backdrop-blur-xl",
-              isDark
-                ? "border-white/10 bg-[rgb(29,29,29)]"
-                : "border-black/10 bg-[rgb(241,241,241)]",
-            )}
+            className="fixed z-[9999] min-w-[180px] rounded-xl border border-theme-border bg-surface p-1 backdrop-blur-xl"
             style={(() => {
               const pos = getMenuPosition();
               return { left: `${pos.left}px`, top: `${pos.top}px` };
@@ -267,22 +257,13 @@ function OverflowMenuButton({
                       }}
                       className={cn(
                         "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
-                        isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-                        isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+                        "hover:bg-interactive",
+                        isActive && "bg-interactive",
                       )}
                     >
-                      <Icon className={cn("h-4 w-4", isDark ? "text-white/90" : "text-black/90")} />
-                      <span className={isDark ? "text-white/90" : "text-black/90"}>
-                        {tool.label}
-                      </span>
-                      <kbd
-                        className={cn(
-                          "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                          isDark
-                            ? "border-white/15 bg-white/10 text-white/70"
-                            : "border-black/15 bg-black/10 text-black/70",
-                        )}
-                      >
+                      <Icon className="h-4 w-4 text-foreground" />
+                      <span className="text-foreground">{tool.label}</span>
+                      <kbd className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border border-theme-border-strong bg-theme-border px-1 text-[10px] text-foreground-secondary">
                         {tool.shortcut}
                       </kbd>
                     </button>
@@ -294,7 +275,7 @@ function OverflowMenuButton({
             {/* Overflow shape tools */}
             {overflowShapeTools.length > 0 && (
               <>
-                <div className={cn("my-1 h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+                <div className="my-1 h-px bg-theme-border" />
                 <div className="flex flex-col">
                   {overflowShapeTools.map((tool) => {
                     const Icon = tool.icon;
@@ -308,24 +289,13 @@ function OverflowMenuButton({
                         }}
                         className={cn(
                           "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
-                          isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-                          isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+                          "hover:bg-interactive",
+                          isActive && "bg-interactive",
                         )}
                       >
-                        <Icon
-                          className={cn("h-4 w-4", isDark ? "text-white/90" : "text-black/90")}
-                        />
-                        <span className={isDark ? "text-white/90" : "text-black/90"}>
-                          {tool.label}
-                        </span>
-                        <kbd
-                          className={cn(
-                            "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                            isDark
-                              ? "border-white/15 bg-white/10 text-white/70"
-                              : "border-black/15 bg-black/10 text-black/70",
-                          )}
-                        >
+                        <Icon className="h-4 w-4 text-foreground" />
+                        <span className="text-foreground">{tool.label}</span>
+                        <kbd className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border border-theme-border-strong bg-theme-border px-1 text-[10px] text-foreground-secondary">
                           {tool.shortcut}
                         </kbd>
                       </button>
@@ -338,7 +308,7 @@ function OverflowMenuButton({
             {/* Overflow ruler tools */}
             {overflowRulerTools.length > 0 && (
               <>
-                <div className={cn("my-1 h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+                <div className="my-1 h-px bg-theme-border" />
                 <div className="flex flex-col">
                   {overflowRulerTools.map((tool) => {
                     const Icon = tool.icon;
@@ -353,25 +323,14 @@ function OverflowMenuButton({
                         }}
                         className={cn(
                           "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
-                          isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-                          isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+                          "hover:bg-interactive",
+                          isActive && "bg-interactive",
                         )}
                       >
-                        <Icon
-                          className={cn("h-4 w-4", isDark ? "text-white/90" : "text-black/90")}
-                        />
-                        <span className={isDark ? "text-white/90" : "text-black/90"}>
-                          {tool.label}
-                        </span>
+                        <Icon className="h-4 w-4 text-foreground" />
+                        <span className="text-foreground">{tool.label}</span>
                         {tool.shortcut && (
-                          <kbd
-                            className={cn(
-                              "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                              isDark
-                                ? "border-white/15 bg-white/10 text-white/70"
-                                : "border-black/15 bg-black/10 text-black/70",
-                            )}
-                          >
+                          <kbd className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border border-theme-border-strong bg-theme-border px-1 text-[10px] text-foreground-secondary">
                             {tool.shortcut}
                           </kbd>
                         )}
@@ -385,7 +344,7 @@ function OverflowMenuButton({
             {/* Instance + Commands */}
             {(showInstance || showCommands) && (
               <>
-                <div className={cn("my-1 h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+                <div className="my-1 h-px bg-theme-border" />
                 <div className="flex flex-col">
                   {showInstance && (
                     <button
@@ -395,21 +354,12 @@ function OverflowMenuButton({
                       }}
                       className={cn(
                         "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
-                        isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
+                        "hover:bg-interactive",
                       )}
                     >
-                      <PlusSquare
-                        className={cn("h-4 w-4", isDark ? "text-white/90" : "text-black/90")}
-                      />
-                      <span className={isDark ? "text-white/90" : "text-black/90"}>Instance</span>
-                      <kbd
-                        className={cn(
-                          "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                          isDark
-                            ? "border-white/15 bg-white/10 text-white/70"
-                            : "border-black/15 bg-black/10 text-black/70",
-                        )}
-                      >
+                      <PlusSquare className="h-4 w-4 text-foreground" />
+                      <span className="text-foreground">Instance</span>
+                      <kbd className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded border border-theme-border-strong bg-theme-border px-1 text-[10px] text-foreground-secondary">
                         I
                       </kbd>
                     </button>
@@ -420,34 +370,15 @@ function OverflowMenuButton({
                         toggle();
                         setMenuOpen(false);
                       }}
-                      className={cn(
-                        "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
-                        isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-                      )}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-interactive"
                     >
-                      <SlashSquare
-                        className={cn("h-4 w-4", isDark ? "text-white/90" : "text-black/90")}
-                      />
-                      <span className={isDark ? "text-white/90" : "text-black/90"}>Commands</span>
+                      <SlashSquare className="h-4 w-4 text-foreground" />
+                      <span className="text-foreground">Commands</span>
                       <span className="ml-auto flex gap-0.5">
-                        <kbd
-                          className={cn(
-                            "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                            isDark
-                              ? "border-white/15 bg-white/10 text-white/70"
-                              : "border-black/15 bg-black/10 text-black/70",
-                          )}
-                        >
+                        <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-theme-border-strong bg-theme-border px-1 text-[10px] text-foreground-secondary">
                           {keys.mod}
                         </kbd>
-                        <kbd
-                          className={cn(
-                            "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px]",
-                            isDark
-                              ? "border-white/15 bg-white/10 text-white/70"
-                              : "border-black/15 bg-black/10 text-black/70",
-                          )}
-                        >
+                        <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-theme-border-strong bg-theme-border px-1 text-[10px] text-foreground-secondary">
                           K
                         </kbd>
                       </span>
@@ -480,8 +411,6 @@ export function Toolbar({
   minimal?: boolean;
 }) {
   const { activeTool, setTool } = useToolStore();
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
 
   // Determine which tools to show inline vs overflow
   const inlineBaseTools = minimal ? MINIMAL_BASE_TOOLS : compact ? PRIMARY_BASE_TOOLS : BASE_TOOLS;
@@ -513,8 +442,7 @@ export function Toolbar({
         "fixed top-4 z-50 mx-auto w-fit",
         // Center between collapsed panels when in compact/minimal mode
         compact || minimal ? "left-14 right-14" : "left-0 right-0",
-        "flex items-center gap-1 rounded-xl border px-1 pt-1 pb-[3px]",
-        isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
+        "flex items-center gap-1 rounded-xl border border-theme-border bg-surface px-1 pt-1 pb-[3px]",
       )}
     >
       {/* Inline base tools */}
@@ -524,7 +452,6 @@ export function Toolbar({
           tool={tool}
           isActive={activeTool === tool.id}
           onClick={() => setTool(tool.id)}
-          isDark={isDark}
         />
       ))}
 
@@ -533,40 +460,38 @@ export function Toolbar({
         Lives in the base-tools group — the original simple-ruler button
         was the last entry of `BASE_TOOLS`, so keep the family there.
       */}
-      {showRulerOpsInline && <RulerOpsButton isDark={isDark} />}
+      {showRulerOpsInline && <RulerOpsButton />}
 
       {/* Shape tools (full mode only) */}
       {showShapeToolsInline && (
         <>
-          <Separator isDark={isDark} />
+          <Separator />
           {SHAPE_TOOLS.map((tool) => (
             <ToolButton
               key={tool.id}
               tool={tool}
               isActive={activeTool === tool.id}
               onClick={() => setTool(tool.id)}
-              isDark={isDark}
             />
           ))}
         </>
       )}
 
       {/* Shape operations (full mode only) */}
-      {showShapeOpsInline && <ShapeOpsButton isDark={isDark} />}
+      {showShapeOpsInline && <ShapeOpsButton />}
 
       {/* Instance tool (full mode only) */}
-      {showInstanceInline && <InstanceButton isDark={isDark} />}
+      {showInstanceInline && <InstanceButton />}
 
       {/* Separator before commands or overflow */}
-      <Separator isDark={isDark} />
+      <Separator />
 
       {/* Command palette (full mode only) */}
-      {showCommandsInline && <CommandPaletteButton isDark={isDark} />}
+      {showCommandsInline && <CommandPaletteButton />}
 
       {/* Overflow menu (compact/minimal mode) */}
       {showOverflow && (
         <OverflowMenuButton
-          isDark={isDark}
           overflowBaseTools={overflowBaseTools}
           overflowShapeTools={overflowShapeTools}
           overflowRulerTools={overflowRulerTools}
@@ -641,7 +566,7 @@ function executeShapeOp(op: ShapeOp): void {
  * Long-press or right-click opens a 4x3 grid with boolean ops (row 1)
  * and alignment ops (rows 2-3), matching rosette-web's Toolbar layout.
  */
-function ShapeOpsButton({ isDark }: { isDark: boolean }) {
+function ShapeOpsButton() {
   const [lastOp, setLastOp] = useState<ShapeOp>(SHAPE_OPS[0]);
   const [menuOpen, setMenuOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -745,11 +670,11 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
           onMouseLeave={handleButtonLeave}
           className={cn(
             "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-            isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
+            "hover:bg-interactive",
           )}
         >
           <div className="flex h-5 w-5 items-center justify-center">
-            <Icon className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")} />
+            <Icon className="h-5 w-5 text-foreground" />
           </div>
         </button>
       </Tooltip>
@@ -760,12 +685,7 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
             ref={positionMenu}
             onMouseEnter={handleMenuEnter}
             onMouseLeave={handleMenuLeave}
-            className={cn(
-              "fixed z-[9999] rounded-xl border p-1 backdrop-blur-xl",
-              isDark
-                ? "border-white/10 bg-[rgb(29,29,29)]"
-                : "border-black/10 bg-[rgb(241,241,241)]",
-            )}
+            className="fixed z-[9999] rounded-xl border border-theme-border bg-surface p-1 backdrop-blur-xl"
             style={{ visibility: "hidden" }}
           >
             <div className="grid grid-cols-4 gap-1">
@@ -775,15 +695,9 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
                     type="button"
                     aria-label={op.label}
                     onClick={() => handleOpClick(op)}
-                    className={cn(
-                      "cursor-pointer rounded-lg p-1.5 transition-colors",
-                      isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-                    )}
+                    className="cursor-pointer rounded-lg p-1.5 transition-colors hover:bg-interactive"
                   >
-                    <op.icon
-                      className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")}
-                      aria-hidden="true"
-                    />
+                    <op.icon className="h-5 w-5 text-foreground" aria-hidden="true" />
                   </button>
                 </Tooltip>
               ))}
@@ -810,7 +724,7 @@ function ShapeOpsButton({ isDark }: { isDark: boolean }) {
  * Mirrors `ShapeOpsButton`'s UX so the toolbar family of "ops" buttons
  * feels consistent.
  */
-function RulerOpsButton({ isDark }: { isDark: boolean }) {
+function RulerOpsButton() {
   const activeTool = useToolStore((s) => s.activeTool);
   const { setTool } = useToolStore();
   const lastRulerKind = useUIStore((s) => s.lastRulerKind);
@@ -928,12 +842,12 @@ function RulerOpsButton({ isDark }: { isDark: boolean }) {
           onMouseLeave={handleButtonLeave}
           className={cn(
             "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-            isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-            isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+            "hover:bg-interactive",
+            isActive && "bg-interactive",
           )}
         >
           <div className="flex h-5 w-5 items-center justify-center">
-            <Icon className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")} />
+            <Icon className="h-5 w-5 text-foreground" />
           </div>
         </button>
       </Tooltip>
@@ -949,10 +863,7 @@ function RulerOpsButton({ isDark }: { isDark: boolean }) {
               // vertical padding balances the row height. Ours is one
               // row of 5, so `p-1` keeps the container from looking
               // stretched relative to the buttons.
-              "fixed z-[9999] rounded-xl border p-1 backdrop-blur-xl",
-              isDark
-                ? "border-white/10 bg-[rgb(29,29,29)]"
-                : "border-black/10 bg-[rgb(241,241,241)]",
+              "fixed z-[9999] rounded-xl border border-theme-border bg-surface p-1 backdrop-blur-xl",
             )}
             style={{ visibility: "hidden" }}
           >
@@ -963,14 +874,9 @@ function RulerOpsButton({ isDark }: { isDark: boolean }) {
                   <Tooltip key={tool.id} label={tool.label} className="[&>div:last-child]:mt-0.5">
                     <button
                       onClick={() => handleToolClick(tool)}
-                      className={cn(
-                        "cursor-pointer rounded-lg p-1.5 transition-colors",
-                        isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-                      )}
+                      className="cursor-pointer rounded-lg p-1.5 transition-colors hover:bg-interactive"
                     >
-                      <ToolIcon
-                        className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")}
-                      />
+                      <ToolIcon className="h-5 w-5 text-foreground" />
                     </button>
                   </Tooltip>
                 );
@@ -990,7 +896,7 @@ function RulerOpsButton({ isDark }: { isDark: boolean }) {
 /**
  * Instance button that opens the command palette pre-filled with "add instance ".
  */
-function InstanceButton({ isDark }: { isDark: boolean }) {
+function InstanceButton() {
   const open = useCommandPaletteStore((s) => s.open);
   const isOpen = useCommandPaletteStore((s) => s.isOpen);
   const initialSearch = useCommandPaletteStore((s) => s.initialSearch);
@@ -1004,12 +910,12 @@ function InstanceButton({ isDark }: { isDark: boolean }) {
         onClick={() => open("add instance ")}
         className={cn(
           "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-          isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-          isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+          "hover:bg-interactive",
+          isActive && "bg-interactive",
         )}
       >
         <div className="flex h-5 w-5 items-center justify-center">
-          <PlusSquare className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")} />
+          <PlusSquare className="h-5 w-5 text-foreground" />
         </div>
       </button>
     </Tooltip>
@@ -1019,7 +925,7 @@ function InstanceButton({ isDark }: { isDark: boolean }) {
 /**
  * Command palette toggle button.
  */
-function CommandPaletteButton({ isDark }: { isDark: boolean }) {
+function CommandPaletteButton() {
   const isOpen = useCommandPaletteStore((s) => s.isOpen);
   const initialSearch = useCommandPaletteStore((s) => s.initialSearch);
   const toggle = useCommandPaletteStore((s) => s.toggle);
@@ -1033,12 +939,12 @@ function CommandPaletteButton({ isDark }: { isDark: boolean }) {
         onClick={toggle}
         className={cn(
           "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-          isDark ? "hover:bg-[rgb(54,54,54)]" : "hover:bg-[rgb(217,217,217)]",
-          isActive && (isDark ? "bg-[rgb(54,54,54)]" : "bg-[rgb(217,217,217)]"),
+          "hover:bg-interactive",
+          isActive && "bg-interactive",
         )}
       >
         <div className="flex h-5 w-5 items-center justify-center">
-          <SlashSquare className={cn("h-5 w-5", isDark ? "text-white/90" : "text-black/90")} />
+          <SlashSquare className="h-5 w-5 text-foreground" />
         </div>
       </button>
     </Tooltip>

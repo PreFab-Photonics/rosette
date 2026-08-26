@@ -6,10 +6,10 @@
 
 use crate::shapes::ColoredSegment;
 
-/// Error marker color (RGBA). Tuned to read against both light and dark themes.
-pub const VIOLATION_ERROR_COLOR: [f32; 4] = [0.93, 0.16, 0.22, 0.95];
-/// Warning marker color (RGBA).
-pub const VIOLATION_WARN_COLOR: [f32; 4] = [0.96, 0.62, 0.04, 0.95];
+/// Default error marker color (RGBA). Tuned for light and dark themes.
+pub const DEFAULT_VIOLATION_ERROR_COLOR: [f32; 4] = [0.93, 0.16, 0.22, 0.95];
+/// Default warning marker color (RGBA).
+pub const DEFAULT_VIOLATION_WARN_COLOR: [f32; 4] = [0.96, 0.62, 0.04, 0.95];
 
 /// World-units-per-micrometer scale applied to all geometry on import
 /// (`UM_TO_NM * GRID_SIZE` = 1000 * 50). DRC violation bboxes arrive in µm, so
@@ -76,6 +76,8 @@ pub fn push_bbox_outline(segments: &mut Vec<ColoredSegment>, bbox: [f64; 4], col
 pub fn build_violation_segments(
     violations: &[([f64; 4], bool)],
     selected: Option<usize>,
+    error_color: [f32; 4],
+    warning_color: [f32; 4],
 ) -> Vec<ColoredSegment> {
     /// Quantize a coordinate to an integer key so near-identical bboxes
     /// (floating-point noise) dedupe together.
@@ -89,11 +91,7 @@ pub fn build_violation_segments(
         std::collections::HashSet::new();
 
     for (i, &(bbox, is_error)) in violations.iter().enumerate() {
-        let color = if is_error {
-            VIOLATION_ERROR_COLOR
-        } else {
-            VIOLATION_WARN_COLOR
-        };
+        let color = if is_error { error_color } else { warning_color };
         // Draw the base outline once per unique (bbox, severity).
         if drawn.insert(key(bbox, is_error)) {
             push_bbox_outline(&mut segments, bbox, color);
@@ -120,6 +118,18 @@ pub fn build_violation_segments(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn build_default_segments(
+        violations: &[([f64; 4], bool)],
+        selected: Option<usize>,
+    ) -> Vec<ColoredSegment> {
+        build_violation_segments(
+            violations,
+            selected,
+            DEFAULT_VIOLATION_ERROR_COLOR,
+            DEFAULT_VIOLATION_WARN_COLOR,
+        )
+    }
 
     #[test]
     fn parse_violations_groups_into_5_tuples() {
@@ -154,33 +164,56 @@ mod tests {
     #[test]
     fn build_segments_emits_four_per_violation() {
         let violations = vec![([0.0, 0.0, 1.0, 1.0], true), ([2.0, 2.0, 3.0, 3.0], false)];
-        let segments = build_violation_segments(&violations, None);
+        let segments = build_default_segments(&violations, None);
         assert_eq!(segments.len(), 8); // 4 edges each
     }
 
     #[test]
     fn build_segments_colors_by_severity() {
         let violations = vec![([0.0, 0.0, 1.0, 1.0], true), ([2.0, 2.0, 3.0, 3.0], false)];
-        let segments = build_violation_segments(&violations, None);
+        let segments = build_default_segments(&violations, None);
         // First violation is an error -> error color.
-        assert_eq!(segments[0].color, VIOLATION_ERROR_COLOR);
+        assert_eq!(segments[0].color, DEFAULT_VIOLATION_ERROR_COLOR);
         // Second violation (segments 4..8) is a warning -> warn color.
-        assert_eq!(segments[4].color, VIOLATION_WARN_COLOR);
+        assert_eq!(segments[4].color, DEFAULT_VIOLATION_WARN_COLOR);
+    }
+
+    #[test]
+    fn build_segments_uses_custom_severity_colors() {
+        let violations = vec![([0.0, 0.0, 1.0, 1.0], true), ([2.0, 2.0, 3.0, 3.0], false)];
+        let error_color = [0.1, 0.2, 0.3, 0.4];
+        let warning_color = [0.5, 0.6, 0.7, 0.8];
+        let segments = build_violation_segments(&violations, None, error_color, warning_color);
+
+        assert!(
+            segments[..4]
+                .iter()
+                .all(|segment| segment.color == error_color)
+        );
+        assert!(
+            segments[4..]
+                .iter()
+                .all(|segment| segment.color == warning_color)
+        );
     }
 
     #[test]
     fn selected_violation_gets_extra_inset_outline() {
         let violations = vec![([0.0, 0.0, 1.0, 1.0], true), ([2.0, 2.0, 3.0, 3.0], false)];
         // No selection: 4 + 4 = 8 segments.
-        assert_eq!(build_violation_segments(&violations, None).len(), 8);
+        assert_eq!(build_default_segments(&violations, None).len(), 8);
         // Select index 1: that one gets a doubled outline -> 4 + 8 = 12.
-        assert_eq!(build_violation_segments(&violations, Some(1)).len(), 12);
+        assert_eq!(build_default_segments(&violations, Some(1)).len(), 12);
     }
 
     #[test]
     fn bbox_outline_is_closed_loop() {
         let mut segments = Vec::new();
-        push_bbox_outline(&mut segments, [0.0, 0.0, 10.0, 4.0], VIOLATION_ERROR_COLOR);
+        push_bbox_outline(
+            &mut segments,
+            [0.0, 0.0, 10.0, 4.0],
+            DEFAULT_VIOLATION_ERROR_COLOR,
+        );
         assert_eq!(segments.len(), 4);
         // Each segment's end should be the next segment's start (closed loop).
         for i in 0..4 {
@@ -194,7 +227,7 @@ mod tests {
         // Two violations on the same shape (e.g. two angle violations) share a
         // bbox; the canvas should draw a single box, not stacked duplicates.
         let violations = vec![([0.0, 0.0, 4.0, 3.0], true), ([0.0, 0.0, 4.0, 3.0], true)];
-        let segments = build_violation_segments(&violations, None);
+        let segments = build_default_segments(&violations, None);
         assert_eq!(segments.len(), 4);
     }
 
@@ -203,13 +236,13 @@ mod tests {
         // Even when the base box is deduped, selecting either stacked violation
         // draws the emphasis inset (4 base + 4 inset = 8).
         let violations = vec![([0.0, 0.0, 4.0, 3.0], true), ([0.0, 0.0, 4.0, 3.0], true)];
-        assert_eq!(build_violation_segments(&violations, Some(1)).len(), 8);
+        assert_eq!(build_default_segments(&violations, Some(1)).len(), 8);
     }
 
     #[test]
     fn same_bbox_different_severity_not_deduped() {
         // A shared box on different layers/severities is meaningfully distinct.
         let violations = vec![([0.0, 0.0, 4.0, 3.0], true), ([0.0, 0.0, 4.0, 3.0], false)];
-        assert_eq!(build_violation_segments(&violations, None).len(), 8);
+        assert_eq!(build_default_segments(&violations, None).len(), 8);
     }
 }

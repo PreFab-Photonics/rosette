@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useHistoryStore } from "@/stores/history";
-import { useUIStore } from "@/stores/ui";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { CreateArrayCommand } from "@/lib/commands";
@@ -21,7 +20,6 @@ function DialogField({
   label,
   value,
   onChange,
-  isDark,
   unit,
   min,
   step,
@@ -32,7 +30,6 @@ function DialogField({
   label: string;
   value: number;
   onChange: (v: number) => void;
-  isDark: boolean;
   unit?: string;
   min?: number;
   step?: number;
@@ -72,9 +69,7 @@ function DialogField({
 
   return (
     <div className="flex items-center justify-between gap-3">
-      <label className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
-        {label}
-      </label>
+      <label className="text-xs text-foreground-muted select-none">{label}</label>
       <div className="flex items-center gap-1">
         <input
           ref={inputRef}
@@ -107,23 +102,12 @@ function DialogField({
               }
             }
           }}
-          className={cn(
-            "w-20 rounded border px-1.5 py-1 text-right font-mono text-xs outline-none",
-            isDark
-              ? "border-white/10 bg-white/5 text-white/90 focus:border-white/30"
-              : "border-black/10 bg-black/5 text-black/90 focus:border-black/30",
-          )}
+          className="w-20 rounded border border-theme-border bg-input px-1.5 py-1 text-right font-mono text-xs text-foreground outline-none focus:border-focus-ring"
           step={step}
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus={autoFocus}
         />
-        {unit && (
-          <span
-            className={cn("w-6 text-xs select-none", isDark ? "text-white/40" : "text-black/40")}
-          >
-            {unit}
-          </span>
-        )}
+        {unit && <span className="w-6 text-xs text-foreground-subtle select-none">{unit}</span>}
       </div>
     </div>
   );
@@ -136,14 +120,12 @@ function DialogField({
  * dispatches a CreateArrayCommand through the undo/redo history.
  *
  * Styled consistently with the CommandPalette (centered overlay, backdrop-blur,
- * dark/light theming). Uses the keyboard-focus stack to disable canvas shortcuts.
+ * theming). Uses the keyboard-focus stack to disable canvas shortcuts.
  */
 export function ArrayDialog() {
   const { isOpen, elementIds, close } = useArrayDialogStore();
   const library = useWasmContextStore((s) => s.library);
   const renderer = useWasmContextStore((s) => s.renderer);
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
 
   useKeyboardFocus("array-dialog", isOpen);
 
@@ -310,10 +292,7 @@ export function ArrayDialog() {
           open
           ref={contentRef}
           aria-label="Create Array"
-          className={cn(
-            "static m-0 w-full max-w-[320px] overflow-hidden rounded-xl border p-0 shadow-md backdrop-blur-xl",
-            isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
-          )}
+          className="static m-0 w-full max-w-[320px] overflow-hidden rounded-xl border border-theme-border bg-surface p-0 shadow-md backdrop-blur-xl"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();
@@ -322,12 +301,7 @@ export function ArrayDialog() {
           }}
         >
           {/* Header */}
-          <div
-            className={cn(
-              "border-b px-4 py-3 text-sm font-medium select-none",
-              isDark ? "border-white/10 text-white/90" : "border-black/10 text-black/90",
-            )}
-          >
+          <div className="border-b border-theme-border px-4 py-3 text-sm font-medium text-foreground select-none">
             Create Array
           </div>
 
@@ -343,7 +317,6 @@ export function ArrayDialog() {
               label="Columns"
               value={columns}
               onChange={setColumns}
-              isDark={isDark}
               min={1}
               step={1}
               integer
@@ -354,7 +327,6 @@ export function ArrayDialog() {
               label="Rows"
               value={rows}
               onChange={setRows}
-              isDark={isDark}
               min={1}
               step={1}
               integer
@@ -367,7 +339,6 @@ export function ArrayDialog() {
               label="Col ΔX"
               value={colX}
               onChange={setColX}
-              isDark={isDark}
               unit={"\u00B5m"}
               step={0.1}
               onSubmit={handleConfirm}
@@ -376,7 +347,6 @@ export function ArrayDialog() {
               label="Col ΔY"
               value={colY}
               onChange={setColY}
-              isDark={isDark}
               unit={"\u00B5m"}
               step={0.1}
               onSubmit={handleConfirm}
@@ -385,7 +355,6 @@ export function ArrayDialog() {
               label="Row ΔX"
               value={rowX}
               onChange={setRowX}
-              isDark={isDark}
               unit={"\u00B5m"}
               step={0.1}
               onSubmit={handleConfirm}
@@ -394,7 +363,6 @@ export function ArrayDialog() {
               label="Row ΔY"
               value={rowY}
               onChange={setRowY}
-              isDark={isDark}
               unit={"\u00B5m"}
               step={0.1}
               onSubmit={handleConfirm}
@@ -402,13 +370,8 @@ export function ArrayDialog() {
           </form>
 
           {/* Footer */}
-          <div
-            className={cn(
-              "flex items-center justify-between border-t px-4 py-3",
-              isDark ? "border-white/10" : "border-black/10",
-            )}
-          >
-            <span className={cn("text-xs select-none", isDark ? "text-white/40" : "text-black/40")}>
+          <div className="flex items-center justify-between border-t border-theme-border px-4 py-3">
+            <span className="text-xs text-foreground-subtle select-none">
               {totalCopies > 0
                 ? `${totalCopies} ${totalCopies === 1 ? "copy" : "copies"} will be created`
                 : "No copies to create"}
@@ -417,12 +380,7 @@ export function ArrayDialog() {
               <button
                 type="button"
                 onClick={close}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs transition-colors",
-                  isDark
-                    ? "border-white/10 text-white/70 hover:bg-white/5"
-                    : "border-black/10 text-black/70 hover:bg-black/5",
-                )}
+                className="rounded-lg border border-theme-border px-3 py-1.5 text-xs text-foreground-secondary transition-colors hover:bg-input"
               >
                 Cancel
               </button>
@@ -434,9 +392,7 @@ export function ArrayDialog() {
                   "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
                   totalCopies === 0
                     ? "cursor-not-allowed opacity-40"
-                    : isDark
-                      ? "border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
-                      : "border-black/20 bg-black/10 text-black/90 hover:bg-black/15",
+                    : "border-theme-border-strong bg-theme-border text-foreground hover:bg-theme-border-strong",
                 )}
               >
                 Create

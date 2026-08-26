@@ -22,9 +22,6 @@ pub struct Viewport {
     pub width: u32,
     pub height: u32,
 
-    /// Theme: true = dark, false = light.
-    pub dark_theme: bool,
-
     /// Device pixel ratio for HiDPI/retina display support.
     pub dpr: f32,
 }
@@ -43,7 +40,6 @@ impl Default for Viewport {
             zoom: DEFAULT_ZOOM,
             width: 800,
             height: 600,
-            dark_theme: true,
             dpr: 1.0,
         }
     }
@@ -72,11 +68,6 @@ impl Viewport {
     pub fn set_size(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-    }
-
-    /// Set the theme.
-    pub fn set_dark_theme(&mut self, dark: bool) {
-        self.dark_theme = dark;
     }
 
     /// Set the device pixel ratio for HiDPI/retina display support.
@@ -123,8 +114,8 @@ pub struct ViewportUniform {
     pub offset: [f32; 2],
     /// Zoom level (pixels per world unit).
     pub zoom: f32,
-    /// Theme: 1.0 = dark, 0.0 = light.
-    pub theme: f32,
+    /// Padding for 16-byte alignment.
+    pub _padding0: f32,
     /// Canvas size in pixels.
     pub size: [f32; 2],
     /// Device pixel ratio for HiDPI/retina display support.
@@ -147,7 +138,7 @@ impl ViewportUniform {
         Self {
             offset: [vp.offset_x as f32, vp.offset_y as f32],
             zoom: vp.zoom as f32,
-            theme: if vp.dark_theme { 1.0 } else { 0.0 },
+            _padding0: 0.0,
             size: [vp.width as f32, vp.height as f32],
             dpr: vp.dpr,
             _padding: 0.0,
@@ -177,7 +168,6 @@ mod tests {
             zoom: 1.0,
             width: 800,
             height: 600,
-            dark_theme: true,
             dpr: 1.0,
         };
 
@@ -195,7 +185,6 @@ mod tests {
             zoom: 0.5,
             width: 800,
             height: 600,
-            dark_theme: true,
             dpr: 1.0,
         };
 

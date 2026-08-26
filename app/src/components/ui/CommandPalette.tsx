@@ -1,6 +1,5 @@
 import { Command } from "cmdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useUIStore } from "@/stores/ui";
 import { useCommandPaletteStore } from "@/stores/command-palette";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { getCommands, type CommandItem, type CommandShortcut } from "@/lib/palette-commands";
@@ -14,13 +13,8 @@ import { cn } from "@/lib/utils";
  * Renders a keyboard shortcut with modifiers and keys.
  */
 function ShortcutDisplay({ shortcut }: { shortcut: CommandShortcut }) {
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
-
-  const kbdClass = cn(
-    "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[11px]",
-    isDark ? "border-white/15 bg-white/10" : "border-black/15 bg-black/10",
-  );
+  const kbdClass =
+    "inline-flex h-5 min-w-5 items-center justify-center rounded border border-theme-border-strong bg-theme-border px-1 text-[11px]";
 
   return (
     <span className="flex items-center gap-0.5">
@@ -32,9 +26,7 @@ function ShortcutDisplay({ shortcut }: { shortcut: CommandShortcut }) {
       <kbd className={kbdClass}>{shortcut.key}</kbd>
       {shortcut.then && (
         <>
-          <span className={cn("px-1 text-[11px]", isDark ? "text-white/50" : "text-gray-500")}>
-            then
-          </span>
+          <span className="px-1 text-[11px] text-foreground-muted">then</span>
           <kbd className={kbdClass}>{shortcut.then}</kbd>
         </>
       )}
@@ -46,27 +38,19 @@ function ShortcutDisplay({ shortcut }: { shortcut: CommandShortcut }) {
  * Renders a single command item in the list.
  */
 function CommandRow({ item }: { item: CommandItem }) {
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
-
   return (
     <Command.Item
       value={item.searchableText}
       onSelect={item.action}
       className={cn(
         "flex cursor-pointer items-center justify-between rounded-lg px-3 py-2",
-        isDark
-          ? "text-white/80 aria-selected:bg-[rgb(54,54,54)] aria-selected:text-white"
-          : "text-gray-700 aria-selected:bg-[rgb(217,217,217)] aria-selected:text-gray-900",
+        "text-foreground-secondary aria-selected:bg-interactive aria-selected:text-foreground",
       )}
     >
       <span className="text-sm">{item.name}</span>
       {item.color && (
         <span
-          className={cn(
-            "inline-block h-3.5 w-3.5 shrink-0 rounded border",
-            isDark ? "border-white/15" : "border-black/15",
-          )}
+          className="inline-block h-3.5 w-3.5 shrink-0 rounded border border-theme-border-strong"
           style={{ backgroundColor: item.color }}
         />
       )}
@@ -86,9 +70,6 @@ function CommandRow({ item }: { item: CommandItem }) {
  * Provides fuzzy search across all available commands.
  */
 export function CommandPalette() {
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
-
   const isOpen = useCommandPaletteStore((s) => s.isOpen);
   const initialSearch = useCommandPaletteStore((s) => s.initialSearch);
   const close = useCommandPaletteStore((s) => s.close);
@@ -169,21 +150,13 @@ export function CommandPalette() {
       >
         <div
           ref={contentRef}
-          className={cn(
-            "w-full max-w-[560px] overflow-hidden rounded-xl border shadow-md backdrop-blur-xl",
-            isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
-          )}
+          className="w-full max-w-[560px] overflow-hidden rounded-xl border border-theme-border bg-surface shadow-md backdrop-blur-xl"
         >
           <Command.Input
             value={search}
             onValueChange={setSearch}
             placeholder="Type a command or search..."
-            className={cn(
-              "w-full border-b bg-transparent px-4 py-3 text-sm outline-none",
-              isDark
-                ? "border-white/10 text-white/90 placeholder:text-white/50"
-                : "border-black/10 text-gray-900 placeholder:text-gray-500",
-            )}
+            className="w-full border-b border-theme-border bg-transparent px-4 py-3 text-sm text-foreground outline-none placeholder:text-foreground-muted"
             // eslint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
           />
@@ -191,9 +164,7 @@ export function CommandPalette() {
             className="max-h-[320px] overflow-y-auto p-1"
             onWheel={(e) => e.stopPropagation()}
           >
-            <Command.Empty
-              className={cn("px-3 py-2 text-sm", isDark ? "text-white/50" : "text-gray-500")}
-            >
+            <Command.Empty className="px-3 py-2 text-sm text-foreground-muted">
               No matching commands
             </Command.Empty>
             {sortedCommands.map((item) => (

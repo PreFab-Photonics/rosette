@@ -82,8 +82,6 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
   const { isOpen, position, variant, targetId, close } = useContextMenuStore();
   const { selectedIds } = useSelectionStore();
   const { hasContent: hasClipboardContent } = useClipboardStore();
-  const theme = useUIStore((s) => s.theme);
-  const isDark = theme === "dark";
 
   // Claim keyboard focus to disable canvas shortcuts while menu is open
   useKeyboardFocus("context-menu", isOpen);
@@ -732,7 +730,6 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
   return (
     <MenuSurface
       ref={menuRef}
-      isDark={isDark}
       className="fixed z-50 min-w-[170px]"
       style={{
         left: clampedPos.x,
@@ -741,14 +738,13 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
     >
       {menuItems.map((entry) => {
         if (isSeparator(entry)) {
-          return <MenuSeparatorLine key={entry.id} isDark={isDark} />;
+          return <MenuSeparatorLine key={entry.id} />;
         }
 
         const item = entry;
         return (
           <MenuItemButton
             key={item.id}
-            isDark={isDark}
             onClick={() => {
               if (!item.disabled) {
                 item.action();
@@ -757,7 +753,7 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
             disabled={item.disabled}
           >
             <span>{item.label}</span>
-            {item.shortcut && <MenuShortcut isDark={isDark} shortcut={item.shortcut} />}
+            {item.shortcut && <MenuShortcut shortcut={item.shortcut} />}
           </MenuItemButton>
         );
       })}

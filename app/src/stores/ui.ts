@@ -1,42 +1,16 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import {
+  applyTheme,
+  getSystemTheme,
+  isThemeSetting,
+  resolveTheme,
+  subscribeToSystemTheme,
+  type ResolvedTheme,
+  type ThemeSetting,
+} from "@/lib/theme";
 
-/**
- * Selection outline colors by theme.
- */
-export const SELECTION_COLORS = {
-  dark: "#44ff44", // Bright green
-  light: "#44ff44", // Bright green
-} as const;
-
-/**
- * Hover outline colors by theme.
- */
-export const HOVER_COLORS = {
-  dark: "#ffffff", // White for dark mode
-  light: "#000000", // Black for light mode
-} as const;
-
-/** Theme setting options. */
-export type ThemeSetting = "light" | "dark" | "system";
-
-/** Resolved theme (always light or dark). */
-export type ResolvedTheme = "light" | "dark";
-
-/**
- * Get the system's preferred color scheme.
- */
-function getSystemTheme(): ResolvedTheme {
-  if (typeof window === "undefined") return "dark";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-/**
- * Resolve a theme setting to an actual theme.
- */
-function resolveTheme(setting: ThemeSetting): ResolvedTheme {
-  return setting === "system" ? getSystemTheme() : setting;
-}
+export type { ResolvedTheme, ThemeSetting } from "@/lib/theme";
 
 /** Right-click behavior on the canvas. */
 export type RightClickMode = "context-menu" | "zoom";
@@ -102,8 +76,6 @@ interface UIState {
   setWasmReady: (ready: boolean) => void;
   /** Update cursor world position. */
   setCursorWorld: (pos: { x: number; y: number } | null) => void;
-  /** Get the current selection color based on theme. */
-  getSelectionColor: () => string;
   /** Set the active sidebar tab. */
   setSidebarTab: (tab: SidebarTab) => void;
   /** Request focus on the inspector panel's first input field. */
@@ -142,7 +114,7 @@ interface UIState {
 
 export const useUIStore = create<UIState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       themeSetting: "system",
       theme: getSystemTheme(),
       wasmReady: false,
@@ -160,22 +132,28 @@ export const useUIStore = create<UIState>()(
       explorerWidth: DEFAULT_PANEL_WIDTH,
       sidebarWidth: DEFAULT_PANEL_WIDTH,
 
-      setThemeSetting: (setting) => set({ themeSetting: setting, theme: resolveTheme(setting) }),
+      setThemeSetting: (setting) => {
+        const theme = resolveTheme(setting);
+        applyTheme(theme);
+        set({ themeSetting: setting, theme });
+      },
       toggleTheme: () =>
         set((state) => {
           const newTheme = state.theme === "dark" ? "light" : "dark";
+          applyTheme(newTheme);
           return { themeSetting: newTheme, theme: newTheme };
         }),
       syncSystemTheme: () =>
         set((state) => {
           if (state.themeSetting === "system") {
-            return { theme: getSystemTheme() };
+            const theme = getSystemTheme();
+            applyTheme(theme);
+            return { theme };
           }
           return {};
         }),
       setWasmReady: (ready) => set({ wasmReady: ready }),
       setCursorWorld: (pos) => set({ cursorWorld: pos }),
-      getSelectionColor: () => SELECTION_COLORS[get().theme],
       setSidebarTab: (tab) => set({ sidebarTab: tab }),
       requestInspectorFocus: () =>
         set({ sidebarTab: "inspector", inspectorFocusRequested: true, inspectorFocusField: null }),
@@ -226,7 +204,9 @@ export const useUIStore = create<UIState>()(
       onRehydrateStorage: () => (state) => {
         if (state) {
           // Resolve theme on rehydration (in case system preference changed)
+          state.themeSetting = isThemeSetting(state.themeSetting) ? state.themeSetting : "system";
           state.theme = resolveTheme(state.themeSetting);
+          applyTheme(state.theme);
           // Clamp persisted widths to current min/max (guards against constant changes)
           const clamp = (v: number) =>
             Math.round(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, v)));
@@ -238,9 +218,4 @@ export const useUIStore = create<UIState>()(
   ),
 );
 
-// Listen for system theme changes
-if (typeof window !== "undefined") {
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    useUIStore.getState().syncSystemTheme();
-  });
-}
+subscribeToSystemTheme(() => useUIStore.getState().syncSystemTheme());

@@ -11,16 +11,15 @@ import { panelRowStateClassName } from "@/components/ui/panel-row";
 /**
  * Chevron icon for tree expand/collapse.
  */
-export function ChevronIcon({ expanded, isDark }: { expanded: boolean; isDark: boolean }) {
+export function ChevronIcon({ expanded }: { expanded: boolean }) {
   return (
     <svg
       width="16"
       height="16"
       viewBox="0 0 16 16"
       className={cn(
-        "flex-shrink-0 transition-transform duration-150",
+        "flex-shrink-0 text-foreground-subtle transition-transform duration-150",
         expanded ? "rotate-90" : "rotate-0",
-        isDark ? "text-white/40" : "text-black/40",
       )}
     >
       <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -32,15 +31,12 @@ function HierarchyGuides({
   depth,
   guideLevels,
   isLastSibling,
-  isDark,
 }: {
   depth: number;
   guideLevels: readonly number[];
   isLastSibling: boolean;
-  isDark: boolean;
 }) {
   if (depth === 0) return null;
-  const color = isDark ? "bg-white/10" : "bg-black/10";
   const guideLeft = (level: number) => 12 + level * 10;
   const branchLevel = depth - 1;
 
@@ -50,13 +46,13 @@ function HierarchyGuides({
         <span
           key={level}
           data-hierarchy-guide="ancestor"
-          className={cn("absolute w-px", color)}
+          className="absolute w-px bg-theme-border"
           style={{ left: guideLeft(level), top: -2, bottom: -2 }}
         />
       ))}
       <span
         data-hierarchy-guide="branch"
-        className={cn("absolute w-px", color)}
+        className="absolute w-px bg-theme-border"
         style={{
           left: guideLeft(branchLevel),
           top: -2,
@@ -65,7 +61,7 @@ function HierarchyGuides({
       />
       <span
         data-hierarchy-guide="elbow"
-        className={cn("absolute h-px w-[5px]", color)}
+        className="absolute h-px w-[5px] bg-theme-border"
         style={{ left: guideLeft(branchLevel), top: "50%" }}
       />
     </span>
@@ -81,7 +77,7 @@ function HighlightedCellName({ name, query }: { name: string; query: string }) {
   return (
     <>
       {name.slice(0, matchIndex)}
-      <mark className="rounded-[2px] bg-sky-500/25 text-inherit">
+      <mark className="rounded-[2px] bg-highlight text-inherit">
         {name.slice(matchIndex, matchEnd)}
       </mark>
       {name.slice(matchEnd)}
@@ -126,7 +122,6 @@ export function CellRow({
   isAriaSelected,
   isFocused,
   isTabStop,
-  isDark,
   depth,
   guideLevels,
   posInSet,
@@ -158,7 +153,6 @@ export function CellRow({
   isFocused: boolean;
   /** Whether this occurrence is the Explorer's current tab stop. */
   isTabStop: boolean;
-  isDark: boolean;
   depth: number;
   guideLevels: readonly number[];
   posInSet: number;
@@ -371,7 +365,7 @@ export function CellRow({
       data-occurrence-id={occurrenceId}
       className={cn(
         "group relative mx-1 flex min-w-0 w-[calc(100%-8px)] cursor-pointer items-center rounded-lg border-0 py-1.5 text-left transition-colors focus:outline-none",
-        panelRowStateClassName({ isActive, isFocused, isDark }),
+        panelRowStateClassName({ isActive, isFocused }),
       )}
       style={{ paddingLeft: `${7 + depth * 10}px`, paddingRight: "7px" }}
       onClick={handleRowClick}
@@ -389,7 +383,6 @@ export function CellRow({
         depth={depth}
         guideLevels={guideLevels}
         isLastSibling={posInSet === setSize}
-        isDark={isDark}
       />
 
       {/* Expand/collapse chevron (or spacer for leaves) */}
@@ -398,7 +391,7 @@ export function CellRow({
           aria-hidden="true"
           className="pointer-events-none relative z-10 mr-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center"
         >
-          <ChevronIcon expanded={isExpanded} isDark={isDark} />
+          <ChevronIcon expanded={isExpanded} />
         </span>
       ) : hasChildren ? (
         <button
@@ -415,7 +408,7 @@ export function CellRow({
           }}
           tabIndex={-1}
         >
-          <ChevronIcon expanded={isExpanded} isDark={isDark} />
+          <ChevronIcon expanded={isExpanded} />
         </button>
       ) : (
         <span className="pointer-events-none relative z-10 mr-0.5 h-4 w-4 flex-shrink-0" />
@@ -433,10 +426,7 @@ export function CellRow({
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            className={cn(
-              "absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-sm leading-5 outline-none focus:ring-0",
-              isDark ? "text-white/90" : "text-black/90",
-            )}
+            className="absolute inset-0 m-0 box-border w-full border-0 bg-transparent p-0 text-sm leading-5 text-foreground outline-none focus:ring-0"
           />
         ) : (
           <span
@@ -463,12 +453,8 @@ export function CellRow({
             ? "opacity-100"
             : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100",
           isHidden
-            ? isDark
-              ? "text-white/70 hover:bg-white/10 focus-visible:ring-white/60"
-              : "text-black/70 hover:bg-black/10 focus-visible:ring-black/60"
-            : isDark
-              ? "text-white/50 hover:bg-white/10 hover:text-white/70 focus-visible:ring-white/60"
-              : "text-black/50 hover:bg-black/10 hover:text-black/70 focus-visible:ring-black/60",
+            ? "text-foreground-secondary hover:bg-theme-border focus-visible:ring-focus-ring"
+            : "text-foreground-muted hover:bg-theme-border hover:text-foreground-secondary focus-visible:ring-focus-ring",
         )}
         onClick={handleVisibilityClick}
         onDoubleClick={(event) => event.stopPropagation()}

@@ -1,7 +1,9 @@
 import { useViewportStore } from "@/stores/viewport";
 import { useSelectionStore } from "@/stores/selection";
 import { usePathStore, type PathMetadata } from "@/stores/path";
-import { useUIStore, SELECTION_COLORS, HOVER_COLORS } from "@/stores/ui";
+
+const SELECTION_COLOR = "var(--theme-selection)";
+const HOVER_COLOR = "var(--theme-hover-outline)";
 
 /**
  * A point in world coordinates.
@@ -23,10 +25,6 @@ export function PathSelectionOverlay() {
   const selectedIds = useSelectionStore((s) => s.selectedIds);
   const hoveredId = useSelectionStore((s) => s.hoveredId);
   const pathMetadata = usePathStore((s) => s.pathMetadata);
-  const theme = useUIStore((s) => s.theme);
-
-  const selectionColor = theme === "dark" ? SELECTION_COLORS.dark : SELECTION_COLORS.light;
-  const hoverColor = theme === "dark" ? HOVER_COLORS.dark : HOVER_COLORS.light;
 
   const worldToScreen = (p: Point) => ({
     x: p.x * zoom + offset.x,
@@ -38,7 +36,7 @@ export function PathSelectionOverlay() {
   for (const id of selectedIds) {
     const meta = pathMetadata.get(id);
     if (meta && meta.waypoints.length >= 2) {
-      selectedPaths.push({ id, meta, color: selectionColor });
+      selectedPaths.push({ id, meta, color: SELECTION_COLOR });
     }
   }
 
@@ -47,7 +45,7 @@ export function PathSelectionOverlay() {
   if (hoveredId && !selectedIds.has(hoveredId)) {
     const meta = pathMetadata.get(hoveredId);
     if (meta && meta.waypoints.length >= 2) {
-      hoveredPath = { id: hoveredId, meta, color: hoverColor };
+      hoveredPath = { id: hoveredId, meta, color: HOVER_COLOR };
     }
   }
 

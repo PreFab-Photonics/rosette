@@ -2,7 +2,6 @@ import { useViewportStore } from "@/stores/viewport";
 import { useLayerStore } from "@/stores/layer";
 import { usePathStore } from "@/stores/path";
 import { useWasmContextStore } from "@/stores/wasm-context";
-import { SELECTION_COLORS } from "@/stores/ui";
 import type { PathAlignmentGuides } from "@/hooks/use-path";
 
 /**
@@ -104,7 +103,7 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
           y1={alignedXScreen.y}
           x2={cursorScreen.x}
           y2={cursorScreen.y}
-          stroke={SELECTION_COLORS.dark}
+          stroke="var(--theme-selection)"
           strokeWidth={1}
           strokeDasharray="3 3"
           opacity={0.5}
@@ -116,7 +115,7 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
           y1={alignedYScreen.y}
           x2={cursorScreen.x}
           y2={cursorScreen.y}
-          stroke={SELECTION_COLORS.dark}
+          stroke="var(--theme-selection)"
           strokeWidth={1}
           strokeDasharray="3 3"
           opacity={0.5}
@@ -151,7 +150,7 @@ export function PathPreview({ waypoints, cursorPoint, alignmentGuides }: PathPre
             cx={sp.x}
             cy={sp.y}
             r={i === 0 ? 4 : 2.5}
-            fill={i === 0 ? strokeColor : "white"}
+            fill={i === 0 ? strokeColor : "var(--theme-canvas-label)"}
             stroke={strokeColor}
             strokeWidth={1}
           />

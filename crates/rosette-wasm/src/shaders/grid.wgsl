@@ -9,7 +9,7 @@
 struct Viewport {
     offset: vec2<f32>,          // Screen position of world origin (unused for grid, kept for crosshair)
     zoom: f32,                  // Pixels per world unit (unused for grid, kept for crosshair)
-    theme: f32,                 // 0.0 = light, 1.0 = dark
+    _padding0: f32,
     size: vec2<f32>,            // Canvas size in pixels
     dpr: f32,                   // Device pixel ratio for HiDPI/retina support
     _padding: f32,
@@ -20,6 +20,12 @@ struct Viewport {
 }
 
 @group(0) @binding(0) var<uniform> viewport: Viewport;
+
+struct GridUniforms {
+    color: vec4<f32>,
+}
+
+@group(0) @binding(1) var<uniform> grid: GridUniforms;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -76,8 +82,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
 
-    // Theme-based color: white on dark, black on light
-    let base_color = select(vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0), viewport.theme > 0.5);
-
-    return vec4<f32>(base_color, in.opacity);
+    return vec4<f32>(grid.color.rgb, grid.color.a * in.opacity);
 }

@@ -1,9 +1,7 @@
 import type { ZoomBox as ZoomBoxType } from "@/stores/zoom";
 
-/** Zoom box fill color (green with 10% opacity). */
-const FILL_COLOR = "rgba(46, 229, 120, 0.1)";
-/** Zoom box stroke color (green with 60% opacity). */
-const STROKE_COLOR = "rgba(46, 229, 120, 0.6)";
+const FILL_COLOR = "var(--theme-zoom-fill)";
+const STROKE_COLOR = "var(--theme-zoom-stroke)";
 
 interface ZoomBoxProps {
   /** The zoom box coordinates and dimensions. */

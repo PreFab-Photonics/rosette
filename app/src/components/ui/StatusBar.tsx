@@ -48,28 +48,17 @@ const VERSION = __APP_VERSION__;
 /**
  * Version badge with beta warning tooltip.
  */
-function VersionBadge({ isDark }: { isDark: boolean }) {
+function VersionBadge() {
   return (
     <div className="group relative flex items-center gap-1.5">
       {/* Yellow dot */}
-      <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-yellow-500" />
+      <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-warning-strong" />
       {/* Version text */}
-      <span className={cn("text-[10px] select-none", isDark ? "text-white/40" : "text-black/40")}>
-        v{VERSION}
-      </span>
+      <span className="text-[10px] text-foreground-subtle select-none">v{VERSION}</span>
 
       {/* Hover popup */}
-      <div
-        className={cn(
-          "pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-56 rounded-lg border p-2.5 text-[11px] leading-relaxed opacity-0 transition-opacity group-hover:opacity-100",
-          isDark
-            ? "border-white/10 bg-[rgb(29,29,29)] text-white/70"
-            : "border-black/10 bg-[rgb(241,241,241)] text-black/70",
-        )}
-      >
-        <span className={cn("font-medium", isDark ? "text-white/90" : "text-black/90")}>
-          Rosette v{VERSION} Beta
-        </span>
+      <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-56 rounded-lg border border-theme-border bg-surface p-2.5 text-[11px] leading-relaxed text-foreground-secondary opacity-0 transition-opacity group-hover:opacity-100">
+        <span className="font-medium text-foreground">Rosette v{VERSION} Beta</span>
         <p className="mt-1.5">
           Features may be unstable or incomplete. Not suitable for production use.
         </p>
@@ -85,7 +74,7 @@ function VersionBadge({ isDark }: { isDark: boolean }) {
  * Any part of the app can trigger a message via:
  *   useStatusMessageStore.getState().show("message", "warn");
  */
-function StatusMessage({ isDark }: { isDark: boolean }) {
+function StatusMessage() {
   const message = useStatusMessageStore((s) => s.message);
   const level = useStatusMessageStore((s) => s.level);
 
@@ -98,9 +87,9 @@ function StatusMessage({ isDark }: { isDark: boolean }) {
       <span
         className={cn(
           "truncate text-[11px] select-none",
-          level === "warn" && (isDark ? "text-yellow-400/80" : "text-yellow-600/80"),
-          level === "error" && (isDark ? "text-red-400/80" : "text-red-600/80"),
-          level === "info" && (isDark ? "text-white/50" : "text-black/50"),
+          level === "warn" && "text-warning",
+          level === "error" && "text-danger",
+          level === "info" && "text-foreground-muted",
         )}
       >
         {message}
@@ -113,7 +102,7 @@ function StatusMessage({ isDark }: { isDark: boolean }) {
  * Compact selection summary shown in the center of the status bar
  * when elements are selected and no ephemeral status message is active.
  */
-function SelectionInfo({ isDark }: { isDark: boolean }) {
+function SelectionInfo() {
   const selectedIds = useSelectionStore((s) => s.selectedIds);
   const library = useWasmContextStore((s) => s.library);
   // Subscribe so selection info (e.g. array copy counts) refreshes when
@@ -313,12 +302,7 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
           style={{ backgroundColor: layerMeta.color }}
         />
       )}
-      <span
-        className={cn(
-          "truncate text-[11px] select-none",
-          isDark ? "text-white/50" : "text-black/50",
-        )}
-      >
+      <span className="truncate text-[11px] text-foreground-muted select-none">
         {info.label}
         {layerSuffix}
       </span>
@@ -331,16 +315,16 @@ function SelectionInfo({ isDark }: { isDark: boolean }) {
  *
  * Priority: ephemeral status message > selection info > empty spacer.
  */
-function CenterInfo({ isDark }: { isDark: boolean }) {
+function CenterInfo() {
   const message = useStatusMessageStore((s) => s.message);
   const hasSelection = useSelectionStore((s) => s.selectedIds.size > 0);
 
   if (message) {
-    return <StatusMessage isDark={isDark} />;
+    return <StatusMessage />;
   }
 
   if (hasSelection) {
-    return <SelectionInfo isDark={isDark} />;
+    return <SelectionInfo />;
   }
 
   return <div className="flex-1" />;
@@ -351,28 +335,17 @@ function CenterInfo({ isDark }: { isDark: boolean }) {
  *
  * The label is a button that triggers zoom-to-fit when clicked.
  */
-function ScaleBar({
-  isDark,
-  widthInPixels,
-  label,
-}: {
-  isDark: boolean;
-  widthInPixels: number;
-  label: string;
-}) {
+function ScaleBar({ widthInPixels, label }: { widthInPixels: number; label: string }) {
   return (
     <div className="flex items-center gap-1.5">
       <div
-        className={cn("h-px", isDark ? "bg-white/50" : "bg-black/50")}
+        className="h-px bg-foreground-muted"
         style={{ width: `${Math.max(widthInPixels, 20)}px` }}
       />
       <Tooltip label="Zoom to Fit" position="top">
         <button
           onClick={zoomToFitAll}
-          className={cn(
-            "flex cursor-pointer items-center justify-center rounded p-0.5 text-[10px] select-none transition-colors focus:outline-none",
-            isDark ? "text-white/40 hover:text-white/70" : "text-black/40 hover:text-black/70",
-          )}
+          className="flex cursor-pointer items-center justify-center rounded p-0.5 text-[10px] text-foreground-subtle select-none transition-colors hover:text-foreground-secondary focus:outline-none"
         >
           {label}
         </button>
@@ -398,13 +371,11 @@ export function StatusBar({
 }) {
   const cursorX = useUIStore((s) => s.cursorWorld?.x);
   const cursorY = useUIStore((s) => s.cursorWorld?.y);
-  const theme = useUIStore((s) => s.theme);
   const zoom = useViewportStore((s) => s.zoom);
   const zenMode = useUIStore((s) => s.zenMode);
   const toggleZenMode = useUIStore((s) => s.toggleZenMode);
   const isMinimapMinimized = useMinimapStore((s) => s.isMinimized);
   const toggleMinimap = useMinimapStore((s) => s.toggle);
-  const isDark = theme === "dark";
 
   const unitInfo = useMemo(() => getDisplayUnit(zoom), [zoom]);
 
@@ -427,29 +398,19 @@ export function StatusBar({
       {/* Floating scale bar — shown above the status bar when compact/minimal */}
       {!scaleBarInline && (
         <div className="absolute bottom-full right-3 mb-2 font-mono text-[11px]">
-          <ScaleBar isDark={isDark} widthInPixels={widthInPixels} label={scaleLabel} />
+          <ScaleBar widthInPixels={widthInPixels} label={scaleLabel} />
         </div>
       )}
 
       {/* Status bar row */}
-      <div
-        className={cn(
-          "flex h-6 items-center border-t px-3 font-mono text-[11px]",
-          isDark ? "border-white/10 bg-[rgb(29,29,29)]" : "border-black/10 bg-[rgb(241,241,241)]",
-        )}
-      >
+      <div className="flex h-6 items-center border-t border-theme-border bg-surface px-3 font-mono text-[11px]">
         {/* Left: Version + Coordinates */}
         <div className="flex min-w-0 flex-shrink-0 items-center gap-1.5">
           {/* Version badge — hidden on compact/minimal */}
           {!compact && !minimal && (
             <>
-              <VersionBadge isDark={isDark} />
-              <span
-                className={cn(
-                  "mx-1 select-none pointer-events-none",
-                  isDark ? "text-white/20" : "text-black/20",
-                )}
-              >
+              <VersionBadge />
+              <span className="pointer-events-none mx-1 text-foreground-ghost select-none">
                 &middot;
               </span>
             </>
@@ -457,71 +418,31 @@ export function StatusBar({
 
           {minimal ? (
             /* Minimal: combined X,Y */
-            <span
-              className={cn(
-                "text-[10px] select-none pointer-events-none",
-                isDark ? "text-white/70" : "text-black/70",
-              )}
-            >
+            <span className="pointer-events-none text-[10px] text-foreground-secondary select-none">
               {formattedX}, {formattedY} {unitInfo.unit}
             </span>
           ) : (
             /* Default / compact: separate X and Y */
             <>
-              <span
-                className={cn(
-                  "leading-none select-none pointer-events-none",
-                  isDark ? "text-white/40" : "text-black/40",
-                )}
-              >
+              <span className="pointer-events-none leading-none text-foreground-subtle select-none">
                 x:
               </span>
-              <span
-                className={cn(
-                  "w-18 text-right leading-none select-none pointer-events-none",
-                  isDark ? "text-white/70" : "text-black/70",
-                )}
-              >
+              <span className="pointer-events-none w-18 text-right leading-none text-foreground-secondary select-none">
                 {formattedX}
               </span>
-              <span
-                className={cn(
-                  "text-[10px] leading-none select-none pointer-events-none",
-                  isDark ? "text-white/30" : "text-black/30",
-                )}
-              >
+              <span className="pointer-events-none text-[10px] leading-none text-foreground-faint select-none">
                 {unitInfo.unit}
               </span>
-              <span
-                className={cn(
-                  "mx-1 leading-none select-none pointer-events-none",
-                  isDark ? "text-white/20" : "text-black/20",
-                )}
-              >
+              <span className="pointer-events-none mx-1 leading-none text-foreground-ghost select-none">
                 &middot;
               </span>
-              <span
-                className={cn(
-                  "leading-none select-none pointer-events-none",
-                  isDark ? "text-white/40" : "text-black/40",
-                )}
-              >
+              <span className="pointer-events-none leading-none text-foreground-subtle select-none">
                 y:
               </span>
-              <span
-                className={cn(
-                  "w-18 text-right leading-none select-none pointer-events-none",
-                  isDark ? "text-white/70" : "text-black/70",
-                )}
-              >
+              <span className="pointer-events-none w-18 text-right leading-none text-foreground-secondary select-none">
                 {formattedY}
               </span>
-              <span
-                className={cn(
-                  "text-[10px] leading-none select-none pointer-events-none",
-                  isDark ? "text-white/30" : "text-black/30",
-                )}
-              >
+              <span className="pointer-events-none text-[10px] leading-none text-foreground-faint select-none">
                 {unitInfo.unit}
               </span>
             </>
@@ -529,15 +450,13 @@ export function StatusBar({
         </div>
 
         {/* Center: status message > selection info > spacer — hidden on minimal */}
-        {!minimal && <CenterInfo isDark={isDark} />}
+        {!minimal && <CenterInfo />}
         {minimal && <div className="flex-1" />}
 
         {/* Right: Scale bar (inline) + toggles */}
         <div className="flex flex-shrink-0 items-center gap-2">
           {/* Scale bar — inline on full width only */}
-          {scaleBarInline && (
-            <ScaleBar isDark={isDark} widthInPixels={widthInPixels} label={scaleLabel} />
-          )}
+          {scaleBarInline && <ScaleBar widthInPixels={widthInPixels} label={scaleLabel} />}
 
           {/* Zen mode toggle */}
           <Tooltip label="Zen Mode" position="top">
@@ -545,15 +464,11 @@ export function StatusBar({
               onClick={toggleZenMode}
               className={cn(
                 "flex cursor-pointer items-center justify-center rounded p-0.5 transition-colors focus:outline-none",
-                isDark ? "hover:bg-white/10" : "hover:bg-black/10",
-                zenMode && (isDark ? "bg-white/10" : "bg-black/10"),
+                "hover:bg-theme-border",
+                zenMode && "bg-theme-border",
               )}
             >
-              <SystemRestart
-                width={14}
-                height={14}
-                className={cn(isDark ? "text-white/50" : "text-black/50")}
-              />
+              <SystemRestart width={14} height={14} className="text-foreground-muted" />
             </button>
           </Tooltip>
 
@@ -563,15 +478,11 @@ export function StatusBar({
               onClick={toggleMinimap}
               className={cn(
                 "flex cursor-pointer items-center justify-center rounded p-0.5 transition-colors focus:outline-none",
-                isDark ? "hover:bg-white/10" : "hover:bg-black/10",
-                !isMinimapMinimized && (isDark ? "bg-white/10" : "bg-black/10"),
+                "hover:bg-theme-border",
+                !isMinimapMinimized && "bg-theme-border",
               )}
             >
-              <Position
-                width={14}
-                height={14}
-                className={cn(isDark ? "text-white/50" : "text-black/50")}
-              />
+              <Position width={14} height={14} className="text-foreground-muted" />
             </button>
           </Tooltip>
         </div>
