@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useLayerStore } from "@/stores/layer";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { cn } from "@/lib/utils";
+import { useDocumentStore } from "@/stores/document";
 
 /**
  * Editable numeric field with label.
@@ -26,6 +27,8 @@ export function NumberField({
   onChange?: (value: number) => void;
   readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -92,7 +95,7 @@ export function NumberField({
       <span
         className={cn(
           "text-xs select-none",
-          readOnly
+          isReadOnly
             ? isDark
               ? "text-white/30"
               : "text-black/30"
@@ -104,7 +107,7 @@ export function NumberField({
         {label}
       </span>
       <div className="flex items-center gap-1">
-        {editing && !readOnly ? (
+        {editing && !isReadOnly ? (
           <input
             ref={inputRef}
             type="text"
@@ -124,20 +127,20 @@ export function NumberField({
           <button
             type="button"
             onClick={() => {
-              if (!readOnly && onChange) {
+              if (!isReadOnly && onChange) {
                 setEditValue(value);
                 setEditing(true);
               }
             }}
             onFocus={() => {
-              if (!readOnly && onChange) {
+              if (!isReadOnly && onChange) {
                 setEditValue(value);
                 setEditing(true);
               }
             }}
             className={cn(
               "w-20 rounded border border-transparent px-1.5 py-0.5 text-right font-mono text-xs outline-none transition-colors",
-              readOnly
+              isReadOnly
                 ? isDark
                   ? "text-white/30"
                   : "text-black/30"
@@ -145,7 +148,7 @@ export function NumberField({
                   ? "cursor-text text-white/90 hover:bg-white/5"
                   : "cursor-text text-black/90 hover:bg-black/5",
             )}
-            tabIndex={readOnly ? -1 : 0}
+            tabIndex={isReadOnly ? -1 : 0}
           >
             {value}
           </button>
@@ -154,7 +157,7 @@ export function NumberField({
           <span
             className={cn(
               "w-6 text-xs select-none",
-              readOnly
+              isReadOnly
                 ? isDark
                   ? "text-white/20"
                   : "text-black/20"
@@ -181,12 +184,16 @@ export function TextField({
   value,
   isDark,
   onChange,
+  readOnly,
 }: {
   label: string;
   value: string;
   isDark: boolean;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -248,7 +255,7 @@ export function TextField({
       <span className={cn("text-xs select-none", isDark ? "text-white/50" : "text-black/50")}>
         {label}
       </span>
-      {editing ? (
+      {editing && !isReadOnly ? (
         <input
           ref={inputRef}
           type="text"
@@ -267,15 +274,23 @@ export function TextField({
       ) : (
         <button
           type="button"
-          onClick={() => setEditing(true)}
-          onFocus={() => setEditing(true)}
+          onClick={() => {
+            if (!isReadOnly) setEditing(true);
+          }}
+          onFocus={() => {
+            if (!isReadOnly) setEditing(true);
+          }}
           className={cn(
             "w-32 truncate rounded border border-transparent px-1.5 py-0.5 text-right text-xs outline-none transition-colors",
-            isDark
-              ? "cursor-text text-white/90 hover:bg-white/5"
-              : "cursor-text text-black/90 hover:bg-black/5",
+            isReadOnly
+              ? isDark
+                ? "text-white/40"
+                : "text-black/40"
+              : isDark
+                ? "cursor-text text-white/90 hover:bg-white/5"
+                : "cursor-text text-black/90 hover:bg-black/5",
           )}
-          tabIndex={0}
+          tabIndex={isReadOnly ? -1 : 0}
         >
           {value}
         </button>
@@ -295,12 +310,16 @@ export function TextAreaField({
   value,
   isDark,
   onChange,
+  readOnly,
 }: {
   label: string;
   value: string;
   isDark: boolean;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -368,7 +387,7 @@ export function TextAreaField({
           {label}
         </span>
       </div>
-      {editing ? (
+      {editing && !isReadOnly ? (
         <textarea
           ref={textareaRef}
           value={editValue}
@@ -387,15 +406,23 @@ export function TextAreaField({
       ) : (
         <button
           type="button"
-          onClick={() => setEditing(true)}
-          onFocus={() => setEditing(true)}
+          onClick={() => {
+            if (!isReadOnly) setEditing(true);
+          }}
+          onFocus={() => {
+            if (!isReadOnly) setEditing(true);
+          }}
           className={cn(
             "w-full whitespace-pre-wrap rounded border border-transparent px-1.5 py-1 text-left font-mono text-xs leading-relaxed outline-none transition-colors",
-            isDark
-              ? "cursor-text text-white/90 hover:bg-white/5"
-              : "cursor-text text-black/90 hover:bg-black/5",
+            isReadOnly
+              ? isDark
+                ? "text-white/40"
+                : "text-black/40"
+              : isDark
+                ? "cursor-text text-white/90 hover:bg-white/5"
+                : "cursor-text text-black/90 hover:bg-black/5",
           )}
-          tabIndex={0}
+          tabIndex={isReadOnly ? -1 : 0}
         >
           {preview || <span className={isDark ? "text-white/30" : "text-black/30"}>Empty</span>}
         </button>
@@ -420,12 +447,16 @@ export function LayerSelector({
   currentDatatype,
   isDark,
   onChange,
+  readOnly,
 }: {
   currentLayer: number;
   currentDatatype: number;
   isDark: boolean;
   onChange: (layer: number, datatype: number) => void;
+  readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const layers = useLayerStore((s) => s.getAllLayers)();
 
   const [localValue, setLocalValue] = useState(`${currentLayer}:${currentDatatype}`);
@@ -449,6 +480,7 @@ export function LayerSelector({
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0, width: 0 });
 
   const open = useCallback(() => {
+    if (isReadOnly) return;
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
     setDropdownPos({
@@ -459,7 +491,7 @@ export function LayerSelector({
     const idx = layers.findIndex((l) => `${l.layerNumber}:${l.datatype}` === localValue);
     setHighlightIndex(idx >= 0 ? idx : 0);
     setIsOpen(true);
-  }, [layers, localValue]);
+  }, [isReadOnly, layers, localValue]);
 
   const close = useCallback(() => {
     setIsOpen(false);
@@ -551,10 +583,12 @@ export function LayerSelector({
       <button
         ref={triggerRef}
         type="button"
+        disabled={isReadOnly}
         onClick={() => (isOpen ? close() : open())}
         onKeyDown={handleTriggerKeyDown}
         className={cn(
           "flex max-w-36 items-center gap-1.5 rounded-lg border px-1.5 py-0.5 text-xs outline-none transition-colors",
+          isReadOnly && "cursor-default opacity-50",
           isDark
             ? "border-white/10 bg-white/5 text-white/90 hover:bg-white/10 focus-visible:border-white/40"
             : "border-black/10 bg-black/5 text-black/90 hover:bg-black/10 focus-visible:border-black/40",

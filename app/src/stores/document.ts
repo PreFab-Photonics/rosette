@@ -10,9 +10,32 @@
 
 import { create } from "zustand";
 
+export interface DocumentSource {
+  /** Source representation served by the live preview process. */
+  kind: string;
+  /** Display-safe source path supplied by the server. */
+  path: string | null;
+  /** Python design target, when applicable. */
+  target?: string | null;
+}
+
+export type DocumentBacking = { kind: "document" } | { kind: "source"; source: DocumentSource };
+
 interface DocumentState {
+  /** Representation that currently owns the layout. */
+  backing: DocumentBacking;
+
+  /** Whether a design-mode remount may reconnect to the live source. */
+  liveUpdatesEnabled: boolean;
+
   /** Whether the document has unsaved changes. */
   isDirty: boolean;
+
+  /** Mark the current layout as externally source-backed and read-only. */
+  setSource: (source: DocumentSource) => void;
+
+  /** Make the current layout an app-owned editable document. */
+  setDocument: () => void;
 
   /** Mark the document as having unsaved changes. */
   markDirty: () => void;
@@ -22,11 +45,21 @@ interface DocumentState {
 }
 
 export const useDocumentStore = create<DocumentState>((set) => ({
+  backing: { kind: "document" },
+  liveUpdatesEnabled: true,
   isDirty: false,
 
+  setSource: (source) =>
+    set({ backing: { kind: "source", source }, liveUpdatesEnabled: true, isDirty: false }),
+  setDocument: () => set({ backing: { kind: "document" }, liveUpdatesEnabled: false }),
   markDirty: () => set({ isDirty: true }),
   markClean: () => set({ isDirty: false }),
 }));
+
+/** Read the authority state outside React components. */
+export function isSourceBacked(): boolean {
+  return useDocumentStore.getState().backing.kind === "source";
+}
 
 /**
  * Sync dirty state changes to the active tab.

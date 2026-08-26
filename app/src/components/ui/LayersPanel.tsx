@@ -12,6 +12,7 @@ import { useWasmContextStore } from "@/stores/wasm-context";
 import { useUIStore } from "@/stores/ui";
 import { useStatusMessageStore } from "@/stores/status-message";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
+import { useDocumentStore } from "@/stores/document";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { useInlineRename } from "@/hooks/use-inline-rename";
 import { useRovingRows } from "@/hooks/use-roving-rows";
@@ -702,6 +703,7 @@ function LayerRow({
   onRestoreRowFocus: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
   const library = useWasmContextStore((s) => s.library);
   const renderer = useWasmContextStore((s) => s.renderer);
 
@@ -729,12 +731,12 @@ function LayerRow({
 
   // Enter edit mode when triggered externally (e.g., from context menu "Rename")
   useEffect(() => {
-    if (startEditing) {
+    if (startEditing && !sourceBacked) {
       setIsEditing(true);
       // Clear the editing signal
       useLayerStore.getState().setEditingLayerId(null);
     }
-  }, [startEditing]);
+  }, [sourceBacked, startEditing]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -752,10 +754,11 @@ function LayerRow({
       e.stopPropagation();
       onRowFocus();
       onSelect();
+      if (sourceBacked) return;
       onToggleExpand();
       if (isExpanded) requestAnimationFrame(onRestoreRowFocus);
     },
-    [isExpanded, onRestoreRowFocus, onRowFocus, onSelect, onToggleExpand],
+    [isExpanded, onRestoreRowFocus, onSelect, onRowFocus, onToggleExpand, sourceBacked],
   );
 
   const handleSwatchMouseDown = useCallback(
@@ -799,7 +802,7 @@ function LayerRow({
           onClick={onSelect}
           onDoubleClick={(event) => {
             event.stopPropagation();
-            setIsEditing(true);
+            if (!sourceBacked) setIsEditing(true);
           }}
           onFocus={onRowFocus}
           onKeyDown={onRowKeyDown}
@@ -813,8 +816,10 @@ function LayerRow({
         <button
           type="button"
           aria-label={`Edit layer color (${layer.color})`}
+          disabled={sourceBacked}
           className={cn(
-            "relative z-10 h-4.5 w-4.5 flex-shrink-0 cursor-pointer rounded border outline-none transition-shadow",
+            "relative z-10 h-4.5 w-4.5 flex-shrink-0 rounded border outline-none transition-shadow",
+            sourceBacked ? "cursor-default" : "cursor-pointer",
             isDark
               ? "border-white/10 hover:border-white/30"
               : "border-black/10 hover:border-black/30",
@@ -902,6 +907,7 @@ export function LayersPanel() {
   const focusedLayerId = useLayerStore((s) => s.focusedLayerId);
   const setFocused = useLayerStore((s) => s.setFocused);
   const setFocusedLayerId = useLayerStore((s) => s.setFocusedLayerId);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
 
   // Claim keyboard focus when Layers panel is keyboard-navigating
   useKeyboardFocus("layers-panel", isFocused);
@@ -982,10 +988,12 @@ export function LayersPanel() {
         setActiveLayer(layerId);
       } else if (event.key === "Enter") {
         event.preventDefault();
+        if (sourceBacked) return;
         const current = useLayerStore.getState().expandedLayerId;
         setExpandedLayerId(current === layerId ? null : layerId);
       } else if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
+        if (sourceBacked) return;
         const allLayers = useLayerStore.getState().getAllLayers();
         const nextFocus = getAdjacentKeyAfterRemoval(
           allLayers.map((layer) => layer.id),
@@ -1014,7 +1022,14 @@ export function LayersPanel() {
         }
       }
     },
-    [handleNavigationKeyDown, setActiveLayer, setExpandedLayerId, setFocused, setFocusedLayerId],
+    [
+      handleNavigationKeyDown,
+      setActiveLayer,
+      setExpandedLayerId,
+      setFocused,
+      setFocusedLayerId,
+      sourceBacked,
+    ],
   );
 
   return (

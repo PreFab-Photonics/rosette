@@ -34,6 +34,7 @@ import { useRulerStore } from "@/stores/ruler";
 import { useClipboardStore } from "@/stores/clipboard";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useDocumentStore } from "@/stores/document";
+import type { DocumentBacking } from "@/stores/document";
 
 // =============================================================================
 // Types
@@ -122,6 +123,8 @@ export interface TabSnapshot {
   // Document dirty state
   document: {
     isDirty: boolean;
+    backing: DocumentBacking;
+    liveUpdatesEnabled: boolean;
   };
 }
 
@@ -301,6 +304,8 @@ export function saveTabSnapshot(tabId: string): void {
     },
     document: {
       isDirty: document.isDirty,
+      backing: document.backing,
+      liveUpdatesEnabled: document.liveUpdatesEnabled,
     },
   };
 
@@ -408,6 +413,8 @@ export function restoreTabSnapshot(tabId: string): void {
   // Restore document dirty state
   useDocumentStore.setState({
     isDirty: snapshot.document.isDirty,
+    backing: snapshot.document.backing,
+    liveUpdatesEnabled: snapshot.document.liveUpdatesEnabled,
   });
 
   // Restore WASM library reference
@@ -519,6 +526,8 @@ function createDefaultSnapshot(): TabSnapshot {
     },
     document: {
       isDirty: false,
+      backing: { kind: "document" },
+      liveUpdatesEnabled: false,
     },
   };
 }

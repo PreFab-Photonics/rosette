@@ -46,6 +46,7 @@ import { useArrayDialogStore } from "@/stores/array-dialog";
 import { useGoToDialogStore } from "@/stores/goto-dialog";
 import { useAreaDialogStore } from "@/stores/area-dialog";
 import { pickAndInsertImage } from "@/lib/image-ops";
+import { useDocumentStore } from "@/stores/document";
 import {
   keys,
   getAllImageIds,
@@ -95,6 +96,42 @@ export interface CommandItem {
   searchableText: string;
   /** Optional color swatch (hex string, e.g. "#ff69b4"). */
   color?: string;
+  /** Whether the command is currently unavailable. */
+  disabled?: boolean;
+}
+
+function isAvailableForSource(id: string): boolean {
+  return (
+    id === "file-new" ||
+    id === "file-open" ||
+    id === "file-save" ||
+    id === "file-export-gds" ||
+    id === "source-edit-copy" ||
+    id.startsWith("file-screenshot") ||
+    id.startsWith("theme-") ||
+    id.startsWith("view-") ||
+    id === "tool-select" ||
+    id === "tool-laser" ||
+    id === "tool-pan" ||
+    id === "tool-zoom" ||
+    id.startsWith("tool-ruler") ||
+    id.startsWith("ruler-") ||
+    id === "edit-undo" ||
+    id === "edit-redo" ||
+    id === "edit-copy" ||
+    id === "edit-edit-selection" ||
+    id === "edit-select-all" ||
+    id.startsWith("layer-toggle-visibility") ||
+    id === "layer-show-all" ||
+    id === "layer-hide-all" ||
+    id.startsWith("layer-activate-") ||
+    id.startsWith("cell-toggle-visibility") ||
+    id === "cell-show-all" ||
+    id === "cell-hide-all" ||
+    id === "cell-toggle-flat-list" ||
+    id.startsWith("cell-activate-") ||
+    id.startsWith("hierarchy-")
+  );
 }
 
 // =============================================================================
@@ -111,6 +148,7 @@ export function getCommands(): CommandItem[] {
   const { setThemeSetting } = useUIStore.getState();
   const { close } = useCommandPaletteStore.getState();
   const { setTool } = useToolStore.getState();
+  const sourceBacked = useDocumentStore.getState().backing.kind === "source";
 
   const commands: CommandItem[] = [
     // =========================================================================
@@ -153,7 +191,7 @@ export function getCommands(): CommandItem[] {
         {
           id: "file-save",
           type: "command" as CommandType,
-          name: "File: Save",
+          name: sourceBacked ? "File: Export GDS" : "File: Save GDS",
           shortcut: { modifiers: [keys.mod], key: "S" },
           action: async () => {
             close();
@@ -162,20 +200,54 @@ export function getCommands(): CommandItem[] {
           },
           searchableText: "File save gds export write",
         },
-        {
-          id: "file-save-as",
-          type: "command" as CommandType,
-          name: "File: Save As",
-          shortcut: { modifiers: [keys.mod, "⇧"], key: "S" },
-          action: async () => {
-            close();
-            const { handleSave } = await import("@/lib/file-ops");
-            await handleSave(true);
-          },
-          searchableText: "File save as gds export write new",
-        },
+        ...(!sourceBacked
+          ? [
+              {
+                id: "file-save-as",
+                type: "command" as CommandType,
+                name: "File: Save GDS As",
+                shortcut: { modifiers: [keys.mod, "⇧"], key: "S" },
+                action: async () => {
+                  close();
+                  const { handleSave } = await import("@/lib/file-ops");
+                  await handleSave(true);
+                },
+                searchableText: "File save as gds export write new",
+              },
+            ]
+          : []),
       ] satisfies CommandItem[];
     })(),
+    ...(!("__TAURI__" in window)
+      ? [
+          {
+            id: "file-export-gds",
+            type: "command" as CommandType,
+            name: "File: Export GDS",
+            action: async () => {
+              close();
+              const { handleExportGds } = await import("@/lib/file-ops");
+              await handleExportGds();
+            },
+            searchableText: "File export gds download layout geometry",
+          },
+        ]
+      : []),
+    ...(sourceBacked
+      ? [
+          {
+            id: "source-edit-copy",
+            type: "command" as CommandType,
+            name: "File: Edit a Copy",
+            action: async () => {
+              close();
+              const { handleEditCopy } = await import("@/lib/file-ops");
+              handleEditCopy();
+            },
+            searchableText: "File edit copy detach source python editable document",
+          },
+        ]
+      : []),
 
     // =========================================================================
     // Screenshot (works in both Tauri and browser)
@@ -1316,7 +1388,11 @@ export function getCommands(): CommandItem[] {
     ...makeAlignCommands(close),
   ];
 
-  return commands;
+  if (!sourceBacked) return commands;
+  return commands.map((command) => ({
+    ...command,
+    disabled: !isAvailableForSource(command.id),
+  }));
 }
 
 // =============================================================================

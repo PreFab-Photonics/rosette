@@ -13,6 +13,8 @@ import { SCALE_BAR_TARGET_PIXELS, SCALE_BAR_MAX_WIDTH, NICE_NUMBERS } from "@/li
 import { cn, zoomToFitAll } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Position, SystemRestart } from "iconoir-react";
+import { useDocumentStore } from "@/stores/document";
+import { handleEditCopy } from "@/lib/file-ops";
 
 // =============================================================================
 // Scale calculation (from ScaleDisplay)
@@ -381,6 +383,55 @@ function ScaleBar({
   );
 }
 
+/** Persistent authority indicator for live sources and app-owned documents. */
+function BackingBadge({ isDark, minimal }: { isDark: boolean; minimal: boolean }) {
+  const backing = useDocumentStore((state) => state.backing);
+
+  if (backing.kind === "document") {
+    return null;
+  }
+
+  const sourceLabel =
+    backing.source.kind === "python"
+      ? "Python source"
+      : backing.source.kind === "gds"
+        ? "GDS source"
+        : "Source";
+  return (
+    <div className="flex h-4 items-center gap-1.5 leading-none">
+      <Tooltip
+        label={
+          backing.source.path
+            ? `Read-only live preview from ${backing.source.path}`
+            : "Read-only live source preview"
+        }
+        position="top"
+      >
+        <span
+          className={cn(
+            "inline-flex h-4 items-center text-[10px] leading-none select-none",
+            isDark ? "text-sky-300/70" : "text-sky-700/80",
+          )}
+        >
+          {sourceLabel}
+        </span>
+      </Tooltip>
+      <button
+        type="button"
+        onClick={handleEditCopy}
+        className={cn(
+          "inline-flex h-4 items-center rounded border px-1.5 text-[10px] leading-none transition-colors focus:outline-none",
+          isDark
+            ? "border-white/15 text-white/70 hover:bg-white/10"
+            : "border-black/15 text-black/70 hover:bg-black/10",
+        )}
+      >
+        {minimal ? "Edit copy" : "Edit a copy"}
+      </button>
+    </div>
+  );
+}
+
 /**
  * Status bar at the bottom of the application.
  *
@@ -538,6 +589,9 @@ export function StatusBar({
           {scaleBarInline && (
             <ScaleBar isDark={isDark} widthInPixels={widthInPixels} label={scaleLabel} />
           )}
+
+          {/* Keep document authority to the right of the variable-width scale bar. */}
+          <BackingBadge isDark={isDark} minimal={minimal} />
 
           {/* Zen mode toggle */}
           <Tooltip label="Zen Mode" position="top">

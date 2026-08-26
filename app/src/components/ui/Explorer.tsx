@@ -18,6 +18,7 @@ import { findFocusedRowIndex, focusedItemForRow, projectExplorerRows } from "./e
 import { HamburgerMenu } from "./explorer/HamburgerMenu";
 import { CellRow, cellRowDomId } from "./explorer/CellTree";
 import { TabList } from "./explorer/TabList";
+import { useDocumentStore } from "@/stores/document";
 
 const CONTAINED_EXPLORER_KEYS = new Set([
   "ArrowDown",
@@ -151,6 +152,7 @@ export function Explorer() {
   const focusedItem = useExplorerStore((s) => s.focusedItem);
   const setFocused = useExplorerStore((s) => s.setFocused);
   const setFocusedItem = useExplorerStore((s) => s.setFocusedItem);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
   const tabs = useTabsStore((s) => s.tabs);
   const [isCellFilterOpen, setIsCellFilterOpen] = useState(false);
   const [cellFilter, setCellFilter] = useState("");
@@ -575,13 +577,13 @@ export function Explorer() {
           e.preventDefault();
           if (currentRow?.type === "tab") {
             activateCurrentRow();
-          } else if (currentRow?.type === "cell") {
+          } else if (currentRow?.type === "cell" && !sourceBacked) {
             useExplorerStore.getState().setEditingCell(currentRow.occurrenceId, currentRow.name);
           }
           return;
         case "F2":
           e.preventDefault();
-          if (currentRow?.type === "cell") {
+          if (currentRow?.type === "cell" && !sourceBacked) {
             useExplorerStore.getState().setEditingCell(currentRow.occurrenceId, currentRow.name);
           }
           return;
@@ -611,6 +613,7 @@ export function Explorer() {
             }, 0);
             return;
           }
+          if (sourceBacked) return;
           if (state.cells.length <= 1) return;
           const { library, renderer } = useWasmContextStore.getState();
           if (!library || !renderer) return;
@@ -665,6 +668,7 @@ export function Explorer() {
       setActiveCell,
       setFocused,
       setFocusedItem,
+      sourceBacked,
       toggleExpanded,
     ],
   );
@@ -762,13 +766,17 @@ export function Explorer() {
               <button
                 type="button"
                 aria-label="Rename project"
+                disabled={sourceBacked}
                 className={cn(
-                  "absolute inset-0 cursor-text truncate border-0 bg-transparent p-0 text-left text-xs font-medium leading-5 select-none focus:outline-none",
+                  "absolute inset-0 truncate border-0 bg-transparent p-0 text-left text-xs font-medium leading-5 select-none focus:outline-none",
+                  sourceBacked ? "cursor-default" : "cursor-text",
                   isDark ? "text-white/60" : "text-black/60",
                 )}
                 onClick={() => {
-                  setEditValue(projectName);
-                  setIsEditing(true);
+                  if (!sourceBacked) {
+                    setEditValue(projectName);
+                    setIsEditing(true);
+                  }
                 }}
               >
                 {projectName}
@@ -1009,9 +1017,11 @@ export function Explorer() {
                 }
               }}
               startEditing={
-                editingCellName === row.name && editingCellOccurrenceId === row.occurrenceId
+                !sourceBacked &&
+                editingCellName === row.name &&
+                editingCellOccurrenceId === row.occurrenceId
               }
-              canDrag={row.name !== activeCell}
+              canDrag={!sourceBacked && row.name !== activeCell}
               filterQuery={filterQuery}
               moveDomFocusOnFocus={!isCellFilterOpen}
               isActionTabStop={

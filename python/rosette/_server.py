@@ -16,9 +16,16 @@ import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 log = logging.getLogger("rosette.server")
+
+_TRUSTED_NATIVE_ORIGINS = {
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+}
+_VIEWER_PROTOCOL = 1
 
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -50,6 +57,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
     design_cells: dict[str, object] | None = None  # Hierarchy tree: {name, children}
     design_layers: list[dict[str, object]] | None = None  # Layer definitions from rosette.toml
     design_filename: str | None = None  # Source filename (e.g., "layout.py" or "mmi.gds")
+    design_source: dict[str, object] | None = None  # Authoritative external source, if any
     design_drc: dict[str, object] | None = (
         None  # DRC result: {violations, error_count, ...} or None
     )
@@ -64,13 +72,46 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def send_cors_headers(self) -> None:
-        """Send CORS headers for local development."""
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        """Allow API reads from the bundled native viewer only."""
+        origin = self.headers.get("Origin")
+        if origin is not None and self.request_origin_allowed():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def request_origin_allowed(self) -> bool:
+        """Reject browser cross-origin API reads outside the native viewer."""
+        origin = self.headers.get("Origin")
+        if origin is None or origin in _TRUSTED_NATIVE_ORIGINS:
+            return True
+        parsed = urlparse(origin)
+        host = self.headers.get("Host")
+        return (
+            parsed.scheme == "http"
+            and parsed.netloc == host
+            and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        )
+
+    @classmethod
+    def design_payload(cls) -> dict[str, object]:
+        """Build the current design envelope shared by GET and SSE."""
+        return {
+            "viewerProtocol": _VIEWER_PROTOCOL,
+            "version": cls.design_version,
+            "json": cls.design_json,
+            "cells": cls.design_cells,
+            "layers": cls.design_layers,
+            "filename": cls.design_filename,
+            "source": cls.design_source,
+            "drc": cls.design_drc,
+        }
 
     def do_OPTIONS(self) -> None:
         """Handle CORS preflight requests."""
+        if not self.request_origin_allowed():
+            self.send_error(403, "Forbidden origin")
+            return
         self.send_response(200)
         self.send_cors_headers()
         self.end_headers()
@@ -80,8 +121,16 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        if path.startswith("/api/") and not self.request_origin_allowed():
+            self.send_error(403, "Forbidden origin")
+            return
+
         # SSE endpoint for live design updates
         if path == "/api/design/events":
+            protocol = parse_qs(parsed.query).get("viewerProtocol")
+            if protocol != [str(_VIEWER_PROTOCOL)]:
+                self.send_error(409, "Incompatible viewer protocol")
+                return
             self.handle_design_events()
             return
 
@@ -113,14 +162,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
         last_version = self.__class__.design_version
         self._send_sse_event(
             "design",
-            {
-                "version": last_version,
-                "json": self.__class__.design_json,
-                "cells": self.__class__.design_cells,
-                "layers": self.__class__.design_layers,
-                "filename": self.__class__.design_filename,
-                "drc": self.__class__.design_drc,
-            },
+            self.__class__.design_payload(),
         )
 
         try:
@@ -135,14 +177,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
                     # Design changed - send update
                     self._send_sse_event(
                         "design",
-                        {
-                            "version": current_version,
-                            "json": self.__class__.design_json,
-                            "cells": self.__class__.design_cells,
-                            "layers": self.__class__.design_layers,
-                            "filename": self.__class__.design_filename,
-                            "drc": self.__class__.design_drc,
-                        },
+                        self.__class__.design_payload(),
                     )
                     last_version = current_version
                 else:
@@ -162,14 +197,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
 
     def handle_design_api(self) -> None:
         """Handle /api/design endpoint (legacy polling, kept for compatibility)."""
-        response = {
-            "version": self.__class__.design_version,
-            "json": self.__class__.design_json,
-            "cells": self.__class__.design_cells,
-            "layers": self.__class__.design_layers,
-            "filename": self.__class__.design_filename,
-            "drc": self.__class__.design_drc,
-        }
+        response = self.__class__.design_payload()
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -258,6 +286,7 @@ class RosetteServer:
         cells: dict[str, object] | None = None,
         layers: list[dict[str, object]] | None = None,
         filename: str | None = None,
+        source: dict[str, object] | None = None,
         drc: dict[str, object] | None = None,
     ) -> None:
         """Update the design JSON and increment version.
@@ -268,6 +297,8 @@ class RosetteServer:
             cells: Optional cell hierarchy tree: {name, children}
             layers: Optional viewer layer definitions derived from rosette.toml
             filename: Optional source filename (e.g., "layout.py" or "mmi.gds")
+            source: Optional description of the authoritative external source.
+                A null value means the app document is authoritative.
             drc: Optional DRC result dict (violations + counts), or None when DRC
                 is not configured.
         """
@@ -275,6 +306,7 @@ class RosetteServer:
         RosetteHandler.design_cells = cells
         RosetteHandler.design_layers = layers
         RosetteHandler.design_filename = filename
+        RosetteHandler.design_source = source
         RosetteHandler.design_drc = drc
         RosetteHandler.design_version += 1
 
@@ -294,35 +326,17 @@ class RosetteServer:
         # Configure handler
         RosetteHandler.webapp_dir = self.webapp_dir
 
-        with ThreadingTCPServer(("", self.port), RosetteHandler) as httpd:
+        with ThreadingTCPServer(("127.0.0.1", self.port), RosetteHandler) as httpd:
             self._httpd = httpd
             httpd.serve_forever()
 
     def _is_port_available(self, port: int) -> bool:
-        """Check if a port is available on both IPv4 and IPv6."""
-        # Check IPv4
+        """Check if a port is available on the loopback interface."""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(("127.0.0.1", port))
         except OSError:
             return False
-
-        # Check IPv6 (if available)
-        try:
-            with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
-                s.bind(("::1", port))
-        except OSError:
-            # Could be IPv6 not available, or port in use
-            # Try to distinguish by checking if IPv6 is supported
-            try:
-                with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
-                    s.bind(("::1", 0))  # Bind to any port
-                # IPv6 works, so port must be in use
-                return False
-            except OSError:
-                # IPv6 not available on this system, that's fine
-                pass
-
         return True
 
     def find_available_port(self, max_attempts: int = 10) -> int:

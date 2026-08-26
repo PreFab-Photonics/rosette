@@ -76,10 +76,13 @@ export async function pickGdsFile(): Promise<string | null> {
 }
 
 /** Open a native save dialog for GDS files. Returns the path or null. */
-export async function pickSaveFile(defaultPath?: string): Promise<string | null> {
+export async function pickSaveFile(
+  defaultPath?: string,
+  title = "Save GDS File",
+): Promise<string | null> {
   const { save } = await import("@tauri-apps/plugin-dialog");
   const result = await save({
-    title: "Save GDS File",
+    title,
     filters: [
       {
         name: "GDS Files",

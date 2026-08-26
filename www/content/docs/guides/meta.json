@@ -6,6 +6,7 @@
     "cells-and-hierarchy",
     "project-configuration",
     "design-rule-checking",
+    "editing-and-persistence",
     "agent-workflows",
     "snapshots"
   ]

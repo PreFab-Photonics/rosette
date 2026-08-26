@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { isSourceBacked } from "@/stores/document";
+import { useStatusMessageStore } from "@/stores/status-message";
 
 /**
  * Available tool types.
@@ -34,6 +36,17 @@ export function isRulerTool(tool: ToolType): boolean {
   );
 }
 
+/** True when a tool can mutate layout geometry. */
+export function isModelEditingTool(tool: ToolType): boolean {
+  return (
+    tool === "rectangle" ||
+    tool === "move" ||
+    tool === "polygon" ||
+    tool === "path" ||
+    tool === "text"
+  );
+}
+
 /**
  * Tool state for managing the active drawing/interaction tool.
  */
@@ -51,5 +64,13 @@ export const useToolStore = create<ToolState>((set) => ({
   activeTool: "select",
   toolSetAt: 0,
 
-  setTool: (tool) => set({ activeTool: tool, toolSetAt: Date.now() }),
+  setTool: (tool) => {
+    if (isSourceBacked() && isModelEditingTool(tool)) {
+      useStatusMessageStore
+        .getState()
+        .show("Live source previews are read-only. Choose Edit a copy to make changes.", "warn");
+      return;
+    }
+    set({ activeTool: tool, toolSetAt: Date.now() });
+  },
 }));

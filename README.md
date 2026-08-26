@@ -77,7 +77,8 @@ options are covered in the
 - **Verification:** Checks for design rules, connectivity, and other layout
   constraints, with results both humans and agents can act on.
 - **Visual inspection:** A local viewer with GPU rendering, hierarchy and layer
-  controls, and hot reload for inspecting an entire design or a specific region.
+  controls, and read-only hot reload for inspecting an entire design or a specific
+  region. Served Python remains authoritative unless you explicitly edit a detached copy.
 - **Open foundations:** The Rust core, Python package, CLI, and viewer are all in
   this repository and licensed under MIT.
 

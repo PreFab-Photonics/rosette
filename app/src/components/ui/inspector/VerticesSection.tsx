@@ -3,6 +3,7 @@ import { type UnitInfo, formatCoordinate } from "@/lib/format";
 import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
 import { NumberField, SectionHeader } from "./fields";
+import { useDocumentStore } from "@/stores/document";
 
 /**
  * A single vertex group with a header (index + remove) and X/Y NumberField rows.
@@ -33,6 +34,8 @@ export function VertexRow({
   onRemove: () => void;
   readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   return (
     <div data-vertex-row>
       {/* Vertex header: index label + remove button */}
@@ -45,7 +48,7 @@ export function VertexRow({
         >
           V{index}
         </span>
-        {!readOnly && (
+        {!isReadOnly && (
           <button
             type="button"
             aria-label="Remove vertex"
@@ -83,7 +86,7 @@ export function VertexRow({
         unit={unit}
         isDark={isDark}
         onChange={onChangeX}
-        readOnly={readOnly}
+        readOnly={isReadOnly}
       />
       <NumberField
         label="Y"
@@ -91,7 +94,7 @@ export function VertexRow({
         unit={unit}
         isDark={isDark}
         onChange={onChangeY}
-        readOnly={readOnly}
+        readOnly={isReadOnly}
       />
     </div>
   );
@@ -122,6 +125,8 @@ export function VerticesSection({
   readOnly?: boolean;
   label?: string;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const vertexCount = vertices.length / 2;
   const canRemove = vertexCount > 3;
 
@@ -202,7 +207,7 @@ export function VerticesSection({
         onChangeX={(v) => onChangeVertex(i, "x", v)}
         onChangeY={(v) => onChangeVertex(i, "y", v)}
         onRemove={() => onRemoveVertex(i)}
-        readOnly={readOnly}
+        readOnly={isReadOnly}
       />,
     );
   }
@@ -213,7 +218,7 @@ export function VerticesSection({
       <div ref={scrollRef} className="flex max-h-48 flex-col overflow-y-auto">
         {rows}
       </div>
-      {!readOnly && (
+      {!isReadOnly && (
         <div className="px-3 pt-1">
           <button
             type="button"

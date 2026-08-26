@@ -56,6 +56,9 @@ interface HistoryState {
    */
   clear: () => void;
 
+  /** Drop commands tied to a replaceable layout while retaining measurements. */
+  discardModelCommands: () => void;
+
   /**
    * Push a command to the undo stack without executing it.
    *
@@ -75,6 +78,13 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   canRedo: false,
 
   execute: (command, ctx) => {
+    if (useDocumentStore.getState().backing.kind === "source" && command.scope !== "measurement") {
+      useStatusMessageStore
+        .getState()
+        .show("Live source previews are read-only. Choose Edit a copy to make changes.", "warn");
+      return;
+    }
+
     // Execute the command — if it throws (e.g., validation error from
     // WASM), show the error in the status bar and skip adding to history.
     try {
@@ -86,7 +96,9 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
 
     // Notify overlays (e.g., instance labels) that library state changed.
     useWasmContextStore.getState().bumpSyncGeneration();
-    useDocumentStore.getState().markDirty();
+    if (command.scope !== "measurement") {
+      useDocumentStore.getState().markDirty();
+    }
 
     set((state) => {
       // Add to undo stack, respecting max depth
@@ -110,6 +122,9 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
 
     // Pop the last command
     const command = undoStack[undoStack.length - 1];
+    if (useDocumentStore.getState().backing.kind === "source" && command.scope !== "measurement") {
+      return;
+    }
 
     // Undo it — catch errors to avoid corrupting the stack.
     try {
@@ -119,7 +134,9 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       return;
     }
     useWasmContextStore.getState().bumpSyncGeneration();
-    useDocumentStore.getState().markDirty();
+    if (command.scope !== "measurement") {
+      useDocumentStore.getState().markDirty();
+    }
 
     set((state) => {
       const newUndoStack = state.undoStack.slice(0, -1);
@@ -140,6 +157,9 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
 
     // Pop the last undone command
     const command = redoStack[redoStack.length - 1];
+    if (useDocumentStore.getState().backing.kind === "source" && command.scope !== "measurement") {
+      return;
+    }
 
     // Re-execute it — catch errors to avoid corrupting the stack.
     try {
@@ -149,7 +169,9 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       return;
     }
     useWasmContextStore.getState().bumpSyncGeneration();
-    useDocumentStore.getState().markDirty();
+    if (command.scope !== "measurement") {
+      useDocumentStore.getState().markDirty();
+    }
 
     set((state) => {
       const newRedoStack = state.redoStack.slice(0, -1);
@@ -173,8 +195,29 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     });
   },
 
+  discardModelCommands: () => {
+    set((state) => {
+      const undoStack = state.undoStack.filter((command) => command.scope === "measurement");
+      const redoStack = state.redoStack.filter((command) => command.scope === "measurement");
+      return {
+        undoStack,
+        redoStack,
+        canUndo: undoStack.length > 0,
+        canRedo: redoStack.length > 0,
+      };
+    });
+  },
+
   pushCommand: (command) => {
-    useDocumentStore.getState().markDirty();
+    if (useDocumentStore.getState().backing.kind === "source" && command.scope !== "measurement") {
+      useStatusMessageStore
+        .getState()
+        .show("Live source previews are read-only. Choose Edit a copy to make changes.", "warn");
+      return;
+    }
+    if (command.scope !== "measurement") {
+      useDocumentStore.getState().markDirty();
+    }
     set((state) => {
       // Add to undo stack, respecting max depth
       const newUndoStack = [...state.undoStack, command];

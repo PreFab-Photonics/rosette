@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 _LAYOUT_FORMAT = "rosette-layout"
 _LAYOUT_SCHEMA = 1
+_SERVER_CONTEXT_MARKER = b"--server-url"
 
 # =============================================================================
 # Design serialization helpers
@@ -419,12 +420,30 @@ class _PidHandle:
         raise subprocess.TimeoutExpired(cmd="rosette-desktop", timeout=timeout)
 
 
+def _native_viewer_args(server_url: str, design_mode: bool) -> list[str]:
+    """Build cross-platform desktop arguments for a local design server."""
+    # Keep the v1 flag for desktop builds released during the transport
+    # transition; current builds accept the server URL with or without it.
+    args = ["--rosette-server-context-v1", "--server-url", server_url]
+    if design_mode:
+        args.append("--design-mode")
+    return args
+
+
+def _supports_server_context(binary: Path) -> bool:
+    """Check that a desktop binary understands the trusted server transport."""
+    try:
+        return _SERVER_CONTEXT_MARKER in binary.read_bytes()
+    except OSError:
+        return False
+
+
 def _launch_tauri(
     url: str, allow_build: bool = False, design_mode: bool = True
 ) -> subprocess.Popen[bytes] | _PidHandle | None:
-    """Launch the Tauri desktop app pointing at the given URL.
+    """Launch the Tauri desktop app connected to a local design server.
 
-    On macOS, prefers the installed Rosette.app bundle (via ``open -a``)
+    On macOS, prefers the installed Rosette.app bundle (via ``open -n -a``)
     so the Dock shows the correct icon and app identity. Falls back to
     a raw binary from target/, then to ``cargo run`` when *allow_build*
     is True (explicit ``--native`` flag), since building from source
@@ -432,31 +451,35 @@ def _launch_tauri(
 
     Returns the subprocess handle, or None on failure.
     """
-    target_url = f"{url}?design=true" if design_mode and "?" not in url else url
+    native_args = _native_viewer_args(url, design_mode)
 
     # On macOS, prefer the installed .app bundle so the Dock shows the
     # correct icon and app identity instead of a generic "exec" icon.
-    # Use ``open -a`` so macOS properly associates the process with the
+    # Use ``open -n -a`` so macOS gives this server its own app process with
     # .app bundle (correct Dock icon, app name, and focus behavior).
     installed_app = _find_installed_app()
     if installed_app:
         # The inner binary name comes from the Cargo package name
         # (rosette-desktop), not the Tauri productName (Rosette).
         inner_binary = installed_app / "Contents" / "MacOS" / "rosette-desktop"
-        if inner_binary.exists() and inner_binary.is_file():
+        if (
+            inner_binary.exists()
+            and inner_binary.is_file()
+            and _supports_server_context(inner_binary)
+        ):
             try:
-                # Launch via ``open -a`` so macOS shows the correct Dock
-                # icon, then find the actual app PID for cleanup.
+                # Always launch a new instance so this serve process owns a
+                # window with the correct server context and can clean it up.
                 pids_before = _pgrep("rosette-desktop")
 
                 subprocess.run(
                     [
                         "open",
+                        "-n",
                         "-a",
                         str(installed_app),
                         "--args",
-                        "--url",
-                        target_url,
+                        *native_args,
                     ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -468,25 +491,26 @@ def _launch_tauri(
                 # Retry briefly to give it time to start.
                 import time
 
-                for _ in range(10):  # up to ~1s
+                for _ in range(100):  # up to ~10s
                     time.sleep(0.1)
                     pids_after = _pgrep("rosette-desktop")
                     new_pids = pids_after - pids_before
                     if new_pids:
                         return _PidHandle(new_pids.pop())
 
-                # App launched but couldn't identify new PID (may have reused
-                # an existing instance). Return a no-op handle.
+                # `open` already accepted the launch. Avoid also opening a
+                # browser if process discovery is unusually slow; cleanup is
+                # best-effort when the app PID is unavailable.
                 return _PidHandle(None)
             except (OSError, subprocess.CalledProcessError):
                 pass  # Failed to launch via open, try raw binary
 
     # Try pre-built binary (instant startup)
     binary = _find_tauri_binary()
-    if binary:
+    if binary and _supports_server_context(binary):
         try:
             proc = subprocess.Popen(
-                [str(binary), "--url", target_url],
+                [str(binary), *native_args],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -516,8 +540,7 @@ def _launch_tauri(
                 "-p",
                 "rosette-desktop",
                 "--",
-                "--url",
-                target_url,
+                *native_args,
             ],
             cwd=str(tauri_dir.parent.parent),  # workspace root
         )
@@ -539,7 +562,7 @@ def _open_viewer(
 
     Returns the Tauri process handle, or None if browser was used.
     """
-    browser_url = f"{url}?design=true" if design_mode else url
+    browser_url = f"{url}/preview" if design_mode else url
     status = f"{url}  |  {label}  |  " if label else f"{url}  |  "
 
     if use_native:
@@ -612,7 +635,8 @@ def serve_design(
 
         drc_cache = DrcCache()
 
-        cell, file_path, _ = load_design(design)
+        cell, file_path, target_name = load_design(design)
+        source = {"kind": "python", "path": file_path.name, "target": target_name}
         config_path = find_design_config(file_path)
         json_str, cell_tree = _prepare_design(cell)
         with design_config_context(file_path):
@@ -624,7 +648,8 @@ def serve_design(
             json_str,
             cells=cell_tree,
             layers=layer_defs,
-            filename=Path(design).name,
+            filename=file_path.name,
+            source=source,
             drc=drc,
         )
 
@@ -671,7 +696,12 @@ def serve_design(
                     for name in stale:
                         del sys.modules[name]
 
-                    cell, _, _ = load_design(design)
+                    cell, _, target_name = load_design(design)
+                    source = {
+                        "kind": "python",
+                        "path": file_path.name,
+                        "target": target_name,
+                    }
                     json_str, cell_tree = _prepare_design(cell)
                     with design_config_context(file_path):
                         layer_defs = _load_layer_map_safe(config_path)
@@ -684,7 +714,8 @@ def serve_design(
                         json_str,
                         cells=cell_tree,
                         layers=layer_defs,
-                        filename=Path(design).name,
+                        filename=file_path.name,
+                        source=source,
                         drc=drc,
                     )
                 except Exception as e:
@@ -754,7 +785,14 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
     json_str, cell_tree = _prepare_design_from_library(inner_lib)
     layer_defs = _load_layer_map_safe()
 
-    server.set_design_json(json_str, cells=cell_tree, layers=layer_defs, filename=file_path.name)
+    source = {"kind": "gds", "path": file_path.name}
+    server.set_design_json(
+        json_str,
+        cells=cell_tree,
+        layers=layer_defs,
+        filename=file_path.name,
+        source=source,
+    )
 
     if not no_open:
         tauri_proc = _open_viewer(
@@ -781,6 +819,7 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
                     cells=cell_tree,
                     layers=layer_defs,
                     filename=file_path.name,
+                    source=source,
                 )
             except Exception as e:
                 print(f"error: {e}")
