@@ -1587,6 +1587,18 @@ class TestRosetteUpdate:
         assert "the relevant `components/*.py` source" in agents_content
         assert "stale component guidance" not in agents_content
 
+    def test_update_warns_on_unknown_project_key(self, tmp_path: Path, monkeypatch):
+        """A misspelled [project] key emits a warning without blocking update."""
+        project_dir = tmp_path / "test"
+        _make_uv_project(project_dir)
+        monkeypatch.chdir(project_dir)
+        init_project("blank", tool="none")
+        config_path = project_dir / "rosette.toml"
+        config_path.write_text(config_path.read_text() + '\nnmae = "typo"\n')
+
+        with pytest.warns(UserWarning, match="Unknown rosette.toml key 'nmae'"):
+            update_project()
+
     def test_update_refreshes_skills(self, tmp_path: Path, monkeypatch):
         """rosette update restores a deleted skill into the harness skills dir."""
         project_dir = tmp_path / "test"

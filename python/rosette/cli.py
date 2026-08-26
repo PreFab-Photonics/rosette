@@ -2058,11 +2058,11 @@ def update_project():
         sys.exit(1)
 
     # Get project name and template from rosette.toml
-    import tomllib
+    from rosette._api import _KNOWN_PROJECT_KEYS, _load_rosette_toml, _warn_unknown_keys
 
-    with open(project_dir / "rosette.toml", "rb") as f:
-        config = tomllib.load(f)
+    config = _load_rosette_toml(project_dir / "rosette.toml")
     project_config = config.get("project", {})
+    _warn_unknown_keys(project_config, _KNOWN_PROJECT_KEYS, "in [project]")
     name = project_config.get("name", project_dir.name)
     template_name = project_config.get("template", "blank")
 
@@ -2774,11 +2774,6 @@ def _run_dfm_check(
         return None
     dfm_config, model, layers = loaded
 
-    if not layers:
-        raise ValueError(
-            'No layers specified in [dfm] config. Add layers = ["1/0"] to rosette.toml.'
-        )
-
     # Run DFM prediction (Rust engine)
     result = run_dfm(cell, layers=layers, model=model, config=dfm_config)
     return result, file_path, dfm_config.has_tolerances, cell
@@ -3301,17 +3296,22 @@ def _project_snapshot_dir(config_path: str | None = None) -> Path | None:
 
 def _load_retain_config(config_path: str | None = None) -> int:
     """Read `[snapshots] retain = N` from rosette.toml; default 20."""
-    from rosette._api import _find_rosette_toml
+    from rosette._api import (
+        _KNOWN_SNAPSHOTS_KEYS,
+        _find_rosette_toml,
+        _load_rosette_toml,
+        _warn_unknown_keys,
+    )
 
     toml_path = Path(config_path) if config_path is not None else _find_rosette_toml()
     if toml_path is None:
         return _DEFAULT_RETAIN
     try:
-        with open(toml_path, "rb") as f:
-            data = tomllib.load(f)
+        data = _load_rosette_toml(toml_path)
     except (OSError, tomllib.TOMLDecodeError):
         return _DEFAULT_RETAIN
     section = data.get("snapshots", {})
+    _warn_unknown_keys(section, _KNOWN_SNAPSHOTS_KEYS, "in [snapshots]")
     val = section.get("retain", _DEFAULT_RETAIN)
     if not isinstance(val, int):
         return _DEFAULT_RETAIN

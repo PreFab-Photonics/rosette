@@ -214,6 +214,25 @@ name = "test"
         assert "silicon" in lm
         assert "text" in lm
 
+    def test_unknown_top_level_key_warns(self, tmp_path):
+        """A misspelled top-level section emits a warning."""
+        path = self._write_toml(tmp_path, "[dmf]\nlayers = ['1/0']\n")
+
+        with pytest.warns(UserWarning, match="Unknown rosette.toml key 'dmf' at the top level"):
+            load_layer_map(path)
+
+    def test_unknown_layer_key_warns(self, tmp_path):
+        """A misspelled layer property emits a warning without dropping the layer."""
+        path = self._write_toml(
+            tmp_path,
+            "[layers.silicon]\nnumber = 1\ncolour = '#ff69b4'\n",
+        )
+
+        with pytest.warns(UserWarning, match="Unknown rosette.toml key 'colour'"):
+            layers = load_layer_map(path)
+
+        assert layers.silicon.layer == Layer(1, 0)
+
     def test_missing_number_raises(self):
         """Missing 'number' field raises ValueError."""
         with tempfile.TemporaryDirectory() as tmpdir:

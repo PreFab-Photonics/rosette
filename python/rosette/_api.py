@@ -37,7 +37,7 @@ from contextvars import ContextVar
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from rosette._core import (
     # Geometry
@@ -92,6 +92,69 @@ _CONFIG_SEARCH_ROOT: ContextVar[Path | None] = ContextVar(
 _CONFIG_PATH_OVERRIDE: ContextVar[Path | None] = ContextVar(
     "rosette_config_path_override", default=None
 )
+
+_KNOWN_TOP_LEVEL_KEYS = frozenset({"project", "layers", "drc", "dfm", "checks", "snapshots"})
+_KNOWN_PROJECT_KEYS = frozenset({"name", "template"})
+_KNOWN_LAYER_DEFINITION_KEYS = frozenset(
+    {"number", "datatype", "color", "fill", "opacity", "description"}
+)
+_KNOWN_DRC_KEYS = frozenset({"warning_margin", "layers", "rules"})
+_KNOWN_DRC_LAYER_KEYS = frozenset(
+    {
+        "min_width",
+        "max_width",
+        "min_spacing",
+        "min_area",
+        "min_edge_length",
+        "angles",
+        "no_self_intersection",
+        "no_overlap",
+        "snap_to_grid",
+        "acute_angle",
+        "density",
+    }
+)
+_KNOWN_DENSITY_KEYS = frozenset({"min", "max", "window", "step", "region_layer"})
+_KNOWN_DFM_KEYS = frozenset(
+    {
+        "resolution",
+        "padding",
+        "model",
+        "sigma",
+        "threshold",
+        "contour_threshold",
+        "keep_raster",
+        "layers",
+        "max_area_deviation",
+        "severity",
+        "layer",
+    }
+)
+_KNOWN_DFM_LAYER_KEYS = frozenset({"sigma", "max_area_deviation", "severity"})
+_KNOWN_CHECKS_KEYS = frozenset(
+    {"position_tolerance", "angle_tolerance", "check_widths", "min_bend_radius", "severity"}
+)
+_KNOWN_SNAPSHOTS_KEYS = frozenset({"retain"})
+
+
+def _warn_unknown_keys(
+    table: dict[str, object], known_keys: set[str] | frozenset[str], context: str
+) -> None:
+    """Warn about unrecognized rosette.toml keys without rejecting the config."""
+    for key in sorted(set(table) - known_keys):
+        warnings.warn(
+            f"Unknown rosette.toml key '{key}' {context} "
+            f"(known keys: {', '.join(sorted(known_keys))})",
+            stacklevel=2,
+        )
+
+
+def _load_rosette_toml(toml_path: Path) -> dict[str, Any]:
+    """Parse rosette.toml and report unknown top-level sections."""
+    with open(toml_path, "rb") as f:
+        config = tomllib.load(f)
+    _warn_unknown_keys(config, _KNOWN_TOP_LEVEL_KEYS, "at the top level")
+    return config
 
 
 def _apply_repetition(
@@ -1260,11 +1323,6 @@ def _collect_all_cells(cell: Cell, collected: set[Cell]) -> None:
                 _collect_all_cells(child, collected)
 
 
-# Recognized keys in a [drc.layers.<layer>.density] subtable. Defined at
-# module scope so it's built once rather than per layer-loop iteration.
-_KNOWN_DENSITY_KEYS = frozenset({"min", "max", "window", "step", "region_layer"})
-
-
 def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
     """Load DRC rules from rosette.toml.
 
@@ -1335,9 +1393,7 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
                 "or specify config_path explicitly."
             )
 
-    # Parse TOML
-    with open(toml_path, "rb") as f:
-        config = tomllib.load(f)
+    config = _load_rosette_toml(toml_path)
 
     # Build semantic name -> Layer lookup from [layers] section (if present)
     layer_lookup = _build_layer_lookup(config)
@@ -1346,6 +1402,7 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
     rules = DrcRules()
 
     drc_config = config.get("drc", {})
+    _warn_unknown_keys(drc_config, _KNOWN_DRC_KEYS, "in [drc]")
     layers_config = drc_config.get("layers", {})
 
     # Optional global warning margin: near-threshold numeric violations are
@@ -1462,24 +1519,11 @@ def load_drc_rules(config_path: str | Path | None = None) -> DrcRules:
             )
 
         # Warn about unrecognized keys that might be typos
-        _KNOWN_LAYER_KEYS = {
-            "min_width",
-            "max_width",
-            "min_spacing",
-            "min_area",
-            "min_edge_length",
-            "angles",
-            "no_self_intersection",
-            "no_overlap",
-            "snap_to_grid",
-            "acute_angle",
-            "density",
-        }
-        unknown_keys = set(layer_rules.keys()) - _KNOWN_LAYER_KEYS
+        unknown_keys = set(layer_rules.keys()) - _KNOWN_DRC_LAYER_KEYS
         for key in sorted(unknown_keys):
             warnings.warn(
                 f"Unknown DRC key '{key}' for layer {display_name} in rosette.toml "
-                f"(known keys: {', '.join(sorted(_KNOWN_LAYER_KEYS))})",
+                f"(known keys: {', '.join(sorted(_KNOWN_DRC_LAYER_KEYS))})",
                 stacklevel=2,
             )
 
@@ -1547,13 +1591,20 @@ def _find_rosette_toml() -> Path | None:
 
 
 def _validate_rule_fields(rule: dict[str, object], required: list[str], index: int) -> None:
-    """Validate that a DRC rule has all required fields."""
+    """Validate that a DRC rule has all required fields and warn on extras."""
     missing = [field for field in required if field not in rule]
     if missing:
         rule_type = rule.get("type", "unknown")
         raise ValueError(
             f"DRC rule #{index + 1} (type='{rule_type}') missing required fields: {missing}"
         )
+    allowed = {"type", "name", *required}
+    rule_type = rule.get("type", "unknown")
+    _warn_unknown_keys(
+        rule,
+        allowed,
+        f"in DRC rule #{index + 1} (type='{rule_type}')",
+    )
 
 
 def _parse_layer_string(layer_str: str) -> Layer:
@@ -1579,6 +1630,8 @@ def _build_layer_lookup(config: dict[str, object]) -> dict[str, Layer]:
     if not isinstance(layers_config, dict):
         return lookup
     for name, props in layers_config.items():
+        if isinstance(props, dict):
+            _warn_unknown_keys(props, _KNOWN_LAYER_DEFINITION_KEYS, f"in [layers.{name}]")
         if isinstance(props, dict) and "number" in props:
             number = props["number"]
             datatype = props.get("datatype", 0)
@@ -1733,13 +1786,12 @@ def load_checks_config(
             # No config file — return defaults
             return ChecksConfig()
 
-    # Parse TOML
-    with open(toml_path, "rb") as f:
-        config = tomllib.load(f)
+    config = _load_rosette_toml(toml_path)
 
     checks_config = config.get("checks", {})
     if not checks_config:
         return ChecksConfig()
+    _warn_unknown_keys(checks_config, _KNOWN_CHECKS_KEYS, "in [checks]")
 
     return ChecksConfig(
         position_tolerance=checks_config.get("position_tolerance", 0.001),
@@ -1822,9 +1874,9 @@ def load_dfm_config(
                      from current directory upward.
 
     Returns:
-        Tuple of (DfmConfig, GaussianModel, layers) where layers is the list
-        of layers to predict (empty list means "all layers in the design"), or
-        ``None`` when rosette.toml has no [dfm] section. ``None`` lets callers
+        Tuple of (DfmConfig, GaussianModel, layers) where layers is the non-empty
+        list of layers to predict, or ``None`` when rosette.toml has no [dfm]
+        section. ``None`` lets callers
         treat "DFM not configured" as a graceful skip (matching how [drc] and
         [checks] degrade), rather than an error — only genuinely invalid DFM
         settings raise.
@@ -1864,9 +1916,7 @@ def load_dfm_config(
                 "or specify config_path explicitly."
             )
 
-    # Parse TOML
-    with open(toml_path, "rb") as f:
-        config = tomllib.load(f)
+    config = _load_rosette_toml(toml_path)
 
     # Build semantic name -> Layer lookup from [layers] section (if present)
     layer_lookup = _build_layer_lookup(config)
@@ -1876,6 +1926,7 @@ def load_dfm_config(
         # No [dfm] section configured — signal absence so callers can skip
         # gracefully (like [drc]/[checks]) rather than treating it as an error.
         return None
+    _warn_unknown_keys(dfm_config, _KNOWN_DFM_KEYS, "in [dfm]")
 
     # Extract configuration values with defaults
     resolution = dfm_config.get("resolution", 0.01)
@@ -1920,7 +1971,9 @@ def load_dfm_config(
         raise ValueError(f"DFM 'threshold' must be between 0.0 and 1.0, got {contour_threshold!r}")
 
     # Parse layers — accepts semantic names ("silicon") or numeric ("1/0")
-    layer_strs = dfm_config.get("layers", [])
+    layer_strs = dfm_config.get("layers")
+    if not isinstance(layer_strs, list) or not layer_strs:
+        raise ValueError("[dfm].layers must be a non-empty array of layer names")
     layers = [_resolve_layer(ls, layer_lookup, context="[dfm] layers")[0] for ls in layer_strs]
 
     # Parse optional tolerances
@@ -1952,6 +2005,7 @@ def load_dfm_config(
     for layer_str, layer_params in per_layer.items():
         if not isinstance(layer_params, dict):
             continue
+        _warn_unknown_keys(layer_params, _KNOWN_DFM_LAYER_KEYS, f"in [dfm.layer.{layer_str}]")
         layer_obj, _ = _resolve_layer(layer_str, layer_lookup, context="[dfm.layer]")
         dfm_cfg.set_layer_config(
             layer_obj,
@@ -2461,9 +2515,7 @@ def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
                 "or specify config_path explicitly."
             )
 
-    # Parse TOML
-    with open(toml_path, "rb") as f:
-        config = tomllib.load(f)
+    config = _load_rosette_toml(toml_path)
 
     layers_config = config.get("layers", {})
     if not layers_config:
@@ -2475,6 +2527,7 @@ def load_layer_map(config_path: str | Path | None = None) -> LayerMap:
     for name, props in layers_config.items():
         if not isinstance(props, dict):
             raise ValueError(f"Layer '{name}': expected a table, got {type(props).__name__}")
+        _warn_unknown_keys(props, _KNOWN_LAYER_DEFINITION_KEYS, f"in [layers.{name}]")
 
         # Required: number
         if "number" not in props:

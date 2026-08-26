@@ -1,0 +1,268 @@
+---
+title: Project configuration
+description: Complete reference for rosette.toml project, layer, DRC, DFM, check, and snapshot settings.
+---
+
+`rosette.toml` is the project configuration file for Rosette. It records project
+metadata, names GDS layers, and configures verification and snapshot behavior.
+This page is the canonical reference for its supported sections and keys.
+
+## Config discovery
+
+An explicit `config_path` passed to a Python loader or CLI command always wins.
+Otherwise:
+
+- Commands operating on a design search from the design file's directory toward
+  the filesystem root and use the nearest `rosette.toml`.
+- Direct calls to `load_layer_map`, `load_drc_rules`, `load_dfm_config`, and
+  `load_checks_config` search from the current directory upward.
+- `rosette update` must run from the project directory containing `rosette.toml`.
+
+Rosette recognizes six top-level sections:
+
+| Section | Purpose |
+| --- | --- |
+| `[project]` | Project name and template provenance. |
+| `[layers]` | Named GDS layers and viewer display properties. |
+| `[drc]` | Per-layer and inter-layer design rules. |
+| `[dfm]` | Manufacturability prediction settings. |
+| `[checks]` | Connectivity and bend-radius checks. |
+| `[snapshots]` | `rosette shot` retention. |
+
+Unknown keys produce warnings rather than errors. Valid settings in the same
+section still load, so warnings can catch typos without breaking existing
+projects.
+
+## Project
+
+`rosette init` writes project metadata used by `rosette update`:
+
+```toml
+[project]
+name = "my-chip"
+template = "generic"
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | Project directory name | Project name substituted into managed template files during `rosette update`. |
+| `template` | string | `"blank"` | Template whose managed references and agent files `rosette update` refreshes. Built-in values are `"blank"` and `"generic"`. |
+
+## Layers
+
+Each child table under `[layers]` assigns a semantic name to one GDS
+layer/datatype pair:
+
+```toml
+[layers.silicon]
+number = 1
+datatype = 0
+color = "#ff69b4"
+fill = "solid"
+opacity = 0.7
+description = "Silicon waveguides"
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `number` | integer | Required | GDS layer number from 0 through 999. |
+| `datatype` | integer | `0` | GDS datatype from 0 through 999. |
+| `color` | string | `"#808080"` | Six-digit hexadecimal viewer color. |
+| `fill` | string | `"solid"` | `"solid"`, `"hatched"`, `"crosshatched"`, or `"dotted"`. |
+| `opacity` | number | `0.7` | Viewer opacity from 0.0 through 1.0. |
+| `description` | string | `""` | Human-readable layer description. |
+
+Layer names must map to unique `(number, datatype)` pairs. If `[layers]` is
+absent or empty, Rosette provides `silicon` as `1/0` and `text` as `10/0`.
+
+### Layer references
+
+DRC and DFM settings accept any of these forms:
+
+| Form | Example | Meaning |
+| --- | --- | --- |
+| Semantic name | `"silicon"` | Resolves through `[layers.silicon]`. Recommended. |
+| Number/datatype | `"1/0"` | Uses GDS layer 1, datatype 0. |
+| Number | `"1"` | Shorthand for GDS layer 1, datatype 0. |
+
+## Design rule checking
+
+DRC supports global settings, per-layer rules, and typed inter-layer rules.
+See [Design rule checking](/docs/guides/design-rule-checking) for workflows and
+result handling.
+
+### Global DRC settings
+
+```toml
+[drc]
+warning_margin = 0.01
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `warning_margin` | number | `0` | Absolute margin in design units for downgrading near-threshold length violations to warnings. Values at or below zero disable downgrading. |
+| `layers` | table | `{}` | Parent table for per-layer rules. |
+| `rules` | array of tables | `[]` | Inter-layer rules declared with `[[drc.rules]]`. |
+
+An absent `[drc]` section loads an empty rule set.
+
+### Per-layer rules
+
+```toml
+[drc.layers.silicon]
+min_width = 0.12
+min_spacing = 0.13
+acute_angle = 60
+no_overlap = true
+```
+
+Dimensions use design units, normally micrometers. Angles use degrees.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `min_width` | number | Minimum feature width. |
+| `max_width` | number | Maximum feature width. |
+| `min_spacing` | number | Minimum spacing between polygons on this layer. |
+| `min_area` | number | Minimum polygon area in squared design units. |
+| `min_edge_length` | number | Minimum polygon edge length. |
+| `angles` | array of numbers | Allowed edge angles. |
+| `acute_angle` | number | Minimum convex interior angle. |
+| `no_overlap` | boolean | Forbid overlapping polygons on this layer. |
+| `no_self_intersection` | boolean | Forbid self-intersecting polygons. |
+| `snap_to_grid` | number | Manufacturing grid pitch. |
+| `density` | table | Sliding-window density constraints. |
+
+Density is a nested table:
+
+```toml
+[drc.layers.silicon.density]
+min = 0.20
+max = 0.80
+window = 100.0
+step = 50.0
+region_layer = "chip_boundary"
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `min` | number | None | Minimum fill fraction. At least one of `min` or `max` is required. |
+| `max` | number | None | Maximum fill fraction. Must be greater than or equal to `min` when both are set. |
+| `window` | number | Required | Positive square window size in design units. |
+| `step` | number | Half of `window` | Positive distance between windows. |
+| `region_layer` | layer reference | None | Marker layer whose union limits the checked region. The design bounding box is used when omitted. |
+
+### Inter-layer rules
+
+Every `[[drc.rules]]` entry requires `type`, accepts an optional `name`, and
+supports only the fields associated with that type.
+
+| Type | Required fields | Meaning |
+| --- | --- | --- |
+| `spacing` | `layer1`, `layer2`, `min_spacing` | Require minimum spacing between two layers. |
+| `enclosure` | `inner`, `outer`, `min_enclosure` | Require the outer layer to enclose the inner layer by a minimum distance. |
+| `require_overlap` | `layer1`, `layer2` | Require the two layers to overlap. |
+| `forbid_overlap` | `layer1`, `layer2` | Forbid overlap between the two layers. |
+| `not_inside` | `inner`, `outer` | Forbid inner-layer shapes from sitting fully inside the outer layer. |
+
+```toml
+[[drc.rules]]
+type = "spacing"
+layer1 = "p_doping"
+layer2 = "n_doping"
+min_spacing = 0.5
+name = "PN_SPC"
+```
+
+## Design for manufacturability
+
+DFM prediction is disabled when `[dfm]` is absent or empty. Once the section
+contains settings, `layers` is required and must contain at least one explicit
+layer reference.
+
+```toml
+[dfm]
+resolution = 0.01
+padding = 1.0
+model = "gaussian"
+sigma = 0.08
+threshold = 0.5
+keep_raster = false
+layers = ["silicon"]
+max_area_deviation = 0.10
+severity = "warning"
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `resolution` | number | `0.01` | Positive raster pixel size in design units. |
+| `padding` | number | `1.0` | Margin around the cell bounding box in design units. |
+| `model` | string | `"gaussian"` | Prediction model. Only `"gaussian"` is currently supported. |
+| `sigma` | number | `0.08` | Non-negative Gaussian blur sigma in design units. |
+| `threshold` | number | `0.5` | Binarization threshold from 0.0 through 1.0. |
+| `contour_threshold` | number | `0.5` | Compatibility spelling for `threshold`. If both differ, `threshold` wins and Rosette warns. |
+| `keep_raster` | boolean | `false` | Retain raster data in prediction results. |
+| `layers` | array of layer references | Required | Non-empty list of layers to predict. There is no implicit "all layers" mode. |
+| `max_area_deviation` | number | None | Positive relative area-deviation tolerance. Omit for informational prediction without this violation check. |
+| `severity` | string | `"error"` | `"error"` or `"warning"` for configured tolerance violations. |
+| `layer` | table | `{}` | Parent table for per-layer overrides. |
+
+Per-layer tables override model or tolerance settings for one layer:
+
+```toml
+[dfm.layer.silicon]
+sigma = 0.05
+max_area_deviation = 0.05
+severity = "warning"
+```
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `sigma` | number | Gaussian sigma override. |
+| `max_area_deviation` | number | Relative area-deviation tolerance override. |
+| `severity` | string | `"error"` or `"warning"` override. |
+
+## Design checks
+
+`[checks]` configures connectivity and route bend-radius checks. If the section
+or file is absent, the defaults below apply.
+
+```toml
+[checks]
+position_tolerance = 0.001
+angle_tolerance = 0.1
+check_widths = true
+min_bend_radius = 5.0
+severity = "error"
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `position_tolerance` | number | `0.001` | Maximum port-center gap in design units for ports to count as connected. |
+| `angle_tolerance` | number | `0.1` | Maximum angular deviation from anti-parallel, in degrees. |
+| `check_widths` | boolean | `true` | Report width mismatches between connected ports. |
+| `min_bend_radius` | number | None | Minimum bend radius in design units. Omit to skip bend-radius threshold checks. |
+| `severity` | string | `"error"` | `"error"` or `"warning"` for configurable violations. |
+
+## Snapshots
+
+`[snapshots]` controls pruning for snapshots written to the default
+`.rosette/snapshots/` directory:
+
+```toml
+[snapshots]
+retain = 50
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `retain` | integer | `20` | Number of newest PNG snapshots to keep. Zero or a negative value disables pruning. |
+
+An invalid non-integer value falls back to 20. The `rosette shot --retain`
+option overrides the config for one invocation. See [Snapshots](/docs/guides/snapshots)
+for output and pruning details.
+
+## Unsupported historical settings
+
+`[build]` and `[project].version` are not part of the schema. Build output is
+controlled by command options such as `rosette build --output`; package version
+information belongs to the installed Rosette package rather than a project file.

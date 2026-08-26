@@ -387,6 +387,16 @@ class TestLoadChecksConfig:
         with pytest.raises(FileNotFoundError):
             load_checks_config(str(tmp_path / "nonexistent.toml"))
 
+    def test_unknown_key_warns(self, tmp_path):
+        """A misspelled checks key emits a warning without dropping valid settings."""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text("[checks]\nposition_tolerance = 0.01\nangle_tolerence = 1.0\n")
+
+        with pytest.warns(UserWarning, match="Unknown rosette.toml key 'angle_tolerence'"):
+            config = load_checks_config(config_file)
+
+        assert "ChecksConfig" in repr(config)
+
 
 def _write_connected_design(tmp_path, *, connected: bool):
     """Helper: write a design with connected or unconnected ports."""

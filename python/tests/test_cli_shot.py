@@ -390,6 +390,15 @@ class TestRetention:
         monkeypatch.chdir(tmp_path)
         assert _load_retain_config() == 20
 
+    def test_load_retain_config_unknown_key_warns(self, tmp_path: Path, monkeypatch):
+        (tmp_path / "rosette.toml").write_text("[snapshots]\nretain = 5\nretian = 2\n")
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.warns(UserWarning, match="Unknown rosette.toml key 'retian'"):
+            retain = _load_retain_config()
+
+        assert retain == 5
+
     def test_shot_prunes_default_dir(self, tmp_path: Path, monkeypatch):
         # Make a project with a design and pre-populate snapshots dir.
         (tmp_path / "rosette.toml").write_text("")

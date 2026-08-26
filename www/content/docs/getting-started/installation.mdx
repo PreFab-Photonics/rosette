@@ -187,7 +187,7 @@ After running `rosette init`, your project will contain:
 
 ```txt
 my-chip/
-├── rosette.toml          # Project config: layers, DRC rules, and checks
+├── rosette.toml          # Project config: layers, verification, and snapshots
 ├── designs/              # Your design scripts go here
 ├── output/               # GDS build output
 ├── components/           # Template-specific component source and documentation
@@ -206,9 +206,10 @@ my-chip/
 └── AGENTS.md             # AI agent instructions (if selected)
 ```
 
-- **`rosette.toml`**: the central configuration file. It defines your project name,
-  layer stack, and design-rule constraints. The **blank** template ships only a
-  `[project]` section — add layers and rules as you need them.
+- **`rosette.toml`**: the central configuration file. It defines project metadata,
+  layers, verification, and snapshot retention. The **blank** template ships only a
+  `[project]` section - add settings as needed using the complete
+  [project configuration reference](/docs/guides/project-configuration).
 - **`designs/`**: where you write your layout scripts. Each script defines cells and
   geometry that Rosette compiles to GDS-II.
 - **`output/`**: build artifacts. Running `rosette build` writes GDS files here

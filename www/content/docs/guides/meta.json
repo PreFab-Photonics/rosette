@@ -4,6 +4,7 @@
     "...index",
     "routing",
     "cells-and-hierarchy",
+    "project-configuration",
     "design-rule-checking",
     "agent-workflows",
     "snapshots"

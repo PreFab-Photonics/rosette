@@ -587,8 +587,8 @@ layers = ["1/0"]
         assert model.sigma == 0.08
         assert len(layers) == 1
 
-    def test_empty_layers(self, tmp_path):
-        """Empty layers list returns empty list."""
+    def test_missing_layers_raises(self, tmp_path):
+        """A configured DFM section requires at least one explicit layer."""
         toml_content = """
 [dfm]
 sigma = 0.05
@@ -596,8 +596,31 @@ sigma = 0.05
         config_file = tmp_path / "rosette.toml"
         config_file.write_text(toml_content)
 
-        _config, _model, layers = load_dfm_config(config_file)
-        assert layers == []
+        with pytest.raises(ValueError, match=r"\[dfm\]\.layers must be a non-empty array"):
+            load_dfm_config(config_file)
+
+    def test_unknown_key_warns(self, tmp_path):
+        """A misspelled DFM key emits a warning without dropping valid settings."""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text("[dfm]\nlayers = ['1/0']\nresolution = 0.02\nresoluton = 0.03\n")
+
+        with pytest.warns(UserWarning, match="Unknown rosette.toml key 'resoluton'"):
+            config, _model, layers = load_dfm_config(config_file)
+
+        assert config.resolution == 0.02
+        assert layers == [Layer(1, 0)]
+
+    def test_unknown_per_layer_key_warns(self, tmp_path):
+        """A misspelled per-layer DFM key emits a warning."""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(
+            "[dfm]\nlayers = ['1/0']\n\n[dfm.layer.'1/0']\nsigma = 0.05\nseverty = 'warning'\n"
+        )
+
+        with pytest.warns(UserWarning, match="Unknown rosette.toml key 'severty'"):
+            loaded = load_dfm_config(config_file)
+
+        assert loaded is not None
 
     def test_config_works_with_run_dfm(self, tmp_path):
         """Loaded config can be used with run_dfm."""

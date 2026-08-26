@@ -1586,6 +1586,47 @@ min_spacing = 0.13
         # The valid key (min_spacing) should still be loaded
         assert "1 rules" in repr(rules)
 
+    def test_unknown_drc_key_warns(self, tmp_path):
+        """Unrecognized keys directly under [drc] emit a warning."""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(
+            "[drc]\nwarning_mrgin = 0.01\n\n[drc.layers.'1/0']\nmin_width = 0.12\n"
+        )
+
+        with pytest.warns(UserWarning, match="Unknown rosette.toml key 'warning_mrgin'"):
+            rules = load_drc_rules(config_file)
+
+        assert "1 rules" in repr(rules)
+
+    def test_unknown_density_key_warns(self, tmp_path):
+        """Unrecognized density keys emit a warning."""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(
+            "[drc.layers.'1/0'.density]\nmin = 0.2\nwindow = 100.0\nstride = 50.0\n"
+        )
+
+        with pytest.warns(UserWarning, match="Unknown DRC density key 'stride'"):
+            rules = load_drc_rules(config_file)
+
+        assert "1 rules" in repr(rules)
+
+    def test_unknown_inter_layer_rule_key_warns(self, tmp_path):
+        """Fields outside an inter-layer rule's type-specific schema emit a warning."""
+        config_file = tmp_path / "rosette.toml"
+        config_file.write_text(
+            "[[drc.rules]]\n"
+            'type = "spacing"\n'
+            'layer1 = "1/0"\n'
+            'layer2 = "2/0"\n'
+            "min_spacing = 0.5\n"
+            "minimum_spacing = 0.5\n"
+        )
+
+        with pytest.warns(UserWarning, match="Unknown rosette.toml key 'minimum_spacing'"):
+            rules = load_drc_rules(config_file)
+
+        assert "1 rules" in repr(rules)
+
     def test_inter_layer_rules_without_name(self, tmp_path):
         """Inter-layer rules work without optional name field."""
         toml_content = """
