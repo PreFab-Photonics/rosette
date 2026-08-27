@@ -3,6 +3,8 @@
 import struct
 from pathlib import Path
 
+import pytest
+
 from rosette import (
     Cell,
     Layer,
@@ -11,7 +13,7 @@ from rosette import (
     Polygon,
 )
 from rosette.components import grating_coupler
-from rosette.io import write_gds
+from rosette.io import read_gds, write_gds
 
 
 class TestWriteGds:
@@ -67,6 +69,59 @@ class TestWriteGds:
         write_gds(str(output), lib)
 
         assert output.exists()
+
+    def test_write_imported_top_cell_includes_descendants(self, tmp_path: Path):
+        """A cell extracted from an imported library retains its hierarchy."""
+        child = Cell("child")
+        child.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+        top = Cell("top")
+        top.add_ref(child.at(10, 20))
+        library = Library("source")
+        library.add_cell(child)
+        library.add_cell(top)
+
+        source = tmp_path / "source.gds"
+        output = tmp_path / "output.gds"
+        write_gds(source, library, quiet=True)
+
+        imported_top = read_gds(source).top_cell()
+        assert imported_top is not None
+        write_gds(output, imported_top, quiet=True)
+
+        roundtrip = read_gds(output)
+        assert {cell.name for cell in roundtrip.cells()} == {"child", "top"}
+        bbox = roundtrip.cell_bbox("top")
+        assert bbox is not None
+        assert (bbox.min.x, bbox.min.y) == (10, 20)
+        assert (bbox.max.x, bbox.max.y) == (15, 25)
+
+    def test_read_warns_when_records_will_be_dropped(self, tmp_path: Path):
+        cell = Cell("top")
+        cell.add_polygon(Polygon.rect(Point(0, 0), 5, 5), Layer(1, 0))
+        source = tmp_path / "source.gds"
+        write_gds(source, cell, quiet=True)
+
+        data = source.read_bytes()
+        endel = data.index(b"\x00\x04\x11\x00")
+        property_records = b"\x00\x06\x2b\x02\x00\x07\x00\x0a\x2c\x06NET_A\x00"
+        source.write_bytes(data[:endel] + property_records + data[endel:])
+
+        with pytest.warns(UserWarning, match="property"):
+            imported = read_gds(source)
+        assert imported.cell("top") is not None
+
+    def test_read_distinguishes_invalid_gds_from_missing_files(self, tmp_path: Path):
+        invalid = tmp_path / "invalid.gds"
+        invalid.write_bytes(b"not gds")
+        truncated = tmp_path / "truncated.gds"
+        truncated.write_bytes(b"\x00\x04")
+
+        with pytest.raises(ValueError, match="Failed to read GDS"):
+            read_gds(invalid)
+        with pytest.raises(ValueError, match="Failed to read GDS"):
+            read_gds(truncated)
+        with pytest.raises(FileNotFoundError):
+            read_gds(tmp_path / "missing.gds")
 
     def test_write_library(self, tmp_path: Path):
         """Write library to GDS."""
@@ -240,6 +295,16 @@ class TestGdsEdgeCases:
         write_gds(str(output), cell)
 
         assert output.exists()
+
+    def test_sub_grid_geometry_is_rejected(self, tmp_path: Path):
+        cell = Cell("sub_grid")
+        cell.add_polygon(
+            Polygon([Point(0, 0), Point(0.0004, 0), Point(0, 0.0004)]),
+            Layer(1, 0),
+        )
+
+        with pytest.raises(ValueError, match="collapses on the 1 nm GDS output grid"):
+            write_gds(tmp_path / "sub-grid.gds", cell, quiet=True)
 
     def test_large_coordinates(self, tmp_path: Path):
         """Write geometry at large coordinates."""

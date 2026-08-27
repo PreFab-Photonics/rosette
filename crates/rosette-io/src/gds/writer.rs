@@ -538,6 +538,10 @@ fn preflight_library(library: &Library) -> Result<(), GdsError> {
     library.validate()?;
     validate_library_names(library)?;
 
+    if !is_gds_ascii(library.name()) {
+        return Err(GdsError::InvalidAsciiString { record: "LIBNAME" });
+    }
+
     let library_name_len = library.name().len();
     if library_name_len + library_name_len % 2 > u16::MAX as usize - 4 {
         return Err(GdsError::RecordTooLong {
@@ -569,9 +573,20 @@ fn preflight_element(cell: &str, element_index: usize, element: &Element) -> Res
                 }));
             }
             validate_layer(layer, &invalid)?;
+            let mut quantized = Vec::with_capacity(polygon.vertices().len());
             for vertex in polygon.vertices() {
-                validate_db_value(vertex.x, "polygon vertex x").map_err(&invalid)?;
-                validate_db_value(vertex.y, "polygon vertex y").map_err(&invalid)?;
+                let point = (
+                    validate_db_value(vertex.x, "polygon vertex x").map_err(&invalid)?,
+                    validate_db_value(vertex.y, "polygon vertex y").map_err(&invalid)?,
+                );
+                quantized.push(point);
+            }
+            if points_are_non_collinear(polygon.vertices())
+                && !quantized_points_are_non_collinear(&quantized)
+            {
+                return Err(invalid(GdsElementError::QuantizationCollapse {
+                    field: "polygon area",
+                }));
             }
         }
         Element::Path(path) => {
@@ -581,9 +596,21 @@ fn preflight_element(cell: &str, element_index: usize, element: &Element) -> Res
                 }));
             }
             validate_layer(&path.layer(), &invalid)?;
+            let mut previous = None;
             for point in path.points() {
-                validate_db_value(point.x, "path point x").map_err(&invalid)?;
-                validate_db_value(point.y, "path point y").map_err(&invalid)?;
+                let quantized = (
+                    validate_db_value(point.x, "path point x").map_err(&invalid)?,
+                    validate_db_value(point.y, "path point y").map_err(&invalid)?,
+                );
+                if let Some((previous_point, previous_quantized)) = previous
+                    && previous_point != *point
+                    && previous_quantized == quantized
+                {
+                    return Err(invalid(GdsElementError::QuantizationCollapse {
+                        field: "path segment",
+                    }));
+                }
+                previous = Some((*point, quantized));
             }
             let width_db = validate_db_value(path.width(), "path width").map_err(&invalid)?;
             if width_db == 0 {
@@ -594,8 +621,10 @@ fn preflight_element(cell: &str, element_index: usize, element: &Element) -> Res
             let transform = cell_ref.transform();
             validate_transform(&transform)
                 .map_err(|reason| invalid(GdsElementError::UnsupportedTransform(reason)))?;
-            validate_db_value(transform.tx, "reference origin x").map_err(&invalid)?;
-            validate_db_value(transform.ty, "reference origin y").map_err(&invalid)?;
+            let origin = (
+                validate_db_value(transform.tx, "reference origin x").map_err(&invalid)?,
+                validate_db_value(transform.ty, "reference origin y").map_err(&invalid)?,
+            );
 
             if let Some(repetition) = cell_ref.repetition() {
                 if repetition.columns() > i16::MAX as u16 || repetition.rows() > i16::MAX as u16 {
@@ -617,15 +646,40 @@ fn preflight_element(cell: &str, element_index: usize, element: &Element) -> Res
                         + (transform.a * row_vector.x + transform.b * row_vector.y) * rows;
                     let row_end_y = transform.ty
                         + (transform.c * row_vector.x + transform.d * row_vector.y) * rows;
-                    validate_db_value(col_end_x, "array column endpoint x").map_err(&invalid)?;
-                    validate_db_value(col_end_y, "array column endpoint y").map_err(&invalid)?;
-                    validate_db_value(row_end_x, "array row endpoint x").map_err(&invalid)?;
-                    validate_db_value(row_end_y, "array row endpoint y").map_err(&invalid)?;
+                    let col_end = (
+                        validate_db_value(col_end_x, "array column endpoint x")
+                            .map_err(&invalid)?,
+                        validate_db_value(col_end_y, "array column endpoint y")
+                            .map_err(&invalid)?,
+                    );
+                    let row_end = (
+                        validate_db_value(row_end_x, "array row endpoint x").map_err(&invalid)?,
+                        validate_db_value(row_end_y, "array row endpoint y").map_err(&invalid)?,
+                    );
+                    if repetition.columns() > 1
+                        && (col_end_x != transform.tx || col_end_y != transform.ty)
+                        && col_end == origin
+                    {
+                        return Err(invalid(GdsElementError::QuantizationCollapse {
+                            field: "array column pitch",
+                        }));
+                    }
+                    if repetition.rows() > 1
+                        && (row_end_x != transform.tx || row_end_y != transform.ty)
+                        && row_end == origin
+                    {
+                        return Err(invalid(GdsElementError::QuantizationCollapse {
+                            field: "array row pitch",
+                        }));
+                    }
                 }
             }
         }
         Element::Text(text) => {
-            let count = text.text().chars().count();
+            if !is_gds_ascii(text.text()) {
+                return Err(invalid(GdsElementError::InvalidTextString));
+            }
+            let count = text.text().len();
             if count > 512 {
                 return Err(invalid(GdsElementError::TextTooLong { count }));
             }
@@ -638,6 +692,36 @@ fn preflight_element(cell: &str, element_index: usize, element: &Element) -> Res
         }
     }
     Ok(())
+}
+
+fn is_gds_ascii(value: &str) -> bool {
+    value.is_ascii() && !value.as_bytes().contains(&0)
+}
+
+fn points_are_non_collinear(points: &[Point]) -> bool {
+    let origin = points[0];
+    let Some(axis) = points.iter().copied().find(|point| *point != origin) else {
+        return false;
+    };
+    let dx = axis.x - origin.x;
+    let dy = axis.y - origin.y;
+    points
+        .iter()
+        .any(|point| dx * (point.y - origin.y) - dy * (point.x - origin.x) != 0.0)
+}
+
+fn quantized_points_are_non_collinear(points: &[(i32, i32)]) -> bool {
+    let origin = points[0];
+    let Some(axis) = points.iter().copied().find(|point| *point != origin) else {
+        return false;
+    };
+    let dx = i128::from(axis.0) - i128::from(origin.0);
+    let dy = i128::from(axis.1) - i128::from(origin.1);
+    points.iter().any(|point| {
+        dx * (i128::from(point.1) - i128::from(origin.1))
+            - dy * (i128::from(point.0) - i128::from(origin.0))
+            != 0
+    })
 }
 
 fn validate_layer(
@@ -952,7 +1036,7 @@ mod tests {
         let points: Vec<Point> = (0..8190)
             .map(|i| {
                 let angle = 2.0 * std::f64::consts::PI * (i as f64) / 8190.0;
-                Point::new(angle.cos(), angle.sin())
+                Point::new(10.0 * angle.cos(), 10.0 * angle.sin())
             })
             .collect();
         let polygon = Polygon::new(points);
@@ -1614,33 +1698,8 @@ mod tests {
     }
 
     #[test]
-    fn test_text_multibyte_utf8_char_count() {
-        // Test that we count characters, not bytes
-        // "μ" (micro sign) is 2 bytes in UTF-8 but 1 character
-        // 512 "μ" = 512 characters but 1024 bytes
+    fn test_text_rejects_multibyte_utf8() {
         let text = "μ".repeat(512);
-        assert_eq!(text.len(), 1024); // 1024 bytes
-        assert_eq!(text.chars().count(), 512); // 512 characters
-
-        let mut cell = Cell::new("TEST");
-        cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0)
-            .unwrap();
-
-        let mut output = Vec::new();
-        let mut writer = GdsWriter::new(&mut output);
-        let mut lib = Library::new("test");
-        lib.add_cell(cell).unwrap();
-
-        // Should succeed because it's 512 characters (even though 1024 bytes)
-        let result = writer.write_library(&lib);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_text_multibyte_utf8_too_long() {
-        // 513 "μ" characters should fail
-        let text = "μ".repeat(513);
-        assert_eq!(text.chars().count(), 513);
 
         let mut cell = Cell::new("TEST");
         cell.add_text_with_height(&text, Point::origin(), Layer::new(10, 0), 1.0)
@@ -1655,10 +1714,80 @@ mod tests {
         assert!(matches!(
             result,
             Err(GdsError::InvalidElement {
-                reason: GdsElementError::TextTooLong { count: 513 },
+                reason: GdsElementError::InvalidTextString,
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn rejects_strings_that_are_not_gds_ascii() {
+        for library_name in ["library\0suffix", "librarý"] {
+            let library = Library::new(library_name);
+            assert!(write_bytes(&library).is_err());
+        }
+
+        for text in ["before\0after", "μ"] {
+            let mut cell = Cell::new("TOP");
+            cell.add_text_with_height(text, Point::origin(), Layer::new(1, 0), 1.0)
+                .unwrap();
+            let mut library = Library::new("library");
+            library.add_cell(cell).unwrap();
+            assert!(write_bytes(&library).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_geometry_that_collapses_on_the_output_grid() {
+        let mut polygon_cell = Cell::new("POLYGON");
+        polygon_cell.add_polygon(
+            Polygon::new(vec![
+                Point::origin(),
+                Point::new(0.0004, 0.0),
+                Point::new(0.0, 0.0004),
+            ]),
+            Layer::new(1, 0),
+        );
+        let mut polygon_library = Library::new("library");
+        polygon_library.add_cell(polygon_cell).unwrap();
+        assert!(write_bytes(&polygon_library).is_err());
+
+        let mut path_cell = Cell::new("PATH");
+        path_cell
+            .add_path(
+                vec![Point::origin(), Point::new(0.0004, 0.0)],
+                0.001,
+                Layer::new(1, 0),
+                PathCap::Flush,
+            )
+            .unwrap();
+        let mut path_library = Library::new("library");
+        path_library.add_cell(path_cell).unwrap();
+        assert!(write_bytes(&path_library).is_err());
+
+        let mut array_cell = Cell::new("ARRAY");
+        array_cell.add_ref(CellRef::new("CHILD").array(2, 1, 0.0002, 0.0).unwrap());
+        let mut array_library = Library::new("library");
+        array_library.add_cell(array_cell).unwrap();
+        assert!(write_bytes(&array_library).is_err());
+    }
+
+    #[test]
+    fn accepts_noncollapsed_self_intersecting_polygon_with_zero_quantized_signed_area() {
+        let mut cell = Cell::new("BOWTIE");
+        cell.add_polygon(
+            Polygon::new(vec![
+                Point::origin(),
+                Point::new(10.0, 10.0),
+                Point::new(0.0004, 10.0),
+                Point::new(10.0, 0.0),
+            ]),
+            Layer::new(1, 0),
+        );
+        let mut library = Library::new("library");
+        library.add_cell(cell).unwrap();
+
+        assert!(write_bytes(&library).is_ok());
     }
 
     #[test]

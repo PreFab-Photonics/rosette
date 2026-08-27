@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the same terminology. GDS `PATHTYPE` records and the `rosette-layout` V1
   `"end_type"` field remain unchanged through explicit IO mappings.
 
+### Fixed
+
+- GDS import/export now preserves imported cell hierarchy when a top `Cell` is
+  re-exported, accepts Release 6 optional library headers, validates ASCII and
+  structure names, rejects geometry collapsed by the 1 nm output grid, and
+  reports lossy records through Rust, Python warnings, and the desktop viewer.
 ## [0.5.0] - 2026-08-13
 
 ### Added

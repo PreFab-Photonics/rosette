@@ -23,6 +23,7 @@ impl WasmLibrary {
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
             dirty: false,
+            import_warnings: Vec::new(),
             hierarchy_depth_limit: 0,
             hidden_cells: HashSet::new(),
             cell_image_bounds: HashMap::new(),

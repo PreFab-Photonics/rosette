@@ -275,11 +275,20 @@ impl WasmLibrary {
     /// are passed directly to WASM, avoiding the JSON serialization round-trip
     /// that `from_library_json` requires.
     pub fn from_gds_bytes(bytes: &[u8]) -> Result<WasmLibrary, JsValue> {
-        let library = rosette_io::gds::read_bytes(bytes)
+        let imported = rosette_io::gds::read_bytes_with_report(bytes)
             .map_err(|error| JsValue::from_str(&format!("GDS parse error: {error}")))?;
-        let document = LayoutDocument::from_library(library)
+        let import_warnings = imported.warnings.iter().map(ToString::to_string).collect();
+        let document = LayoutDocument::from_library(imported.library)
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        Self::init_from_document(document)
+        let mut library = Self::init_from_document(document)?;
+        library.import_warnings = import_warnings;
+        Ok(library)
+    }
+
+    /// Warnings about GDS records omitted during import.
+    #[wasm_bindgen(getter)]
+    pub fn import_warnings(&self) -> Vec<String> {
+        self.import_warnings.clone()
     }
 
     fn init_from_document(document: LayoutDocument) -> Result<WasmLibrary, JsValue> {
@@ -322,6 +331,7 @@ impl WasmLibrary {
             layer_colors: HashMap::new(),
             layer_fill_patterns: HashMap::new(),
             dirty: false,
+            import_warnings: Vec::new(),
             hierarchy_depth_limit: 0,
             hidden_cells: HashSet::new(),
             cell_image_bounds: HashMap::new(),
@@ -697,6 +707,35 @@ mod tests {
         assert_eq!(restored.annotations["top"], CellAnnotations::default());
         assert_eq!(restored.get_cell_origin(), Some(vec![0.0, 0.0]));
         assert_eq!(restored.get_cell_path_length("top"), None);
+    }
+
+    #[test]
+    fn gds_import_exposes_lossy_record_warnings() {
+        let mut library = WasmLibrary::new("gds");
+        library.add_cell("top").unwrap();
+        library
+            .add_polygon(&[0.0, 0.0, 50_000.0, 0.0, 50_000.0, 50_000.0], 1, 0)
+            .unwrap();
+        let bytes = library.to_gds().unwrap();
+        let endel = bytes
+            .windows(4)
+            .position(|window| window == [0, 4, 0x11, 0])
+            .unwrap();
+        let property_records = [
+            0, 6, 0x2B, 2, 0, 7, 0, 10, 0x2C, 6, b'N', b'E', b'T', b'_', b'A', 0,
+        ];
+        let mut bytes_with_property = Vec::with_capacity(bytes.len() + property_records.len());
+        bytes_with_property.extend_from_slice(&bytes[..endel]);
+        bytes_with_property.extend_from_slice(&property_records);
+        bytes_with_property.extend_from_slice(&bytes[endel..]);
+
+        let restored = WasmLibrary::from_gds_bytes(&bytes_with_property).unwrap();
+        assert!(
+            restored
+                .import_warnings()
+                .iter()
+                .any(|warning| warning.contains("property"))
+        );
     }
 
     #[test]

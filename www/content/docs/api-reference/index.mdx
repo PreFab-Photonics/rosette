@@ -157,6 +157,10 @@ Import `read_gds` and `write_gds` from `rosette.io`.
 
 Read a GDS file and return a Library.
 
+Rosette emits a `UserWarning` when the source contains records that its
+format-neutral model cannot preserve, such as element properties, BOX, or NODE.
+Re-exporting such a library omits those records.
+
 <Callout title={"Example"} type={"example"}>
 
 ```python
@@ -193,6 +197,11 @@ Write a Cell or Library to a GDS file.
 When writing a Cell built using Instance references (via `cell.at()`),
 child cells are automatically collected. A build summary is printed
 to stderr by default.
+
+Output uses a 1 nm database grid. Export raises `ValueError` instead of
+silently collapsing geometry that is not representable on that grid. Library
+names and text must be ASCII without embedded NUL characters; structure names
+use the GDS Release 6 alphabet and maximum length of 32 characters.
 
 <Callout title={"Example"} type={"example"}>
 

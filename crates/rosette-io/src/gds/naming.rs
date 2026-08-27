@@ -13,7 +13,7 @@ pub enum GdsNameError {
     TooLong { name: String, len: usize },
 
     #[error(
-        "cell name contains invalid character '{ch}' - only printable ASCII is allowed (no spaces or Unicode)"
+        "cell name contains invalid character '{ch}' - only ASCII letters, digits, '_', '?', and '$' are allowed"
     )]
     InvalidCharacter {
         name: String,
@@ -39,7 +39,7 @@ pub fn validate_structure_name(name: &str) -> Result<(), GdsNameError> {
 
     for (position, ch) in name.chars().enumerate() {
         let code = ch as u32;
-        if !(0x21..=0x7e).contains(&code) {
+        if !ch.is_ascii_alphanumeric() && !matches!(ch, '_' | '?' | '$') {
             return Err(GdsNameError::InvalidCharacter {
                 name: name.to_string(),
                 ch,
@@ -57,17 +57,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_printable_ascii_up_to_32_characters() {
+    fn accepts_release_6_characters_up_to_32_characters() {
         assert!(validate_structure_name("TOP").is_ok());
-        assert!(validate_structure_name("cell-1.0").is_ok());
+        assert!(validate_structure_name("cell_1?$ABC").is_ok());
         assert!(validate_structure_name(&"a".repeat(32)).is_ok());
-        for byte in 0x21_u8..=0x7e {
-            assert!(validate_structure_name(&(byte as char).to_string()).is_ok());
+        for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_?$".chars() {
+            assert!(validate_structure_name(&ch.to_string()).is_ok());
         }
     }
 
     #[test]
-    fn rejects_empty_long_space_and_unicode_names() {
+    fn rejects_empty_long_punctuation_space_and_unicode_names() {
         assert_eq!(validate_structure_name(""), Err(GdsNameError::Empty));
         assert!(matches!(
             validate_structure_name(&"a".repeat(33)),
@@ -81,5 +81,11 @@ mod tests {
             validate_structure_name("café"),
             Err(GdsNameError::InvalidCharacter { ch: 'é', .. })
         ));
+        for name in ["cell-1", "cell.1", "A/B", "quoted\""] {
+            assert!(matches!(
+                validate_structure_name(name),
+                Err(GdsNameError::InvalidCharacter { .. })
+            ));
+        }
     }
 }

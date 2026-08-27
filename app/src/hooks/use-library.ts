@@ -21,6 +21,7 @@ import type { DrcPayload } from "@/stores/violations";
 import { useRulerStore } from "@/stores/ruler";
 import { useClipboardStore } from "@/stores/clipboard";
 import { useDocumentStore } from "@/stores/document";
+import { useStatusMessageStore } from "@/stores/status-message";
 import {
   useTabsStore,
   setTabLibrary,
@@ -553,6 +554,12 @@ export function useLibrary(
         if (cancelled) return;
 
         const newLibrary = wasm.WasmLibrary.from_gds_bytes(bytes);
+        const importWarnings = newLibrary.import_warnings;
+        if (importWarnings.length > 0) {
+          useStatusMessageStore
+            .getState()
+            .show(`Imported with data loss: ${importWarnings.join("; ")}`, "warn");
+        }
 
         // Save current tab's state before switching
         const currentTabId = useTabsStore.getState().activeTabId;

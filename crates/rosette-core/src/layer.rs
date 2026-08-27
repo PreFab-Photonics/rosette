@@ -2,20 +2,20 @@
 //!
 //! A [`Layer`] identifies where geometry is placed in the fabrication process.
 
-/// A GDS layer specification.
+/// A format-neutral layout layer specification.
 ///
-/// In GDS II format, geometry is placed on layers identified by:
-/// - `number`: The primary layer number (0-65535)
-/// - `datatype`: A secondary identifier, often used for purpose (0-65535)
+/// The stored `u16` values range from 0 through 65535. GDS II export is more
+/// restrictive because its LAYER and DATATYPE records are signed 16-bit
+/// integers; `rosette-io` accepts values through 32767 for that format.
 ///
 /// Common conventions:
 /// - Different materials (silicon, oxide, cladding) have different layer numbers
 /// - Datatypes distinguish purposes (drawing, pin, label) on the same layer
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Layer {
-    /// Layer number (0-65535).
+    /// Format-neutral layer number (0-65535).
     pub number: u16,
-    /// Datatype (0-65535).
+    /// Format-neutral datatype (0-65535).
     pub datatype: u16,
 }
 

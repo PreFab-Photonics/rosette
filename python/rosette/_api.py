@@ -1261,18 +1261,26 @@ class Library:
             on_duplicate=on_duplicate,
         )
 
+    def _wrapped_cells(self) -> dict[str, Cell]:
+        cells = {inner.name: Cell._from_inner(inner) for inner in self._inner.cells()}
+        for cell in cells.values():
+            cell._child_cells.update(
+                child for name in cell.cell_ref_names() if (child := cells.get(name)) is not None
+            )
+        return cells
+
     def cell(self, name: str) -> Cell | None:
         """Get a cell by name."""
-        inner = self._inner.cell(name)
-        return Cell._from_inner(inner) if inner is not None else None
+        return self._wrapped_cells().get(name)
 
     def cells(self) -> list[Cell]:
         """Get all cells."""
-        return [Cell._from_inner(c) for c in self._inner.cells()]
+        return list(self._wrapped_cells().values())
 
     def roots(self) -> list[Cell]:
         """Get graph-derived root cells in deterministic library order."""
-        return [Cell._from_inner(c) for c in self._inner.roots()]
+        cells = self._wrapped_cells()
+        return [cells[cell.name] for cell in self._inner.roots()]
 
     def set_top_cell(self, name: str) -> None:
         """Select an existing cell as the explicit top entry cell."""
@@ -1285,7 +1293,7 @@ class Library:
     def top_cell(self) -> Cell | None:
         """Get the explicit top cell or sole graph-derived root."""
         inner = self._inner.top_cell()
-        return Cell._from_inner(inner) if inner is not None else None
+        return self._wrapped_cells().get(inner.name) if inner is not None else None
 
     def cell_bbox(self, name: str) -> BBox | None:
         """Calculate the fully-resolved bounding box of a cell in this library.

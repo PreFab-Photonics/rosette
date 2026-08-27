@@ -7,6 +7,15 @@ use rosette_core::{Cell, DuplicatePolicy, Library};
 use rosette_io::{gds, json};
 use rosette_route::RouteAnnotations;
 
+fn map_gds_error(action: &str, error: gds::GdsError) -> PyErr {
+    match error {
+        gds::GdsError::Io(source) => source.into(),
+        error => {
+            pyo3::exceptions::PyValueError::new_err(format!("Failed to {action} GDS: {error}"))
+        }
+    }
+}
+
 /// Build summary information for a cell.
 struct BuildSummary {
     cell_name: String,
@@ -271,10 +280,20 @@ fn angle_to_dir_str(angle_deg: f64) -> &'static str {
 ///     >>> for cell in lib.cells():
 ///     ...     print(cell.name)
 #[pyfunction]
-pub fn read_gds(path: &str) -> PyResult<PyLibrary> {
-    let lib = gds::read(path)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to read GDS: {}", e)))?;
-    Ok(PyLibrary::from_library(lib))
+pub fn read_gds(py: Python<'_>, path: &str) -> PyResult<PyLibrary> {
+    let imported = gds::read_with_report(path).map_err(|error| map_gds_error("read", error))?;
+    let warnings = py.import("warnings")?;
+    for warning in imported.warnings {
+        warnings.call_method1(
+            "warn",
+            (
+                warning.to_string(),
+                py.get_type::<pyo3::exceptions::PyUserWarning>(),
+                2,
+            ),
+        )?;
+    }
+    Ok(PyLibrary::from_library(imported.library))
 }
 
 /// Write a cell or library to a GDS file.
@@ -308,9 +327,7 @@ pub fn write_gds(
                 "cells parameter is only valid when design is a Cell, not a Library",
             ));
         }
-        gds::write_library(path, &lib.0).map_err(|e| {
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to write GDS: {}", e))
-        })?;
+        gds::write_library(path, &lib.0).map_err(|error| map_gds_error("write", error))?;
 
         if print_summary {
             let entries = lib.0.top_cell().map_or_else(
@@ -353,9 +370,7 @@ pub fn write_gds(
                 DuplicatePolicy::KeepExisting,
             )
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-            gds::write_library(path, &lib).map_err(|e| {
-                pyo3::exceptions::PyIOError::new_err(format!("Failed to write GDS: {}", e))
-            })?;
+            gds::write_library(path, &lib).map_err(|error| map_gds_error("write", error))?;
 
             if print_summary && let Some(top) = lib.top_cell() {
                 let summary = BuildSummary::from_cell_with_library(
@@ -370,9 +385,7 @@ pub fn write_gds(
                 }
             }
         } else {
-            gds::write(path, &cell.0).map_err(|e| {
-                pyo3::exceptions::PyIOError::new_err(format!("Failed to write GDS: {}", e))
-            })?;
+            gds::write(path, &cell.0).map_err(|error| map_gds_error("write", error))?;
 
             if print_summary {
                 let summary = BuildSummary::from_cell(&cell.0, Some(cell.route_annotations()));

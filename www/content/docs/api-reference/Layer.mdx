@@ -21,13 +21,13 @@ Layer objects are hashable and can be used as dictionary keys or in sets.
 
 <PyAttribute name={"number"} type={"int"}>
 
-GDS layer number (0--999).
+Layer number (0--65535). GDS export supports values through 32767.
 
 </PyAttribute>
 
 <PyAttribute name={"datatype"} type={"int"}>
 
-GDS datatype (0--999). Defaults to 0.
+Datatype (0--65535). GDS export supports values through 32767. Defaults to 0.
 
 </PyAttribute>
 
@@ -50,12 +50,12 @@ Layer(1)      # Equivalent: datatype defaults to 0
 
 <PyParameter name={"number"} type={"int"}>
 
-GDS layer number.
+Layer number. Values above 32767 cannot be exported to GDS.
 
 </PyParameter>
 <PyParameter name={"datatype"} type={"int"} value={"0"}>
 
-GDS datatype. Defaults to 0.
+Datatype. Values above 32767 cannot be exported to GDS. Defaults to 0.
 
 </PyParameter>
 

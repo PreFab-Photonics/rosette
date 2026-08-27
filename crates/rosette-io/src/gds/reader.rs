@@ -2,6 +2,8 @@
 //!
 //! Parses GDS II Stream files into rosette [`Library`] objects.
 
+use std::collections::BTreeMap;
+use std::fmt;
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::Path;
@@ -33,14 +35,67 @@ use super::error::{GdsElementError, GdsError, GdsTransformError};
 /// }
 /// ```
 pub fn read(path: impl AsRef<Path>) -> Result<Library, GdsError> {
+    Ok(read_with_report(path)?.library)
+}
+
+/// Read a GDS file and report records that cannot survive re-export.
+pub fn read_with_report(path: impl AsRef<Path>) -> Result<GdsImport, GdsError> {
     let data = fs::read(path)?;
-    read_bytes(&data)
+    read_bytes_with_report(&data)
 }
 
 /// Read a GDS from raw bytes into a [`Library`].
 pub fn read_bytes(data: &[u8]) -> Result<Library, GdsError> {
+    Ok(read_bytes_with_report(data)?.library)
+}
+
+/// Read GDS bytes and report records that cannot survive re-export.
+pub fn read_bytes_with_report(data: &[u8]) -> Result<GdsImport, GdsError> {
     let mut reader = GdsReader::new(data);
-    reader.read_library()
+    let library = reader.read_library()?;
+    Ok(GdsImport {
+        library,
+        warnings: reader.import_warnings(),
+    })
+}
+
+/// Result of importing GDS data, including lossy-conversion warnings.
+#[derive(Debug)]
+pub struct GdsImport {
+    pub library: Library,
+    pub warnings: Vec<GdsImportWarning>,
+}
+
+/// A category of GDS records omitted from Rosette's format-neutral model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GdsImportWarning {
+    DroppedElements { element: &'static str, count: usize },
+    DroppedPropertyRecords { count: usize },
+    DroppedRecords { record_type: u8, count: usize },
+}
+
+impl fmt::Display for GdsImportWarning {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DroppedElements { element, count } => write!(
+                formatter,
+                "dropped {count} {element} element(s); re-export will omit them"
+            ),
+            Self::DroppedPropertyRecords { count } => write!(
+                formatter,
+                "dropped {count} property record(s); re-export will omit them"
+            ),
+            Self::DroppedRecords { record_type, count } => {
+                let name = record_name(*record_type)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("record 0x{record_type:02X}"));
+                write!(
+                    formatter,
+                    "dropped {count} {name} record(s); re-export will omit them"
+                )
+            }
+        }
+    }
 }
 
 /// A raw GDS record as read from the file.
@@ -54,6 +109,9 @@ struct GdsReader<'a> {
     cursor: Cursor<&'a [u8]>,
     /// Database unit in meters, read from UNITS record.
     db_unit_m: f64,
+    dropped_elements: BTreeMap<&'static str, usize>,
+    dropped_property_records: usize,
+    dropped_records: BTreeMap<u8, usize>,
 }
 
 impl<'a> GdsReader<'a> {
@@ -61,7 +119,42 @@ impl<'a> GdsReader<'a> {
         Self {
             cursor: Cursor::new(data),
             db_unit_m: 1e-9, // default: 1 nm
+            dropped_elements: BTreeMap::new(),
+            dropped_property_records: 0,
+            dropped_records: BTreeMap::new(),
         }
+    }
+
+    fn import_warnings(&self) -> Vec<GdsImportWarning> {
+        let mut warnings = Vec::new();
+        warnings.extend(
+            self.dropped_elements
+                .iter()
+                .map(|(&element, &count)| GdsImportWarning::DroppedElements { element, count }),
+        );
+        if self.dropped_property_records > 0 {
+            warnings.push(GdsImportWarning::DroppedPropertyRecords {
+                count: self.dropped_property_records,
+            });
+        }
+        warnings.extend(
+            self.dropped_records.iter().map(|(&record_type, &count)| {
+                GdsImportWarning::DroppedRecords { record_type, count }
+            }),
+        );
+        warnings
+    }
+
+    fn drop_element(&mut self, element: &'static str) {
+        *self.dropped_elements.entry(element).or_default() += 1;
+    }
+
+    fn drop_property_record(&mut self) {
+        self.dropped_property_records += 1;
+    }
+
+    fn drop_record(&mut self, record_type: u8) {
+        *self.dropped_records.entry(record_type).or_default() += 1;
     }
 
     /// Current byte offset in the stream (for error messages).
@@ -76,7 +169,7 @@ impl<'a> GdsReader<'a> {
         if remaining == 0 {
             return Ok(None);
         }
-        if remaining < 2 {
+        if remaining < 4 {
             return Err(GdsError::UnexpectedEof);
         }
 
@@ -161,13 +254,14 @@ impl<'a> GdsReader<'a> {
         Ok(rec)
     }
 
-    fn reject_known_record(&self, rec: &Record, context: &str) -> Result<(), GdsError> {
+    fn reject_known_record(&mut self, rec: &Record, context: &str) -> Result<(), GdsError> {
         if expected_data_type(rec.record_type).is_some() {
             return Err(GdsError::InvalidRecord {
                 offset: self.offset(),
                 message: format!("record 0x{:02X} is not valid {context}", rec.record_type),
             });
         }
+        self.drop_record(rec.record_type);
         Ok(())
     }
 
@@ -193,24 +287,69 @@ impl<'a> GdsReader<'a> {
             });
         }
 
-        // LIBNAME
-        let rec = self.expect_record()?;
-        if rec.record_type != LIBNAME {
-            return Err(GdsError::InvalidRecord {
-                offset: self.offset(),
-                message: format!("expected LIBNAME, got 0x{:02X}", rec.record_type),
-            });
-        }
-        let lib_name = parse_string(&rec.data);
+        // Optional library metadata may appear before LIBNAME.
+        let rec = loop {
+            let rec = self.expect_record()?;
+            match rec.record_type {
+                LIBDIRSIZE | SRFNAME | LIBSECUR => self.drop_record(rec.record_type),
+                LIBNAME => break rec,
+                _ => {
+                    return Err(GdsError::InvalidRecord {
+                        offset: self.offset(),
+                        message: format!("expected LIBNAME, got 0x{:02X}", rec.record_type),
+                    });
+                }
+            }
+        };
+        let lib_name = parse_string(&rec.data, self.offset(), "LIBNAME")?;
 
-        // UNITS
-        let rec = self.expect_record()?;
-        if rec.record_type != UNITS {
-            return Err(GdsError::InvalidRecord {
-                offset: self.offset(),
-                message: format!("expected UNITS, got 0x{:02X}", rec.record_type),
-            });
-        }
+        // Optional metadata and filtered-stream declarations may appear before UNITS.
+        let mut format = None;
+        let mut mask_count = 0;
+        let mut masks_ended = false;
+        let rec = loop {
+            let rec = self.expect_record()?;
+            match rec.record_type {
+                REFLIBS | FONTS | ATTRTABLE | GENERATIONS if format.is_none() => {
+                    self.drop_record(rec.record_type);
+                }
+                FORMAT if format.is_none() => {
+                    let value = parse_int16_record(&rec.data, self.offset(), "FORMAT")?;
+                    if !(0..=3).contains(&value) {
+                        return Err(GdsError::InvalidRecord {
+                            offset: self.offset(),
+                            message: format!("unsupported FORMAT value {value}"),
+                        });
+                    }
+                    format = Some(value);
+                    self.drop_record(rec.record_type);
+                }
+                MASK if matches!(format, Some(1 | 3)) && !masks_ended => {
+                    mask_count += 1;
+                    self.drop_record(rec.record_type);
+                }
+                ENDMASKS if matches!(format, Some(1 | 3)) && mask_count > 0 && !masks_ended => {
+                    masks_ended = true;
+                    self.drop_record(rec.record_type);
+                }
+                UNITS => {
+                    if matches!(format, Some(1 | 3)) && !masks_ended {
+                        return Err(GdsError::InvalidRecord {
+                            offset: self.offset(),
+                            message: "filtered FORMAT requires MASK records followed by ENDMASKS"
+                                .to_string(),
+                        });
+                    }
+                    break rec;
+                }
+                _ => {
+                    return Err(GdsError::InvalidRecord {
+                        offset: self.offset(),
+                        message: format!("expected UNITS, got 0x{:02X}", rec.record_type),
+                    });
+                }
+            }
+        };
         if rec.data.len() != 16 {
             return Err(GdsError::InvalidRecord {
                 offset: self.offset(),
@@ -265,7 +404,7 @@ impl<'a> GdsReader<'a> {
                 message: format!("expected STRNAME, got 0x{:02X}", rec.record_type),
             });
         }
-        let cell_name = parse_string(&rec.data);
+        let cell_name = parse_string(&rec.data, self.offset(), "STRNAME")?;
         let mut cell = Cell::new(cell_name.clone()).map_err(|source| {
             GdsError::InvalidLibrary(LibraryError::InvalidCell {
                 name: cell_name,
@@ -283,8 +422,14 @@ impl<'a> GdsReader<'a> {
                 AREF => self.read_aref(&mut cell)?,
                 TEXT => self.read_text(&mut cell)?,
                 ENDSTR => break,
-                // Skip unsupported element types gracefully
-                NODE | BOX => self.skip_element()?,
+                NODE => {
+                    self.drop_element("NODE");
+                    self.skip_element()?;
+                }
+                BOX => {
+                    self.drop_element("BOX");
+                    self.skip_element()?;
+                }
                 _ => self.reject_known_record(&rec, "between structure elements")?,
             }
         }
@@ -319,7 +464,7 @@ impl<'a> GdsReader<'a> {
                 }
                 XY => xy_data = Some(rec.data),
                 ENDEL => break,
-                PROPATTR | PROPVALUE => {} // skip properties
+                PROPATTR | PROPVALUE => self.drop_property_record(),
                 _ => self.reject_known_record(&rec, "in a BOUNDARY element")?,
             }
         }
@@ -376,7 +521,7 @@ impl<'a> GdsReader<'a> {
                 WIDTH => width_db = parse_int32_record(&rec.data, self.offset(), "WIDTH")?,
                 XY => xy_data = Some(rec.data),
                 ENDEL => break,
-                PROPATTR | PROPVALUE => {}
+                PROPATTR | PROPVALUE => self.drop_property_record(),
                 _ => self.reject_known_record(&rec, "in a PATH element")?,
             }
         }
@@ -443,7 +588,7 @@ impl<'a> GdsReader<'a> {
         loop {
             let rec = self.expect_element_record()?;
             match rec.record_type {
-                SNAME => sname = Some(parse_string(&rec.data)),
+                SNAME => sname = Some(parse_string(&rec.data, self.offset(), "SNAME")?),
                 STRANS => {
                     strans = parse_uint16_record(&rec.data, self.offset(), "STRANS")?;
                 }
@@ -451,7 +596,7 @@ impl<'a> GdsReader<'a> {
                 ANGLE => angle_deg = parse_real_record(&rec.data, self.offset(), "ANGLE")?,
                 XY => xy_data = Some(rec.data),
                 ENDEL => break,
-                PROPATTR | PROPVALUE => {}
+                PROPATTR | PROPVALUE => self.drop_property_record(),
                 _ => self.reject_known_record(&rec, "in an SREF element")?,
             }
         }
@@ -495,7 +640,7 @@ impl<'a> GdsReader<'a> {
         loop {
             let rec = self.expect_element_record()?;
             match rec.record_type {
-                SNAME => sname = Some(parse_string(&rec.data)),
+                SNAME => sname = Some(parse_string(&rec.data, self.offset(), "SNAME")?),
                 STRANS => {
                     strans = parse_uint16_record(&rec.data, self.offset(), "STRANS")?;
                 }
@@ -510,7 +655,7 @@ impl<'a> GdsReader<'a> {
                 }
                 XY => xy_data = Some(rec.data),
                 ENDEL => break,
-                PROPATTR | PROPVALUE => {}
+                PROPATTR | PROPVALUE => self.drop_property_record(),
                 _ => self.reject_known_record(&rec, "in an AREF element")?,
             }
         }
@@ -642,9 +787,9 @@ impl<'a> GdsReader<'a> {
                     presentation = parse_uint16_record(&rec.data, self.offset(), "PRESENTATION")?;
                 }
                 XY => xy_data = Some(rec.data),
-                STRING => text_string = Some(parse_string(&rec.data)),
+                STRING => text_string = Some(parse_string(&rec.data, self.offset(), "STRING")?),
                 ENDEL => break,
-                PROPATTR | PROPVALUE => {}
+                PROPATTR | PROPVALUE => self.drop_property_record(),
                 _ => self.reject_known_record(&rec, "in a TEXT element")?,
             }
         }
@@ -749,10 +894,13 @@ impl<'a> GdsReader<'a> {
 fn expected_data_type(record_type: u8) -> Option<u8> {
     let data_type = match record_type {
         HEADER | BGNLIB | BGNSTR | LAYER | DATATYPE | COLROW | TEXTTYPE | PATHTYPE | PROPATTR
-        | BOXTYPE => INT16,
-        LIBNAME | STRNAME | SNAME | STRING | PROPVALUE => ASCII,
+        | BOXTYPE | GENERATIONS | FORMAT | LIBDIRSIZE | LIBSECUR => INT16,
+        LIBNAME | STRNAME | SNAME | STRING | PROPVALUE | REFLIBS | FONTS | ATTRTABLE | MASK
+        | SRFNAME => ASCII,
         UNITS | MAG | ANGLE => REAL64,
-        ENDLIB | ENDSTR | BOUNDARY | PATH | SREF | AREF | TEXT | ENDEL | NODE | BOX => NO_DATA,
+        ENDLIB | ENDSTR | BOUNDARY | PATH | SREF | AREF | TEXT | ENDEL | NODE | BOX | ENDMASKS => {
+            NO_DATA
+        }
         WIDTH | XY => INT32,
         PRESENTATION | STRANS => BIT_ARRAY,
         _ => return None,
@@ -760,9 +908,26 @@ fn expected_data_type(record_type: u8) -> Option<u8> {
     Some(data_type)
 }
 
+fn record_name(record_type: u8) -> Option<&'static str> {
+    let name = match record_type {
+        REFLIBS => "REFLIBS",
+        FONTS => "FONTS",
+        GENERATIONS => "GENERATIONS",
+        ATTRTABLE => "ATTRTABLE",
+        FORMAT => "FORMAT",
+        MASK => "MASK",
+        ENDMASKS => "ENDMASKS",
+        LIBDIRSIZE => "LIBDIRSIZE",
+        SRFNAME => "SRFNAME",
+        LIBSECUR => "LIBSECUR",
+        _ => return None,
+    };
+    Some(name)
+}
+
 fn fixed_data_len(record_type: u8) -> Option<usize> {
     match record_type {
-        HEADER => Some(2),
+        HEADER | GENERATIONS | FORMAT | LIBDIRSIZE => Some(2),
         BGNLIB | BGNSTR => Some(24),
         _ => None,
     }
@@ -1127,15 +1292,16 @@ fn parse_int32(data: &[u8]) -> i32 {
     }
 }
 
-/// Parse an ASCII string from record data, stripping trailing nulls and padding.
-fn parse_string(data: &[u8]) -> String {
-    // GDS strings are padded to even length with null bytes
-    let trimmed = data
-        .iter()
-        .copied()
-        .take_while(|&b| b != 0)
-        .collect::<Vec<u8>>();
-    String::from_utf8_lossy(&trimmed).to_string()
+/// Parse an ASCII string from record data, stripping one trailing padding NUL.
+fn parse_string(data: &[u8], offset: usize, record: &str) -> Result<String, GdsError> {
+    let value = data.strip_suffix(&[0]).unwrap_or(data);
+    if !value.is_ascii() || value.contains(&0) {
+        return Err(GdsError::InvalidRecord {
+            offset,
+            message: format!("{record} contains non-ASCII or embedded NUL data"),
+        });
+    }
+    Ok(String::from_utf8(value.to_vec()).expect("validated ASCII"))
 }
 
 /// Build a Transform from GDS SREF/AREF parameters.
@@ -1347,11 +1513,21 @@ mod tests {
             (STRANS, BIT_ARRAY),
             (MAG, REAL64),
             (ANGLE, REAL64),
+            (REFLIBS, ASCII),
+            (FONTS, ASCII),
             (PATHTYPE, INT16),
+            (GENERATIONS, INT16),
+            (ATTRTABLE, ASCII),
             (PROPATTR, INT16),
             (PROPVALUE, ASCII),
             (BOX, NO_DATA),
             (BOXTYPE, INT16),
+            (FORMAT, INT16),
+            (MASK, ASCII),
+            (ENDMASKS, NO_DATA),
+            (LIBDIRSIZE, INT16),
+            (SRFNAME, ASCII),
+            (LIBSECUR, INT16),
         ];
 
         for (record_type, expected_type) in known_records {
@@ -1426,6 +1602,71 @@ mod tests {
         let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
         insert_record_before(&mut bytes, BGNSTR, 0x7F, NO_DATA, &[]);
         assert!(read_bytes(&bytes).is_ok());
+    }
+
+    #[test]
+    fn accepts_release_6_optional_library_records() {
+        const REFLIBS_RECORD: u8 = 0x1F;
+        const FONTS_RECORD: u8 = 0x20;
+        const GENERATIONS_RECORD: u8 = 0x22;
+        const ATTRTABLE_RECORD: u8 = 0x23;
+        const FORMAT_RECORD: u8 = 0x36;
+        const MASK_RECORD: u8 = 0x37;
+        const ENDMASKS_RECORD: u8 = 0x38;
+        const LIBDIRSIZE_RECORD: u8 = 0x39;
+        const SRFNAME_RECORD: u8 = 0x3A;
+        const LIBSECUR_RECORD: u8 = 0x3B;
+
+        let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+        for (record_type, data_type, data) in [
+            (LIBDIRSIZE_RECORD, INT16, 40_i16.to_be_bytes().to_vec()),
+            (SRFNAME_RECORD, ASCII, b"SOURCE".to_vec()),
+            (LIBSECUR_RECORD, INT16, vec![0; 6]),
+        ] {
+            insert_record_before(&mut bytes, LIBNAME, record_type, data_type, &data);
+        }
+        for (record_type, data_type, data) in [
+            (REFLIBS_RECORD, ASCII, vec![0; 88]),
+            (FONTS_RECORD, ASCII, vec![0; 176]),
+            (ATTRTABLE_RECORD, ASCII, b"ATTRS\0".to_vec()),
+            (GENERATIONS_RECORD, INT16, 3_i16.to_be_bytes().to_vec()),
+            (FORMAT_RECORD, INT16, 1_i16.to_be_bytes().to_vec()),
+            (MASK_RECORD, ASCII, b"1 2;0\0".to_vec()),
+            (ENDMASKS_RECORD, NO_DATA, vec![]),
+        ] {
+            insert_record_before(&mut bytes, UNITS, record_type, data_type, &data);
+        }
+
+        assert!(read_bytes(&bytes).is_ok());
+    }
+
+    #[test]
+    fn reports_records_that_cannot_survive_reexport() {
+        let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+        insert_record_before(&mut bytes, ENDEL, PROPATTR, INT16, &7_i16.to_be_bytes());
+        insert_record_before(&mut bytes, ENDEL, PROPVALUE, ASCII, b"NET_A\0");
+        for (record_type, data_type, data) in [
+            (BOX, NO_DATA, vec![]),
+            (LAYER, INT16, 1_i16.to_be_bytes().to_vec()),
+            (BOXTYPE, INT16, 0_i16.to_be_bytes().to_vec()),
+            (
+                XY,
+                INT32,
+                xy_data(&[(0, 0), (1000, 0), (1000, 1000), (0, 1000), (0, 0)]),
+            ),
+            (ENDEL, NO_DATA, vec![]),
+        ] {
+            insert_record_before(&mut bytes, ENDSTR, record_type, data_type, &data);
+        }
+
+        let imported = read_bytes_with_report(&bytes).unwrap();
+        let warnings = imported
+            .warnings
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        assert!(warnings.iter().any(|warning| warning.contains("property")));
+        assert!(warnings.iter().any(|warning| warning.contains("BOX")));
     }
 
     #[test]
@@ -1595,13 +1836,25 @@ mod tests {
 
     #[test]
     fn test_parse_string_no_padding() {
-        assert_eq!(parse_string(b"TEST"), "TEST");
+        assert_eq!(parse_string(b"TEST", 0, "STRING").unwrap(), "TEST");
     }
 
     #[test]
     fn test_parse_string_null_padding() {
-        assert_eq!(parse_string(b"TEST\0"), "TEST");
-        assert_eq!(parse_string(b"AB\0"), "AB");
+        assert_eq!(parse_string(b"TEST\0", 0, "STRING").unwrap(), "TEST");
+        assert_eq!(parse_string(b"AB\0", 0, "STRING").unwrap(), "AB");
+    }
+
+    #[test]
+    fn rejects_non_ascii_and_embedded_nul_strings() {
+        for data in [&b"A\xFF"[..], &b"A\0B\0"[..]] {
+            let mut bytes = super::super::writer::write_bytes(&polygon_library()).unwrap();
+            replace_record_data(&mut bytes, STRNAME, data);
+            assert!(matches!(
+                read_bytes(&bytes),
+                Err(GdsError::InvalidRecord { .. })
+            ));
+        }
     }
 
     #[test]

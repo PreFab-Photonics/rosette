@@ -30,12 +30,22 @@ pub const STRING: u8 = 0x19;
 pub const STRANS: u8 = 0x1A;
 pub const MAG: u8 = 0x1B;
 pub const ANGLE: u8 = 0x1C;
+pub const REFLIBS: u8 = 0x1F;
+pub const FONTS: u8 = 0x20;
 pub const PATHTYPE: u8 = 0x21;
+pub const GENERATIONS: u8 = 0x22;
+pub const ATTRTABLE: u8 = 0x23;
 pub const PROPATTR: u8 = 0x2B;
 pub const PROPVALUE: u8 = 0x2C;
 pub const BOX: u8 = 0x2D;
 #[allow(dead_code)]
 pub const BOXTYPE: u8 = 0x2E;
+pub const FORMAT: u8 = 0x36;
+pub const MASK: u8 = 0x37;
+pub const ENDMASKS: u8 = 0x38;
+pub const LIBDIRSIZE: u8 = 0x39;
+pub const SRFNAME: u8 = 0x3A;
+pub const LIBSECUR: u8 = 0x3B;
 
 // GDS Data Types
 pub const NO_DATA: u8 = 0x00;

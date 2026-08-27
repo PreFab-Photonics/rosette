@@ -172,6 +172,8 @@ pub struct WasmLibrary {
     layer_fill_patterns: HashMap<u32, u32>,
     /// Whether the library has changed since last sync.
     dirty: bool,
+    /// Warnings about GDS records omitted during the most recent import.
+    import_warnings: Vec<String>,
     /// Maximum hierarchy depth for rendering CellRef instances.
     /// 0 means unlimited (fully resolve all nested references).
     /// 1 means only render direct elements of the active cell (instances shown as outlines only).

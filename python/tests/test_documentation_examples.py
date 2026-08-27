@@ -43,7 +43,7 @@ RUNNABLE_API_EXAMPLES = {
     ("Vector2.mdx", 192),
     ("Vector2.mdx", 199),
     ("index.mdx", 40),
-    ("index.mdx", 257),
+    ("index.mdx", 266),
 }
 
 RUNNABLE_STUB_EXAMPLES = (

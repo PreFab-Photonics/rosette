@@ -28,5 +28,7 @@ mod writer;
 
 pub use error::{GdsElementError, GdsError, GdsTransformError};
 pub use naming::{GdsNameError, MAX_STRUCTURE_NAME_LENGTH, validate_structure_name};
-pub use reader::{read, read_bytes};
+pub use reader::{
+    GdsImport, GdsImportWarning, read, read_bytes, read_bytes_with_report, read_with_report,
+};
 pub use writer::{write, write_bytes, write_library};

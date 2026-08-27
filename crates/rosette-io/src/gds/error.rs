@@ -65,6 +65,12 @@ pub enum GdsElementError {
 
     #[error("text has {count} characters (maximum 512)")]
     TextTooLong { count: usize },
+
+    #[error("text contains non-ASCII or embedded NUL data")]
+    InvalidTextString,
+
+    #[error("{field} collapses on the 1 nm GDS output grid")]
+    QuantizationCollapse { field: &'static str },
 }
 
 /// Why transform semantics cannot be represented across Rosette and GDS II.
@@ -120,6 +126,9 @@ pub enum GdsError {
 
     #[error("invalid GDS units: {reason}")]
     InvalidUnits { reason: &'static str },
+
+    #[error("{record} contains non-ASCII or embedded NUL data")]
+    InvalidAsciiString { record: &'static str },
 
     #[error("{record} record contains {byte_count} bytes (maximum 65530)")]
     RecordTooLong {
