@@ -16,6 +16,7 @@ import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import urlparse
 
 log = logging.getLogger("rosette.server")
@@ -41,6 +42,18 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         super().handle_error(request, client_address)
 
 
+class _ComponentProvider:
+    __slots__ = ("catalog", "materialize")
+
+    def __init__(
+        self,
+        catalog: Callable[[], dict[str, object]],
+        materialize: Callable[[dict[str, object]], dict[str, object]],
+    ) -> None:
+        self.catalog = catalog
+        self.materialize = materialize
+
+
 class RosetteHandler(http.server.BaseHTTPRequestHandler):
     """HTTP request handler for rosette serve."""
 
@@ -54,6 +67,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
         None  # DRC result: {violations, error_count, ...} or None
     )
     design_version: int = 0
+    component_provider: ClassVar[_ComponentProvider | None] = None
     on_error: Callable[[str], None] | None = None
 
     # Condition variable for SSE notifications
@@ -64,13 +78,32 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def send_cors_headers(self) -> None:
-        """Send CORS headers for local development."""
-        self.send_header("Access-Control-Allow-Origin", "*")
+        """Send CORS headers only for trusted local origins."""
+        origin = self.headers.get("Origin")
+        if origin is not None and self._is_local_origin(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
+    @staticmethod
+    def _is_local_origin(origin: str) -> bool:
+        parsed = urlparse(origin)
+        return parsed.scheme in ("http", "https", "tauri") and parsed.hostname in (
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        )
+
+    def _origin_allowed(self) -> bool:
+        origin = self.headers.get("Origin")
+        return origin is None or self._is_local_origin(origin)
+
     def do_OPTIONS(self) -> None:
         """Handle CORS preflight requests."""
+        if not self._origin_allowed():
+            self._send_json(403, {"error": "Forbidden origin"})
+            return
         self.send_response(200)
         self.send_cors_headers()
         self.end_headers()
@@ -90,8 +123,86 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
             self.handle_design_api()
             return
 
+        if path == "/api/components":
+            self.handle_component_catalog()
+            return
+
+        if path.startswith("/api/"):
+            self._send_json(404, {"error": "Not found"})
+            return
+
         # Static file serving for web app
         self.handle_static_file(path)
+
+    def do_POST(self) -> None:
+        """Handle component materialization requests."""
+        path = urlparse(self.path).path
+        if path != "/api/components/materialize":
+            self._send_json(404, {"error": "Not found"})
+            return
+        if not self._origin_allowed():
+            self._send_json(403, {"error": "Forbidden origin"})
+            return
+        provider = self.__class__.component_provider
+        if provider is None:
+            self._send_json(404, {"error": "Project components are unavailable"})
+            return
+        if self.headers.get_content_type() != "application/json":
+            self._send_json(415, {"error": "Content-Type must be application/json"})
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            self._send_json(400, {"error": "Content-Length is required"})
+            return
+        if content_length < 0 or content_length > 65_536:
+            self._send_json(413, {"error": "Request body is too large"})
+            return
+        try:
+            request = json.loads(self.rfile.read(content_length))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._send_json(400, {"error": "Request body must be valid JSON"})
+            return
+        if not isinstance(request, dict):
+            self._send_json(400, {"error": "Request body must be an object"})
+            return
+        try:
+            response = provider.materialize(request)
+        except KeyError as error:
+            self._send_json(404, {"error": str(error).strip("'")})
+            return
+        except ValueError as error:
+            self._send_json(422, {"error": str(error)})
+            return
+        except Exception:
+            log.exception("Unexpected component materialization error")
+            self._send_json(500, {"error": "Component materialization failed"})
+            return
+        self._send_json(200, response)
+
+    def _send_json(self, status: int, response: dict[str, object]) -> None:
+        content = json.dumps(response).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(content)))
+        self.send_cors_headers()
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_component_catalog(self) -> None:
+        """Return the project component catalog in blank serve mode."""
+        provider = self.__class__.component_provider
+        if provider is None:
+            self._send_json(404, {"error": "Project components are unavailable"})
+            return
+        try:
+            response = provider.catalog()
+        except Exception:
+            log.exception("Unexpected component catalog error")
+            self._send_json(500, {"error": "Component catalog failed"})
+            return
+        self._send_json(200, response)
 
     def handle_design_events(self) -> None:
         """Handle SSE endpoint for live design updates.
@@ -195,7 +306,7 @@ class RosetteHandler(http.server.BaseHTTPRequestHandler):
         # Security: ensure path is within webapp_dir
         try:
             file_path = file_path.resolve()
-            if not str(file_path).startswith(str(webapp_dir.resolve())):
+            if not file_path.is_relative_to(webapp_dir.resolve()):
                 self.send_error(403, "Forbidden")
                 return
         except (ValueError, OSError):
@@ -249,6 +360,7 @@ class RosetteServer:
         """
         self.webapp_dir = webapp_dir
         self.port = port
+        RosetteHandler.component_provider = None
         self._httpd: socketserver.TCPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -282,6 +394,14 @@ class RosetteServer:
         with RosetteHandler._condition:
             RosetteHandler._condition.notify_all()
 
+    def set_component_provider(
+        self,
+        catalog: Callable[[], dict[str, object]],
+        materializer: Callable[[dict[str, object]], dict[str, object]],
+    ) -> None:
+        """Expose project components for a blank editable serve session."""
+        RosetteHandler.component_provider = _ComponentProvider(catalog, materializer)
+
     def get_design_version(self) -> int:
         """Get the current design version number."""
         return RosetteHandler.design_version
@@ -294,7 +414,7 @@ class RosetteServer:
         # Configure handler
         RosetteHandler.webapp_dir = self.webapp_dir
 
-        with ThreadingTCPServer(("", self.port), RosetteHandler) as httpd:
+        with ThreadingTCPServer(("127.0.0.1", self.port), RosetteHandler) as httpd:
             self._httpd = httpd
             httpd.serve_forever()
 

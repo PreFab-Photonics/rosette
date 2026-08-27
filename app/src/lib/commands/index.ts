@@ -23,6 +23,7 @@ export {
   syncCellTree,
   translationTargetCount,
   translateElementsOrThrow,
+  viewportPlacement,
 } from "./helpers";
 
 export {
@@ -68,6 +69,7 @@ export {
   SetCellOriginCommand,
   RenameCellCommand,
   AddCellRefCommand,
+  ImportComponentCommand,
 } from "./cell";
 
 export {

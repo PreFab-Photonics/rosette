@@ -522,6 +522,14 @@ export class WasmLibrary {
      */
     hit_test_with_tolerance(x: number, y: number, tolerance: number): string | undefined;
     /**
+     * Import every non-conflicting cell from hierarchical library JSON.
+     *
+     * Existing cell definitions win on name collisions. The current library,
+     * active cell, render settings, and existing element IDs are preserved.
+     * Returns the names of cells inserted by this operation.
+     */
+    import_library_json(json: string): string[];
+    /**
      * Check whether a cell's internal geometry is visible.
      */
     is_cell_visible(cell_name: string): boolean;
@@ -1151,50 +1159,14 @@ export interface InitOutput {
     readonly nativepathinfo_datatype: (a: number) => number;
     readonly nativepathinfo_layer: (a: number) => number;
     readonly nativepathinfo_width: (a: number) => number;
-    readonly wasmlibrary_active_cell_name: (a: number) => [number, number];
-    readonly wasmlibrary_add_cell: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_cell_count: (a: number) => number;
-    readonly wasmlibrary_clear_active_cell: (a: number) => void;
-    readonly wasmlibrary_element_count: (a: number) => number;
-    readonly wasmlibrary_flatten_active_cell: (a: number) => number;
-    readonly wasmlibrary_from_gds_bytes: (a: number, b: number) => [number, number, number];
-    readonly wasmlibrary_from_library_json: (a: number, b: number) => [number, number, number];
-    readonly wasmlibrary_get_area_by_layer: (a: number) => [number, number];
-    readonly wasmlibrary_get_canonical_element_id: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_names: (a: number) => [number, number];
-    readonly wasmlibrary_get_cell_origin: (a: number) => [number, number];
-    readonly wasmlibrary_get_cell_origin_by_name: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_cell_path_length: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_element_index: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_get_elements_on_layer: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_get_hidden_cells: (a: number) => [number, number];
-    readonly wasmlibrary_get_render_polygons: (a: number) => [number, number, number];
-    readonly wasmlibrary_get_used_layers: (a: number) => [number, number];
-    readonly wasmlibrary_import_warnings: (a: number) => [number, number];
-    readonly wasmlibrary_is_cell_visible: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_is_dirty: (a: number) => number;
-    readonly wasmlibrary_mark_clean: (a: number) => void;
-    readonly wasmlibrary_move_element_to_index: (a: number, b: number, c: number, d: number) => number;
-    readonly wasmlibrary_new: (a: number, b: number) => number;
-    readonly wasmlibrary_remove_cell: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_cell_cascade: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_element: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_elements: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_elements_on_layer: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_remove_layer_color: (a: number, b: number, c: number) => void;
-    readonly wasmlibrary_rename_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
-    readonly wasmlibrary_set_active_cell: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_set_cell_image_bounds: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_set_cell_origin: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_set_cell_visibility: (a: number, b: number, c: number, d: number) => void;
-    readonly wasmlibrary_set_hierarchy_depth_limit: (a: number, b: number) => number;
-    readonly wasmlibrary_set_layer_color: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly wasmlibrary_set_layer_fill_pattern: (a: number, b: number, c: number, d: number) => void;
-    readonly wasmlibrary_to_gds: (a: number) => [number, number, number, number];
-    readonly wasmlibrary_to_library_json: (a: number) => [number, number, number, number];
-    readonly wasmlibrary_translate_element: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_translate_elements: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly init: () => void;
+    readonly wasmlibrary_add_text: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
+    readonly wasmlibrary_get_text_element_info: (a: number, b: number, c: number) => any;
+    readonly wasmlibrary_get_text_labels: (a: number) => any;
+    readonly wasmlibrary_is_text_element: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_set_text_height: (a: number, b: number, c: number, d: number) => number;
+    readonly wasmlibrary_set_text_position: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_text_to_polygons: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_update_text: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly wasmlibrary_add_cell_ref: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly wasmlibrary_add_cell_ref_to: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly wasmlibrary_add_cell_ref_to_with_transform: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
@@ -1227,21 +1199,51 @@ export interface InitOutput {
     readonly wasmlibrary_set_cell_ref_array_vectors: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
     readonly wasmlibrary_set_cell_ref_transform: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly wasmlibrary_get_group_representative_ids: (a: number) => [number, number];
-    readonly wasmlibrary_add_polygon: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmlibrary_add_rectangle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_boolean_operation: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_create_path: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
-    readonly wasmlibrary_create_path_rounded: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
-    readonly wasmlibrary_path_preview: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
-    readonly wasmlibrary_restore_native_path: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly wasmlibrary_add_text: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
-    readonly wasmlibrary_get_text_element_info: (a: number, b: number, c: number) => any;
-    readonly wasmlibrary_get_text_labels: (a: number) => any;
-    readonly wasmlibrary_is_text_element: (a: number, b: number, c: number) => number;
-    readonly wasmlibrary_set_text_height: (a: number, b: number, c: number, d: number) => number;
-    readonly wasmlibrary_set_text_position: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly wasmlibrary_text_to_polygons: (a: number, b: number, c: number) => [number, number];
-    readonly wasmlibrary_update_text: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_active_cell_name: (a: number) => [number, number];
+    readonly wasmlibrary_add_cell: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_cell_count: (a: number) => number;
+    readonly wasmlibrary_clear_active_cell: (a: number) => void;
+    readonly wasmlibrary_element_count: (a: number) => number;
+    readonly wasmlibrary_flatten_active_cell: (a: number) => number;
+    readonly wasmlibrary_from_gds_bytes: (a: number, b: number) => [number, number, number];
+    readonly wasmlibrary_from_library_json: (a: number, b: number) => [number, number, number];
+    readonly wasmlibrary_get_area_by_layer: (a: number) => [number, number];
+    readonly wasmlibrary_get_canonical_element_id: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_names: (a: number) => [number, number];
+    readonly wasmlibrary_get_cell_origin: (a: number) => [number, number];
+    readonly wasmlibrary_get_cell_origin_by_name: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_cell_path_length: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_element_index: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_get_elements_on_layer: (a: number, b: number, c: number) => [number, number];
+    readonly wasmlibrary_get_hidden_cells: (a: number) => [number, number];
+    readonly wasmlibrary_get_render_polygons: (a: number) => [number, number, number];
+    readonly wasmlibrary_get_used_layers: (a: number) => [number, number];
+    readonly wasmlibrary_import_library_json: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly wasmlibrary_import_warnings: (a: number) => [number, number];
+    readonly wasmlibrary_is_cell_visible: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_is_dirty: (a: number) => number;
+    readonly wasmlibrary_mark_clean: (a: number) => void;
+    readonly wasmlibrary_move_element_to_index: (a: number, b: number, c: number, d: number) => number;
+    readonly wasmlibrary_new: (a: number, b: number) => number;
+    readonly wasmlibrary_remove_cell: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_cell_cascade: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_element: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_elements: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_elements_on_layer: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_remove_layer_color: (a: number, b: number, c: number) => void;
+    readonly wasmlibrary_rename_cell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly wasmlibrary_set_active_cell: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_set_cell_image_bounds: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_set_cell_origin: (a: number, b: number, c: number) => number;
+    readonly wasmlibrary_set_cell_visibility: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmlibrary_set_hierarchy_depth_limit: (a: number, b: number) => number;
+    readonly wasmlibrary_set_layer_color: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly wasmlibrary_set_layer_fill_pattern: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmlibrary_to_gds: (a: number) => [number, number, number, number];
+    readonly wasmlibrary_to_library_json: (a: number) => [number, number, number, number];
+    readonly wasmlibrary_translate_element: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly wasmlibrary_translate_elements: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly init: () => void;
     readonly __wbg_wasmrenderer_free: (a: number, b: number) => void;
     readonly wasmrenderer_add_shape: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasmrenderer_add_to_selection: (a: number, b: number, c: number) => void;
@@ -1295,6 +1297,13 @@ export interface InitOutput {
     readonly wasmrenderer_sync_from_library: (a: number, b: number) => void;
     readonly wasmrenderer_toggle_selection: (a: number, b: number, c: number) => void;
     readonly wasmrenderer_update_shape: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmlibrary_add_polygon: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmlibrary_add_rectangle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_boolean_operation: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly wasmlibrary_create_path: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly wasmlibrary_create_path_rounded: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
+    readonly wasmlibrary_path_preview: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly wasmlibrary_restore_native_path: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly wasm_bindgen__closure__destroy__h200b07e2cd2d62ec: (a: number, b: number) => void;
     readonly wasm_bindgen__closure__destroy__h735f4c2543ff1fc8: (a: number, b: number) => void;
     readonly wasm_bindgen__convert__closures_____invoke__hbd2a77e27682db99: (a: number, b: number, c: any) => [number, number];

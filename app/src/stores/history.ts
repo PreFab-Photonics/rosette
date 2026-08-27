@@ -35,7 +35,7 @@ interface HistoryState {
    *
    * Clears the redo stack since we're branching history.
    */
-  execute: (command: Command, ctx: CommandContext) => void;
+  execute: (command: Command, ctx: CommandContext) => boolean;
 
   /**
    * Undo the last command.
@@ -81,7 +81,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       command.execute(ctx);
     } catch (e) {
       useStatusMessageStore.getState().show(String(e), "warn");
-      return;
+      return false;
     }
 
     // Notify overlays (e.g., instance labels) that library state changed.
@@ -102,6 +102,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
         canRedo: false,
       };
     });
+    return true;
   },
 
   undo: (ctx) => {

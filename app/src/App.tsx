@@ -10,6 +10,7 @@ import { UpdateNotification } from "@/components/ui/UpdateNotification";
 import { ArrayDialog } from "@/components/ui/ArrayDialog";
 import { GoToDialog } from "@/components/ui/GoToDialog";
 import { AreaDialog } from "@/components/ui/AreaDialog";
+import { ComponentDialog } from "@/components/ui/ComponentDialog";
 import { useUIStore } from "@/stores/ui";
 import {
   useTabsStore,
@@ -250,6 +251,7 @@ export default function App() {
           <ArrayDialog />
           <GoToDialog />
           <AreaDialog />
+          <ComponentDialog />
         </div>
         <StatusBar compact={isMd || isSm} minimal={isSm} />
       </div>
@@ -270,6 +272,7 @@ export default function App() {
         <ArrayDialog />
         <GoToDialog />
         <AreaDialog />
+        <ComponentDialog />
       </div>
 
       {/* Docked status bar */}

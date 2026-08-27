@@ -10,6 +10,7 @@ import {
   SetCellOriginCommand,
   SetInstanceArrayCommand,
   SetInstanceTransformCommand,
+  ImportComponentCommand,
   SetTextHeightCommand,
   translationTargetCount,
   translateElementsOrThrow,
@@ -38,6 +39,40 @@ function commandContext(libraryMethods: Record<string, unknown>): {
 }
 
 describe("validated editor commands", () => {
+  it("imports and places a project component as one undoable command", () => {
+    const removeCell = vi.fn(() => true);
+    const { ctx, renderer } = commandContext({
+      import_library_json: vi.fn(() => ["child", "component"]),
+      get_cell_names: vi.fn(() => ["top"]),
+      add_cell_ref: vi.fn(() => "ref-id"),
+      get_canonical_element_id: vi.fn(() => "ref:0:0:ref-id"),
+      get_cell_tree: vi.fn(() => undefined),
+      remove_element: vi.fn(() => true),
+      remove_cell: removeCell,
+    });
+    const command = new ImportComponentCommand("{}", "component", ["child", "component"], 10, 20);
+
+    command.execute(ctx);
+    command.undo(ctx);
+
+    expect(ctx.library.import_library_json).toHaveBeenCalledWith("{}");
+    expect(ctx.library.add_cell_ref).toHaveBeenCalledWith("component", 10, 20);
+    expect(removeCell).toHaveBeenNthCalledWith(1, "component");
+    expect(removeCell).toHaveBeenNthCalledWith(2, "child");
+    expect(renderer.sync_from_library).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects materialized component cell-name collisions", () => {
+    const { ctx } = commandContext({
+      get_cell_names: vi.fn(() => ["top", "component"]),
+      import_library_json: vi.fn(),
+    });
+    const command = new ImportComponentCommand("{}", "component", ["component"], 10, 20);
+
+    expect(() => command.execute(ctx)).toThrow("Component cell already exists: component");
+    expect(ctx.library.import_library_json).not.toHaveBeenCalled();
+  });
+
   it("keeps the subtraction base mapped after snapshot ordering", () => {
     const booleanOperation = vi
       .fn()

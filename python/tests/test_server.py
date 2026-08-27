@@ -3,6 +3,7 @@
 import json
 import threading
 import time
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
@@ -20,6 +21,7 @@ def reset_handler_state():
     RosetteHandler.design_drc = None
     RosetteHandler.design_version = 0
     RosetteHandler.webapp_dir = None
+    RosetteHandler.component_provider = None
     yield
 
 
@@ -62,6 +64,13 @@ def _get(url: str, timeout: float = 5) -> tuple[int, bytes, dict]:
     return resp.status, resp.read(), dict(resp.headers)
 
 
+def _post_json(url: str, payload: object, timeout: float = 5) -> tuple[int, bytes, dict]:
+    body = json.dumps(payload).encode()
+    req = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    resp = urlopen(req, timeout=timeout)
+    return resp.status, resp.read(), dict(resp.headers)
+
+
 class TestStaticFileServing:
     """Test serving static files from the webapp directory."""
 
@@ -91,10 +100,10 @@ class TestStaticFileServing:
         assert status == 200
         assert b"<html>" in body
 
-    def test_cors_headers_present(self, server):
+    def test_wildcard_cors_is_not_enabled(self, server):
         _, base_url = server
         _, _, headers = _get(base_url + "/")
-        assert headers.get("Access-Control-Allow-Origin") == "*"
+        assert headers.get("Access-Control-Allow-Origin") is None
 
 
 class TestDesignAPI:
@@ -163,6 +172,75 @@ class TestDesignAPI:
         srv.set_design_json("{}", filename="x.py", drc=drc)
         _status, body, _ = _get(base_url + "/api/design")
         assert json.loads(body)["drc"] == drc
+
+
+class TestComponentAPI:
+    def test_catalog_is_unavailable_without_blank_mode_provider(self, server):
+        _, base_url = server
+        with pytest.raises(HTTPError) as exc_info:
+            _get(base_url + "/api/components")
+        assert exc_info.value.code == 404
+
+    def test_catalog_and_materialization_callbacks(self, server):
+        srv, base_url = server
+        requests = []
+        srv.set_component_provider(
+            lambda: {"version": 2, "components": [{"name": "mmi", "parameters": []}]},
+            lambda request: (
+                requests.append(request)
+                or {"topCell": "mmi", "cellNames": ["mmi"], "layoutJson": "{}"}
+            ),
+        )
+
+        status, body, headers = _get(base_url + "/api/components")
+        assert status == 200
+        assert json.loads(body)["components"][0]["name"] == "mmi"
+        assert "no-store" in headers["Cache-Control"]
+
+        request = {
+            "name": "mmi",
+            "layer": {"layerNumber": 1, "datatype": 0},
+            "parameters": {},
+        }
+        status, body, _ = _post_json(base_url + "/api/components/materialize", request)
+        assert status == 200
+        assert json.loads(body)["topCell"] == "mmi"
+        assert requests == [request]
+
+    def test_materialization_validation_and_errors(self, server):
+        srv, base_url = server
+        srv.set_component_provider(
+            lambda: {"version": 1, "components": []},
+            lambda _request: (_ for _ in ()).throw(ValueError("width must be positive")),
+        )
+
+        req = Request(
+            base_url + "/api/components/materialize",
+            data=b"not-json",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as malformed:
+            urlopen(req, timeout=5)
+        assert malformed.value.code == 400
+
+        with pytest.raises(HTTPError) as failed:
+            _post_json(base_url + "/api/components/materialize", {})
+        assert failed.value.code == 422
+        assert json.loads(failed.value.read()) == {"error": "width must be positive"}
+
+    def test_materialization_rejects_non_local_origin(self, server):
+        srv, base_url = server
+        srv.set_component_provider(lambda: {"version": 1, "components": []}, lambda _: {})
+        req = Request(
+            base_url + "/api/components/materialize",
+            data=b"{}",
+            headers={"Content-Type": "application/json", "Origin": "https://example.com"},
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as exc_info:
+            urlopen(req, timeout=5)
+        assert exc_info.value.code == 403
 
 
 class TestSSE:
@@ -252,7 +330,7 @@ class TestCORSPreflight:
         req = Request(base_url + "/api/design", method="OPTIONS")
         resp = urlopen(req, timeout=5)
         assert resp.status == 200
-        assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+        assert resp.headers.get("Access-Control-Allow-Origin") is None
         assert "GET" in resp.headers.get("Access-Control-Allow-Methods", "")
 
 
