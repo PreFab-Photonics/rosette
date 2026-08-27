@@ -256,12 +256,7 @@ export function Explorer() {
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        if (cellFilter) {
-          setCellFilter("");
-          requestAnimationFrame(() => cellFilterRef.current?.focus());
-        } else {
-          closeCellFilter();
-        }
+        closeCellFilter();
         return;
       }
       if (event.target !== cellFilterRef.current || !cellFilterCursorRow) return;
@@ -303,7 +298,7 @@ export function Explorer() {
       event.stopPropagation();
       setFocusedItem(focusedItemForRow(nextRow));
     },
-    [cellFilter, cellFilterCursorRow, cellRows, closeCellFilter, isCellFilterOpen, setFocusedItem],
+    [cellFilterCursorRow, cellRows, closeCellFilter, isCellFilterOpen, setFocusedItem],
   );
 
   const handlePanelPointerDownCapture = useCallback(

@@ -170,6 +170,8 @@ describe("panel row structure", () => {
     )!;
     expect(visibility.tabIndex).toBe(0);
     expect(visibility.classList.contains("opacity-100")).toBe(true);
+    expect(visibility.classList.contains("rounded-md")).toBe(true);
+    expect(visibility.classList.contains("-mr-1")).toBe(false);
 
     act(() => visibility.click());
     expect(onToggleVisibility).toHaveBeenCalledOnce();
@@ -969,12 +971,6 @@ describe("panel row structure", () => {
       );
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
-    await act(async () => {
-      filter.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-      );
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    });
     expect(document.activeElement?.getAttribute("aria-label")).toBe("zoom");
     expect(useExplorerStore.getState().focusedItem).toEqual({
       type: "cell",
@@ -1068,9 +1064,11 @@ describe("panel row structure", () => {
       );
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
-    expect(document.activeElement).toBe(filter);
-    expect(container.querySelector('button[aria-label="Close cell filter"]')).not.toBeNull();
+    expect(container.querySelector('input[aria-label="Filter cells"]')).toBeNull();
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Filter cells");
 
+    const reopen = container.querySelector<HTMLButtonElement>('button[aria-label="Filter cells"]')!;
+    act(() => reopen.click());
     const close = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Close cell filter"]',
     )!;
@@ -1107,15 +1105,7 @@ describe("panel row structure", () => {
         );
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
-    expect(container.querySelector('input[aria-label="Filter cells"]')).not.toBeNull();
-    await act(async () => {
-      container
-        .querySelector<HTMLInputElement>('input[aria-label="Filter cells"]')!
-        .dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-        );
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    });
+    expect(container.querySelector('input[aria-label="Filter cells"]')).toBeNull();
     expect(document.activeElement?.getAttribute("aria-label")).toBe("other");
     expect(document.activeElement?.isConnected).toBe(true);
     expect(useExplorerStore.getState().isFocused).toBe(true);
@@ -1210,6 +1200,40 @@ describe("panel row structure", () => {
     expect(container.querySelectorAll('button[tabindex="0"]')).toHaveLength(1);
   });
 
+  it("adds a matching visibility action to Layer rows", () => {
+    act(() => root.render(<LayersPanel />));
+
+    const layerRow = container.querySelector<HTMLButtonElement>('button[aria-label="text"]')!;
+    const statusId = layerRow.getAttribute("aria-describedby")!;
+    expect(document.getElementById(statusId)?.textContent).toBe("Layer visible");
+
+    const visibility = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Hide layer text"]',
+    )!;
+    expect(visibility.classList.contains("rounded-md")).toBe(true);
+    expect(visibility.classList.contains("opacity-0")).toBe(true);
+    expect(visibility.classList.contains("group-hover:opacity-100")).toBe(true);
+    expect(visibility.tabIndex).toBe(-1);
+
+    act(() => visibility.click());
+    expect(useLayerStore.getState().activeLayerId).toBe(1);
+    expect(useLayerStore.getState().getLayer(2)?.visible).toBe(false);
+    expect(container.querySelector('button[aria-label="Show layer text"]')).not.toBeNull();
+    expect(document.getElementById(statusId)?.textContent).toBe("Layer hidden");
+  });
+
+  it("closes an expanded Layer editor when visibility is clicked", () => {
+    act(() => root.render(<LayersPanel />));
+    act(() => useLayerStore.getState().setExpandedLayerId(1));
+    const visibility = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Hide layer silicon"]',
+    )!;
+
+    act(() => visibility.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+
+    expect(useLayerStore.getState().expandedLayerId).toBeNull();
+  });
+
   it("marks tabs as vertical and releases Explorer focus when focus leaves", () => {
     useTabsStore.setState({
       tabs: [
@@ -1261,6 +1285,86 @@ describe("panel row structure", () => {
 
     expect(document.activeElement?.getAttribute("aria-label")).toBe("silicon");
     expect(useKeyboardFocusStore.getState().owns("layers-panel")).toBe(true);
+  });
+
+  it("opens the Layer filter from typing and activates the matching result", async () => {
+    act(() => root.render(<LayersPanel />));
+    act(() => useLayerStore.getState().setFocused(true));
+    const silicon = container.querySelector<HTMLButtonElement>('button[aria-label="silicon"]')!;
+
+    await act(async () => {
+      silicon.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "t", bubbles: true, cancelable: true }),
+      );
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+
+    const filter = container.querySelector<HTMLInputElement>('input[aria-label="Filter layers"]')!;
+    expect(filter.value).toBe("t");
+    expect(document.activeElement).toBe(filter);
+    expect(useKeyboardFocusStore.getState().owns("layers-filter")).toBe(true);
+    expect(container.querySelector('button[aria-label="Filter layers"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="silicon"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="text"]')).not.toBeNull();
+    expect(
+      document.getElementById(filter.getAttribute("aria-activedescendant")!)?.textContent,
+    ).toContain("text");
+
+    await act(async () => {
+      filter.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+
+    expect(useLayerStore.getState().activeLayerId).toBe(2);
+    expect(container.querySelector('input[aria-label="Filter layers"]')).toBeNull();
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("text");
+    expect(useKeyboardFocusStore.getState().owns("layers-panel")).toBe(true);
+  });
+
+  it("closes the Layer filter with Escape even when it has a query", async () => {
+    act(() => root.render(<LayersPanel />));
+    act(() => useLayerStore.getState().setFocused(true));
+    act(() => useLayerStore.getState().setFocusedLayerId(2));
+    const text = container.querySelector<HTMLButtonElement>('button[aria-label="text"]')!;
+    expect(document.activeElement).toBe(text);
+
+    await act(async () => {
+      text.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "z", bubbles: true, cancelable: true }),
+      );
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    const filter = container.querySelector<HTMLInputElement>('input[aria-label="Filter layers"]')!;
+    expect(container.querySelector("output")?.textContent).toContain("No layers match “z”");
+
+    await act(async () => {
+      filter.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    expect(container.querySelector('input[aria-label="Filter layers"]')).toBeNull();
+    expect(useLayerStore.getState().activeLayerId).toBe(1);
+    expect(useLayerStore.getState().focusedLayerId).toBe(2);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("text");
+    expect(useKeyboardFocusStore.getState().owns("layers-panel")).toBe(true);
+  });
+
+  it("releases Layers focus after pointer-selecting a Layer", () => {
+    act(() => root.render(<LayersPanel />));
+
+    const textLayer = container.querySelector<HTMLButtonElement>('button[aria-label="text"]')!;
+    act(() => textLayer.focus());
+    expect(useLayerStore.getState().isFocused).toBe(true);
+
+    act(() => textLayer.click());
+
+    expect(useLayerStore.getState().activeLayerId).toBe(2);
+    expect(useLayerStore.getState().isFocused).toBe(false);
+    expect(container.contains(document.activeElement)).toBe(false);
+    expect(useKeyboardFocusStore.getState().isCanvasActive()).toBe(true);
   });
 
   it("restores Layer row focus after canceling inline rename", async () => {

@@ -7,6 +7,7 @@ import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useInlineRename } from "@/hooks/use-inline-rename";
 import { cn } from "@/lib/utils";
 import { panelRowStateClassName } from "@/components/ui/panel-row";
+import { VisibilityIcon } from "@/components/ui/VisibilityIcon";
 
 /**
  * Chevron icon for tree expand/collapse.
@@ -82,26 +83,6 @@ function HighlightedCellName({ name, query }: { name: string; query: string }) {
       </mark>
       {name.slice(matchEnd)}
     </>
-  );
-}
-
-function CellVisibilityIcon({ isHidden }: { isHidden: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.25"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M1.5 8s2.4-4 6.5-4 6.5 4 6.5 4-2.4 4-6.5 4S1.5 8 1.5 8Z" />
-      <circle cx="8" cy="8" r="1.75" />
-      {isHidden && <path d="m2.5 2.5 11 11" />}
-    </svg>
   );
 }
 
@@ -448,7 +429,7 @@ export function CellRow({
         title={`${isHidden ? "Show" : "Hide"} cell`}
         data-explorer-row-action
         className={cn(
-          "relative z-10 -mr-1 flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded border-0 bg-transparent p-0 outline-none transition-[color,background-color,opacity] focus-visible:ring-1",
+          "relative z-10 flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 outline-none transition-[color,background-color,opacity] focus-visible:ring-1",
           isFocused
             ? "opacity-100"
             : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100",
@@ -466,7 +447,7 @@ export function CellRow({
         onMouseDown={(event) => event.stopPropagation()}
         tabIndex={isActionTabStop ? 0 : -1}
       >
-        <CellVisibilityIcon isHidden={isHidden} />
+        <VisibilityIcon isHidden={isHidden} />
       </button>
     </li>
   );

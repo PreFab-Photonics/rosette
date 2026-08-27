@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefCallback } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefCallback } from "react";
 import {
   useLayerStore,
   LAYER_PALETTE,
@@ -15,9 +15,10 @@ import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { useInlineRename } from "@/hooks/use-inline-rename";
 import { useRovingRows } from "@/hooks/use-roving-rows";
 import { EditLayerCommand, DeleteLayerCommand } from "@/lib/commands";
-import { getAdjacentKeyAfterRemoval, getUndoRedoIntent } from "@/lib/keyboard";
+import { getAdjacentKeyAfterRemoval, getUndoRedoIntent, isEditableTarget } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { panelRowStateClassName } from "@/components/ui/panel-row";
+import { VisibilityIcon } from "@/components/ui/VisibilityIcon";
 
 // =============================================================================
 // Constants
@@ -625,6 +626,8 @@ function LayerRow({
   isExpanded,
   inUse,
   onSelect,
+  onPointerSelect,
+  onToggleVisibility,
   onToggleExpand,
   startEditing,
   rowRef,
@@ -641,6 +644,8 @@ function LayerRow({
   /** Whether any geometry in the library sits on this layer. */
   inUse: boolean;
   onSelect: () => void;
+  onPointerSelect: () => void;
+  onToggleVisibility: () => void;
   onToggleExpand: () => void;
   startEditing: boolean;
   rowRef: RefCallback<HTMLButtonElement>;
@@ -650,6 +655,7 @@ function LayerRow({
   onRestoreRowFocus: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
+  const visibilityStatusId = useId();
   const library = useWasmContextStore((s) => s.library);
   const renderer = useWasmContextStore((s) => s.renderer);
 
@@ -718,6 +724,15 @@ function LayerRow({
     [isExpanded],
   );
 
+  const handleVisibilityClick = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      onRowFocus();
+      onToggleVisibility();
+    },
+    [onRowFocus, onToggleVisibility],
+  );
+
   const handleRenameKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       const restoresRowFocus = event.key === "Enter" || event.key === "Escape";
@@ -728,7 +743,7 @@ function LayerRow({
   );
 
   return (
-    <li className="flex flex-col gap-0.5">
+    <li id={layerRowDomId(layer.id)} className="flex flex-col gap-0.5">
       {/* Compact row */}
       <div
         className={cn(
@@ -743,8 +758,9 @@ function LayerRow({
           type="button"
           aria-current={isActive ? "true" : undefined}
           aria-label={layer.name}
+          aria-describedby={visibilityStatusId}
           className="absolute inset-0 cursor-pointer rounded-lg border-0 bg-transparent p-0 outline-none"
-          onClick={onSelect}
+          onClick={onPointerSelect}
           onDoubleClick={(event) => {
             event.stopPropagation();
             setIsEditing(true);
@@ -774,7 +790,7 @@ function LayerRow({
 
         <div
           className={cn(
-            "pointer-events-none relative z-10 flex h-5 min-w-0 flex-1 items-center gap-2",
+            "pointer-events-none relative z-10 flex h-5 min-w-0 flex-1 items-center",
             !layer.visible ? "opacity-40" : !inUse && "opacity-50",
           )}
         >
@@ -794,6 +810,43 @@ function LayerRow({
               {layer.name}
             </span>
           )}
+        </div>
+        <span id={visibilityStatusId} className="sr-only">
+          {layer.visible ? "Layer visible" : "Layer hidden"}
+        </span>
+        <button
+          type="button"
+          aria-label={`${layer.visible ? "Hide" : "Show"} layer ${layer.name}`}
+          title={`${layer.visible ? "Hide" : "Show"} layer`}
+          className={cn(
+            "relative z-10 flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 outline-none transition-[color,background-color,opacity] focus-visible:ring-1",
+            isFocused
+              ? "opacity-100"
+              : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100",
+            layer.visible
+              ? "text-foreground-muted hover:bg-theme-border hover:text-foreground-secondary focus-visible:ring-focus-ring"
+              : "text-foreground-secondary hover:bg-theme-border focus-visible:ring-focus-ring",
+          )}
+          onClick={handleVisibilityClick}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              if (!useKeyboardFocusStore.getState().owns("layers-panel")) event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+            onRowKeyDown(event);
+          }}
+          tabIndex={isFocused ? 0 : -1}
+        >
+          <VisibilityIcon isHidden={!layer.visible} />
+        </button>
+        <div
+          className={cn(
+            "pointer-events-none relative z-10",
+            !layer.visible ? "opacity-40" : !inUse && "opacity-50",
+          )}
+        >
           <LayerNumber layer={layer} />
         </div>
       </div>
@@ -814,6 +867,10 @@ function LayerNumber({ layer }: { layer: Layer }) {
   );
 }
 
+function layerRowDomId(layerId: number): string {
+  return `layers-layer-${layerId}`;
+}
+
 // =============================================================================
 // Main Component
 // =============================================================================
@@ -829,6 +886,7 @@ function LayerNumber({ layer }: { layer: Layer }) {
  * - Inline rename (double-click name)
  * - Right-click context menu (add, delete, rename, toggle visibility)
  * - All edits are undoable via the command/history system
+ * - Type-to-filter layer search
  * - Keyboard navigation (Shift+L to focus, arrows to navigate, Space/Enter/Delete for actions)
  */
 export function LayersPanel() {
@@ -840,13 +898,55 @@ export function LayersPanel() {
   const focusedLayerId = useLayerStore((s) => s.focusedLayerId);
   const setFocused = useLayerStore((s) => s.setFocused);
   const setFocusedLayerId = useLayerStore((s) => s.setFocusedLayerId);
+  const [isLayerFilterOpen, setIsLayerFilterOpen] = useState(false);
+  const [layerFilter, setLayerFilter] = useState("");
+  const panelRef = useRef<HTMLDivElement>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+  const filterReturnLayerIdRef = useRef<number | null>(null);
 
   // Claim keyboard focus when Layers panel is keyboard-navigating
   useKeyboardFocus("layers-panel", isFocused);
+  useKeyboardFocus("layers-filter", isLayerFilterOpen);
 
   const layers = getAllLayers();
-  const layerIds = layers.map((layer) => layer.id);
-  const scrollRef = useRef<HTMLUListElement>(null);
+  const filterQuery = isLayerFilterOpen ? layerFilter.trim().toLowerCase() : "";
+  const filteredLayers = filterQuery
+    ? layers.filter((layer) => layer.name.toLowerCase().includes(filterQuery))
+    : layers;
+  const layerIds = filteredLayers.map((layer) => layer.id);
+  const filterCursorLayerId = isLayerFilterOpen
+    ? (filteredLayers.find(
+        (layer) => layer.id === (focusedLayerId ?? filterReturnLayerIdRef.current),
+      )?.id ??
+      filteredLayers[0]?.id ??
+      null)
+    : null;
+
+  const openLayerFilter = useCallback(
+    (initialQuery = "") => {
+      const state = useLayerStore.getState();
+      filterReturnLayerIdRef.current = state.focusedLayerId ?? state.activeLayerId;
+      setLayerFilter(initialQuery);
+      setIsLayerFilterOpen(true);
+      setFocused(false);
+      requestAnimationFrame(() => filterInputRef.current?.focus());
+    },
+    [setFocused],
+  );
+
+  const dismissLayerFilter = useCallback(() => {
+    filterReturnLayerIdRef.current = null;
+    setLayerFilter("");
+    setIsLayerFilterOpen(false);
+  }, []);
+
+  const releaseLayerFocus = useCallback(() => {
+    setFocused(false);
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && panelRef.current?.contains(activeElement)) {
+      activeElement.blur();
+    }
+  }, [setFocused]);
 
   const { getRowProps, handleNavigationKeyDown, focusRow } = useRovingRows<
     number,
@@ -863,6 +963,99 @@ export function LayersPanel() {
       if (!state.isFocused) state.setFocused(true);
     },
   });
+
+  const closeLayerFilter = useCallback(
+    (requestedLayerId?: number) => {
+      const returnLayerId =
+        requestedLayerId ?? filterReturnLayerIdRef.current ?? filterCursorLayerId ?? activeLayerId;
+      dismissLayerFilter();
+      requestAnimationFrame(() => {
+        const state = useLayerStore.getState();
+        const restoredLayerId = state.layers.has(returnLayerId)
+          ? returnLayerId
+          : state.activeLayerId;
+        state.setFocused(true);
+        state.setFocusedLayerId(restoredLayerId);
+      });
+    },
+    [activeLayerId, dismissLayerFilter, filterCursorLayerId],
+  );
+
+  const handleLayerFilterKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (!useKeyboardFocusStore.getState().owns("layers-filter")) {
+        event.preventDefault();
+        return;
+      }
+      if (event.nativeEvent.isComposing) return;
+      if (event.key === "Tab") {
+        event.preventDefault();
+        event.stopPropagation();
+        filterInputRef.current?.focus();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeLayerFilter();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        event.stopPropagation();
+        filterInputRef.current?.focus();
+        return;
+      }
+      if (filteredLayers.length === 0) return;
+
+      const cursorIndex = Math.max(
+        0,
+        filteredLayers.findIndex((layer) => layer.id === filterCursorLayerId),
+      );
+      let nextLayerId: number | null = null;
+      switch (event.key) {
+        case "ArrowDown":
+          nextLayerId = filteredLayers[(cursorIndex + 1) % filteredLayers.length].id;
+          break;
+        case "ArrowUp":
+          nextLayerId =
+            filteredLayers[(cursorIndex - 1 + filteredLayers.length) % filteredLayers.length].id;
+          break;
+        case "Home":
+          nextLayerId = filteredLayers[0].id;
+          break;
+        case "End":
+          nextLayerId = filteredLayers[filteredLayers.length - 1].id;
+          break;
+        case "Enter":
+          event.preventDefault();
+          event.stopPropagation();
+          setActiveLayer(filteredLayers[cursorIndex].id);
+          closeLayerFilter(filteredLayers[cursorIndex].id);
+          return;
+        default:
+          return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setFocusedLayerId(nextLayerId);
+    },
+    [closeLayerFilter, filterCursorLayerId, filteredLayers, setActiveLayer, setFocusedLayerId],
+  );
+
+  const handlePanelPointerDownCapture = useCallback(
+    (event: React.PointerEvent) => {
+      if (
+        !isLayerFilterOpen ||
+        !(event.target instanceof Element) ||
+        event.target.closest("#layers-filter")
+      ) {
+        return;
+      }
+      dismissLayerFilter();
+    },
+    [dismissLayerFilter, isLayerFilterOpen],
+  );
 
   // Derive the set of layers that actually carry geometry somewhere in the
   // library. Recomputed whenever the library is synced to the renderer.
@@ -892,17 +1085,17 @@ export function LayersPanel() {
   // Keyboard navigation for the Layers panel
   // =========================================================================
 
-  // Unfocus on click outside the panel
+  // Release keyboard ownership on click outside the panel.
   useEffect(() => {
-    if (!isFocused) return;
+    if (!isFocused && !isLayerFilterOpen) return;
     const handler = (e: MouseEvent) => {
-      if (scrollRef.current && !scrollRef.current.contains(e.target as Node)) {
-        setFocused(false);
-      }
+      if (panelRef.current?.contains(e.target as Node)) return;
+      if (isFocused) setFocused(false);
+      if (isLayerFilterOpen) dismissLayerFilter();
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [isFocused, setFocused]);
+  }, [dismissLayerFilter, isFocused, isLayerFilterOpen, setFocused]);
 
   const handleLayerKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLButtonElement>, layerId: number) => {
@@ -911,6 +1104,16 @@ export function LayersPanel() {
           event.preventDefault();
           event.stopPropagation();
         }
+        return;
+      }
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "f" &&
+        !isEditableTarget(event.target)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        openLayerFilter();
         return;
       }
       if (handleNavigationKeyDown(event, layerId)) return;
@@ -941,40 +1144,142 @@ export function LayersPanel() {
         event.currentTarget.blur();
       } else {
         const intent = getUndoRedoIntent(event.nativeEvent);
-        if (!intent) return;
-        event.preventDefault();
-        const { library: currentLibrary, renderer } = useWasmContextStore.getState();
-        if (!currentLibrary || !renderer) return;
-        if (intent === "redo") {
-          useHistoryStore.getState().redo({ library: currentLibrary, renderer });
-        } else {
-          useHistoryStore.getState().undo({ library: currentLibrary, renderer });
+        if (intent) {
+          event.preventDefault();
+          const { library: currentLibrary, renderer } = useWasmContextStore.getState();
+          if (!currentLibrary || !renderer) return;
+          if (intent === "redo") {
+            useHistoryStore.getState().redo({ library: currentLibrary, renderer });
+          } else {
+            useHistoryStore.getState().undo({ library: currentLibrary, renderer });
+          }
+          return;
         }
+        if (
+          event.key.length !== 1 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.altKey ||
+          !event.key.trim()
+        ) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        openLayerFilter(event.key);
       }
     },
-    [handleNavigationKeyDown, setActiveLayer, setExpandedLayerId, setFocused, setFocusedLayerId],
+    [
+      handleNavigationKeyDown,
+      openLayerFilter,
+      setActiveLayer,
+      setExpandedLayerId,
+      setFocused,
+      setFocusedLayerId,
+    ],
   );
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      ref={panelRef}
+      className="flex h-full flex-col"
+      onPointerDownCapture={handlePanelPointerDownCapture}
+    >
+      {isLayerFilterOpen && (
+        <div data-layers-filter-row className="px-1 pt-1.5 pb-1">
+          <div
+            id="layers-filter"
+            className="flex h-6 items-center gap-1.5 rounded-lg border border-theme-border bg-input px-1.5 text-foreground-subtle transition-colors focus-within:border-focus-ring focus-within:ring-1 focus-within:ring-focus-ring"
+          >
+            <svg
+              aria-hidden="true"
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              className="flex-shrink-0"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-4-4" />
+            </svg>
+            <input
+              ref={filterInputRef}
+              type="search"
+              aria-label="Filter layers"
+              aria-controls="layers-list"
+              aria-activedescendant={
+                filterCursorLayerId === null ? undefined : layerRowDomId(filterCursorLayerId)
+              }
+              value={layerFilter}
+              onChange={(event) => setLayerFilter(event.target.value)}
+              onFocus={() => {
+                const state = useLayerStore.getState();
+                if (state.isFocused) state.setFocused(false);
+              }}
+              onKeyDown={handleLayerFilterKeyDown}
+              placeholder="Filter layers"
+              className="min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-xs leading-5 text-foreground outline-none placeholder:text-foreground-faint [&::-webkit-search-cancel-button]:hidden"
+            />
+            {layerFilter && (
+              <button
+                type="button"
+                aria-label="Clear layer filter"
+                onClick={() => {
+                  setLayerFilter("");
+                  requestAnimationFrame(() => filterInputRef.current?.focus());
+                }}
+                className="flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-foreground-subtle hover:text-foreground"
+              >
+                <svg
+                  aria-hidden="true"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {/* Layer list */}
       <ul
-        ref={scrollRef}
+        id="layers-list"
         aria-label="Layers"
-        className="m-0 flex flex-1 list-none flex-col gap-0.5 overflow-y-auto p-0 py-1"
+        className={cn(
+          "m-0 flex list-none flex-col gap-0.5 overflow-y-auto p-0 py-1",
+          filterQuery && filteredLayers.length === 0 ? "flex-none" : "flex-1",
+        )}
         onWheel={(e) => e.stopPropagation()}
       >
-        {layers.map((layer) => {
+        {filteredLayers.map((layer) => {
           const rowProps = getRowProps(layer.id);
           return (
             <LayerRow
               key={layer.id}
               layer={layer}
               isActive={layer.id === activeLayerId}
-              isFocused={isFocused && layer.id === focusedLayerId}
+              isFocused={
+                (isFocused && layer.id === focusedLayerId) ||
+                (isLayerFilterOpen && layer.id === filterCursorLayerId)
+              }
               isExpanded={expandedLayerId === layer.id}
               inUse={usedLayerKeys.has(`${layer.layerNumber}/${layer.datatype}`)}
               onSelect={() => setActiveLayer(layer.id)}
+              onPointerSelect={() => {
+                if (isLayerFilterOpen) dismissLayerFilter();
+                setActiveLayer(layer.id);
+                releaseLayerFocus();
+              }}
+              onToggleVisibility={() => useLayerStore.getState().toggleVisibility(layer.id)}
               onToggleExpand={() => handleToggleExpand(layer.id)}
               startEditing={editingLayerId === layer.id}
               rowRef={rowProps.ref}
@@ -986,6 +1291,11 @@ export function LayersPanel() {
           );
         })}
       </ul>
+      {filterQuery && filteredLayers.length === 0 && (
+        <output className="block px-3 py-5 text-center text-xs text-foreground-subtle">
+          No layers match &ldquo;{layerFilter.trim()}&rdquo;
+        </output>
+      )}
     </div>
   );
 }
