@@ -70,7 +70,9 @@ def gaussian_envelope(n: int, sigma: float, floor: float = 0.0) -> list[float]:
 def cosine_sbend_point(t: float, length: float, offset: float) -> tuple[float, float]:
     """Cosine S-bend centerline point at parameter t in [0, 1].
 
-    The cosine S-bend provides smooth transitions with zero curvature at endpoints.
+    The cosine S-bend has horizontal endpoint tangents. Its endpoint
+    curvature is finite and therefore changes discontinuously when joined
+    directly to a straight waveguide.
 
     Args:
         t: Parameter from 0 (start) to 1 (end)
@@ -120,7 +122,7 @@ def circular_sbend_point(t: float, length: float, offset: float) -> tuple[float,
 
     # Calculate radius for two arcs
     radius = (length * length + offset * offset) / (4.0 * abs(offset))
-    angle = math.asin(min(1.0, max(-1.0, length / (2.0 * radius))))
+    angle = 2.0 * math.atan2(abs(offset), length)
     sign = 1.0 if offset > 0 else -1.0
 
     if t <= 0.5:
@@ -149,8 +151,7 @@ def circular_sbend_tangent(t: float, length: float, offset: float) -> tuple[floa
     if abs(offset) < 1e-10:
         return 1.0, 0.0
 
-    radius = (length * length + offset * offset) / (4.0 * abs(offset))
-    angle = math.asin(min(1.0, max(-1.0, length / (2.0 * radius))))
+    angle = 2.0 * math.atan2(abs(offset), length)
     sign = 1.0 if offset > 0 else -1.0
 
     if t <= 0.5:

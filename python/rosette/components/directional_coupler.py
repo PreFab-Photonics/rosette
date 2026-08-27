@@ -66,6 +66,16 @@ from rosette.components.sbend import sbend_path_length
 __all__ = ["directional_coupler", "directional_coupler_arm_length"]
 
 
+def _validate_bend_feasibility(bend_length: float, offset: float, width: float) -> None:
+    min_radius = 2.0 * bend_length * bend_length / (offset * math.pi * math.pi)
+    if min_radius <= width / 2.0:
+        minimum_length = 0.5 * math.pi * math.sqrt(offset * width)
+        raise ValueError(
+            "Bend length is too short for the S-bend offset and waveguide width; "
+            f"must be greater than {minimum_length:.6g}"
+        )
+
+
 def directional_coupler_arm_length(
     bend_length: float,
     coupling_length: float,
@@ -107,6 +117,7 @@ def directional_coupler_arm_length(
         )
 
     sbend_offset = (port_spacing - gap - waveguide_width) / 2
+    _validate_bend_feasibility(bend_length, sbend_offset, waveguide_width)
     return (
         2
         * sbend_path_length(
@@ -174,7 +185,8 @@ def directional_coupler(
     Raises:
         ValueError: If *coupling_length*, *gap*, *waveguide_width*, or
             *bend_length* is not positive; if *num_segments* < 1;
-            if *port_spacing* <= *gap* + *waveguide_width*.
+            if *port_spacing* <= *gap* + *waveguide_width*; or if the
+            bend is too tight for the waveguide width.
 
     Placement notes:
         Input ports at ``x = 0`` face **-X**; output ports at
@@ -265,12 +277,20 @@ def directional_coupler(
             f"gap + waveguide_width ({gap + waveguide_width}) so the "
             f"S-bends can bring the two arms together in the coupling region"
         )
+    sbend_offset = (port_spacing - gap - waveguide_width) / 2
+    _validate_bend_feasibility(bend_length, sbend_offset, waveguide_width)
 
     total_length = 2 * bend_length + coupling_length
     port_y = port_spacing / 2
     coupling_y = (gap + waveguide_width) / 2  # Y position of waveguides in coupling region
 
-    cell = Cell(safe_cell_name(f"dc_l{coupling_length:.1f}_g{gap:.2f}_w{waveguide_width:.3f}"))
+    cell = Cell(
+        safe_cell_name(
+            f"dc_ly{layer.number}_{layer.datatype}_w{waveguide_width!r}"
+            f"_cl{coupling_length!r}_g{gap!r}_bl{bend_length!r}"
+            f"_ps{port_spacing!r}_n{num_segments}"
+        )
+    )
 
     # Generate upper and lower arm polygons
     upper_poly = _coupler_arm_polygon(

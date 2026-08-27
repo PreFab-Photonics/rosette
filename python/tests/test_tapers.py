@@ -95,7 +95,7 @@ def test_linear_width_is_linear_in_x():
         assert w == pytest.approx(expected)
 
 
-def test_parabolic_satisfies_constant_angle_formula():
+def test_parabolic_satisfies_square_root_formula():
     """``w(x)^2 = w_in^2 + t * (w_out^2 - w_in^2)`` at every sample point."""
     width_in, width_out, length, n = 0.3, 1.5, 50.0, 32
     poly = taper_polygon(width_in, width_out, length, profile="parabolic", num_segments=n)

@@ -50,9 +50,8 @@ and mode-matching loss depends on the local taper angle:
 * ``"linear"`` — Straight-edged trapezoid. Simple, predictable, and
   the default; use this unless you have a specific reason to do
   otherwise.
-* ``"parabolic"`` — Constant-wedge-angle profile (``w² ∝ x``). Gives
-  the shortest taper for a given coupling loss, so it's the standard
-  choice when chip area is tight.
+* ``"parabolic"`` — Square-root profile (``w² ∝ x``). Changes width
+  fastest near the narrow tip and more slowly near the wide end.
 * ``"exponential"`` — Constant fractional rate of width change
   (``w(t) ∝ (w_out / w_in)^t``). A classic spot-size-converter
   profile.
@@ -106,7 +105,7 @@ def edge_coupler(
             docstring for trade-offs.
 
             - ``"linear"`` — straight-edged trapezoid (default).
-            - ``"parabolic"`` — constant-angle adiabatic profile.
+            - ``"parabolic"`` — square-root width profile.
             - ``"exponential"`` — constant fractional rate.
         cladding_layer: Optional second GDS layer for a rectangular
             overlay covering the taper region. ``None`` (default)
@@ -210,11 +209,15 @@ def edge_coupler(
     # Cell naming. Include every geometry-affecting parameter so distinct
     # edge couplers get distinct names; safe_cell_name handles truncation
     # and hashing if the composite exceeds the GDS-II 32-character limit.
-    clad_tag = f"_cl{cladding_width:.1f}" if cladding_layer is not None else ""
+    clad_tag = (
+        f"_cl{cladding_layer.number}_{cladding_layer.datatype}_cw{cladding_width!r}"
+        if cladding_layer is not None
+        else ""
+    )
     cell = Cell(
         safe_cell_name(
-            f"ec_w{waveguide_width:.3f}_tw{tip_width:.3f}"
-            f"_tl{taper_length:.1f}_{taper_profile[:3]}{clad_tag}"
+            f"ec_ly{layer.number}_{layer.datatype}_w{waveguide_width!r}_tw{tip_width!r}"
+            f"_tl{taper_length!r}_{taper_profile}{clad_tag}"
         )
     )
 

@@ -26,8 +26,9 @@ All three profiles give the same endpoint geometry; they differ in how
 curvature is distributed along the path, which determines mode-matching
 loss and radiation:
 
-* ``"cosine"`` -- Smooth raised-cosine. Zero curvature at both endpoints,
-  so it mates cleanly to straight waveguides. Good default.
+* ``"cosine"`` -- Smooth raised-cosine with horizontal endpoint tangents.
+  Its finite endpoint curvature changes abruptly when joined to a straight.
+  Good default for moderate offsets.
 * ``"circular"`` -- Two constant-radius arcs. Easy to reason about in
   terms of minimum bend radius, but curvature is discontinuous at the
   midpoint and nonzero at the ports.
@@ -103,6 +104,8 @@ from rosette.components._utils import safe_cell_name
 
 __all__ = ["sbend", "sbend_path_length"]
 
+_MAX_GDS_SEGMENTS = 4094
+
 
 def sbend_path_length(
     length: float,
@@ -163,8 +166,8 @@ def sbend(
         bend_type: Curve profile:
 
             - ``"cosine"`` -- Smooth raised-cosine interpolation (default).
-              Zero curvature at both endpoints, making it easy to connect
-              to straight waveguides.
+              Horizontal tangents at both endpoints, with a finite curvature
+              step where it connects to a straight waveguide.
             - ``"circular"`` -- Two circular arcs joined at the midpoint.
               Constant bend radius per half, but curvature is discontinuous
               at the junction.
@@ -179,7 +182,8 @@ def sbend(
             auto-selects based on the aspect ratio ``|offset| / length``
             (roughly ``32 + 32 * |offset|/length``). Increase for smoother
             polygons on high-aspect-ratio bends; decrease to reduce file
-            size when many S-bends are stamped.
+            size when many S-bends are stamped. Must not exceed 4094 so
+            the resulting boundary fits the GDS-II vertex limit.
 
     Returns:
         Cell with ports ``"in"`` and ``"out"``.
@@ -188,7 +192,8 @@ def sbend(
 
     Raises:
         ValueError: If *length* or *waveguide_width* is not positive, if
-            *bend_type* is unknown, or if *num_segments* is less than 1.
+            *bend_type* is unknown, or if *num_segments* is outside
+            ``[1, 4094]``.
 
     Placement notes:
         The ``"in"`` port faces **-X** and the ``"out"`` port faces **+X**,
@@ -255,13 +260,16 @@ def sbend(
             down_inst = fan_down.at(sp.port("out1").position.x,
                                     sp.port("out1").position.y)
 
-            # Grating couplers: opt port faces +X and sits at the cell
-            # origin, so place each GC flush against the S-bend output to
-            # butt-connect -- no Route needed.
-            gc_up   = gc.at(up_inst.port("out").position.x,
-                            up_inst.port("out").position.y)
-            gc_down = gc.at(down_inst.port("out").position.x,
-                            down_inst.port("out").position.y)
+            # Rotate each GC so its opt port faces -X toward the +X-facing
+            # S-bend output and its grating body extends away to the right.
+            gc_up = gc.at(0, 0).rotate(180).translate(
+                up_inst.port("out").position.x,
+                up_inst.port("out").position.y,
+            )
+            gc_down = gc.at(0, 0).rotate(180).translate(
+                down_inst.port("out").position.x,
+                down_inst.port("out").position.y,
+            )
 
             design = Cell("fanout")
             for inst in (sp, up_inst, down_inst, gc_up, gc_down):
@@ -278,7 +286,11 @@ def sbend(
     # the cell name reflects the straight geometry.
     if offset == 0:
         half_width = waveguide_width / 2.0
-        cell = Cell(safe_cell_name(f"sb_straight_l{length:.2f}_w{waveguide_width:.3f}"))
+        cell = Cell(
+            safe_cell_name(
+                f"sb_straight_ly{layer.number}_{layer.datatype}_l{length!r}_w{waveguide_width!r}"
+            )
+        )
         cell.add_polygon(
             Polygon(
                 [
@@ -300,6 +312,8 @@ def sbend(
         num_segments = 32 + int(aspect * 32)
     if num_segments < 1:
         raise ValueError("Number of segments must be at least 1")
+    if num_segments > _MAX_GDS_SEGMENTS:
+        raise ValueError(f"Number of segments must not exceed {_MAX_GDS_SEGMENTS}")
     if bend_type not in ("cosine", "circular", "euler"):
         raise ValueError(f"Unknown S-bend type: {bend_type!r}")
 
@@ -340,10 +354,11 @@ def sbend(
     # Combine into polygon
     vertices = outer_points + inner_points[::-1]
 
-    # Cell naming with type suffix (abbreviated for GDS 32-char limit)
-    type_suffix = "" if bend_type == "cosine" else f"_{bend_type[:3]}"
     cell = Cell(
-        safe_cell_name(f"sb{type_suffix}_l{length:.2f}_o{offset:.2f}_w{waveguide_width:.3f}")
+        safe_cell_name(
+            f"sb_{bend_type}_ly{layer.number}_{layer.datatype}_l{length!r}"
+            f"_o{offset!r}_w{waveguide_width!r}_n{num_segments}"
+        )
     )
     cell.add_polygon(Polygon(vertices), layer)
 

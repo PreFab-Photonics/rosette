@@ -126,7 +126,9 @@ def bragg_grating(
     * ``"gaussian"`` -- the corrugation amplitude is modulated by a
       Gaussian envelope centered on the middle period::
 
-          amp(i) = corrugation_width * exp(-((i - N/2) / (sigma * N))**2)
+          center = (N - 1) / 2
+          s = sigma * N
+          amp(i) = corrugation_width * exp(-(i - center)**2 / (2 * s**2))
 
       where ``N = num_periods`` and ``sigma = apodization_sigma``.
       Gaussian apodization suppresses sidelobes in the reflection
@@ -254,9 +256,9 @@ def bragg_grating(
             gc = grating_coupler(layer)
             bg = bragg_grating(layer, num_periods=200)
 
-            gc_in  = gc.at(0, 0).rotate(180).translate(-50, 0)
+            gc_in  = gc.at(0, 0).translate(-50, 0)
             bg_in  = bg.at(0, 0)
-            gc_out = gc.at(0, 0).rotate(0).translate(bg.port("out").position.x + 50, 0)
+            gc_out = gc.at(0, 0).rotate(180).translate(bg.port("out").position.x + 50, 0)
 
             r_in = Route.through(
                 gc_in.port("opt"),

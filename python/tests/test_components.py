@@ -248,6 +248,65 @@ def test_component_has_polygons(component_fn, layer):
     assert cell.polygon_count() > 0
 
 
+@pytest.mark.parametrize(
+    "cells",
+    [
+        lambda layer: (mmi(layer, taper_length=5.0), mmi(layer, taper_length=6.0)),
+        lambda layer: (mmi(layer, port_separation=2.0), mmi(layer, port_separation=2.1)),
+        lambda layer: (mmi(layer), mmi(Layer(2, 0))),
+        lambda layer: (sbend(layer, num_segments=32), sbend(layer, num_segments=64)),
+        lambda layer: (sbend(layer), sbend(Layer(2, 0))),
+        lambda layer: (
+            directional_coupler(layer, bend_length=10.0),
+            directional_coupler(layer, bend_length=11.0),
+        ),
+        lambda layer: (
+            directional_coupler(layer, port_spacing=5.0),
+            directional_coupler(layer, port_spacing=5.1),
+        ),
+        lambda layer: (
+            directional_coupler(layer, num_segments=32),
+            directional_coupler(layer, num_segments=64),
+        ),
+        lambda layer: (directional_coupler(layer), directional_coupler(Layer(2, 0))),
+        lambda layer: (grating_coupler(layer), grating_coupler(Layer(2, 0))),
+        lambda layer: (
+            grating_coupler(layer, fill_factor=0.5001),
+            grating_coupler(layer, fill_factor=0.5004),
+        ),
+        lambda layer: (edge_coupler(layer), edge_coupler(Layer(2, 0))),
+        lambda layer: (
+            edge_coupler(layer, cladding_layer=Layer(2, 0)),
+            edge_coupler(layer, cladding_layer=Layer(3, 0)),
+        ),
+        lambda layer: (
+            edge_coupler(layer, tip_width=0.1501),
+            edge_coupler(layer, tip_width=0.1504),
+        ),
+    ],
+    ids=[
+        "mmi-taper-length",
+        "mmi-port-separation",
+        "mmi-layer",
+        "sbend-segments",
+        "sbend-layer",
+        "directional-coupler-bend-length",
+        "directional-coupler-port-spacing",
+        "directional-coupler-segments",
+        "directional-coupler-layer",
+        "grating-coupler-layer",
+        "grating-coupler-precision",
+        "edge-coupler-layer",
+        "edge-coupler-cladding-layer",
+        "edge-coupler-precision",
+    ],
+)
+def test_component_cell_names_cover_geometry_identity(cells, layer):
+    """Every geometry-affecting parameter participates in hierarchy identity."""
+    first, second = cells(layer)
+    assert first.name != second.name
+
+
 # =============================================================================
 # Component-specific tests
 # =============================================================================
@@ -265,6 +324,26 @@ class TestSBend:
         """Circular S-bend."""
         cell = sbend(layer, waveguide_width=0.5, length=20.0, offset=5.0, bend_type="circular")
         assert cell.polygon_count() > 0
+
+    def test_steep_circular_bend_halves_meet_at_geometric_midpoint(self, layer):
+        """The obtuse circular-arc branch is required when offset exceeds length."""
+        length = 5.0
+        offset = 20.0
+        num_segments = 100
+        cell = sbend(
+            layer,
+            length=length,
+            offset=offset,
+            bend_type="circular",
+            num_segments=num_segments,
+        )
+        vertices = list(cell.polygons()[0][0].vertices())
+        midpoint_index = num_segments // 2
+        outer = vertices[midpoint_index]
+        inner = vertices[-1 - midpoint_index]
+
+        assert (outer.x + inner.x) / 2 == pytest.approx(length / 2)
+        assert (outer.y + inner.y) / 2 == pytest.approx(offset / 2)
 
     def test_euler(self, layer):
         """Euler S-bend."""
@@ -335,6 +414,15 @@ class TestSBend:
         defaults.update(kwargs)
         with pytest.raises(ValueError, match=match):
             sbend(layer, **defaults)
+
+    def test_segment_count_must_fit_a_gds_boundary(self, layer, tmp_path):
+        """The constructor must reject polygons that the GDS writer cannot encode."""
+        with pytest.raises(ValueError, match="Number of segments must not exceed 4094"):
+            sbend(layer, num_segments=4095)
+
+        output = tmp_path / "max-segment-sbend.gds"
+        write_gds(output, sbend(layer, num_segments=4094), quiet=True)
+        assert output.stat().st_size > 0
 
     # ------------------------------------------------------------------
     # Port positions / directions / widths (doc-string contract)
@@ -460,6 +548,18 @@ class TestMMI:
         """Invalid waveguide_width raises with the user-facing parameter name."""
         with pytest.raises(ValueError, match="Waveguide width"):
             mmi(layer, waveguide_width=0.0)
+
+    def test_two_port_tapers_must_fit_inside_body(self, layer):
+        """Accepted MMI parameters must not place access tapers outside the body."""
+        with pytest.raises(ValueError, match="tapers must fit within the MMI width"):
+            mmi(
+                layer,
+                n_in=2,
+                n_out=2,
+                mmi_width=1.0,
+                taper_width=0.2,
+                port_separation=4.0,
+            )
 
     @pytest.mark.parametrize("bad", [0, 3, 4, -1])
     def test_n_in_validation(self, layer, bad):
@@ -691,6 +791,26 @@ class TestRing:
         with pytest.raises(ValueError, match="Waveguide width"):
             ring(layer, waveguide_width=0.0)
 
+    def test_unknown_coupling_is_rejected(self, layer):
+        """A coupling typo must not silently produce an all-pass ring."""
+        with pytest.raises(ValueError, match="Unknown ring coupling"):
+            ring(layer, coupling="addrop")
+
+    @pytest.mark.parametrize("bus_extension", [0.0, -1.0])
+    def test_bus_extension_must_be_positive(self, layer, bus_extension):
+        """Ring buses must have nonzero length with outward-facing end ports."""
+        with pytest.raises(ValueError, match="Bus extension must be positive"):
+            ring(layer, bus_extension=bus_extension)
+
+    def test_segment_count_must_fit_a_gds_boundary(self, layer, tmp_path):
+        """The constructor must reject rings that the GDS writer cannot encode."""
+        with pytest.raises(ValueError, match="Number of segments must not exceed 4093"):
+            ring(layer, coupling_length=1.0, num_segments=4094)
+
+        output = tmp_path / "max-segment-ring.gds"
+        write_gds(output, ring(layer, coupling_length=1.0, num_segments=4093), quiet=True)
+        assert output.stat().st_size > 0
+
     # ------------------------------------------------------------------
     # Port positions / directions / widths (per docstring)
     # ------------------------------------------------------------------
@@ -895,6 +1015,19 @@ class TestCrossing:
         cell = crossing(layer, waveguide_width=0.5, crossing_type="mmi")
         assert cell.polygon_count() > 0
 
+    def test_distinct_crossings_can_share_a_hierarchy(self, layer, tmp_path):
+        """Geometry-defining parameters must participate in cell identity."""
+        short = crossing(layer, arm_length=5.0, center_width=1.5)
+        long = crossing(layer, arm_length=6.0, center_width=2.0)
+
+        top = Cell("crossing_name_regression")
+        top.add_ref(short.at(0, 0))
+        top.add_ref(long.at(20, 0))
+
+        output = tmp_path / "crossings.gds"
+        write_gds(output, top, quiet=True)
+        assert output.stat().st_size > 0
+
     def test_simple_rejects_center_width(self, layer):
         """Setting center_width with crossing_type='simple' is a user error.
 
@@ -1026,10 +1159,21 @@ class TestGratingCoupler:
         cell = grating_coupler(layer, waveguide_width=0.5, grating_type="apodized")
         assert cell.polygon_count() > 0
 
+    def test_unknown_grating_type_is_rejected(self, layer):
+        """An apodization typo must not silently produce a uniform grating."""
+        with pytest.raises(ValueError, match="Unknown grating type"):
+            grating_coupler(layer, grating_type="apodise")
+
     def test_focusing(self, layer):
         """Focused grating coupler."""
         cell = grating_coupler(layer, waveguide_width=0.5, focusing_angle=30.0)
         assert cell.polygon_count() > 0
+
+    @pytest.mark.parametrize("focusing_angle", [0.0, -20.0, 180.0, 200.0])
+    def test_focusing_angle_must_define_a_forward_fan(self, layer, focusing_angle):
+        """Focused teeth require a nondegenerate aperture contained in -X."""
+        with pytest.raises(ValueError, match="Focusing angle must be between 0 and 180"):
+            grating_coupler(layer, focusing_angle=focusing_angle)
 
     def test_straight_default_grating_width(self, layer):
         """focusing_angle=None with no grating_width uses the internal default."""
@@ -1437,6 +1581,11 @@ class TestDirectionalCoupler:
                 gap=0.2,
                 port_spacing=0.7,  # exactly gap + waveguide_width
             )
+
+    def test_bend_length_must_keep_sidewall_offset_regular(self, layer):
+        """Tight cosine bends must be rejected before their sidewalls self-intersect."""
+        with pytest.raises(ValueError, match="Bend length is too short"):
+            directional_coupler(layer, bend_length=0.1, port_spacing=5.0)
 
     # ------------------------------------------------------------------
     # Port positions / directions / widths (per docstring).

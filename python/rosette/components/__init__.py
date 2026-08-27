@@ -29,9 +29,9 @@ Conventions
 -----------
 All components follow these conventions:
 
-* **Units** -- All dimensions are in **microns**. All angles are in
+* **Units** -- All dimensions are in **microns**. Geometric angles are in
   **degrees** (the Rust core uses radians; conversion happens at the
-  PyO3 boundary).
+  PyO3 boundary). Optical phase shifts are in radians where documented.
 * **Function signature** -- First parameter is always ``layer: Layer``.
   Remaining parameters have sensible defaults. Returns a ``Cell``.
 * **Coordinate system** -- Components are oriented along **+X**. Input

@@ -212,7 +212,12 @@ def crossing(
     if crossing_type != "simple" and arm_length <= center_width / 2:
         raise ValueError("Arm length must be greater than half the center width")
 
-    cell = Cell(safe_cell_name(f"crossing_{crossing_type}_w{waveguide_width:.3f}"))
+    cell = Cell(
+        safe_cell_name(
+            f"crossing_{crossing_type}_l{layer.number}_{layer.datatype}"
+            f"_w{waveguide_width!r}_a{arm_length!r}_c{center_width!r}"
+        )
+    )
 
     if crossing_type == "simple":
         _add_simple_crossing(cell, waveguide_width, arm_length, layer)

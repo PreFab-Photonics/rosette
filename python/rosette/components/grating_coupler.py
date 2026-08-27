@@ -109,7 +109,8 @@ def grating_coupler(
             modulation of fill factor).
         focusing_angle: Full angular aperture of the curved grating
             fan in degrees (default: 20.0). Set to ``None`` for straight
-            (rectangular) teeth.
+            (rectangular) teeth. Focused apertures must be strictly between
+            0 and 180 degrees.
         grating_width: Width of the grating region in microns. Only
             applicable when *focusing_angle* is ``None`` (straight
             teeth). If ``None`` (default) and *focusing_angle* is
@@ -125,7 +126,9 @@ def grating_coupler(
     Raises:
         ValueError: If *waveguide_width*, *period*, *taper_length*, or
             *grating_width* is not positive; if *fill_factor* is not
-            strictly between 0 and 1; if *num_periods* < 1.
+            strictly between 0 and 1; if *num_periods* < 1; or if
+            *grating_type* is unknown; or if *focusing_angle* is outside
+            ``(0, 180)`` degrees.
 
     Warns:
         UserWarning: If *grating_width* is set while *focusing_angle* is
@@ -144,6 +147,10 @@ def grating_coupler(
         raise ValueError("Fill factor must be between 0 and 1")
     if taper_length <= 0:
         raise ValueError("Taper length must be positive")
+    if grating_type not in ("uniform", "apodized"):
+        raise ValueError(f"Unknown grating type: {grating_type!r}")
+    if focusing_angle is not None and not 0 < focusing_angle < 180:
+        raise ValueError("Focusing angle must be between 0 and 180 degrees")
     if focusing_angle is not None and grating_width is not None:
         warnings.warn(
             "grating_width is only applicable to straight GCs "
@@ -163,13 +170,14 @@ def grating_coupler(
     # Include every geometry-affecting parameter so distinct GCs get distinct
     # cell names. safe_cell_name will truncate + hash if the result exceeds
     # the GDS-II 32-character limit, so we can be generous here.
-    fa_tag = f"fa{focusing_angle:.1f}" if focusing_angle is not None else "fstraight"
-    gw_tag = f"_gw{grating_width:.2f}" if focusing_angle is None else ""
+    fa_tag = f"fa{focusing_angle!r}" if focusing_angle is not None else "fstraight"
+    gw_tag = f"_gw{grating_width!r}" if focusing_angle is None else ""
     cell = Cell(
         safe_cell_name(
-            f"gc_w{waveguide_width:.3f}_p{period:.3f}_ff{fill_factor:.2f}"
+            f"gc_ly{layer.number}_{layer.datatype}_w{waveguide_width!r}"
+            f"_p{period!r}_ff{fill_factor!r}"
             f"_n{num_periods}_{grating_type[:3]}_{fa_tag}{gw_tag}"
-            f"_tl{taper_length:.1f}"
+            f"_tl{taper_length!r}"
         )
     )
 

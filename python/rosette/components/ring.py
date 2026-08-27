@@ -29,6 +29,8 @@ from rosette.components._utils import safe_cell_name
 
 __all__ = ["ring", "ring_round_trip_length"]
 
+_MAX_GDS_SEGMENTS = 4093
+
 
 def ring_round_trip_length(radius: float, coupling_length: float = 0.0) -> float:
     """Return the ring or racetrack centerline round-trip length in microns."""
@@ -89,8 +91,10 @@ def ring(
         coupling_length: Length of straight coupling sections in microns.
             Set to ``0`` for a circular ring, or ``> 0`` for a racetrack.
         bus_extension: How far each bus waveguide extends beyond the
-            ring/racetrack edges in microns.
-        num_segments: Number of polygon segments for the ring arc.
+            coupling section in microns. Must be > 0.
+        num_segments: Number of polygon segments for the ring arc. Must not
+            exceed 4093 so circular and racetrack boundaries both fit the
+            GDS-II vertex limit.
 
     Returns:
         Cell with ports listed above.
@@ -100,7 +104,9 @@ def ring(
     Raises:
         ValueError: If *radius*, *waveguide_width*, or *gap* is not
             positive; if *radius* <= *waveguide_width* / 2; if
-            *coupling_length* < 0; if *num_segments* < 3.
+            *coupling_length* < 0; if *bus_extension* is not positive;
+            if *num_segments* is outside ``[3, 4093]``; or if *coupling*
+            is unknown.
 
     Placement notes:
         The bus waveguide runs along **+X** with ``bus_length =
@@ -184,8 +190,14 @@ def ring(
         raise ValueError("Gap must be positive")
     if coupling_length < 0:
         raise ValueError("Coupling length must be non-negative")
+    if bus_extension <= 0:
+        raise ValueError("Bus extension must be positive")
     if num_segments < 3:
         raise ValueError("Number of segments must be at least 3")
+    if num_segments > _MAX_GDS_SEGMENTS:
+        raise ValueError(f"Number of segments must not exceed {_MAX_GDS_SEGMENTS}")
+    if coupling not in ("allpass", "adddrop"):
+        raise ValueError(f"Unknown ring coupling: {coupling!r}")
 
     is_adddrop = coupling == "adddrop"
 

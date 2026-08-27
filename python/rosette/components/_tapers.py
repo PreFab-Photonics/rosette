@@ -11,11 +11,9 @@ Supported profiles:
   always 4 vertices. This is the default and is what the existing
   component authors (``mmi``, straight ``grating_coupler``) use today.
 * ``"parabolic"`` -- ``w(t)^2 = w_in^2 + t * (w_out^2 - w_in^2)``. This
-  is the **constant-taper-angle** profile: ``dw/dx`` is chosen at each
-  point so the local wedge half-angle is constant, giving the fastest
-  adiabatic transition for a given loss budget. Standard for
-  mode-evolution tapers at the endpoints of edge couplers, SSCs, and
-  multimode interferometer ports.
+  square-root profile changes width fastest near the narrow end and more
+  slowly near the wide end. It is commonly used as a heuristic adiabatic
+  profile for edge couplers and spot-size converters.
 * ``"exponential"`` -- ``w(t) = w_in * (w_out / w_in)^t``. Constant
   fractional rate of change; the local relative slope
   ``(1/w) * dw/dx`` is constant. Also a classic adiabatic profile,
@@ -63,9 +61,9 @@ def taper_polygon(
         length: Taper length along +X in microns (must be > 0).
         profile: Width profile. ``"linear"`` is a straight-edged
             trapezoid with 4 vertices. ``"parabolic"`` and
-            ``"exponential"`` are the constant-angle / constant-rate
-            adiabatic profiles; they are sampled with *num_segments*
-            segments along each edge. See the module docstring.
+            ``"exponential"`` are square-root / constant-fractional-rate
+            profiles sampled with *num_segments* segments along each edge.
+            See the module docstring.
         num_segments: Sample count along each edge for curved
             profiles. Ignored for ``"linear"``. Must be >= 2.
 
@@ -157,14 +155,12 @@ def _linear_taper(width_in: float, width_out: float, length: float) -> Polygon:
 
 
 def _parabolic_width(w_in: float, w_out: float, t: float) -> float:
-    """Constant-taper-angle profile: ``w(t)^2 = w_in^2 + t*(w_out^2 - w_in^2)``.
+    """Square-root profile: ``w(t)^2 = w_in^2 + t*(w_out^2 - w_in^2)``.
 
     At ``t = 0``, ``w = w_in``; at ``t = 1``, ``w = w_out``. For
     ``w_in < w_out`` the width grows quickly early and slowly later
     (adiabatic widening); for ``w_in > w_out`` it shrinks slowly early
-    and quickly later (adiabatic narrowing). Either direction gives a
-    constant local wedge half-angle, which is why this profile
-    minimises the taper length needed for a given coupling loss.
+    and quickly later (adiabatic narrowing).
     """
     w_sq = w_in * w_in + t * (w_out * w_out - w_in * w_in)
     return math.sqrt(w_sq)

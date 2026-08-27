@@ -165,7 +165,10 @@ def mmi(
         port_separation: Center-to-center distance between two ports
             on the same side in microns. Target ``mmi_width / 2`` for
             a symmetric 3 dB 1x2 splitter; ``mmi_width / 3`` for a
-            3 dB 2x2 coupler. Ignored on a side with only one port.
+            3 dB 2x2 coupler. On a two-port side, the separation plus
+            the interface width must not exceed *mmi_width*. The interface
+            width is *taper_width*, or *waveguide_width* when
+            ``taper_length=0``. Ignored on a side with only one port.
 
     Returns:
         Cell whose ports depend on *n_in* / *n_out* (see above).
@@ -176,7 +179,8 @@ def mmi(
         ValueError: If *n_in* or *n_out* is not 1 or 2; if
             *waveguide_width*, *length*, *mmi_width*, *taper_width*,
             or *port_separation* is not positive; if *taper_length*
-            is negative.
+            is negative; or if the access interfaces do not fit within
+            the MMI body.
 
     Placement notes:
         Input ports face **-X** and output ports face **+X**, following
@@ -228,8 +232,8 @@ def mmi(
 
             sp = splitter.at(0, 0)
             L = splitter.port("out1").position.x
-            gc_lo = gc.at(0, 0).translate(L + 80, -63.5)
-            gc_hi = gc.at(0, 0).translate(L + 80, +63.5)
+            gc_lo = gc.at(0, 0).rotate(180).translate(L + 80, -63.5)
+            gc_hi = gc.at(0, 0).rotate(180).translate(L + 80, +63.5)
 
             r_lo = Route.through(
                 sp.port("out1"), (L + 20, sp.port("out1").position.y),
@@ -316,14 +320,20 @@ def mmi(
         raise ValueError("Taper width must be positive")
     if port_separation <= 0:
         raise ValueError("Port separation must be positive")
+    interface_width = taper_width if taper_length > 0 else waveguide_width
+    if interface_width > mmi_width:
+        raise ValueError("Access interface width must not exceed the MMI width")
+    if (n_in == 2 or n_out == 2) and port_separation + interface_width > mmi_width:
+        raise ValueError("Two-port tapers must fit within the MMI width")
 
     half_width = mmi_width / 2.0
     half_sep = port_separation / 2.0
 
     cell = Cell(
         safe_cell_name(
-            f"mmi_{n_in}x{n_out}_l{length:.1f}_w{mmi_width:.1f}"
-            f"_pw{waveguide_width:.3f}_tw{taper_width:.3f}"
+            f"mmi_{n_in}x{n_out}_ly{layer.number}_{layer.datatype}_l{length!r}"
+            f"_mw{mmi_width!r}_ww{waveguide_width!r}_tl{taper_length!r}"
+            f"_tw{taper_width!r}_ps{port_separation!r}"
         )
     )
 
