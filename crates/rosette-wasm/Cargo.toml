@@ -38,6 +38,7 @@ features = [
     "Element",
     "HtmlCanvasElement",
     "CssStyleDeclaration",
+    "Performance",
 ]
 
 [dev-dependencies]

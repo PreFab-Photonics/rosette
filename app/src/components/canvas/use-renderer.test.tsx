@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
     set_violation_error_color: vi.fn(),
     set_violation_warning_color: vi.fn(),
     set_dpr: vi.fn(),
+    set_diagnostics_enabled: vi.fn(),
     set_grid_visible: vi.fn(),
     set_violations: vi.fn(),
     set_selected_violation: vi.fn(),
@@ -91,6 +92,7 @@ describe("useRenderer theme updates", () => {
     await act(async () => root.render(<Harness />));
     await vi.waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(mocks.renderer.set_render_theme).toHaveBeenCalled());
+    expect(mocks.renderer.set_diagnostics_enabled).toHaveBeenCalledWith(true);
     const callsBeforeThemeChange = mocks.renderer.set_render_theme.mock.calls.length;
 
     setRendererTokens("#ffffff", "#000000");

@@ -24,6 +24,9 @@ const INITIAL_POLYGON_INDICES: usize = 300_000;
 const INITIAL_BORDER_SEGMENTS: usize = 50_000;
 const INITIAL_OUTLINE_SEGMENTS: usize = 25_000;
 
+/// Preferred sample count for antialiasing polygon and line silhouettes.
+const MSAA_SAMPLE_COUNT: u32 = 4;
+
 /// Growth factor when reallocating buffers (2x = double the size).
 const BUFFER_GROWTH_FACTOR: usize = 2;
 
@@ -40,6 +43,47 @@ const MAX_POLYGON_VERTICES: usize = 10_000_000; // Further limited by the device
 const MAX_POLYGON_INDICES: usize = 30_000_000; // 30M indices (~120MB)
 const MAX_BORDER_SEGMENTS: usize = 5_000_000; // 5M segments (~191 MiB)
 const MAX_OUTLINE_SEGMENTS: usize = 500_000; // 500K segments (~8MB)
+
+fn multisample_state(sample_count: u32) -> wgpu::MultisampleState {
+    wgpu::MultisampleState {
+        count: sample_count,
+        mask: !0,
+        alpha_to_coverage_enabled: false,
+    }
+}
+
+fn create_multisampled_color_view(
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+    sample_count: u32,
+    label: &str,
+) -> Option<wgpu::TextureView> {
+    if sample_count == 1 {
+        return None;
+    }
+
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width: config.width,
+            height: config.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count,
+        dimension: wgpu::TextureDimension::D2,
+        format: config.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    Some(texture.create_view(&wgpu::TextureViewDescriptor::default()))
+}
+
+fn performance_now() -> f64 {
+    web_sys::window()
+        .and_then(|window| window.performance())
+        .map_or(0.0, |performance| performance.now())
+}
 
 /// Error type for renderer operations.
 #[derive(Debug, thiserror::Error)]
@@ -138,6 +182,11 @@ pub struct WasmRenderer {
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
+    sample_count: u32,
+    multisampled_color_view: Option<wgpu::TextureView>,
+    diagnostics_enabled: bool,
+    presented_frame_count: u32,
+    render_cpu_time_ms: f64,
     viewport: Viewport,
     render_theme: RenderTheme,
     viewport_buffer: wgpu::Buffer,
@@ -372,6 +421,19 @@ impl WasmRenderer {
             .copied()
             .unwrap_or(surface_caps.formats[0]);
 
+        let format_features = adapter.get_texture_format_features(surface_format);
+        let msaa_features = wgpu::TextureFormatFeatureFlags::MULTISAMPLE_X4
+            | wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE;
+        let sample_count = if format_features.flags.contains(msaa_features) {
+            MSAA_SAMPLE_COUNT
+        } else {
+            log::warn!(
+                "4x MSAA is unavailable for {:?}; falling back to single-sample rendering",
+                surface_format
+            );
+            1
+        };
+
         // Clamp surface dimensions to the GPU's max texture size (older GPUs
         // may only support 2048, while HiDPI canvases can exceed that).
         let max_dim = device.limits().max_texture_dimension_2d;
@@ -389,6 +451,12 @@ impl WasmRenderer {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &surface_config);
+        let multisampled_color_view = create_multisampled_color_view(
+            &device,
+            &surface_config,
+            sample_count,
+            "multisampled-color",
+        );
 
         // Create viewport
         let mut viewport = Viewport::new();
@@ -540,7 +608,7 @@ impl WasmRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: multisample_state(sample_count),
             multiview: None,
             cache: None,
         });
@@ -645,7 +713,7 @@ impl WasmRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: multisample_state(sample_count),
             multiview: None,
             cache: None,
         });
@@ -768,7 +836,7 @@ impl WasmRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: multisample_state(sample_count),
             multiview: None,
             cache: None,
         });
@@ -904,7 +972,7 @@ impl WasmRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: multisample_state(sample_count),
             multiview: None,
             cache: None,
         });
@@ -1071,7 +1139,7 @@ impl WasmRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: multisample_state(sample_count),
             multiview: None,
             cache: None,
         });
@@ -1264,7 +1332,7 @@ impl WasmRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: multisample_state(sample_count),
             multiview: None,
             cache: None,
         });
@@ -1274,6 +1342,11 @@ impl WasmRenderer {
             queue,
             surface,
             surface_config,
+            sample_count,
+            multisampled_color_view,
+            diagnostics_enabled: false,
+            presented_frame_count: 0,
+            render_cpu_time_ms: 0.0,
             viewport,
             render_theme,
             viewport_buffer,
@@ -1367,6 +1440,7 @@ impl WasmRenderer {
         if !self.needs_render {
             return;
         }
+        let render_started_at = self.diagnostics_enabled.then(performance_now);
 
         // Update viewport uniform
         let viewport_uniform =
@@ -1444,6 +1518,10 @@ impl WasmRenderer {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let (render_view, resolve_target, store) = match &self.multisampled_color_view {
+            Some(multisampled_view) => (multisampled_view, Some(&view), wgpu::StoreOp::Discard),
+            None => (&view, None, wgpu::StoreOp::Store),
+        };
 
         let mut encoder = self
             .device
@@ -1457,11 +1535,11 @@ impl WasmRenderer {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
+                    view: render_view,
+                    resolve_target,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear_color),
-                        store: wgpu::StoreOp::Store,
+                        store,
                     },
                 })],
                 depth_stencil_attachment: None,
@@ -1557,9 +1635,48 @@ impl WasmRenderer {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+        if let Some(render_started_at) = render_started_at {
+            self.presented_frame_count = self.presented_frame_count.wrapping_add(1);
+            self.render_cpu_time_ms += performance_now() - render_started_at;
+        }
 
         // Clear dirty flag after successful render
         self.needs_render = false;
+    }
+
+    /// Get the active render sample count.
+    pub fn get_sample_count(&self) -> u32 {
+        self.sample_count
+    }
+
+    /// Get the number of frames presented since diagnostics were enabled.
+    pub fn get_presented_frame_count(&self) -> u32 {
+        self.presented_frame_count
+    }
+
+    /// Enable or disable collection of development render diagnostics.
+    /// Enabling collection resets the frame and CPU-time counters.
+    pub fn set_diagnostics_enabled(&mut self, enabled: bool) {
+        if enabled && !self.diagnostics_enabled {
+            self.presented_frame_count = 0;
+            self.render_cpu_time_ms = 0.0;
+        }
+        self.diagnostics_enabled = enabled;
+    }
+
+    /// Get CPU time spent on frames presented since diagnostics were enabled.
+    pub fn get_render_cpu_time_ms(&self) -> f64 {
+        self.render_cpu_time_ms
+    }
+
+    /// Get the number of triangles in the main polygon buffer.
+    pub fn get_triangle_count(&self) -> u32 {
+        self.polygon_index_count / 3
+    }
+
+    /// Get the number of segments in the default polygon border buffer.
+    pub fn get_border_segment_count(&self) -> u32 {
+        self.border_segment_count
     }
 
     /// Set the viewport transformation using offset-based coordinates.
@@ -1619,6 +1736,12 @@ impl WasmRenderer {
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
+        self.multisampled_color_view = create_multisampled_color_view(
+            &self.device,
+            &self.surface_config,
+            self.sample_count,
+            "multisampled-color",
+        );
 
         // Resize always requires re-render (visible area changed)
         self.needs_render = true;
@@ -2237,6 +2360,16 @@ impl WasmRenderer {
         });
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let multisampled_view = create_multisampled_color_view(
+            &self.device,
+            &self.surface_config,
+            self.sample_count,
+            "screenshot-multisampled-color",
+        );
+        let (render_view, resolve_target, store) = match &multisampled_view {
+            Some(multisampled_view) => (multisampled_view, Some(&view), wgpu::StoreOp::Discard),
+            None => (&view, None, wgpu::StoreOp::Store),
+        };
 
         // Bytes per row must be aligned to 256 for WebGPU buffer copy
         let bytes_per_pixel = 4u32;
@@ -2266,11 +2399,11 @@ impl WasmRenderer {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("screenshot-render-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
+                    view: render_view,
+                    resolve_target,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear_color),
-                        store: wgpu::StoreOp::Store,
+                        store,
                     },
                 })],
                 depth_stencil_attachment: None,

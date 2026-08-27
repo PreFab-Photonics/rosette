@@ -45,6 +45,9 @@ export function useRenderer(canvasId: string | null) {
         applyRendererTheme(r);
         // Set device pixel ratio for proper HiDPI scaling
         r.set_dpr(window.devicePixelRatio || 1);
+        if (import.meta.env.DEV) {
+          r.set_diagnostics_enabled(true);
+        }
         rendererRef.current = r;
         setRenderer(r);
         setIsReady(true);

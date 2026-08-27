@@ -44,6 +44,7 @@ import { InstanceLabels } from "@/components/canvas/InstanceLabels";
 import { TextOverlay } from "@/components/canvas/TextOverlay";
 import { PathSelectionOverlay } from "@/components/canvas/PathSelectionOverlay";
 import { ImageOverlay } from "@/components/canvas/ImageOverlay";
+import { RenderStats } from "@/components/canvas/RenderStats";
 import { ContextMenu } from "@/components/ui/ContextMenu";
 import { wheelZoomFactor } from "@/lib/constants";
 
@@ -1004,6 +1005,7 @@ export function Canvas() {
       <TextOverlay />
       <RulerOverlay />
       <ContextMenu library={library} renderer={renderer} canvasRef={canvasRef} />
+      {import.meta.env.DEV && renderer && <RenderStats renderer={renderer} canvasRef={canvasRef} />}
     </div>
   );
 }
