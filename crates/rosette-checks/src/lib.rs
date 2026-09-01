@@ -30,6 +30,6 @@ mod runner;
 mod violation;
 
 pub use bend_radius::RouteAnnotationMap;
-pub use config::ChecksConfig;
+pub use config::{ChecksConfig, ChecksConfigError};
 pub use runner::{ChecksResult, ChecksStats, run_checks};
 pub use violation::{CheckViolation, CheckViolationType, Severity};

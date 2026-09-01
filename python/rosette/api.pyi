@@ -1642,6 +1642,7 @@ class ChecksConfig:
         self,
         position_tolerance: float = 0.001,
         angle_tolerance: float = 0.1,
+        width_tolerance: float = 1e-6,
         check_widths: bool = True,
         min_bend_radius: float | None = None,
         severity: str = "error",
@@ -1651,6 +1652,7 @@ class ChecksConfig:
         Args:
             position_tolerance: Max gap between port centres to count as connected (default 0.001)
             angle_tolerance: Max angular deviation from anti-parallel in degrees (default 0.1)
+            width_tolerance: Max absolute connected-port width difference (default 1e-6)
             check_widths: Whether to flag width mismatches (default True)
             min_bend_radius: Minimum allowed bend radius in um, or None to skip (default None)
             severity: Default severity, "error" or "warning" (default "error")
@@ -1665,13 +1667,24 @@ class CheckViolation:
         "unconnected_port",
         "width_mismatch",
         "angle_mismatch",
+        "shorted_net",
+        "port_uncheckable",
+        "port_width_uncheckable",
+        "missing_reference",
+        "hierarchy_cycle",
         "bend_radius_too_small",
         "bend_radius_auto_reduced",
         "bend_radius_uncheckable",
+        "route_warning",
+        "route_annotations_missing",
     ]
-    """Type: "unconnected_port", "width_mismatch", "angle_mismatch", "bend_radius_too_small", "bend_radius_auto_reduced", or "bend_radius_uncheckable"."""
+    """Stable machine-readable violation type."""
     name: str
     """Name of the relevant port or component."""
+    rule_id: str
+    """Stable machine-readable rule identifier."""
+    details: dict[str, float]
+    """Structured numeric measurements and configured limits."""
     cell_path: str
     """Hierarchy path (e.g. "child_1/out_2")."""
     partner_name: str | None
@@ -1690,15 +1703,33 @@ class ChecksResult:
     """Result of running design checks."""
 
     passed: bool
-    """True if no violations were found."""
+    """True if no error-severity violations were found."""
+    complete: bool
+    """True if traversal completed and every discovered entity was checkable."""
+    error_count: int
+    """Number of error-severity violations."""
+    warning_count: int
+    """Number of warning-severity violations."""
     violations: list[CheckViolation]
     """List of violations found."""
     ports_checked: int
     """Number of ports checked."""
     connections_found: int
     """Number of port-to-port connections found."""
+    connectivity_nodes: int
+    """Number of spatial connectivity nodes checked."""
+    ports_uncheckable: int
+    """Number of ports or port widths that could not be checked."""
+    hierarchy_issues: int
+    """Number of malformed hierarchy edges."""
     bends_checked: int
     """Number of bends checked."""
+    bends_uncheckable: int
+    """Number of bends that could not be checked."""
+    route_annotation_cells_checked: int
+    """Number of cell placements with explicit route annotations."""
+    route_annotation_cells_missing: int
+    """Number of cell placements missing required route annotations."""
     elapsed_ms: float
     """Elapsed time in milliseconds."""
     def __len__(self) -> int: ...

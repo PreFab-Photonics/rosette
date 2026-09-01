@@ -31,6 +31,19 @@ pub enum CheckViolationType {
         /// Configured tolerance in degrees.
         tolerance_deg: f64,
     },
+    /// More than two logical terminals occupy one connectivity node.
+    ShortedNet {
+        /// Number of logical terminals at the node after port promotion.
+        terminal_count: usize,
+    },
+    /// Port position or direction could not be transformed safely.
+    PortUncheckable,
+    /// Port width could not be transformed safely.
+    PortWidthUncheckable,
+    /// A referenced cell is absent from the supplied library.
+    MissingReference,
+    /// A cycle prevents complete hierarchy traversal.
+    HierarchyCycle,
 
     // -- Bend radius --
     /// Bend radius is below the configured minimum.
@@ -49,6 +62,10 @@ pub enum CheckViolationType {
     },
     /// Bend radius could not be evaluated safely.
     BendRadiusUncheckable,
+    /// Warning emitted while constructing a route.
+    RouteWarning,
+    /// Bend checking was enabled but a cell had no route-annotation entry.
+    RouteAnnotationsMissing,
 }
 
 /// A single check violation.
@@ -99,5 +116,24 @@ impl CheckViolation {
         self.partner_name = Some(name.into());
         self.partner_path = Some(cell_path.into());
         self
+    }
+
+    /// Stable machine-readable identifier for the violated rule.
+    pub fn rule_id(&self) -> &'static str {
+        match &self.violation_type {
+            CheckViolationType::UnconnectedPort => "connectivity.unconnected_port",
+            CheckViolationType::WidthMismatch { .. } => "connectivity.width_mismatch",
+            CheckViolationType::AngleMismatch { .. } => "connectivity.angle_mismatch",
+            CheckViolationType::ShortedNet { .. } => "connectivity.shorted_net",
+            CheckViolationType::PortUncheckable => "connectivity.port_uncheckable",
+            CheckViolationType::PortWidthUncheckable => "connectivity.port_width_uncheckable",
+            CheckViolationType::MissingReference => "hierarchy.missing_reference",
+            CheckViolationType::HierarchyCycle => "hierarchy.cycle",
+            CheckViolationType::BendRadiusTooSmall { .. } => "routing.bend_radius_too_small",
+            CheckViolationType::BendRadiusAutoReduced { .. } => "routing.bend_radius_auto_reduced",
+            CheckViolationType::BendRadiusUncheckable => "routing.bend_radius_uncheckable",
+            CheckViolationType::RouteWarning => "routing.warning",
+            CheckViolationType::RouteAnnotationsMissing => "routing.annotations_missing",
+        }
     }
 }

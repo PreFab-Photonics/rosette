@@ -72,7 +72,7 @@ def test_generated_project_build_check_shot_update_workflow(
         capsys.readouterr()
         check_design(str(design_path), json_output=True)
         check_payload = json.loads(capsys.readouterr().out)
-        assert check_payload["schema"] == 1
+        assert check_payload["schema"] == 2
         assert check_payload["command"] == "check"
         assert check_payload["passed"] is True
         assert check_payload["dfm"] is None

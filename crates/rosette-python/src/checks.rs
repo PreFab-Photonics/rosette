@@ -1,6 +1,7 @@
 //! Python bindings for design checks.
 
 use pyo3::prelude::*;
+use std::collections::BTreeMap;
 
 use rosette_checks::{
     CheckViolation, CheckViolationType, ChecksConfig, ChecksResult, Severity, run_checks,
@@ -20,6 +21,7 @@ impl PyChecksConfig {
     /// Args:
     ///     position_tolerance: Max gap between port centres to count as connected (default 0.001)
     ///     angle_tolerance: Max angular deviation from anti-parallel in degrees (default 0.1)
+    ///     width_tolerance: Max absolute connected-port width difference (default 1e-6)
     ///     check_widths: Whether to flag width mismatches (default True)
     ///     min_bend_radius: Minimum allowed bend radius in um, or None to skip (default None)
     ///     severity: Default severity, "error" or "warning" (default "error")
@@ -27,6 +29,7 @@ impl PyChecksConfig {
     #[pyo3(signature = (
         position_tolerance=0.001,
         angle_tolerance=0.1,
+        width_tolerance=1e-6,
         check_widths=true,
         min_bend_radius=None,
         severity="error",
@@ -34,6 +37,7 @@ impl PyChecksConfig {
     fn new(
         position_tolerance: f64,
         angle_tolerance: f64,
+        width_tolerance: f64,
         check_widths: bool,
         min_bend_radius: Option<f64>,
         severity: &str,
@@ -48,23 +52,28 @@ impl PyChecksConfig {
             }
         };
         let mut config = ChecksConfig::new()
-            .with_position_tolerance(position_tolerance)
-            .with_angle_tolerance(angle_tolerance)
+            .try_with_position_tolerance(position_tolerance)
+            .and_then(|config| config.try_with_angle_tolerance(angle_tolerance))
+            .and_then(|config| config.try_with_width_tolerance(width_tolerance))
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?
             .with_check_widths(check_widths)
             .with_severity(sev);
         if let Some(r) = min_bend_radius {
-            config = config.with_min_bend_radius(r);
+            config = config
+                .try_with_min_bend_radius(r)
+                .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
         }
         Ok(PyChecksConfig(config))
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "ChecksConfig(tolerance={}, angle_tol={}°, check_widths={}, min_bend_radius={:?})",
-            self.0.position_tolerance,
-            self.0.angle_tolerance,
-            self.0.check_widths,
-            self.0.min_bend_radius,
+            "ChecksConfig(tolerance={}, angle_tol={}°, width_tol={}, check_widths={}, min_bend_radius={:?})",
+            self.0.position_tolerance(),
+            self.0.angle_tolerance(),
+            self.0.width_tolerance(),
+            self.0.check_widths(),
+            self.0.min_bend_radius(),
         )
     }
 }
@@ -83,9 +92,50 @@ impl PyCheckViolation {
             CheckViolationType::UnconnectedPort => "unconnected_port",
             CheckViolationType::WidthMismatch { .. } => "width_mismatch",
             CheckViolationType::AngleMismatch { .. } => "angle_mismatch",
+            CheckViolationType::ShortedNet { .. } => "shorted_net",
+            CheckViolationType::PortUncheckable => "port_uncheckable",
+            CheckViolationType::PortWidthUncheckable => "port_width_uncheckable",
+            CheckViolationType::MissingReference => "missing_reference",
+            CheckViolationType::HierarchyCycle => "hierarchy_cycle",
             CheckViolationType::BendRadiusTooSmall { .. } => "bend_radius_too_small",
             CheckViolationType::BendRadiusAutoReduced { .. } => "bend_radius_auto_reduced",
             CheckViolationType::BendRadiusUncheckable => "bend_radius_uncheckable",
+            CheckViolationType::RouteWarning => "route_warning",
+            CheckViolationType::RouteAnnotationsMissing => "route_annotations_missing",
+        }
+    }
+
+    /// Stable machine-readable rule identifier.
+    #[getter]
+    fn rule_id(&self) -> &'static str {
+        self.0.rule_id()
+    }
+
+    /// Structured numeric values associated with the violation.
+    #[getter]
+    fn details(&self) -> BTreeMap<&'static str, f64> {
+        match &self.0.violation_type {
+            CheckViolationType::WidthMismatch { width_a, width_b } => {
+                BTreeMap::from([("width_a", *width_a), ("width_b", *width_b)])
+            }
+            CheckViolationType::AngleMismatch {
+                deviation_deg,
+                tolerance_deg,
+            } => BTreeMap::from([
+                ("deviation_deg", *deviation_deg),
+                ("tolerance_deg", *tolerance_deg),
+            ]),
+            CheckViolationType::ShortedNet { terminal_count } => {
+                BTreeMap::from([("terminal_count", *terminal_count as f64)])
+            }
+            CheckViolationType::BendRadiusTooSmall { radius, min_radius } => {
+                BTreeMap::from([("radius", *radius), ("min_radius", *min_radius)])
+            }
+            CheckViolationType::BendRadiusAutoReduced {
+                radius,
+                requested_radius,
+            } => BTreeMap::from([("radius", *radius), ("requested_radius", *requested_radius)]),
+            _ => BTreeMap::new(),
         }
     }
 
@@ -173,6 +223,24 @@ impl PyChecksResult {
         self.0.passed()
     }
 
+    /// True if all discovered entities were checkable and traversal completed.
+    #[getter]
+    fn complete(&self) -> bool {
+        self.0.complete()
+    }
+
+    /// Number of error-severity violations.
+    #[getter]
+    fn error_count(&self) -> usize {
+        self.0.error_count()
+    }
+
+    /// Number of warning-severity violations.
+    #[getter]
+    fn warning_count(&self) -> usize {
+        self.0.warning_count()
+    }
+
     /// Number of ports checked.
     #[getter]
     fn ports_checked(&self) -> usize {
@@ -185,10 +253,46 @@ impl PyChecksResult {
         self.0.stats.connections_found
     }
 
+    /// Number of spatial connectivity nodes checked.
+    #[getter]
+    fn connectivity_nodes(&self) -> usize {
+        self.0.stats.connectivity_nodes
+    }
+
+    /// Number of ports or widths that could not be checked.
+    #[getter]
+    fn ports_uncheckable(&self) -> usize {
+        self.0.stats.ports_uncheckable
+    }
+
+    /// Number of malformed hierarchy edges.
+    #[getter]
+    fn hierarchy_issues(&self) -> usize {
+        self.0.stats.hierarchy_issues
+    }
+
     /// Number of bends checked.
     #[getter]
     fn bends_checked(&self) -> usize {
         self.0.stats.bends_checked
+    }
+
+    /// Number of bends that could not be checked.
+    #[getter]
+    fn bends_uncheckable(&self) -> usize {
+        self.0.stats.bends_uncheckable
+    }
+
+    /// Number of cell placements with explicit route annotations.
+    #[getter]
+    fn route_annotation_cells_checked(&self) -> usize {
+        self.0.stats.route_annotation_cells_checked
+    }
+
+    /// Number of cell placements missing required route annotations.
+    #[getter]
+    fn route_annotation_cells_missing(&self) -> usize {
+        self.0.stats.route_annotation_cells_missing
     }
 
     /// Elapsed time in milliseconds.
@@ -231,7 +335,11 @@ pub fn py_run_checks(
     let mut route_annotations = library
         .map(|library| library.route_annotations().clone())
         .unwrap_or_default();
-    route_annotations.insert(cell.0.name().to_string(), cell.route_annotations().clone());
+    if let Some(annotations) = cell.route_annotations() {
+        route_annotations.insert(cell.0.name().to_string(), annotations.clone());
+    } else {
+        route_annotations.remove(cell.0.name());
+    }
     let result = run_checks(&cell.0, cfg, lib_ref, &route_annotations);
     PyChecksResult(result)
 }
@@ -239,7 +347,7 @@ pub fn py_run_checks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosette_core::{Cell, Point};
+    use rosette_core::{Cell, Layer, Library, Point, Polygon};
     use rosette_route::{BendInfo, RouteAnnotations};
 
     #[test]
@@ -262,6 +370,57 @@ mod tests {
     }
 
     #[test]
+    fn imported_geometry_without_sidecar_is_incomplete() {
+        let mut geometry = Cell::new("geometry").unwrap();
+        geometry.add_polygon(
+            Polygon::rect(Point::origin(), 10.0, 1.0).unwrap(),
+            Layer::new(1, 0),
+        );
+        let cell = PyCell::from_cell(geometry.clone());
+        let mut library = Library::new("imported");
+        library.add_cell(geometry).unwrap();
+        let library = PyLibrary::from_library(library);
+        let config = PyChecksConfig(ChecksConfig::new().with_min_bend_radius(5.0));
+
+        let result = py_run_checks(&cell, Some(&config), Some(&library));
+
+        assert!(!result.0.complete());
+        assert_eq!(result.0.stats.route_annotation_cells_missing, 1);
+        assert!(matches!(
+            result.0.violations[0].violation_type,
+            CheckViolationType::RouteAnnotationsMissing
+        ));
+    }
+
+    #[test]
+    fn direct_unannotated_cell_overrides_stale_library_sidecar() {
+        let mut geometry = Cell::new("geometry").unwrap();
+        geometry.add_polygon(
+            Polygon::rect(Point::origin(), 10.0, 1.0).unwrap(),
+            Layer::new(1, 0),
+        );
+        let cell = PyCell::from_cell(geometry.clone());
+        let mut core_library = Library::new("library");
+        core_library.add_cell(geometry).unwrap();
+        let library = PyLibrary::from_parts(
+            core_library,
+            rosette_checks::RouteAnnotationMap::from([(
+                "geometry".to_string(),
+                RouteAnnotations::new(Some(10.0), Vec::new(), Vec::new()).unwrap(),
+            )]),
+        );
+        let config = PyChecksConfig(ChecksConfig::new().with_min_bend_radius(5.0));
+
+        let result = py_run_checks(&cell, Some(&config), Some(&library));
+
+        assert_eq!(result.0.stats.route_annotation_cells_missing, 1);
+        assert!(matches!(
+            result.0.violations[0].violation_type,
+            CheckViolationType::RouteAnnotationsMissing
+        ));
+    }
+
+    #[test]
     fn uncheckable_bend_has_public_violation_type_and_fails_result() {
         let violation = CheckViolation::new(
             CheckViolationType::BendRadiusUncheckable,
@@ -277,7 +436,13 @@ mod tests {
             stats: rosette_checks::ChecksStats {
                 ports_checked: 0,
                 connections_found: 0,
+                connectivity_nodes: 0,
+                ports_uncheckable: 0,
+                hierarchy_issues: 0,
                 bends_checked: 0,
+                bends_uncheckable: 1,
+                route_annotation_cells_checked: 1,
+                route_annotation_cells_missing: 0,
                 elapsed: std::time::Duration::ZERO,
             },
         });

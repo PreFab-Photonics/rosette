@@ -473,6 +473,7 @@ mod tests {
             "annotated".to_string(),
             CellAnnotations {
                 route: RouteAnnotations {
+                    available: true,
                     path_length: Some(7.25),
                     bends: vec![BendAnnotation {
                         radius: 3.0,
@@ -696,6 +697,7 @@ mod tests {
             .add_polygon(&[0.0, 0.0, 50_000.0, 0.0, 50_000.0, 50_000.0], 1, 0)
             .unwrap();
         let annotations = library.annotations.get_mut("top").unwrap();
+        annotations.route.available = true;
         annotations.route.path_length = Some(123.0);
         annotations.route.warnings.push("not in GDS".to_string());
         annotations.drc.skip = true;

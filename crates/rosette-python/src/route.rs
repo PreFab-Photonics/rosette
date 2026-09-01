@@ -501,9 +501,12 @@ mod tests {
         let cell = route.to_cell("route").unwrap();
 
         assert_eq!(bends.len(), 1);
-        assert_eq!(cell.route_annotations().bends(), &[bends[0].0.clone()]);
         assert_eq!(
-            cell.route_annotations().path_length(),
+            cell.route_annotations().unwrap().bends(),
+            &[bends[0].0.clone()]
+        );
+        assert_eq!(
+            cell.route_annotations().unwrap().path_length(),
             Some(route.path_length().unwrap())
         );
     }

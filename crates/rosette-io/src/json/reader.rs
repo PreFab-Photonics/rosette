@@ -203,11 +203,11 @@ mod tests {
         ));
 
         let mut future = value;
-        future["schema"] = serde_json::json!(2);
+        future["schema"] = serde_json::json!(3);
         future["future_field"] = serde_json::json!({ "shape": "unknown" });
         assert!(matches!(
             from_string(&serde_json::to_string(&future).unwrap()),
-            Err(JsonError::UnsupportedSchema(2))
+            Err(JsonError::UnsupportedSchema(3))
         ));
     }
 

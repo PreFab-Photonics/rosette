@@ -13,7 +13,7 @@ use super::{
 };
 
 pub const FORMAT: &str = "rosette-layout";
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 const UNIT: &str = "um";
 const Y_AXIS: &str = "up";
@@ -148,6 +148,7 @@ struct PortDto {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RouteAnnotationsDto {
+    available: bool,
     path_length: Option<f64>,
     bends: Vec<BendDto>,
     warnings: Vec<String>,
@@ -276,6 +277,7 @@ impl CellDto {
                 .collect(),
             ports: cell.ports().iter().map(PortDto::from_port).collect(),
             route: RouteAnnotationsDto {
+                available: annotations.route.available,
                 path_length: annotations.route.path_length,
                 bends: annotations
                     .route
@@ -322,6 +324,7 @@ impl CellDto {
                 .map_err(|error| invalid(&path, &error.to_string()))?;
         }
 
+        let route_available = self.route.available;
         if let Some(path_length) = self.route.path_length {
             ensure_finite(path_length, &format!("{cell_path}.route.path_length"))?;
         }
@@ -343,6 +346,7 @@ impl CellDto {
             cell,
             CellAnnotations {
                 route: RouteAnnotations {
+                    available: route_available,
                     path_length: self.route.path_length,
                     bends,
                     warnings: self.route.warnings,

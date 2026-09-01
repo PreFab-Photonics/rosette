@@ -174,7 +174,7 @@ uv run rosette drc designs/foo.py --json
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "command": "drc",
   "design": "designs/foo.py",
   "passed": false,
@@ -217,7 +217,7 @@ plus `skipped`/`error` flags when it didn't produce a normal result.
 
 Config-error handling matches the human `check` flow. A bad DRC config
 (or missing `rosette.toml`) is fatal: `check` emits a top-level error
-object (`{"schema": 1, "command": "check", "passed": false, "error":
+object (`{"schema": 2, "command": "check", "passed": false, "error":
 "..."}`) and exits `1`. A bad `[dfm]` section or checks config is
 non-fatal under `check` — its slot becomes
 `{"command": ..., "passed": false, "skipped": true, "error": true,

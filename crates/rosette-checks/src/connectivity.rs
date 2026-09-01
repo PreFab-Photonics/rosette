@@ -1,97 +1,51 @@
-//! Connectivity checking for photonic layouts.
-//!
-//! Verifies that component ports are properly connected by checking:
-//! - **Unconnected ports** — every non-external port has a partner
-//! - **Width mismatch** — connected ports have matching widths
-//! - **Angle mismatch** — connected ports are properly anti-parallel
-//!
-//! Ports on the top-level cell are treated as external I/O and are
-//! exempt from unconnected-port checks.
-//!
-//! Uses an R-tree spatial index keyed on port position so each port's
-//! partner search is O(log P + k) on the number of nearby ports rather
-//! than O(P). Drops the previous O(P²) matching to O(P log P) in practice.
+//! Hierarchical photonic-port connectivity checking.
 
-use rosette_core::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
+use std::collections::BTreeMap;
+
+use rosette_core::hierarchy::{HierarchyEvent, HierarchyIssueKind, WalkControl, walk_hierarchy};
 use rosette_core::{BBox, Cell, Library, Point, Port, Transform};
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 
+use crate::RouteAnnotationMap;
 use crate::config::ChecksConfig;
 use crate::violation::{CheckViolation, CheckViolationType, Severity};
 
-/// A port resolved to its absolute position in the design hierarchy.
+const PROMOTION_ANGLE_EPSILON_DEG: f64 = 1e-6;
+
 #[derive(Debug)]
 struct FlatPort {
-    /// The port with position/direction transformed to absolute coordinates.
     port: Port,
-    /// Hierarchy path (e.g. "mmi_1" or "arm_1/bend_2").
     cell_path: String,
-    /// True for ports defined directly on the top-level cell.
     is_top_level: bool,
+    placement: usize,
+    parent_placement: Option<usize>,
+    transformed_width: Option<f64>,
+    is_route_input: bool,
 }
 
-/// Collect all ports from a cell hierarchy, applying placement transforms.
-fn flatten_ports(cell: &Cell, library: Option<&Library>) -> Vec<FlatPort> {
-    let mut result = Vec::new();
-
-    if let Some(library) = library {
-        walk_hierarchy(library, cell, Transform::identity(), |event| {
-            if let HierarchyEvent::Enter(placement) = event {
-                let path = placement.relative_path_string();
-                // An otherwise valid hierarchy can overflow while transforms
-                // accumulate. Such placements have no representable ports.
-                result.extend(placement.cell.ports().iter().filter_map(|port| {
-                    Some(FlatPort {
-                        port: port.try_transform(&placement.transform).ok()?,
-                        cell_path: path.clone(),
-                        is_top_level: placement.depth == 0,
-                    })
-                }));
-            }
-            WalkControl::Continue
-        });
-    } else {
-        result.extend(cell.ports().iter().cloned().map(|port| FlatPort {
-            port,
-            cell_path: String::new(),
-            is_top_level: true,
-        }));
-    }
-
-    result
-}
-
-/// Compute the angular deviation between two ports from perfect anti-parallel
-/// alignment. Returns the deviation in degrees (0 = perfectly anti-parallel).
-fn angle_deviation_deg(a: &Port, b: &Port) -> f64 {
-    let dot = a.direction().dot(b.direction());
-    let dot_clamped = dot.clamp(-1.0, 1.0);
-    let theta_deg = dot_clamped.acos().to_degrees();
-    (180.0 - theta_deg).abs()
-}
-
-/// Make a point-sized BBox centred on a port position for violation location.
-fn port_bbox(port: &Port) -> BBox {
-    let half = 0.05; // 50nm box for visibility
-    let position = port.position();
-    BBox::new(
-        Point::new(position.x - half, position.y - half),
-        Point::new(position.x + half, position.y + half),
-    )
-    .expect("validated port position produces valid bounds")
+#[derive(Debug, Default)]
+struct FlattenedPorts {
+    ports: Vec<FlatPort>,
+    violations: Vec<CheckViolation>,
+    ports_uncheckable: usize,
+    hierarchy_issues: usize,
 }
 
 /// Connectivity check statistics.
 #[derive(Debug, Clone, Default)]
 pub struct ConnectivityStats {
-    /// Number of ports checked.
+    /// Number of representable ports checked.
     pub ports_checked: usize,
-    /// Number of port-to-port connections found.
+    /// Number of valid two-terminal physical connections.
     pub connections_found: usize,
+    /// Number of spatial connectivity nodes checked.
+    pub nodes_checked: usize,
+    /// Number of ports or port widths that could not be checked.
+    pub ports_uncheckable: usize,
+    /// Number of malformed hierarchy edges encountered.
+    pub hierarchy_issues: usize,
 }
 
-/// Wraps a port's absolute position for R-tree indexing. The `index` field
-/// is the position within `flat_ports`.
 #[derive(Clone, Copy, Debug)]
 struct IndexedPort {
     index: usize,
@@ -115,528 +69,467 @@ impl PointDistance for IndexedPort {
     }
 }
 
-/// Run connectivity checks on a cell.
-///
-/// Returns violations and stats. Called by the unified runner.
+#[derive(Debug)]
+struct DisjointSet {
+    parent: Vec<usize>,
+}
+
+impl DisjointSet {
+    fn new(len: usize) -> Self {
+        Self {
+            parent: (0..len).collect(),
+        }
+    }
+
+    fn find(&mut self, value: usize) -> usize {
+        if self.parent[value] != value {
+            self.parent[value] = self.find(self.parent[value]);
+        }
+        self.parent[value]
+    }
+
+    fn union(&mut self, a: usize, b: usize) {
+        let a = self.find(a);
+        let b = self.find(b);
+        if a != b {
+            let (root, child) = if a < b { (a, b) } else { (b, a) };
+            self.parent[child] = root;
+        }
+    }
+}
+
+/// Run connectivity checks on a cell hierarchy.
 pub fn check_connectivity(
     cell: &Cell,
     config: &ChecksConfig,
     library: Option<&Library>,
+    route_annotations: &RouteAnnotationMap,
 ) -> (Vec<CheckViolation>, ConnectivityStats) {
-    let flat_ports = flatten_ports(cell, library);
-    let n = flat_ports.len();
+    let flattened = flatten_ports(cell, library, config, route_annotations);
+    let flat_ports = flattened.ports;
+    let mut violations = flattened.violations;
+    let candidates = positional_candidates(&flat_ports, config.position_tolerance());
 
-    // Track which ports have been matched to a partner
-    let mut matched = vec![false; n];
-    // Track matched pairs for width/angle checks
-    let mut pairs: Vec<(usize, usize)> = Vec::new();
-    let mut violations = Vec::new();
-
-    // Build an R-tree of port positions so partner lookup is O(log P + k)
-    // rather than O(P) per port. Without the index, a design with thousands
-    // of ports across many components spends almost all its time in this
-    // pairwise loop.
-    //
-    // `IndexedPort::envelope()` is a point (`AABB::from_point`), which means
-    // the `locate_in_envelope` queries below are semantically equivalent to
-    // `locate_in_envelope_intersecting`. If the envelope ever changes to a
-    // non-degenerate bbox, switch the queries to `*_intersecting` — otherwise
-    // candidates on the window boundary would be silently skipped.
-    let indexed: Vec<IndexedPort> = flat_ports
-        .iter()
-        .enumerate()
-        .map(|(i, fp)| IndexedPort {
-            index: i,
-            x: fp.port.position().x,
-            y: fp.port.position().y,
-        })
-        .collect();
-    let tree = RTree::bulk_load(indexed);
-
-    // Squared tolerance avoids a sqrt on every candidate.
-    let tol = config.position_tolerance;
-    let tol_sq = tol * tol;
-
-    for i in 0..n {
-        let pos = flat_ports[i].port.position();
-        // Query all ports within `position_tolerance` of this one. Use a
-        // bbox envelope (not nearest-neighbour) so we visit every candidate
-        // in the window; the distance² filter below prunes the corners.
-        let envelope = AABB::from_corners([pos.x - tol, pos.y - tol], [pos.x + tol, pos.y + tol]);
-
-        for candidate in tree.locate_in_envelope(&envelope) {
-            let j = candidate.index;
-            // Pair each (i, j) once. `j > i` mirrors the upper-triangular
-            // loop used previously so deduping the connection list and
-            // self-pair skipping happen with one comparison.
-            if j <= i {
-                continue;
-            }
-
-            let dx = flat_ports[j].port.position().x - pos.x;
-            let dy = flat_ports[j].port.position().y - pos.y;
-            if dx * dx + dy * dy > tol_sq {
-                continue;
-            }
-
-            let dot = flat_ports[i]
-                .port
-                .direction()
-                .dot(flat_ports[j].port.direction());
-
-            if dot < -0.99 {
-                // Anti-parallel (opposite directions) = a real connection
-                matched[i] = true;
-                matched[j] = true;
-                pairs.push((i, j));
-            } else if dot > 0.99 {
-                // Co-located with same direction = same physical port shared
-                // between instances (e.g., a route's port placed at a component's
-                // port). Both are covered.
-                matched[i] = true;
-                matched[j] = true;
-            }
-        }
-    }
-
-    // A sub-instance port is also "covered" if a top-level port exists at the
-    // same position (within tolerance). Top-level ports declare external I/O —
-    // they cover sub-instance ports regardless of direction.
-    for i in 0..n {
-        if matched[i] || flat_ports[i].is_top_level {
+    // Port promotion is an alias across one immediate parent/child placement,
+    // not a physical connection. One-to-one degree checks prevent a parent
+    // port from masking multiple coincident child terminals.
+    let mut promotion_candidates = Vec::new();
+    let mut downward_degree = vec![0_usize; flat_ports.len()];
+    let mut upward_degree = vec![0_usize; flat_ports.len()];
+    for &(i, j) in &candidates {
+        let oriented = if flat_ports[i].parent_placement == Some(flat_ports[j].placement) {
+            Some((j, i))
+        } else if flat_ports[j].parent_placement == Some(flat_ports[i].placement) {
+            Some((i, j))
+        } else {
+            None
+        };
+        let Some((parent, child)) = oriented else {
             continue;
-        }
-        let pos = flat_ports[i].port.position();
-        let envelope = AABB::from_corners([pos.x - tol, pos.y - tol], [pos.x + tol, pos.y + tol]);
-        for candidate in tree.locate_in_envelope(&envelope) {
-            let j = candidate.index;
-            if j == i || !flat_ports[j].is_top_level {
-                continue;
-            }
-            let dx = flat_ports[j].port.position().x - pos.x;
-            let dy = flat_ports[j].port.position().y - pos.y;
-            if dx * dx + dy * dy <= tol_sq {
-                matched[i] = true;
-                break;
-            }
-        }
-    }
-
-    // Check matched pairs for width mismatch and angle precision
-    for &(i, j) in &pairs {
-        let a = &flat_ports[i];
-        let b = &flat_ports[j];
-
-        // Width mismatch check
-        if config.check_widths
-            && let (Some(wa), Some(wb)) = (a.port.width(), b.port.width())
-            && (wa - wb).abs() > 1e-6
+        };
+        if parallel_deviation_deg(&flat_ports[parent].port, &flat_ports[child].port)
+            <= PROMOTION_ANGLE_EPSILON_DEG
         {
-            let msg = format!(
-                "Width mismatch: \"{}\"{} has {:.3} \u{00b5}m, \"{}\"{} has {:.3} \u{00b5}m",
-                a.port.name(),
-                if a.cell_path.is_empty() {
-                    String::new()
-                } else {
-                    format!(" on {}", a.cell_path)
-                },
-                wa,
-                b.port.name(),
-                if b.cell_path.is_empty() {
-                    String::new()
-                } else {
-                    format!(" on {}", b.cell_path)
-                },
-                wb,
-            );
-            violations.push(
-                CheckViolation::new(
-                    CheckViolationType::WidthMismatch {
-                        width_a: wa,
-                        width_b: wb,
-                    },
-                    a.port.name().to_string(),
-                    a.cell_path.clone(),
-                    port_bbox(&a.port),
-                    msg,
-                    config.severity,
-                )
-                .with_partner(b.port.name().to_string(), b.cell_path.clone()),
-            );
+            promotion_candidates.push((parent, child));
+            downward_degree[parent] += 1;
+            upward_degree[child] += 1;
         }
+    }
 
-        // Angle precision check
-        let deviation = angle_deviation_deg(&a.port, &b.port);
-        if deviation > config.angle_tolerance {
-            let msg = format!(
-                "Angle deviation {:.2}\u{00b0} between \"{}\"{} and \"{}\"{} exceeds tolerance {:.2}\u{00b0}",
-                deviation,
-                a.port.name(),
-                if a.cell_path.is_empty() {
-                    String::new()
-                } else {
-                    format!(" on {}", a.cell_path)
-                },
-                b.port.name(),
-                if b.cell_path.is_empty() {
-                    String::new()
-                } else {
-                    format!(" on {}", b.cell_path)
-                },
-                config.angle_tolerance,
-            );
-            violations.push(
-                CheckViolation::new(
-                    CheckViolationType::AngleMismatch {
-                        deviation_deg: deviation,
-                        tolerance_deg: config.angle_tolerance,
-                    },
-                    a.port.name().to_string(),
-                    a.cell_path.clone(),
-                    port_bbox(&a.port),
-                    msg,
-                    // Angle mismatch is typically a warning since can_connect_to
-                    // already enforces a coarse anti-parallel check.
-                    Severity::Warning,
-                )
-                .with_partner(b.port.name().to_string(), b.cell_path.clone()),
+    let mut promotion_sets = DisjointSet::new(flat_ports.len());
+    for (parent, child) in promotion_candidates {
+        if downward_degree[parent] == 1 && upward_degree[child] == 1 {
+            promotion_sets.union(parent, child);
+            check_width_pair(
+                &flat_ports[parent],
+                &flat_ports[child],
+                config,
+                &mut violations,
             );
         }
     }
 
-    // Flag unconnected ports (skip top-level ports — they are external I/O)
-    for (i, fp) in flat_ports.iter().enumerate() {
-        if !matched[i] && !fp.is_top_level {
-            let msg = format!(
-                "Port \"{}\" on {} has no connection",
-                fp.port.name(),
-                if fp.cell_path.is_empty() {
-                    "top cell"
+    let mut spatial_sets = DisjointSet::new(flat_ports.len());
+    for &(i, j) in &candidates {
+        spatial_sets.union(i, j);
+    }
+    let mut nodes = BTreeMap::<usize, Vec<usize>>::new();
+    for index in 0..flat_ports.len() {
+        nodes
+            .entry(spatial_sets.find(index))
+            .or_default()
+            .push(index);
+    }
+
+    let mut connections_found = 0;
+    for members in nodes.values() {
+        let mut terminals = BTreeMap::<usize, Vec<usize>>::new();
+        for &member in members {
+            terminals
+                .entry(promotion_sets.find(member))
+                .or_default()
+                .push(member);
+        }
+        let terminals: Vec<&Vec<usize>> = terminals.values().collect();
+        match terminals.as_slice() {
+            [terminal] => {
+                if terminal.iter().any(|&index| flat_ports[index].is_top_level) {
+                    continue;
+                }
+                let port = canonical_port(terminal, &flat_ports);
+                violations.push(CheckViolation::new(
+                    CheckViolationType::UnconnectedPort,
+                    port.port.name().to_string(),
+                    port.cell_path.clone(),
+                    port_bbox(&port.port),
+                    format!(
+                        "Port \"{}\" on {} has no connection",
+                        port.port.name(),
+                        display_path(&port.cell_path),
+                    ),
+                    config.severity(),
+                ));
+            }
+            [left, right] => {
+                let (a, b) = closest_pair(left, right, &flat_ports);
+                let deviation = anti_parallel_deviation_deg(&a.port, &b.port);
+                let route_endpoint_coverage = parallel_deviation_deg(&a.port, &b.port)
+                    <= PROMOTION_ANGLE_EPSILON_DEG
+                    && (left.iter().any(|&index| flat_ports[index].is_route_input)
+                        || right.iter().any(|&index| flat_ports[index].is_route_input));
+                if deviation > config.angle_tolerance() && !route_endpoint_coverage {
+                    violations.push(
+                        CheckViolation::new(
+                            CheckViolationType::AngleMismatch {
+                                deviation_deg: deviation,
+                                tolerance_deg: config.angle_tolerance(),
+                            },
+                            a.port.name().to_string(),
+                            a.cell_path.clone(),
+                            port_bbox(&a.port),
+                            format!(
+                                "Angle deviation {:.2} degrees between \"{}\" on {} and \"{}\" on {} exceeds tolerance {:.2} degrees",
+                                deviation,
+                                a.port.name(),
+                                display_path(&a.cell_path),
+                                b.port.name(),
+                                display_path(&b.cell_path),
+                                config.angle_tolerance(),
+                            ),
+                            config.severity(),
+                        )
+                        .with_partner(b.port.name().to_string(), b.cell_path.clone()),
+                    );
                 } else {
-                    &fp.cell_path
-                },
-            );
-            violations.push(CheckViolation::new(
-                CheckViolationType::UnconnectedPort,
-                fp.port.name().to_string(),
-                fp.cell_path.clone(),
-                port_bbox(&fp.port),
-                msg,
-                config.severity,
-            ));
+                    connections_found += 1;
+                    check_width_pair(a, b, config, &mut violations);
+                }
+            }
+            _ => {
+                let port = canonical_port(terminals[0], &flat_ports);
+                violations.push(CheckViolation::new(
+                    CheckViolationType::ShortedNet {
+                        terminal_count: terminals.len(),
+                    },
+                    port.port.name().to_string(),
+                    port.cell_path.clone(),
+                    port_bbox(&port.port),
+                    format!(
+                        "Shorted connectivity node contains {} logical terminals within position tolerance {:.6}",
+                        terminals.len(),
+                        config.position_tolerance(),
+                    ),
+                    config.severity(),
+                ));
+            }
         }
     }
 
     let stats = ConnectivityStats {
-        ports_checked: n,
-        connections_found: pairs.len(),
+        ports_checked: flat_ports.len(),
+        connections_found,
+        nodes_checked: nodes.len(),
+        ports_uncheckable: flattened.ports_uncheckable,
+        hierarchy_issues: flattened.hierarchy_issues,
     };
-
     (violations, stats)
 }
 
-#[cfg(test)]
-#[allow(unused_must_use)]
-mod tests {
-    use super::*;
-    use rosette_core::{CellRef, Layer, Point, Polygon, Vector2};
+fn flatten_ports(
+    cell: &Cell,
+    library: Option<&Library>,
+    config: &ChecksConfig,
+    route_annotations: &RouteAnnotationMap,
+) -> FlattenedPorts {
+    let mut result = FlattenedPorts::default();
+    let Some(library) = library else {
+        result
+            .ports
+            .extend(cell.ports().iter().cloned().map(|port| {
+                let is_route_input =
+                    route_annotations.contains_key(cell.name()) && port.name() == "in";
+                FlatPort {
+                    transformed_width: port.width(),
+                    port,
+                    cell_path: String::new(),
+                    is_top_level: true,
+                    placement: 0,
+                    parent_placement: None,
+                    is_route_input,
+                }
+            }));
+        return result;
+    };
 
-    fn make_component(name: &str, length: f64, width: f64) -> Cell {
-        let mut cell = Cell::new(name).unwrap();
-        cell.add_polygon(
-            Polygon::rect(Point::origin(), length, width).unwrap(),
-            Layer::new(1, 0),
+    let mut placement_stack = Vec::new();
+    let mut next_placement = 0;
+    let report = walk_hierarchy(library, cell, Transform::identity(), |event| {
+        match event {
+            HierarchyEvent::Enter(placement) => {
+                let placement_id = next_placement;
+                next_placement += 1;
+                let parent_placement = placement_stack.last().copied();
+                placement_stack.push(placement_id);
+                let path = placement.relative_path_string();
+                let is_route_cell = route_annotations.contains_key(placement.cell.name());
+                for source_port in placement.cell.ports() {
+                    let port = match source_port.try_transform(&placement.transform) {
+                        Ok(port) => port,
+                        Err(reason) => {
+                            result.ports_uncheckable += 1;
+                            result.violations.push(CheckViolation::new(
+                                CheckViolationType::PortUncheckable,
+                                source_port.name().to_string(),
+                                path.clone(),
+                                point_bbox(Point::origin()),
+                                format!(
+                                    "Port \"{}\" on {} cannot be transformed: {reason:?}; location uses the origin fallback",
+                                    source_port.name(),
+                                    display_path(&path),
+                                ),
+                                Severity::Error,
+                            ));
+                            continue;
+                        }
+                    };
+                    let transformed_width = source_port.width().and_then(|width| {
+                        conformal_scale(placement.transform).and_then(|scale| {
+                            let width = width * scale;
+                            width.is_finite().then_some(width)
+                        })
+                    });
+                    if config.check_widths()
+                        && source_port.width().is_some()
+                        && transformed_width.is_none()
+                    {
+                        result.ports_uncheckable += 1;
+                        result.violations.push(CheckViolation::new(
+                            CheckViolationType::PortWidthUncheckable,
+                            source_port.name().to_string(),
+                            path.clone(),
+                            port_bbox(&port),
+                            format!(
+                                "Width of port \"{}\" on {} cannot be checked because its transform is nonconformal or unrepresentable",
+                                source_port.name(),
+                                display_path(&path),
+                            ),
+                            Severity::Error,
+                        ));
+                    }
+                    result.ports.push(FlatPort {
+                        port,
+                        cell_path: path.clone(),
+                        is_top_level: placement.depth == 0,
+                        placement: placement_id,
+                        parent_placement,
+                        transformed_width,
+                        is_route_input: is_route_cell && source_port.name() == "in",
+                    });
+                }
+            }
+            HierarchyEvent::Exit(_) => {
+                placement_stack.pop();
+            }
+            HierarchyEvent::Element(_) => {}
+        }
+        WalkControl::Continue
+    });
+
+    result.hierarchy_issues = report.issues.len();
+    for issue in report.issues {
+        let (kind, description) = match issue.kind {
+            HierarchyIssueKind::MissingReference => {
+                (CheckViolationType::MissingReference, "missing reference")
+            }
+            HierarchyIssueKind::Cycle => (CheckViolationType::HierarchyCycle, "cycle"),
+        };
+        result.violations.push(CheckViolation::new(
+            kind,
+            issue.cell_name.clone(),
+            issue.path.clone(),
+            point_bbox(Point::origin()),
+            format!(
+                "Hierarchy {description}: \"{}\" references \"{}\" at {}; location uses the origin fallback",
+                issue.parent_cell, issue.cell_name, issue.path,
+            ),
+            Severity::Error,
+        ));
+    }
+    result
+}
+
+fn positional_candidates(ports: &[FlatPort], tolerance: f64) -> Vec<(usize, usize)> {
+    let indexed = ports
+        .iter()
+        .enumerate()
+        .map(|(index, port)| IndexedPort {
+            index,
+            x: port.port.position().x,
+            y: port.port.position().y,
+        })
+        .collect();
+    let tree = RTree::bulk_load(indexed);
+    let tolerance_sq = tolerance * tolerance;
+    let mut result = Vec::new();
+    for (i, port) in ports.iter().enumerate() {
+        let position = port.port.position();
+        let envelope = AABB::from_corners(
+            [position.x - tolerance, position.y - tolerance],
+            [position.x + tolerance, position.y + tolerance],
         );
-        cell.add_port(
-            Port::with_width(
-                "in",
-                Point::new(0.0, width / 2.0),
-                -Vector2::unit_x(),
-                width,
+        for candidate in tree.locate_in_envelope(&envelope) {
+            let j = candidate.index;
+            if j <= i {
+                continue;
+            }
+            let dx = ports[j].port.position().x - position.x;
+            let dy = ports[j].port.position().y - position.y;
+            if dx * dx + dy * dy <= tolerance_sq {
+                result.push((i, j));
+            }
+        }
+    }
+    result.sort_unstable();
+    result.dedup();
+    result
+}
+
+fn parallel_deviation_deg(a: &Port, b: &Port) -> f64 {
+    a.direction()
+        .dot(b.direction())
+        .clamp(-1.0, 1.0)
+        .acos()
+        .to_degrees()
+}
+
+fn anti_parallel_deviation_deg(a: &Port, b: &Port) -> f64 {
+    (180.0 - parallel_deviation_deg(a, b)).abs()
+}
+
+fn canonical_port<'a>(members: &[usize], ports: &'a [FlatPort]) -> &'a FlatPort {
+    &ports[*members
+        .iter()
+        .min_by_key(|&&index| {
+            (
+                ports[index].cell_path.matches('/').count(),
+                ports[index].cell_path.as_str(),
+                ports[index].port.name(),
+                index,
             )
-            .unwrap(),
-        )
-        .unwrap();
-        cell.add_port(
-            Port::with_width(
-                "out",
-                Point::new(length, width / 2.0),
-                Vector2::unit_x(),
-                width,
+        })
+        .expect("connectivity terminal must contain a port")]
+}
+
+fn closest_pair<'a>(
+    left: &[usize],
+    right: &[usize],
+    ports: &'a [FlatPort],
+) -> (&'a FlatPort, &'a FlatPort) {
+    let mut candidates = Vec::new();
+    for &left_index in left {
+        for &right_index in right {
+            candidates.push((
+                ports[left_index]
+                    .port
+                    .position()
+                    .distance_to(ports[right_index].port.position()),
+                left_index,
+                right_index,
+            ));
+        }
+    }
+    candidates.sort_by(|a, b| {
+        a.0.total_cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+    let (_, left_index, right_index) = candidates[0];
+    (&ports[left_index], &ports[right_index])
+}
+
+fn check_width_pair(
+    a: &FlatPort,
+    b: &FlatPort,
+    config: &ChecksConfig,
+    violations: &mut Vec<CheckViolation>,
+) {
+    if !config.check_widths() {
+        return;
+    }
+    if let (Some(width_a), Some(width_b)) = (a.transformed_width, b.transformed_width)
+        && (width_a - width_b).abs() > config.width_tolerance()
+    {
+        violations.push(
+            CheckViolation::new(
+                CheckViolationType::WidthMismatch { width_a, width_b },
+                a.port.name().to_string(),
+                a.cell_path.clone(),
+                port_bbox(&a.port),
+                format!(
+                    "Width mismatch: \"{}\" on {} has {:.6}, \"{}\" on {} has {:.6}; tolerance is {:.6}",
+                    a.port.name(),
+                    display_path(&a.cell_path),
+                    width_a,
+                    b.port.name(),
+                    display_path(&b.cell_path),
+                    width_b,
+                    config.width_tolerance(),
+                ),
+                config.severity(),
             )
-            .unwrap(),
-        )
-        .unwrap();
-        cell
-    }
-
-    fn default_config() -> ChecksConfig {
-        ChecksConfig::default()
-    }
-
-    #[test]
-    fn test_all_connected() {
-        let wg1 = make_component("wg1", 10.0, 0.5);
-        let wg2 = make_component("wg2", 10.0, 0.5);
-
-        let mut lib = Library::new("test");
-        lib.add_cell(wg1);
-        lib.add_cell(wg2);
-
-        let mut top = Cell::new("top").unwrap();
-        top.add_ref(CellRef::new("wg1").unwrap());
-        top.add_ref(CellRef::new("wg2").unwrap().at(10.0, 0.0).unwrap());
-        top.add_port(
-            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-        top.add_port(
-            Port::with_width("out", Point::new(20.0, 0.25), Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-
-        lib.add_cell(top);
-
-        let (violations, stats) =
-            check_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
-
-        assert!(
-            violations.is_empty(),
-            "Expected no violations but got: {:?}",
-            violations
-        );
-        assert_eq!(stats.ports_checked, 6);
-        assert_eq!(stats.connections_found, 1);
-    }
-
-    #[test]
-    fn test_unconnected_port() {
-        let wg = make_component("wg", 10.0, 0.5);
-
-        let mut lib = Library::new("test");
-        lib.add_cell(wg);
-
-        let mut top = Cell::new("top").unwrap();
-        top.add_ref(CellRef::new("wg").unwrap());
-        top.add_port(
-            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-
-        lib.add_cell(top);
-
-        let (violations, _) =
-            check_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
-
-        assert_eq!(violations.len(), 1);
-        assert_eq!(
-            violations[0].violation_type,
-            CheckViolationType::UnconnectedPort
-        );
-        assert_eq!(violations[0].name, "out");
-    }
-
-    #[test]
-    fn test_width_mismatch() {
-        let wg1 = make_component("wg1", 10.0, 0.5);
-        let wg2 = make_component("wg2", 10.0, 0.4);
-
-        let mut lib = Library::new("test");
-        lib.add_cell(wg1);
-        lib.add_cell(wg2);
-
-        let mut top = Cell::new("top").unwrap();
-        top.add_ref(CellRef::new("wg1").unwrap());
-        top.add_ref(CellRef::new("wg2").unwrap().at(10.0, 0.05).unwrap());
-        top.add_port(
-            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-        top.add_port(
-            Port::with_width("out", Point::new(20.0, 0.25), Vector2::unit_x(), 0.4).unwrap(),
-        )
-        .unwrap();
-
-        lib.add_cell(top);
-
-        let (violations, _) =
-            check_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
-
-        let width_violations: Vec<_> = violations
-            .iter()
-            .filter(|v| matches!(v.violation_type, CheckViolationType::WidthMismatch { .. }))
-            .collect();
-
-        assert!(
-            !width_violations.is_empty(),
-            "Expected width mismatch violation"
+            .with_partner(b.port.name().to_string(), b.cell_path.clone()),
         );
     }
+}
 
-    #[test]
-    fn test_top_level_ports_exempt() {
-        let mut top = Cell::new("top").unwrap();
-        top.add_port(Port::with_width("in", Point::origin(), -Vector2::unit_x(), 0.5).unwrap())
-            .unwrap();
-        top.add_port(
-            Port::with_width("out", Point::new(100.0, 0.0), Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-
-        let (violations, stats) = check_connectivity(&top, &default_config(), None);
-
-        assert!(violations.is_empty());
-        assert_eq!(stats.ports_checked, 2);
-        assert_eq!(stats.connections_found, 0);
+fn conformal_scale(transform: Transform) -> Option<f64> {
+    let scale_x = transform.a.hypot(transform.c);
+    let scale_y = transform.b.hypot(transform.d);
+    if !scale_x.is_finite() || !scale_y.is_finite() || scale_x == 0.0 || scale_y == 0.0 {
+        return None;
     }
-
-    #[test]
-    fn test_empty_cell() {
-        let cell = Cell::new("empty").unwrap();
-        let (violations, stats) = check_connectivity(&cell, &default_config(), None);
-
-        assert!(violations.is_empty());
-        assert_eq!(stats.ports_checked, 0);
-        assert_eq!(stats.connections_found, 0);
+    let normalized_dot = (transform.a / scale_x) * (transform.b / scale_y)
+        + (transform.c / scale_x) * (transform.d / scale_y);
+    let max_scale = scale_x.max(scale_y);
+    if normalized_dot.abs() > 1e-9 || (scale_x - scale_y).abs() / max_scale > 1e-9 {
+        return None;
     }
+    Some((scale_x + scale_y) * 0.5)
+}
 
-    #[test]
-    fn transform_overflow_skips_unrepresentable_ports() {
-        let mut leaf = Cell::new("leaf").unwrap();
-        leaf.add_port(Port::new("overflow", Point::new(2.0, 0.0), Vector2::unit_x()).unwrap())
-            .unwrap();
-        let mut middle = Cell::new("middle").unwrap();
-        middle.add_ref(CellRef::new("leaf").unwrap().scale(f64::MAX).unwrap());
-        let mut top = Cell::new("top").unwrap();
-        top.add_port(Port::new("external", Point::origin(), Vector2::unit_x()).unwrap())
-            .unwrap();
-        top.add_ref(CellRef::new("middle").unwrap().scale(f64::MAX).unwrap());
-        let mut library = Library::new("test");
-        library.add_cell(leaf).unwrap();
-        library.add_cell(middle).unwrap();
-        library.add_cell(top).unwrap();
+fn display_path(path: &str) -> &str {
+    if path.is_empty() { "top cell" } else { path }
+}
 
-        let (violations, stats) = check_connectivity(
-            library.cell("top").unwrap(),
-            &default_config(),
-            Some(&library),
-        );
-        assert!(violations.is_empty());
-        assert_eq!(stats.ports_checked, 1);
-    }
+fn port_bbox(port: &Port) -> BBox {
+    point_bbox(port.position())
+}
 
-    #[test]
-    fn test_with_hierarchy() {
-        let wg = make_component("wg", 10.0, 0.5);
-
-        let mut arm = Cell::new("arm").unwrap();
-        arm.add_ref(CellRef::new("wg").unwrap());
-        arm.add_port(
-            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-        arm.add_port(
-            Port::with_width("out", Point::new(10.0, 0.25), Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-
-        let mut top = Cell::new("top").unwrap();
-        top.add_ref(CellRef::new("arm").unwrap());
-        top.add_ref(CellRef::new("arm").unwrap().at(10.0, 0.0).unwrap());
-        top.add_port(
-            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-        top.add_port(
-            Port::with_width("out", Point::new(20.0, 0.25), Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-
-        let mut lib = Library::new("test");
-        lib.add_cell(wg);
-        lib.add_cell(arm);
-        lib.add_cell(top);
-
-        let (violations, stats) =
-            check_connectivity(lib.cell("top").unwrap(), &default_config(), Some(&lib));
-
-        assert!(
-            violations.is_empty(),
-            "Expected no violations but got: {:?}",
-            violations
-        );
-        assert!(stats.connections_found >= 1);
-    }
-
-    #[test]
-    fn test_aref_copies_have_distinct_ports_and_paths() {
-        let mut child = Cell::new("child").unwrap();
-        child
-            .add_port(Port::with_width("port", Point::origin(), Vector2::unit_x(), 0.5).unwrap())
-            .unwrap();
-        let mut top = Cell::new("top").unwrap();
-        top.add_ref(
-            CellRef::new("child")
-                .unwrap()
-                .array(3, 1, 10.0, 0.0)
-                .unwrap(),
-        );
-        let mut library = Library::new("test");
-        library.add_cell(child);
-        library.add_cell(top);
-
-        let (violations, stats) = check_connectivity(
-            library.cell("top").unwrap(),
-            &default_config(),
-            Some(&library),
-        );
-
-        assert_eq!(stats.ports_checked, 3);
-        assert_eq!(violations.len(), 3);
-        assert_eq!(
-            violations
-                .iter()
-                .map(|violation| violation.cell_path.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "child[ref=0,col=0,row=0]",
-                "child[ref=0,col=1,row=0]",
-                "child[ref=0,col=2,row=0]",
-            ]
-        );
-    }
-
-    #[test]
-    fn test_check_widths_disabled() {
-        let wg1 = make_component("wg1", 10.0, 0.5);
-        let wg2 = make_component("wg2", 10.0, 0.4);
-
-        let mut lib = Library::new("test");
-        lib.add_cell(wg1);
-        lib.add_cell(wg2);
-
-        let mut top = Cell::new("top").unwrap();
-        top.add_ref(CellRef::new("wg1").unwrap());
-        top.add_ref(CellRef::new("wg2").unwrap().at(10.0, 0.05).unwrap());
-        top.add_port(
-            Port::with_width("in", Point::new(0.0, 0.25), -Vector2::unit_x(), 0.5).unwrap(),
-        )
-        .unwrap();
-        top.add_port(
-            Port::with_width("out", Point::new(20.0, 0.25), Vector2::unit_x(), 0.4).unwrap(),
-        )
-        .unwrap();
-
-        lib.add_cell(top);
-
-        let config = ChecksConfig::default().with_check_widths(false);
-        let (violations, _) = check_connectivity(lib.cell("top").unwrap(), &config, Some(&lib));
-
-        let width_violations: Vec<_> = violations
-            .iter()
-            .filter(|v| matches!(v.violation_type, CheckViolationType::WidthMismatch { .. }))
-            .collect();
-
-        assert!(width_violations.is_empty(), "Width check should be skipped");
-    }
+fn point_bbox(position: Point) -> BBox {
+    let half = 0.05;
+    BBox::new(
+        Point::new(position.x - half, position.y - half),
+        Point::new(position.x + half, position.y + half),
+    )
+    .expect("finite port position produces a valid bounds")
 }

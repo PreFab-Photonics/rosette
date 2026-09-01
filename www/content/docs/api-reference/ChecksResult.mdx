@@ -13,7 +13,7 @@ pass/fail check.
 
 ```python
 result = run_checks(cell, config=config)
-if result.passed:
+if result.passed and result.complete:
     print(f"All checks passed ({result.ports_checked} ports, {result.connections_found} connections)")
 else:
     print(f"Found {len(result.violations)} violations")
@@ -25,7 +25,27 @@ else:
 
 <PyAttribute name={"passed"} type={"bool"}>
 
-`True` if no violations were found.
+`True` if no error-severity violations were found. Warnings remain available in
+`violations` but do not fail the run.
+
+</PyAttribute>
+
+<PyAttribute name={"complete"} type={"bool"}>
+
+`True` if hierarchy traversal completed and every discovered port, width, bend,
+and required route-annotation entry was checkable.
+
+</PyAttribute>
+
+<PyAttribute name={"error_count"} type={"int"}>
+
+Number of error-severity violations.
+
+</PyAttribute>
+
+<PyAttribute name={"warning_count"} type={"int"}>
+
+Number of warning-severity violations.
 
 </PyAttribute>
 
@@ -47,9 +67,45 @@ Number of valid port-to-port connections found.
 
 </PyAttribute>
 
+<PyAttribute name={"connectivity_nodes"} type={"int"}>
+
+Number of spatial connectivity nodes checked after hierarchical port promotion.
+
+</PyAttribute>
+
+<PyAttribute name={"ports_uncheckable"} type={"int"}>
+
+Number of ports or port widths that could not be transformed or checked.
+
+</PyAttribute>
+
+<PyAttribute name={"hierarchy_issues"} type={"int"}>
+
+Number of missing references or hierarchy cycles encountered.
+
+</PyAttribute>
+
 <PyAttribute name={"bends_checked"} type={"int"}>
 
 Number of bends checked against the minimum radius.
+
+</PyAttribute>
+
+<PyAttribute name={"bends_uncheckable"} type={"int"}>
+
+Number of annotated bends that could not be checked safely.
+
+</PyAttribute>
+
+<PyAttribute name={"route_annotation_cells_checked"} type={"int"}>
+
+Number of cell placements with explicit route-annotation entries.
+
+</PyAttribute>
+
+<PyAttribute name={"route_annotation_cells_missing"} type={"int"}>
+
+Number of local-geometry cell placements missing required route annotations.
 
 </PyAttribute>
 

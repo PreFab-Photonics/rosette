@@ -230,6 +230,7 @@ or file is absent, the defaults below apply.
 [checks]
 position_tolerance = 0.001
 angle_tolerance = 0.1
+width_tolerance = 0.000001
 check_widths = true
 min_bend_radius = 5.0
 severity = "error"
@@ -239,9 +240,14 @@ severity = "error"
 | --- | --- | --- | --- |
 | `position_tolerance` | number | `0.001` | Maximum port-center gap in design units for ports to count as connected. |
 | `angle_tolerance` | number | `0.1` | Maximum angular deviation from anti-parallel, in degrees. |
+| `width_tolerance` | number | `0.000001` | Maximum absolute connected-port width difference in design units. |
 | `check_widths` | boolean | `true` | Report width mismatches between connected ports. |
 | `min_bend_radius` | number | None | Minimum bend radius in design units. Omit to skip bend-radius threshold checks. |
 | `severity` | string | `"error"` | `"error"` or `"warning"` for configurable violations. |
+
+Numeric tolerances must be finite and nonnegative; `angle_tolerance` cannot
+exceed 180 degrees, and `min_bend_radius` must be positive. Warning-only runs
+pass while retaining their diagnostics.
 
 ## Snapshots
 

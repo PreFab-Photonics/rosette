@@ -51,16 +51,32 @@ class TestChecksConfig:
         config = ChecksConfig(
             position_tolerance=0.01,
             angle_tolerance=1.0,
+            width_tolerance=0.001,
             check_widths=False,
             min_bend_radius=5.0,
             severity="warning",
         )
         assert "check_widths=false" in repr(config)
+        assert "width_tol=0.001" in repr(config)
 
     def test_invalid_severity(self):
         """Invalid severity raises ValueError."""
         with pytest.raises(ValueError, match="severity"):
             ChecksConfig(severity="fatal")
+
+    @pytest.mark.parametrize(
+        ("keyword", "value"),
+        [
+            ("position_tolerance", math.nan),
+            ("position_tolerance", -0.1),
+            ("angle_tolerance", 181.0),
+            ("width_tolerance", math.inf),
+            ("min_bend_radius", 0.0),
+        ],
+    )
+    def test_invalid_numeric_values(self, keyword, value):
+        with pytest.raises(ValueError, match=keyword):
+            ChecksConfig(**{keyword: value})
 
 
 class TestRunChecks:
@@ -156,13 +172,29 @@ class TestRunChecks:
         result = run_checks(cell, config)
         assert result.passed
 
-    def test_skips_ports_from_overflowed_transform(self, transform_overflow_hierarchy):
+    def test_reports_ports_from_overflowed_transform(self, transform_overflow_hierarchy):
         top, library = transform_overflow_hierarchy
 
         result = run_checks(top, library=library)
 
-        assert result.passed
+        assert not result.passed
+        assert not result.complete
         assert result.ports_checked == 1
+        assert result.ports_uncheckable == 1
+        assert any(v.violation_type == "port_uncheckable" for v in result.violations)
+
+    def test_three_terminal_node_is_reported_as_shorted(self):
+        top = Cell("top")
+        for index, direction in enumerate((Vector2.unit_x(), -Vector2.unit_x(), Vector2.unit_x())):
+            leaf = Cell(f"leaf_{index}")
+            leaf.add_port(Port("port", Point.origin(), direction))
+            top.add_ref(leaf.at(0, 0))
+
+        result = run_checks(top)
+
+        shorts = [v for v in result.violations if v.violation_type == "shorted_net"]
+        assert not result.passed
+        assert len(shorts) == 1
 
 
 class TestBendRadiusChecks:
@@ -214,6 +246,20 @@ class TestBendRadiusChecks:
         ]
         assert len(bend_violations) == 0
 
+    def test_unannotated_geometry_is_reported_as_incomplete(self):
+        cell = Cell("geometry")
+        cell.add_polygon(Polygon.rect(Point.origin(), 10.0, 1.0), Layer(1, 0))
+
+        result = run_checks(cell, ChecksConfig(min_bend_radius=5.0))
+
+        assert not result.passed
+        assert not result.complete
+        assert result.route_annotation_cells_missing == 1
+        assert any(
+            violation.violation_type == "route_annotations_missing"
+            for violation in result.violations
+        )
+
     def test_auto_reduced_bend_warning(self):
         """An auto-reduced bend produces a warning."""
         cell = self._route_cell("top", 10.0, leg=5.0)
@@ -228,6 +274,16 @@ class TestBendRadiusChecks:
         assert len(auto_reduced) == 1
         assert auto_reduced[0].severity == "warning"
         assert len(too_small) == 1
+
+    def test_warning_only_result_passes(self):
+        cell = self._route_cell("top", 10.0, leg=5.0)
+
+        result = run_checks(cell, ChecksConfig())
+
+        assert result.passed
+        assert result.error_count == 0
+        assert result.warning_count == 1
+        assert result.violations[0].severity == "warning"
 
     def test_scaled_bend_radius_overflow_fails_as_uncheckable(self):
         """A supplied bend that cannot be evaluated fails the result."""
@@ -275,6 +331,9 @@ class TestChecksResult:
         result = run_checks(cell)
 
         assert isinstance(result.passed, bool)
+        assert isinstance(result.complete, bool)
+        assert isinstance(result.error_count, int)
+        assert isinstance(result.warning_count, int)
         assert isinstance(result.ports_checked, int)
         assert isinstance(result.connections_found, int)
         assert isinstance(result.bends_checked, int)
@@ -312,6 +371,9 @@ class TestCheckViolation:
 
         v = result.violations[0]
         assert isinstance(v.violation_type, str)
+        assert isinstance(v.rule_id, str)
+        assert "." in v.rule_id
+        assert isinstance(v.details, dict)
         assert isinstance(v.name, str)
         assert isinstance(v.cell_path, str)
         assert isinstance(v.message, str)
@@ -366,6 +428,7 @@ class TestLoadChecksConfig:
             "[checks]\n"
             "position_tolerance = 0.01\n"
             "angle_tolerance = 1.0\n"
+            "width_tolerance = 0.001\n"
             "check_widths = false\n"
             "min_bend_radius = 5.0\n"
             'severity = "warning"\n'
@@ -477,6 +540,17 @@ class TestChecksCli:
         captured = capsys.readouterr()
         assert "at (" in captured.out
 
+    def test_print_checks_result_warning_only_passes_and_shows_warning(self, capsys):
+        cell = TestBendRadiusChecks._route_cell("top", 10.0, leg=5.0)
+        result = run_checks(cell, ChecksConfig())
+
+        passed = _print_checks_result(result, None)
+
+        assert passed
+        captured = capsys.readouterr()
+        assert "WARN" in captured.out
+        assert "1 warning" in captured.out
+
 
 class TestChecksJson:
     """Tests for the checks JSON serializer and `rosette check --include-dfm --json`."""
@@ -487,11 +561,13 @@ class TestChecksJson:
         result, file_path = _run_checks_check(str(design_py), str(config_file))
 
         out = _checks_result_to_dict(result, file_path)
-        assert out["schema"] == 1
+        assert out["schema"] == 2
         assert out["command"] == "checks"
         assert out["passed"] is True
+        assert out["complete"] is True
         assert out["violations"] == []
         assert "ports_checked" in out["summary"]
+        assert "connectivity_nodes" in out["summary"]
 
     def test_checks_result_to_dict_fail_has_bbox(self, tmp_path):
         """Each serialized violation carries a numeric bbox."""
@@ -502,6 +578,8 @@ class TestChecksJson:
         assert out["passed"] is False
         assert out["summary"]["violations"] > 0
         bbox = out["violations"][0]["bbox"]
+        assert "." in out["violations"][0]["rule_id"]
+        assert isinstance(out["violations"][0]["details"], dict)
         assert len(bbox) == 2 and len(bbox[0]) == 2
         assert all(isinstance(c, (int, float)) for pt in bbox for c in pt)
 

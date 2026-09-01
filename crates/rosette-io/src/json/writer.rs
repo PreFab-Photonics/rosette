@@ -7,10 +7,10 @@ use std::path::Path;
 
 /// Write a layout document to a JSON file.
 ///
-/// Schema V1 preserves the full library structure including:
+/// Schema V2 preserves the full library structure including:
 /// - All cells with their elements (polygons, paths, cell references, text)
 /// - Ports on each cell
-/// - Cell metadata (e.g., path length)
+/// - Cell metadata and annotation availability (e.g., path length)
 ///
 /// # Arguments
 /// * `path` - Path to the output JSON file

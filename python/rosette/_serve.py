@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from rosette.project import LayerMap
 
 _LAYOUT_FORMAT = "rosette-layout"
-_LAYOUT_SCHEMA = 1
+_LAYOUT_SCHEMA = 2
 
 # =============================================================================
 # Design serialization helpers

@@ -23,6 +23,7 @@ fn current_json_wire_shape_is_stable() {
     assert_eq!(leaf.paths().next().unwrap().3, PathCap::Round);
 
     let annotations = &document.annotations()["leaf"];
+    assert!(annotations.route.available);
     assert_eq!(annotations.route.path_length, Some(7.25));
     assert_eq!(annotations.route.bends.len(), 1);
     assert_eq!(annotations.route.bends[0].radius, 3.0);

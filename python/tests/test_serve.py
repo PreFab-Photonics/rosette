@@ -54,7 +54,7 @@ def test_webapp_bundle_validation_rejects_stale_and_accepts_current(tmp_path: Pa
     with pytest.raises(RuntimeError, match="does not support"):
         _validate_webapp_bundle(tmp_path)
 
-    manifest.write_text('{"layoutFormat":"rosette-layout","layoutSchema":1}')
+    manifest.write_text('{"layoutFormat":"rosette-layout","layoutSchema":2}')
     _validate_webapp_bundle(tmp_path)
 
 
