@@ -197,7 +197,7 @@ __all__ = ["device"]
         assert result["topCell"] == "device_7_3_0p8"
         assert result["cellNames"] == ["child_0p8", "device_7_3_0p8"]
         assert payload["format"] == "rosette-layout"
-        assert payload["schema"] == 1
+        assert payload["schema"] == 2
         assert {cell["name"] for cell in payload["library"]["cells"]} == {
             "child_0p8",
             "device_7_3_0p8",
