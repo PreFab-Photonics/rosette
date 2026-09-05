@@ -27,6 +27,8 @@ relevant shared helpers, and a similar existing component when one exists.
   geometry algorithms.
 - Export public component functions and metric functions from
   `components/__init__.py` and its `__all__`.
+- Exported factories that follow this contract appear in the instance palette when
+  `uv run rosette serve` opens an empty visual workspace.
 
 ## Validate
 

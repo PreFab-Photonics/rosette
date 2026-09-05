@@ -45,6 +45,8 @@ import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { useGoToDialogStore } from "@/stores/goto-dialog";
 import { useAreaDialogStore } from "@/stores/area-dialog";
+import { useComponentCatalogStore } from "@/stores/component-catalog";
+import { useComponentDialogStore } from "@/stores/component-dialog";
 import { pickAndInsertImage } from "@/lib/image-ops";
 import { useDocumentStore } from "@/stores/document";
 import {
@@ -144,7 +146,9 @@ function isAvailableForSource(id: string): boolean {
  * Commands are defined inline with their actions to keep everything
  * in one place. Actions close the palette after execution.
  */
-export function getCommands(): CommandItem[] {
+export function getCommands(
+  projectComponents = useComponentCatalogStore.getState().components,
+): CommandItem[] {
   const { setThemeSetting } = useUIStore.getState();
   const { close } = useCommandPaletteStore.getState();
   const { setTool } = useToolStore.getState();
@@ -1310,6 +1314,19 @@ export function getCommands(): CommandItem[] {
           searchableText: `Cell add instance ${cellName} place ref reference`,
         }),
       ),
+
+    ...projectComponents.map(
+      (component): CommandItem => ({
+        id: `project-component-${component.name}`,
+        type: "cell",
+        name: `Project Component: ${component.name}`,
+        action: () => {
+          close();
+          useComponentDialogStore.getState().open(component);
+        },
+        searchableText: `Project component add instance ${component.name}`,
+      }),
+    ),
 
     // =========================================================================
     // Hierarchy commands

@@ -5,6 +5,8 @@ import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { getCommands, type CommandItem, type CommandShortcut } from "@/lib/palette-commands";
 import { cn } from "@/lib/utils";
 import { useDocumentStore } from "@/stores/document";
+import { isDesignMode, isEmbedMode } from "@/hooks/use-library";
+import { useComponentCatalogStore } from "@/stores/component-catalog";
 
 // =============================================================================
 // Sub-Components
@@ -78,6 +80,9 @@ export function CommandPalette() {
   const close = useCommandPaletteStore((s) => s.close);
   const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
   const isInstancePalette = initialSearch === "add instance ";
+  const projectComponents = useComponentCatalogStore((s) => s.components);
+  const catalogError = useComponentCatalogStore((s) => s.error);
+  const refreshCatalog = useComponentCatalogStore((s) => s.refresh);
 
   // Claim keyboard focus to disable canvas shortcuts while palette is open
   useKeyboardFocus("command-palette", isOpen);
@@ -90,11 +95,13 @@ export function CommandPalette() {
     if (!isOpen) return [];
 
     void sourceBacked;
-    const availableCommands = getCommands();
-    return availableCommands.filter(
-      (command) => command.id.startsWith("cell-instance-") === isInstancePalette,
-    );
-  }, [isOpen, isInstancePalette, sourceBacked]);
+    const availableCommands = getCommands(projectComponents);
+    return availableCommands.filter((command) => {
+      const isInstanceCommand =
+        command.id.startsWith("cell-instance-") || command.id.startsWith("project-component-");
+      return isInstanceCommand === isInstancePalette;
+    });
+  }, [isOpen, isInstancePalette, projectComponents, sourceBacked]);
   const filteredCommands = useMemo(() => {
     const searchLower = search.toLowerCase();
     return commands.filter((cmd) => cmd.searchableText.toLowerCase().includes(searchLower));
@@ -137,6 +144,11 @@ export function CommandPalette() {
     };
   }, [isOpen, handleClickOutside]);
 
+  useEffect(() => {
+    if (!isOpen || !isInstancePalette || isDesignMode() || isEmbedMode()) return;
+    void refreshCatalog();
+  }, [isOpen, isInstancePalette, refreshCatalog]);
+
   if (!isOpen) return null;
 
   return (
@@ -165,6 +177,11 @@ export function CommandPalette() {
             // eslint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
           />
+          {isInstancePalette && catalogError && (
+            <div className="border-b border-theme-border px-4 py-2 text-xs text-danger">
+              Component catalog: {catalogError}
+            </div>
+          )}
           <Command.List
             className="max-h-[320px] overflow-y-auto p-1"
             onWheel={(e) => e.stopPropagation()}

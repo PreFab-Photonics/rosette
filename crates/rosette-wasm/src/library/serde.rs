@@ -4,7 +4,7 @@
 use super::{ElementRef, WasmLibrary};
 use rosette_core::cell::Element;
 use rosette_core::{
-    CellRef, Library, PathElement, Point, Port, Repetition, TextElement, Transform,
+    CellRef, DuplicatePolicy, Library, PathElement, Point, Port, Repetition, TextElement, Transform,
 };
 use rosette_io::json::{CellAnnotations, LayoutDocument};
 use std::cell::RefCell;
@@ -269,6 +269,64 @@ impl WasmLibrary {
         Self::init_from_document(document)
     }
 
+    /// Import every non-conflicting cell from hierarchical library JSON.
+    ///
+    /// Existing cell definitions win on name collisions. The current library,
+    /// active cell, render settings, and existing element IDs are preserved.
+    /// Returns the names of cells inserted by this operation.
+    pub fn import_library_json(&mut self, json: &str) -> Result<Vec<String>, JsValue> {
+        let incoming = Self::from_library_json(json)?;
+        let mut library = self.library.clone();
+        let mut annotations = self.annotations.clone();
+        let mut element_refs = self.element_refs.clone();
+        let mut inserted_names = Vec::new();
+
+        for cell in incoming.library.cells() {
+            if !library
+                .insert_cell(cell.clone(), DuplicatePolicy::KeepExisting)
+                .map_err(|error| JsValue::from_str(&format!("JSON import error: {error}")))?
+            {
+                continue;
+            }
+
+            let cell_name = cell.name().to_string();
+            annotations.insert(
+                cell_name.clone(),
+                incoming
+                    .annotations
+                    .get(&cell_name)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            for element_index in 0..cell.elements().len() {
+                let uuid = loop {
+                    let candidate = Uuid::new_v4().to_string();
+                    if !element_refs.contains_key(&candidate) {
+                        break candidate;
+                    }
+                };
+                element_refs.insert(
+                    uuid,
+                    ElementRef {
+                        cell_name: cell_name.clone(),
+                        element_index,
+                    },
+                );
+            }
+            inserted_names.push(cell_name);
+        }
+
+        if inserted_names.is_empty() {
+            return Ok(inserted_names);
+        }
+
+        self.library = library;
+        self.annotations = annotations;
+        self.element_refs = element_refs;
+        self.mark_dirty();
+        Ok(inserted_names)
+    }
+
     /// Create a WasmLibrary directly from raw GDS binary bytes.
     ///
     /// This is the fast path for the Tauri desktop app: the raw file bytes
@@ -431,6 +489,71 @@ mod tests {
             ["radius reduced"]
         );
         assert!(restored.annotations()["leaf"].drc.skip);
+    }
+
+    #[test]
+    fn library_json_import_adds_hierarchy_and_preserves_active_cell() {
+        let mut child = Cell::new("component_child").unwrap();
+        child.add_polygon(
+            Polygon::rect(Point::origin(), 1.0, 2.0).unwrap(),
+            Layer::new(1, 0),
+        );
+        let mut component = Cell::new("component").unwrap();
+        component.add_ref(CellRef::new("component_child").unwrap());
+        let mut source = Library::new("source");
+        source.add_cell(child).unwrap();
+        source.add_cell(component).unwrap();
+        let json = rosette_io::json::to_string(&document(source)).unwrap();
+
+        let mut target = WasmLibrary::new("target");
+        target.add_cell("top").unwrap();
+        target.set_active_cell("top");
+
+        assert_eq!(
+            target.import_library_json(&json).unwrap(),
+            ["component_child", "component"]
+        );
+        assert_eq!(target.active_cell.as_deref(), Some("top"));
+        assert_eq!(target.library.name(), "target");
+        assert!(target.library.contains("component_child"));
+        assert!(target.library.contains("component"));
+        assert_eq!(target.element_refs.len(), 2);
+        assert!(target.is_dirty());
+    }
+
+    #[test]
+    fn library_json_import_keeps_collisions_and_is_idempotent() {
+        let mut conflicting = Cell::new("component").unwrap();
+        conflicting.add_polygon(
+            Polygon::rect(Point::origin(), 1.0, 1.0).unwrap(),
+            Layer::new(1, 0),
+        );
+        let mut dependency = Cell::new("dependency").unwrap();
+        dependency.add_polygon(
+            Polygon::rect(Point::origin(), 2.0, 2.0).unwrap(),
+            Layer::new(2, 0),
+        );
+        let mut source = Library::new("source");
+        source.add_cell(conflicting).unwrap();
+        source.add_cell(dependency).unwrap();
+        let json = rosette_io::json::to_string(&document(source)).unwrap();
+
+        let mut target = WasmLibrary::new("target");
+        target.add_cell("component").unwrap();
+        assert_eq!(target.import_library_json(&json).unwrap(), ["dependency"]);
+        assert_eq!(
+            target.library.cell("component").unwrap().elements().len(),
+            0
+        );
+        assert_eq!(
+            target.library.cell("dependency").unwrap().elements().len(),
+            1
+        );
+
+        target.mark_clean();
+        assert!(target.import_library_json(&json).unwrap().is_empty());
+        assert!(!target.is_dirty());
+        assert_eq!(target.element_refs.len(), 1);
     }
 
     #[test]

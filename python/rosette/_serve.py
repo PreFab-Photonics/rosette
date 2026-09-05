@@ -6,13 +6,21 @@ Tauri/browser viewer management.
 
 from __future__ import annotations
 
+import copy
+import importlib
+import inspect
 import json
+import math
 import os
 import shutil
 import signal
 import subprocess
 import sys
+import threading
+import types
+import typing
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -142,6 +150,374 @@ def _prepare_design_from_library(library: Library | _CoreLibrary):
     cell_tree = _build_cell_tree(top, child_cells_list)
 
     return json_str, cell_tree
+
+
+# =============================================================================
+# Project component catalog
+# =============================================================================
+
+
+def _component_parameter_spec(
+    parameter: inspect.Parameter, annotation: object
+) -> dict[str, object]:
+    """Convert one supported factory parameter into JSON-safe metadata."""
+    from rosette import Layer
+
+    nullable = False
+    origin = typing.get_origin(annotation)
+    arguments = list(typing.get_args(annotation))
+    if origin is types.UnionType or str(origin) == "typing.Union":
+        nullable = type(None) in arguments
+        arguments = [argument for argument in arguments if argument is not type(None)]
+        if len(arguments) != 1:
+            raise TypeError("union parameters must contain one supported type and None")
+        annotation = arguments[0]
+        origin = typing.get_origin(annotation)
+
+    choices: list[object] | None = None
+    if origin is typing.Literal:
+        choices = list(typing.get_args(annotation))
+        if not choices:
+            raise TypeError("literal parameters must define at least one choice")
+        choice_types = {type(choice) for choice in choices}
+        if choice_types == {bool}:
+            kind = "boolean"
+        elif choice_types <= {int}:
+            kind = "integer"
+        elif choice_types <= {int, float} and bool not in choice_types:
+            kind = "number"
+        elif choice_types == {str}:
+            kind = "string"
+        else:
+            raise TypeError("literal choices must share a scalar type")
+    elif annotation is Layer:
+        kind = "layer"
+    elif annotation is bool:
+        kind = "boolean"
+    elif annotation is int:
+        kind = "integer"
+    elif annotation is float:
+        kind = "number"
+    elif annotation is str:
+        kind = "string"
+    elif parameter.default is not inspect.Parameter.empty and parameter.default is not None:
+        default_type = type(parameter.default)
+        if default_type is bool:
+            kind = "boolean"
+        elif default_type is int:
+            kind = "integer"
+        elif default_type is float:
+            kind = "number"
+        elif default_type is str:
+            kind = "string"
+        elif default_type is Layer:
+            kind = "layer"
+        else:
+            raise TypeError("parameter default must be a supported scalar or Layer")
+    else:
+        raise TypeError("parameter must have a supported type annotation")
+
+    required = parameter.default is inspect.Parameter.empty
+    spec: dict[str, object] = {
+        "name": parameter.name,
+        "type": kind,
+        "required": required,
+        "nullable": nullable,
+    }
+    if not required:
+        default = parameter.default
+        if isinstance(default, Layer):
+            default = {"layerNumber": default.number, "datatype": default.datatype}
+        try:
+            json.dumps(default, allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise TypeError("parameter default must be finite and JSON-safe") from error
+        spec["default"] = default
+    if choices is not None:
+        try:
+            json.dumps(choices, allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise TypeError("literal choices must be finite and JSON-safe") from error
+        spec["choices"] = choices
+    return spec
+
+
+def _component_parameter_value(spec: dict[str, object], value: object) -> object:
+    """Validate and convert a JSON component parameter value."""
+    from rosette import Layer
+
+    name = str(spec["name"])
+    if value is None:
+        if spec["nullable"]:
+            return None
+        raise ValueError(f"{name} cannot be null")
+
+    kind = spec["type"]
+    if kind == "boolean":
+        if type(value) is not bool:
+            raise ValueError(f"{name} must be a boolean")
+        converted = value
+    elif kind == "integer":
+        if type(value) is not int:
+            raise ValueError(f"{name} must be an integer")
+        converted = value
+    elif kind == "number":
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
+            raise ValueError(f"{name} must be a finite number")
+        converted = float(value)
+    elif kind == "string":
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be a string")
+        converted = value
+    elif kind == "layer":
+        if not isinstance(value, dict) or set(value) != {"layerNumber", "datatype"}:
+            raise ValueError(f"{name} must be a layer")
+        number = value["layerNumber"]
+        datatype = value["datatype"]
+        if type(number) is not int or not 0 <= number <= 999:
+            raise ValueError(f"{name}.layerNumber must be an integer 0-999")
+        if type(datatype) is not int or not 0 <= datatype <= 999:
+            raise ValueError(f"{name}.datatype must be an integer 0-999")
+        converted = Layer(number, datatype)
+    else:  # pragma: no cover - specs are built internally
+        raise ValueError(f"Unsupported parameter type for {name}")
+
+    choices = spec.get("choices")
+    if choices is not None and not isinstance(choices, list):  # pragma: no cover
+        raise ValueError(f"Invalid choices for {name}")
+    if isinstance(choices, list) and converted not in choices:
+        allowed = ", ".join(repr(choice) for choice in choices)
+        raise ValueError(f"{name} must be one of {allowed}")
+    return converted
+
+
+class _ProjectComponentCatalog:
+    """Discover and materialize project-owned component factories."""
+
+    def __init__(self, project_dir: Path, config_path: Path | None) -> None:
+        self._project_dir = project_dir.resolve()
+        self._components_dir = (self._project_dir / "components").resolve()
+        self._config_path = config_path.resolve() if config_path is not None else None
+        self._lock = threading.Lock()
+        self._factories: dict[str, Callable[..., object]] = {}
+        self._parameters: dict[str, list[dict[str, object]]] = {}
+        self._version = 0
+        self._error: str | None = None
+        self.reload()
+
+    @property
+    def components_dir(self) -> Path:
+        return self._components_dir
+
+    def _discover(
+        self,
+    ) -> tuple[
+        dict[str, Callable[..., object]],
+        dict[str, list[dict[str, object]]],
+        list[str],
+    ]:
+        if (
+            not self._components_dir.is_dir()
+            or not (self._components_dir / "__init__.py").is_file()
+        ):
+            return {}, {}, []
+        if not self._components_dir.is_relative_to(self._project_dir):
+            raise ValueError("components package must be inside the project")
+
+        old_modules = {
+            name: module
+            for name, module in sys.modules.items()
+            if name == "components" or name.startswith("components.")
+        }
+        for name in old_modules:
+            del sys.modules[name]
+
+        def restore_modules() -> None:
+            for module_name in list(sys.modules):
+                if module_name == "components" or module_name.startswith("components."):
+                    del sys.modules[module_name]
+            sys.modules.update(old_modules)
+
+        for bytecode_dir in self._components_dir.rglob("__pycache__"):
+            shutil.rmtree(bytecode_dir, ignore_errors=True)
+
+        project_path = str(self._project_dir)
+        if project_path in sys.path:
+            sys.path.remove(project_path)
+        sys.path.insert(0, project_path)
+        importlib.invalidate_caches()
+        try:
+            package = importlib.import_module("components")
+        except Exception:
+            restore_modules()
+            raise
+
+        try:
+            package_file = getattr(package, "__file__", None)
+            if package_file is None or not Path(package_file).resolve().is_relative_to(
+                self._components_dir
+            ):
+                raise ImportError("components resolved outside the project")
+            exports = getattr(package, "__all__", [])
+            if not isinstance(exports, list) or not all(isinstance(name, str) for name in exports):
+                raise ValueError("components.__all__ must be a list of strings")
+        except Exception:
+            restore_modules()
+            raise
+
+        factories: dict[str, Callable[..., object]] = {}
+        parameters: dict[str, list[dict[str, object]]] = {}
+        warnings: list[str] = []
+        try:
+            for name in exports:
+                if name.startswith("_"):
+                    continue
+                candidate = getattr(package, name, None)
+                if not inspect.isfunction(candidate):
+                    continue
+                source_file = inspect.getsourcefile(candidate)
+                if source_file is None or not Path(source_file).resolve().is_relative_to(
+                    self._components_dir
+                ):
+                    continue
+                signature = inspect.signature(candidate)
+                factory_parameters = list(signature.parameters.values())
+                if not factory_parameters or factory_parameters[0].name != "layer":
+                    continue
+                try:
+                    if factory_parameters[0].kind not in (
+                        inspect.Parameter.POSITIONAL_ONLY,
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    ):
+                        raise TypeError("layer must accept a positional argument")
+                    hints = typing.get_type_hints(candidate, include_extras=True)
+                    specs = []
+                    for parameter in factory_parameters[1:]:
+                        if parameter.kind not in (
+                            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                            inspect.Parameter.KEYWORD_ONLY,
+                        ):
+                            raise TypeError(
+                                f"parameter {parameter.name!r} must accept a keyword argument"
+                            )
+                        annotation = hints.get(parameter.name, parameter.annotation)
+                        specs.append(_component_parameter_spec(parameter, annotation))
+                except (NameError, TypeError, ValueError) as error:
+                    warnings.append(f"Skipped {name}: {error}")
+                    continue
+                factories[name] = candidate
+                parameters[name] = specs
+        except Exception:
+            restore_modules()
+            raise
+        return factories, parameters, warnings
+
+    def reload(self) -> bool:
+        """Reload project components atomically, retaining the last-good set on error."""
+        with self._lock:
+            try:
+                factories, parameters, warnings = self._discover()
+            except Exception as error:
+                self._error = f"{type(error).__name__}: {error}"
+                return False
+            self._factories = factories
+            self._parameters = parameters
+            self._version += 1
+            self._error = "; ".join(warnings) or None
+        return True
+
+    def snapshot(self) -> dict[str, object]:
+        """Return immutable JSON-safe catalog state."""
+        with self._lock:
+            components = [
+                {"name": name, "parameters": copy.deepcopy(self._parameters[name])}
+                for name in sorted(self._factories)
+            ]
+            return {
+                "version": self._version,
+                "components": components,
+                "error": self._error,
+            }
+
+    def materialize(self, request: dict[str, object]) -> dict[str, object]:
+        """Run one catalog factory and return a self-contained layout document."""
+        from rosette import Cell, Layer
+        from rosette._design import design_config_context
+
+        if set(request) != {"name", "layer", "parameters"}:
+            raise ValueError("Request must contain name, layer, and parameters")
+        name = request["name"]
+        if not isinstance(name, str) or not name or name.startswith("_"):
+            raise ValueError("name must be a public component name")
+        layer_value = request["layer"]
+        layer_spec: dict[str, object] = {
+            "name": "layer",
+            "type": "layer",
+            "nullable": False,
+        }
+        layer = _component_parameter_value(layer_spec, layer_value)
+        if not isinstance(layer, Layer):  # pragma: no cover - guaranteed by the spec
+            raise ValueError("layer must be a layer")
+        supplied = request["parameters"]
+        if not isinstance(supplied, dict) or not all(isinstance(key, str) for key in supplied):
+            raise ValueError("parameters must be an object")
+
+        with self._lock:
+            factory = self._factories.get(name)
+            specs = copy.deepcopy(self._parameters.get(name, []))
+            if factory is None:
+                raise KeyError(f"Unknown component {name!r}")
+
+            spec_by_name = {str(spec["name"]): spec for spec in specs}
+            extras = sorted(set(supplied) - spec_by_name.keys())
+            if extras:
+                raise ValueError(f"Unknown parameter: {extras[0]}")
+            arguments: dict[str, object] = {}
+            for parameter_name, spec in spec_by_name.items():
+                if parameter_name in supplied:
+                    arguments[parameter_name] = _component_parameter_value(
+                        spec, supplied[parameter_name]
+                    )
+                elif spec["required"]:
+                    raise ValueError(f"Missing required parameter: {parameter_name}")
+
+            try:
+                with design_config_context(self._project_dir, self._config_path):
+                    cell = factory(layer, **arguments)
+            except Exception as error:
+                raise ValueError(f"{name}: {error}") from error
+        if not isinstance(cell, Cell):
+            raise ValueError(f"{name} must return a Cell")
+
+        from rosette import Library
+        from rosette._api import _collect_all_cells
+        from rosette._core import to_json
+
+        child_cells: set[Cell] = set()
+        _collect_all_cells(cell, child_cells)
+        library = Library(cell.name)
+        try:
+            library.add_cell_recursive(cell, list(child_cells), on_duplicate="error")
+            library.set_top_cell(cell.name)
+        except ValueError as error:
+            raise ValueError(f"{name} returned an invalid hierarchy: {error}") from error
+        layout_json = to_json(library._inner)
+        payload = json.loads(layout_json)
+        cells = payload.get("library", {}).get("cells", [])
+        cell_names = sorted(
+            item["name"]
+            for item in cells
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
+        )
+        return {
+            "layoutJson": layout_json,
+            "topCell": cell.name,
+            "cellNames": cell_names,
+        }
 
 
 # =============================================================================
@@ -731,7 +1107,11 @@ def serve_design(
         # empty canvas reflects rosette.toml rather than the app's built-in
         # defaults. Falls back to defaults when there's no (or no [layers])
         # rosette.toml.
-        layer_defs = _load_layer_map_safe()
+        config_path = find_design_config(Path.cwd())
+        project_dir = config_path.parent if config_path is not None else Path.cwd().resolve()
+        catalog = _ProjectComponentCatalog(project_dir, config_path)
+        server.set_component_provider(catalog.snapshot, catalog.materialize)
+        layer_defs = _load_layer_map_safe(config_path)
         server.set_design_json(None, layers=layer_defs)
 
         if not no_open:
@@ -744,7 +1124,23 @@ def serve_design(
             )
         else:
             print(f"{url}  |  Ctrl+C to stop")
-        _wait_forever()
+
+        if catalog.components_dir.is_dir():
+            try:
+                from watchfiles import watch
+
+                for changes in watch(catalog.components_dir):
+                    if not any(Path(path).suffix == ".py" for _, path in changes):
+                        continue
+                    if not catalog.reload():
+                        error = catalog.snapshot()["error"]
+                        print(f"error: component catalog reload failed: {error}")
+            except ImportError:
+                _wait_forever()
+            except KeyboardInterrupt:
+                pass
+        else:
+            _wait_forever()
 
     _cleanup_tauri(tauri_proc)
 

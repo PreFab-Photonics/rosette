@@ -73,6 +73,12 @@ layers = load_layer_map()
 waveguide = straight(layers.silicon.layer, length=50.0)
 ```
 
+You can also place exported components visually. Run `uv run rosette serve` without
+a design file, press `I`, and choose the component under **Project Component**.
+Rosette reads the factory defaults and supported type annotations to build the
+parameter form, then materializes the selected variant into the editable layout.
+Serving a specific Python design or GDS file does not add the project catalog.
+
 Use semantic layer names from `rosette.toml`; do not bake foundry layer numbers into
 reusable component source.
 
@@ -86,6 +92,8 @@ reusable component source.
 - Use `safe_cell_name()` for parameterized cell names.
 - Reuse `_curves` and `_tapers` instead of duplicating shared geometry math.
 - Update docstrings and `__all__` when the project-owned component API changes.
+- Use `float`, `int`, `str`, `bool`, `Literal`, and optional `Layer` annotations for
+  parameters that should be editable from the visual component form.
 
 ## Verify the component
 

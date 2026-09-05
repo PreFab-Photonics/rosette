@@ -451,6 +451,82 @@ export class AddCellRefCommand implements Command {
   }
 }
 
+/** Import a materialized project component and place one instance of its root cell. */
+export class ImportComponentCommand implements Command {
+  readonly type = "import-component";
+  readonly description: string;
+
+  private elementId: string | null = null;
+  private insertedCells: string[] = [];
+
+  constructor(
+    private readonly layoutJson: string,
+    private readonly topCell: string,
+    private readonly cellNames: string[],
+    private readonly x: number,
+    private readonly y: number,
+  ) {
+    this.description = `Place project component "${topCell}"`;
+  }
+
+  execute(ctx: CommandContext): void {
+    const existingCells = new Set(ctx.library.get_cell_names());
+    const collisions = this.cellNames.filter((name) => existingCells.has(name));
+    if (collisions.length > 0) {
+      throw new Error(
+        `Component cell already exists: ${collisions.join(", ")}. Place the existing cell or change the component parameters.`,
+      );
+    }
+    this.insertedCells = ctx.library.import_library_json(this.layoutJson);
+    const id = ctx.library.add_cell_ref(this.topCell, this.x, this.y);
+    if (!id) {
+      this.removeImportedCells(ctx);
+      throw new Error(`Could not place project component "${this.topCell}"`);
+    }
+
+    this.elementId = id;
+    syncCellTree(ctx.library);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+
+    const syntheticId = canonicalElementId(ctx.library, id);
+    if (syntheticId) useSelectionStore.getState().select(syntheticId);
+  }
+
+  undo(ctx: CommandContext): void {
+    if (this.elementId) {
+      const selectionId = canonicalElementId(ctx.library, this.elementId);
+      ctx.library.remove_element(this.elementId);
+      const { selectedIds, removeFromSelection } = useSelectionStore.getState();
+      if (selectionId && selectedIds.has(selectionId)) removeFromSelection(selectionId);
+      this.elementId = null;
+    }
+    this.removeImportedCells(ctx);
+    syncCellTree(ctx.library);
+    ctx.renderer.sync_from_library(ctx.library);
+    ctx.renderer.mark_dirty();
+  }
+
+  private removeImportedCells(ctx: CommandContext): void {
+    const remaining = new Set(this.insertedCells);
+    let removed = true;
+    while (remaining.size > 0 && removed) {
+      removed = false;
+      for (const name of Array.from(remaining).reverse()) {
+        if (ctx.library.remove_cell(name)) {
+          remaining.delete(name);
+          removed = true;
+        }
+      }
+    }
+    if (remaining.size > 0) {
+      this.insertedCells = Array.from(remaining);
+      throw new Error("Could not remove every imported component cell");
+    }
+    this.insertedCells = [];
+  }
+}
+
 // =============================================================================
 // Quick-add helpers
 // =============================================================================
