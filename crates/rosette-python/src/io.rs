@@ -376,7 +376,11 @@ pub fn write_gds(
                 let summary = BuildSummary::from_cell_with_library(
                     top,
                     Some(&lib),
-                    (top.name() == cell.0.name()).then(|| cell.route_annotations()),
+                    if top.name() == cell.0.name() {
+                        cell.route_annotations()
+                    } else {
+                        None
+                    },
                 );
                 if verbose {
                     eprintln!("{}", summary.format_verbose());
@@ -388,7 +392,7 @@ pub fn write_gds(
             gds::write(path, &cell.0).map_err(|error| map_gds_error("write", error))?;
 
             if print_summary {
-                let summary = BuildSummary::from_cell(&cell.0, Some(cell.route_annotations()));
+                let summary = BuildSummary::from_cell(&cell.0, cell.route_annotations());
                 if verbose {
                     eprintln!("{}", summary.format_verbose());
                 } else {
@@ -479,6 +483,7 @@ mod tests {
         let document = layout_document(library, &routes).unwrap();
         let annotations = &document.annotations()["route"];
 
+        assert!(annotations.route.available);
         assert_eq!(annotations.route.path_length, Some(15.0));
         assert_eq!(annotations.route.bends.len(), 1);
         assert_eq!(annotations.route.warnings, vec!["reduced"]);
@@ -496,11 +501,13 @@ fn layout_document(
         .cells()
         .iter()
         .map(|cell| {
+            let route_available = route_annotations.contains_key(cell.name());
             let route_annotations = route_annotations
                 .get(cell.name())
                 .cloned()
                 .unwrap_or_default();
             let route = json::RouteAnnotations {
+                available: route_available,
                 path_length: route_annotations.path_length(),
                 bends: route_annotations
                     .bends()
@@ -528,7 +535,7 @@ fn layout_document(
 /// Serialize a Cell or Library to a JSON string.
 ///
 /// This is used internally by `rosette serve` to send designs to the web viewer.
-/// Schema V1 preserves the full structure including cells, elements, and ports.
+/// Schema V2 preserves the full structure, ports, and annotation provenance.
 ///
 /// Args:
 ///     design: A Cell or Library to serialize
@@ -566,11 +573,11 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
         let mut route_annotations = RouteAnnotationMap::new();
 
         if let Some(child_cells) = cells {
-            route_annotations.extend(child_cells.iter().map(|child| {
-                (
-                    child.0.name().to_string(),
-                    child.route_annotations().clone(),
-                )
+            route_annotations.extend(child_cells.iter().filter_map(|child| {
+                child
+                    .route_annotations()
+                    .cloned()
+                    .map(|annotations| (child.0.name().to_string(), annotations))
             }));
             let cells_vec: Vec<_> = child_cells.iter().map(|c| c.0.clone()).collect();
             add_cell_hierarchy(
@@ -584,7 +591,9 @@ pub fn to_json(design: &Bound<'_, PyAny>, cells: Option<Vec<PyCell>>) -> PyResul
             lib.add_cell(cell.0.clone())
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         }
-        route_annotations.insert(cell.0.name().to_string(), cell.route_annotations().clone());
+        if let Some(annotations) = cell.route_annotations() {
+            route_annotations.insert(cell.0.name().to_string(), annotations.clone());
+        }
 
         let document = layout_document(lib, &route_annotations).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize to JSON: {}", e))

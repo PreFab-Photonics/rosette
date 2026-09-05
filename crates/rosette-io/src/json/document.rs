@@ -25,6 +25,8 @@ pub struct CellAnnotations {
 /// Persisted routing annotations for one cell.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RouteAnnotations {
+    /// Whether route metadata was explicitly available for this cell.
+    pub available: bool,
     pub path_length: Option<f64>,
     pub bends: Vec<BendAnnotation>,
     pub warnings: Vec<String>,
@@ -157,6 +159,14 @@ impl CellAnnotations {
 
 impl RouteAnnotations {
     fn validate(&self, path: &str) -> Result<(), JsonError> {
+        if !self.available
+            && (self.path_length.is_some() || !self.bends.is_empty() || !self.warnings.is_empty())
+        {
+            return Err(invalid(
+                &format!("{path}.available"),
+                "must be true when route metadata is present",
+            ));
+        }
         if let Some(path_length) = self.path_length {
             ensure_finite(path_length, &format!("{path}.path_length"))?;
         }
@@ -218,7 +228,7 @@ mod tests {
     use rosette_core::Cell;
 
     #[test]
-    fn from_library_builds_v1_defaults_for_every_cell() {
+    fn from_library_builds_v2_defaults_for_every_cell() {
         let mut library = Library::new("test");
         library.add_cell(Cell::new("cell").unwrap()).unwrap();
 
@@ -240,6 +250,13 @@ mod tests {
 
         assert!(matches!(
             LayoutDocument::from_parts(library.clone(), HashMap::new()),
+            Err(JsonError::InvalidDocument { .. })
+        ));
+
+        let mut inconsistent = HashMap::from([("cell".to_string(), CellAnnotations::default())]);
+        inconsistent.get_mut("cell").unwrap().route.path_length = Some(1.0);
+        assert!(matches!(
+            LayoutDocument::from_parts(library.clone(), inconsistent),
             Err(JsonError::InvalidDocument { .. })
         ));
 

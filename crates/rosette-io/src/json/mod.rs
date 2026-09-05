@@ -1,9 +1,9 @@
 //! JSON format support for rosette designs.
 //!
 //! This module owns the versioned `rosette-layout` persistence contract and
-//! converts it to and from validated [`LayoutDocument`] values. Schema V1 uses
-//! micrometers with a Y-up coordinate axis and is used internally by
-//! `rosette serve` to communicate designs to the web viewer.
+//! converts it to and from validated [`LayoutDocument`] values. Schema V2 uses
+//! micrometers with a Y-up coordinate axis, preserves annotation availability,
+//! and is used internally by `rosette serve` to communicate designs to the web viewer.
 //!
 //! ## Example
 //!

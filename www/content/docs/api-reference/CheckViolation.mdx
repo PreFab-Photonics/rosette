@@ -14,21 +14,43 @@ including the hierarchy path to the affected port or component.
 ```python
 result = run_checks(cell, config=config)
 for v in result.violations:
-    print(f"[{v.severity}] {v.violation_type}: {v.message}")
+    print(f"[{v.severity}] {v.rule_id}: {v.message}")
     print(f"  at {v.cell_path}/{v.name}")
 ```
 
 ## Attributes
 
-<PyAttribute name={"violation_type"} type={'Literal["unconnected_port", "width_mismatch", "angle_mismatch", "bend_radius_too_small", "bend_radius_auto_reduced", "bend_radius_uncheckable"]'}>
+<PyAttribute name={"violation_type"} type={"Literal['unconnected_port', 'width_mismatch', 'angle_mismatch', 'shorted_net', 'port_uncheckable', 'port_width_uncheckable', 'missing_reference', 'hierarchy_cycle', 'bend_radius_too_small', 'bend_radius_auto_reduced', 'bend_radius_uncheckable', 'route_warning', 'route_annotations_missing']"}>
 
 Type of violation. One of:
 - `"unconnected_port"`: a port has no matching partner
 - `"width_mismatch"`: connected ports have different widths
 - `"angle_mismatch"`: connected ports are not anti-parallel within tolerance
+- `"shorted_net"`: more than two logical terminals share a connectivity node
+- `"port_uncheckable"`: a port transform could not be represented safely
+- `"port_width_uncheckable"`: a port width has an unsupported transform
+- `"missing_reference"`: a referenced cell is absent from the library
+- `"hierarchy_cycle"`: a cycle prevented complete hierarchy traversal
 - `"bend_radius_too_small"`: a bend is below the minimum radius
 - `"bend_radius_auto_reduced"`: a bend radius was automatically reduced by the router
 - `"bend_radius_uncheckable"`: a supplied bend could not be evaluated safely
+- `"route_warning"`: the router emitted a warning while constructing the route
+- `"route_annotations_missing"`: bend checking lacks required cell annotations
+
+</PyAttribute>
+
+<PyAttribute name={"details"} type={"dict[str, float]"}>
+
+Structured numeric measurements and limits. For example, an angle mismatch
+contains `deviation_deg` and `tolerance_deg`, while a bend-radius violation
+contains `radius` and `min_radius`.
+
+</PyAttribute>
+
+<PyAttribute name={"rule_id"} type={"str"}>
+
+Stable machine-readable identifier such as `"connectivity.shorted_net"` or
+`"routing.bend_radius_too_small"`.
 
 </PyAttribute>
 

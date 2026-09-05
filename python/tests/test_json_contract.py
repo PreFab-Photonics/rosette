@@ -15,10 +15,15 @@ def test_python_binding_serializes_default_annotations():
 
     payload = json.loads(core.to_json(library))
     assert payload["format"] == "rosette-layout"
-    assert payload["schema"] == 1
+    assert payload["schema"] == 2
     assert payload["coordinate_system"] == {"unit": "um", "y_axis": "up"}
     cell = payload["library"]["cells"][0]
-    assert cell["route"] == {"path_length": None, "bends": [], "warnings": []}
+    assert cell["route"] == {
+        "available": False,
+        "path_length": None,
+        "bends": [],
+        "warnings": [],
+    }
     assert cell["drc"] == {"skip": False, "waive_regions": []}
 
 
@@ -34,6 +39,7 @@ def test_python_binding_serializes_route_owned_annotations():
     payload = json.loads(core.to_json(library))
     annotation = payload["library"]["cells"][0]["route"]
 
+    assert annotation["available"] is True
     assert annotation["path_length"] == pytest.approx(route.path_length)
     assert annotation["warnings"] == route.warnings
     assert len(annotation["bends"]) == len(route.bends) == 1

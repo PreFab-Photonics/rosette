@@ -2229,7 +2229,7 @@ class TestDrcJson:
         drc_design(str(design_py), str(config_file), json_output=True)
 
         out = json.loads(capsys.readouterr().out)
-        assert out["schema"] == 1
+        assert out["schema"] == 2
         assert out["command"] == "drc"
         assert out["passed"] is True
         assert out["summary"]["errors"] == 0
@@ -2307,7 +2307,7 @@ class TestCheckJson:
         check_design(str(design_py), str(config_file), json_output=True)
 
         out = json.loads(capsys.readouterr().out)
-        assert out["schema"] == 1
+        assert out["schema"] == 2
         assert out["command"] == "check"
         assert out["passed"] is True
         assert out["drc"]["passed"] is True

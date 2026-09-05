@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from rosette.project import LayerMap
 
 _LAYOUT_FORMAT = "rosette-layout"
-_LAYOUT_SCHEMA = 1
+_LAYOUT_SCHEMA = 2
 _SERVER_CONTEXT_MARKER = b"--server-url"
 
 # =============================================================================

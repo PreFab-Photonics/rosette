@@ -15,6 +15,7 @@ behavior.
 config = ChecksConfig(
     position_tolerance=0.001,
     angle_tolerance=0.1,
+    width_tolerance=1e-6,
     check_widths=True,
     min_bend_radius=5.0,
     severity="error",
@@ -24,7 +25,7 @@ result = run_checks(cell, config=config)
 
 ## Methods
 
-<PyFunction name={"__init__"} type={"(position_tolerance=0.001, angle_tolerance=0.1, check_widths=True, min_bend_radius=None, severity='error') -> None"}>
+<PyFunction name={"__init__"} type={"(position_tolerance=0.001, angle_tolerance=0.1, width_tolerance=1e-6, check_widths=True, min_bend_radius=None, severity='error') -> None"}>
 
 Create a new checks configuration.
 
@@ -34,12 +35,20 @@ Create a new checks configuration.
 
 Maximum gap between port centres (in design units) to count as connected.
 Ports closer than this distance are considered a valid connection.
+Must be finite and nonnegative.
 
 </PyParameter>
 <PyParameter name={"angle_tolerance"} type={"float"} value={"0.1"}>
 
 Maximum angular deviation from anti-parallel (in degrees) to count as
 a valid connection. Two ports must face each other within this tolerance.
+Must be finite and between 0 and 180 degrees.
+
+</PyParameter>
+<PyParameter name={"width_tolerance"} type={"float"} value={"1e-6"}>
+
+Maximum absolute width difference, in design units, before connected ports
+produce a width-mismatch violation. Must be finite and nonnegative.
 
 </PyParameter>
 <PyParameter name={"check_widths"} type={"bool"} value={"True"}>
@@ -56,10 +65,15 @@ against this limit. Rosette retains those diagnostics privately alongside
 Cells created by `Route.to_cell()` and in `rosette-layout` JSON; generic Cell
 metadata is not inspected.
 
+The value must be finite and positive. Cells with local polygon or path geometry
+must have an explicit route-annotation entry while this check is enabled; an
+empty entry means that the cell is known to contain no annotated bends.
+
 </PyParameter>
 <PyParameter name={"severity"} type={"str"} value={"\"error\""}>
 
-Default severity for violations: `"error"` or `"warning"`.
+Default severity for configurable violations: `"error"` or `"warning"`.
+Warning-only results still pass.
 
 </PyParameter>
 

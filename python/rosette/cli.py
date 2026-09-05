@@ -2195,7 +2195,7 @@ def _format_layer(layer_tuple: tuple[int, int]) -> str:
 # names/shape; additive fields do not require a bump.
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 # ---------------------------------------------------------------------------
@@ -2545,19 +2545,28 @@ def _checks_result_to_dict(result: ChecksResult, file_path: Path | None) -> dict
         "command": "checks",
         "design": _design_str(file_path),
         "passed": result.passed,
+        "complete": result.complete,
         "elapsed_ms": result.elapsed_ms,
         "summary": {
             "violations": len(result.violations),
-            "errors": sum(1 for v in result.violations if v.severity == "error"),
-            "warnings": sum(1 for v in result.violations if v.severity == "warning"),
+            "errors": result.error_count,
+            "warnings": result.warning_count,
             "ports_checked": result.ports_checked,
             "connections_found": result.connections_found,
+            "connectivity_nodes": result.connectivity_nodes,
+            "ports_uncheckable": result.ports_uncheckable,
+            "hierarchy_issues": result.hierarchy_issues,
             "bends_checked": result.bends_checked,
+            "bends_uncheckable": result.bends_uncheckable,
+            "route_annotation_cells_checked": result.route_annotation_cells_checked,
+            "route_annotation_cells_missing": result.route_annotation_cells_missing,
         },
         "violations": [
             {
                 "severity": v.severity,
+                "rule_id": v.rule_id,
                 "violation_type": v.violation_type,
+                "details": v.details,
                 "name": v.name,
                 "cell_path": v.cell_path,
                 "partner_name": v.partner_name,
@@ -2972,7 +2981,7 @@ def _print_checks_result(
         stats_parts.append(f"{result.bends_checked} bends")
     print(f"{_bold('checks')}  {file_path}  {_dim(', '.join(stats_parts))}")
 
-    if result.passed:
+    if not result.violations:
         print(f"\n  {_green('passed')} {_dim(f'({result.elapsed_ms:.1f}ms)')}")
         return True
 
@@ -3015,6 +3024,12 @@ def _print_checks_result(
         parts.append(f"{warnings} warning{'s' if warnings != 1 else ''}")
     summary = ", ".join(parts)
     count = len(result.violations)
+    if result.passed:
+        print(
+            f"\n  {_green('passed')} with {_yellow(summary)} "
+            f"{_dim(f'in {result.elapsed_ms:.1f}ms')}"
+        )
+        return True
     print(
         f"\n  {_red(f'{count} violation' + ('s' if count != 1 else ''))} "
         f"({summary}) {_dim(f'in {result.elapsed_ms:.1f}ms')}"
@@ -3098,7 +3113,7 @@ def _check_design_json(design: str, config: str | None, include_dfm: bool) -> No
     """Emit a single combined JSON object for `rosette check --json`.
 
     Shape:
-        { "schema": 1, "command": "check", "design": ...,
+        { "schema": 2, "command": "check", "design": ...,
           "drc": {...}, "checks": {...}, "dfm": {...}|null, "passed": <all> }
 
     `dfm` is null unless --include-dfm was passed; when passed but no [dfm]

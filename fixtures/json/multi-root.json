@@ -1,6 +1,6 @@
 {
   "format": "rosette-layout",
-  "schema": 1,
+  "schema": 2,
   "coordinate_system": {
     "unit": "um",
     "y_axis": "up"
@@ -40,6 +40,7 @@
         ],
         "ports": [],
         "route": {
+          "available": false,
           "path_length": null,
           "bends": [],
           "warnings": []
@@ -86,6 +87,7 @@
         ],
         "ports": [],
         "route": {
+          "available": false,
           "path_length": null,
           "bends": [],
           "warnings": []

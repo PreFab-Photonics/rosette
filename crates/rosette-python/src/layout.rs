@@ -705,15 +705,19 @@ impl PyCellRef {
 /// A cell containing geometry and references to other cells.
 #[pyclass(name = "Cell", from_py_object)]
 #[derive(Clone)]
-pub struct PyCell(pub Cell, RouteAnnotations);
+pub struct PyCell(pub Cell, Option<RouteAnnotations>);
 
 impl PyCell {
     pub(crate) fn from_parts(cell: Cell, route_annotations: RouteAnnotations) -> Self {
-        Self(cell, route_annotations)
+        Self(cell, Some(route_annotations))
     }
 
-    pub(crate) fn route_annotations(&self) -> &RouteAnnotations {
-        &self.1
+    pub(crate) fn from_cell(cell: Cell) -> Self {
+        Self(cell, None)
+    }
+
+    pub(crate) fn route_annotations(&self) -> Option<&RouteAnnotations> {
+        self.1.as_ref()
     }
 }
 
@@ -733,7 +737,7 @@ impl PyCell {
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let cell =
             Cell::new(name).map_err(|_| PyValueError::new_err("Cell name cannot be empty"))?;
-        Ok(Self::from_parts(cell, RouteAnnotations::default()))
+        Ok(Self::from_cell(cell))
     }
 
     /// Cell name.
@@ -1010,13 +1014,12 @@ impl PyCell {
 pub struct PyLibrary(pub Library, RouteAnnotationMap);
 
 impl PyLibrary {
-    pub(crate) fn from_library(library: Library) -> Self {
-        let route_annotations = library
-            .cells()
-            .iter()
-            .map(|cell| (cell.name().to_string(), RouteAnnotations::default()))
-            .collect();
+    pub(crate) fn from_parts(library: Library, route_annotations: RouteAnnotationMap) -> Self {
         Self(library, route_annotations)
+    }
+
+    pub(crate) fn from_library(library: Library) -> Self {
+        Self::from_parts(library, RouteAnnotationMap::new())
     }
 
     pub(crate) fn route_annotations(&self) -> &RouteAnnotationMap {
@@ -1024,10 +1027,7 @@ impl PyLibrary {
     }
 
     fn wrap_cell(&self, cell: &Cell) -> PyCell {
-        PyCell::from_parts(
-            cell.clone(),
-            self.1.get(cell.name()).cloned().unwrap_or_default(),
-        )
+        PyCell(cell.clone(), self.1.get(cell.name()).cloned())
     }
 }
 
@@ -1047,7 +1047,7 @@ mod tests {
         let leaf = annotated_cell("leaf", 12.0);
         let mut root = Cell::new("root").unwrap();
         root.add_ref(CellRef::new("leaf").unwrap());
-        let root = PyCell::from_parts(root, RouteAnnotations::default());
+        let root = PyCell::from_cell(root);
         let mut library = PyLibrary::from_library(Library::new("test"));
 
         library
@@ -1059,6 +1059,7 @@ mod tests {
                 .cell("leaf")
                 .unwrap()
                 .route_annotations()
+                .unwrap()
                 .path_length(),
             Some(12.0)
         );
@@ -1069,6 +1070,7 @@ mod tests {
                 .find(|cell| cell.0.name() == "leaf")
                 .unwrap()
                 .route_annotations()
+                .unwrap()
                 .path_length(),
             Some(12.0)
         );
@@ -1083,6 +1085,7 @@ mod tests {
                 .cell("leaf")
                 .unwrap()
                 .route_annotations()
+                .unwrap()
                 .path_length(),
             Some(12.0)
         );
@@ -1092,20 +1095,17 @@ mod tests {
                 .is_err()
         );
         assert_eq!(library.0.cells().len(), 2);
-        assert_eq!(library.1.len(), 2);
+        assert_eq!(library.1.len(), 1);
     }
 
     #[test]
-    fn core_library_import_creates_default_route_annotations() {
+    fn core_library_import_preserves_missing_route_annotations() {
         let mut core = Library::new("gds");
         core.add_cell(Cell::new("geometry").unwrap()).unwrap();
 
         let library = PyLibrary::from_library(core);
 
-        assert_eq!(
-            library.route_annotations().get("geometry"),
-            Some(&RouteAnnotations::default())
-        );
+        assert!(!library.route_annotations().contains_key("geometry"));
     }
 
     #[test]
@@ -1227,7 +1227,9 @@ impl PyLibrary {
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         if inserted {
             let mut route_annotations = self.1.clone();
-            route_annotations.insert(cell.0.name().to_string(), cell.route_annotations().clone());
+            if let Some(annotations) = cell.route_annotations() {
+                route_annotations.insert(cell.0.name().to_string(), annotations.clone());
+            }
             self.0 = library;
             self.1 = route_annotations;
         }
@@ -1261,7 +1263,7 @@ impl PyLibrary {
         available_cells: Vec<PyCell>,
         on_duplicate: &str,
     ) -> PyResult<()> {
-        let available_cells: Vec<(Cell, RouteAnnotations)> = available_cells
+        let available_cells: Vec<(Cell, Option<RouteAnnotations>)> = available_cells
             .into_iter()
             .map(|cell| (cell.0, cell.1))
             .collect();
@@ -1285,9 +1287,13 @@ impl PyLibrary {
             .collect();
         let mut incoming_annotations: RouteAnnotationMap = available_cells
             .into_iter()
-            .map(|(cell, annotations)| (cell.name().to_string(), annotations))
+            .filter_map(|(cell, annotations)| {
+                annotations.map(|annotations| (cell.name().to_string(), annotations))
+            })
             .collect();
-        incoming_annotations.insert(cell.0.name().to_string(), cell.route_annotations().clone());
+        if let Some(annotations) = cell.route_annotations() {
+            incoming_annotations.insert(cell.0.name().to_string(), annotations.clone());
+        }
 
         let mut library = self.0.clone();
         add_cell_hierarchy(&mut library, cell.0.clone(), &cells, duplicates)
@@ -1298,12 +1304,9 @@ impl PyLibrary {
             .iter()
             .filter(|added| !existing_names.contains(added.name()))
         {
-            route_annotations.insert(
-                added.name().to_string(),
-                incoming_annotations
-                    .remove(added.name())
-                    .unwrap_or_default(),
-            );
+            if let Some(annotations) = incoming_annotations.remove(added.name()) {
+                route_annotations.insert(added.name().to_string(), annotations);
+            }
         }
         self.0 = library;
         self.1 = route_annotations;

@@ -379,6 +379,7 @@ mod tests {
         library.add_cell("cell").unwrap();
         let expected = CellAnnotations {
             route: RouteAnnotations {
+                available: true,
                 path_length: Some(42.0),
                 bends: vec![BendAnnotation {
                     radius: 3.0,
@@ -417,6 +418,7 @@ mod tests {
         library.add_cell("cell").unwrap();
         assert!(library.set_cell_origin(12.0, -4.0));
         let annotations = library.annotations.get_mut("cell").unwrap();
+        annotations.route.available = true;
         annotations.route.path_length = Some(42.0);
         annotations.route.warnings.push("warning".to_string());
         annotations.drc.skip = true;

@@ -132,7 +132,14 @@ _KNOWN_DFM_KEYS = frozenset(
 )
 _KNOWN_DFM_LAYER_KEYS = frozenset({"sigma", "max_area_deviation", "severity"})
 _KNOWN_CHECKS_KEYS = frozenset(
-    {"position_tolerance", "angle_tolerance", "check_widths", "min_bend_radius", "severity"}
+    {
+        "position_tolerance",
+        "angle_tolerance",
+        "width_tolerance",
+        "check_widths",
+        "min_bend_radius",
+        "severity",
+    }
 )
 _KNOWN_SNAPSHOTS_KEYS = frozenset({"retain"})
 
@@ -1776,6 +1783,7 @@ def load_checks_config(
         # [checks]
         # position_tolerance = 0.001
         # angle_tolerance = 0.1
+        # width_tolerance = 1e-6
         # check_widths = true
         # min_bend_radius = 5.0
         # severity = "error"
@@ -1804,6 +1812,7 @@ def load_checks_config(
     return ChecksConfig(
         position_tolerance=checks_config.get("position_tolerance", 0.001),
         angle_tolerance=checks_config.get("angle_tolerance", 0.1),
+        width_tolerance=checks_config.get("width_tolerance", 1e-6),
         check_widths=checks_config.get("check_widths", True),
         min_bend_radius=checks_config.get("min_bend_radius"),
         severity=checks_config.get("severity", "error"),

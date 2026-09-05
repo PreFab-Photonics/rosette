@@ -935,7 +935,7 @@ class TestDfmJson:
         dfm_design(str(design_py), str(config_file), json_output=True)
 
         out = json.loads(capsys.readouterr().out)
-        assert out["schema"] == 1
+        assert out["schema"] == 2
         assert out["command"] == "dfm"
         assert out["passed"] is True
         assert out["has_tolerances"] is False

@@ -2,7 +2,7 @@
   "schema": 1,
   "prog": "rosette",
   "description": "Photonic layout tool for creating and building GDS designs",
-  "json_schema": 1,
+  "json_schema": 2,
   "package_version": "0.5.0",
   "arguments": [
     {
@@ -211,7 +211,7 @@
     "check": {
       "help": "Run all checks (DRC, design checks)",
       "description": "Run DRC and design checks (connectivity + bend radius); add --include-dfm to also run DFM prediction.",
-      "epilog": "With --json, `check` emits a single JSON object on stdout (schema 1); decorative output is suppressed so stdout stays parseable. Read `passed` directly; each violation carries a `bbox` in microns (same coordinate space as `rosette shot`) locating the problem. Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. These are stable; branch on the exit code, not on the printed text.",
+      "epilog": "With --json, `check` emits a single JSON object on stdout (schema 2); decorative output is suppressed so stdout stays parseable. Read `passed` directly; each violation carries a `bbox` in microns (same coordinate space as `rosette shot`) locating the problem. Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. These are stable; branch on the exit code, not on the printed text.",
       "needs": "design",
       "arguments": [
         {
@@ -283,7 +283,7 @@
     "drc": {
       "help": "Run DRC only",
       "description": "Run design-rule checking (min width, spacing, overlap, ...) only.",
-      "epilog": "With --json, `drc` emits a single JSON object on stdout (schema 1); decorative output is suppressed so stdout stays parseable. Read `passed` directly; each violation carries a `bbox` in microns (same coordinate space as `rosette shot`) locating the problem. Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. These are stable; branch on the exit code, not on the printed text.",
+      "epilog": "With --json, `drc` emits a single JSON object on stdout (schema 2); decorative output is suppressed so stdout stays parseable. Read `passed` directly; each violation carries a `bbox` in microns (same coordinate space as `rosette shot`) locating the problem. Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. These are stable; branch on the exit code, not on the printed text.",
       "needs": "design",
       "arguments": [
         {
@@ -342,7 +342,7 @@
     "dfm": {
       "help": "Run DFM prediction",
       "description": "Run design-for-manufacturing prediction (requires a [dfm] section in rosette.toml; skips cleanly with exit 0 if absent).",
-      "epilog": "With --json, `dfm` emits a single JSON object on stdout (schema 1); decorative output is suppressed so stdout stays parseable. Read `passed` directly; each violation carries a `bbox` in microns (same coordinate space as `rosette shot`) locating the problem. Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. These are stable; branch on the exit code, not on the printed text.",
+      "epilog": "With --json, `dfm` emits a single JSON object on stdout (schema 2); decorative output is suppressed so stdout stays parseable. Read `passed` directly; each violation carries a `bbox` in microns (same coordinate space as `rosette shot`) locating the problem. Exit codes: 0 = passed, 1 = violations/error, 2 = bad usage. These are stable; branch on the exit code, not on the printed text.",
       "needs": "design",
       "arguments": [
         {

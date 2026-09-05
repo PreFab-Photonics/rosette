@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use rosette_core::cell::Element;
 use rosette_core::hierarchy::{HierarchyEvent, WalkControl, walk_hierarchy};
 use rosette_core::{BBox, Cell, Library, Point, Transform};
 use rosette_route::RouteAnnotations;
@@ -20,6 +21,12 @@ pub type RouteAnnotationMap = HashMap<String, RouteAnnotations>;
 pub struct BendRadiusStats {
     /// Total number of bends checked.
     pub bends_checked: usize,
+    /// Total number of bends that could not be checked.
+    pub bends_uncheckable: usize,
+    /// Cell placements with an explicit route-annotation entry.
+    pub annotation_cells_checked: usize,
+    /// Cell placements missing required route annotations.
+    pub annotation_cells_missing: usize,
 }
 
 /// Make a point-sized BBox centred on a finite position.
@@ -138,14 +145,58 @@ fn check_cell_bends(
     stats: &mut BendRadiusStats,
 ) {
     let Some(annotations) = route_annotations.get(cell.name()) else {
+        let has_local_geometry = cell
+            .elements()
+            .iter()
+            .any(|element| matches!(element, Element::Polygon { .. } | Element::Path(_)));
+        if config.min_bend_radius().is_some() && has_local_geometry {
+            stats.annotation_cells_missing += 1;
+            let location = point_bbox(transform.apply(Point::origin()))
+                .or_else(|| point_bbox(Point::origin()))
+                .expect("origin missing-annotation BBox must be valid");
+            violations.push(CheckViolation::new(
+                CheckViolationType::RouteAnnotationsMissing,
+                cell.name().to_string(),
+                path.to_string(),
+                location,
+                format!(
+                    "Bend-radius checking is incomplete because cell \"{}\" has no route-annotation entry",
+                    cell.name(),
+                ),
+                Severity::Error,
+            ));
+        }
         return;
     };
+    stats.annotation_cells_checked += 1;
+    for warning in annotations.warnings() {
+        if warning.contains("Bend radius auto-reduced")
+            && annotations
+                .bends()
+                .iter()
+                .any(|bend| bend.requested_radius().is_some())
+        {
+            continue;
+        }
+        let location = point_bbox(transform.apply(Point::origin()))
+            .or_else(|| point_bbox(Point::origin()))
+            .expect("origin route-warning BBox must be valid");
+        violations.push(CheckViolation::new(
+            CheckViolationType::RouteWarning,
+            cell.name().to_string(),
+            path.to_string(),
+            location,
+            warning.clone(),
+            Severity::Warning,
+        ));
+    }
     for bend in annotations.bends() {
         let abs_position = transform.apply(bend.position());
         let location = point_bbox(abs_position);
         let scale = match conformal_scale(transform) {
             Ok(scale) => scale,
             Err(reason) => {
+                stats.bends_uncheckable += 1;
                 report_uncheckable_bend(
                     cell,
                     path,
@@ -160,6 +211,7 @@ fn check_cell_bends(
             }
         };
         let Some(location) = location else {
+            stats.bends_uncheckable += 1;
             report_uncheckable_bend(
                 cell,
                 path,
@@ -177,6 +229,7 @@ fn check_cell_bends(
         let radius = bend.radius() * scale;
         let requested_radius = bend.requested_radius().map(|requested| requested * scale);
         if !radius.is_finite() || requested_radius.is_some_and(|requested| !requested.is_finite()) {
+            stats.bends_uncheckable += 1;
             let radius_kind = if !radius.is_finite() {
                 "scaled bend radius"
             } else {
@@ -217,7 +270,7 @@ fn check_cell_bends(
         }
 
         // Check minimum bend radius
-        if let Some(min_radius) = config.min_bend_radius
+        if let Some(min_radius) = config.min_bend_radius()
             && radius < min_radius
         {
             violations.push(CheckViolation::new(
@@ -232,7 +285,7 @@ fn check_cell_bends(
                     "Bend radius {:.1} \u{00b5}m at ({:.1}, {:.1}) in \"{}\" is below minimum {:.1} \u{00b5}m",
                     radius, abs_position.x, abs_position.y, cell.name(), min_radius
                 ),
-                config.severity,
+                config.severity(),
             ));
         }
     }

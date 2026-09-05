@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Rust/Python breaking:** design checks now use explicit connectivity nodes,
+  detect shorted nets, apply configured angle and width tolerances, validate
+  configuration values, scale port widths under conformal transforms, and
+  report incomplete hierarchy, transform, bend, and annotation coverage.
+  Warning-only check results now pass and expose separate error/warning counts,
+  stable rule IDs, deterministic ordering, expanded coverage statistics, and
+  `rosette-layout` schema 2 route-annotation availability instead of synthetic
+  empty sidecars. CLI result JSON is now schema 2 for the new pass/fail contract.
 - **Rust breaking:** hierarchy-resolved bounds are now queried with
   `rosette_core::hierarchy::cell_bbox()`, while recursive Python composition,
   editor cascade deletion, and GDS dependency ordering are owned by their
