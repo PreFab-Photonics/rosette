@@ -137,7 +137,7 @@ export function Header({ trailing }: { trailing?: ReactNode }) {
             href="https://github.com/PreFab-Photonics/rosette"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-fd-border bg-fd-muted px-3 text-xs font-medium text-fd-muted-foreground transition-colors hover:text-fd-foreground"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-fd-border bg-fd-muted px-3 text-xs font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

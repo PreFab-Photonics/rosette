@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import { CopyButton } from "./copy-button";
 
 /**
@@ -50,13 +51,17 @@ const PROMPT = "design a grating coupler loopback";
 const CHAR_MS = 22;
 /** How long the prompt takes to type out. */
 const PROMPT_MS = PROMPT.length * CHAR_MS;
-/** The caret sits at the end of the full string, so it stays hidden until the
- *  text has caught up to it. */
+/** The caret appears when the prompt's typing animation finishes. */
 const CARET_DELAY_MS = PROMPT_MS;
 /** When the first transcript line lands, after the prompt finishes typing. */
 const LINES_START_MS = PROMPT_MS + 260;
 /** Gap between transcript lines. */
 const LINE_STEP_MS = 190;
+const promptStyle = {
+  "--prompt-characters": PROMPT.length,
+  "--prompt-duration": `${PROMPT_MS}ms`,
+  "--prompt-width": `${PROMPT.length}ch`,
+} as CSSProperties;
 
 type Tone = "muted" | "command" | "warn" | "ok";
 
@@ -132,17 +137,17 @@ const lines: FlowLine[] = [
 ];
 
 const toneClass: Record<Tone, string> = {
-  muted: "text-fd-muted-foreground",
+  muted: "text-fd-foreground/75",
   command: "text-fd-foreground",
-  warn: "text-amber-500 dark:text-amber-400",
+  warn: "text-amber-700 dark:text-amber-400",
   ok: "text-fd-foreground",
 };
 
 const labelToneClass: Record<Tone, string> = {
-  muted: "text-fd-muted-foreground/60",
-  command: "text-emerald-500 dark:text-emerald-400",
-  warn: "text-amber-500 dark:text-amber-400",
-  ok: "text-emerald-500 dark:text-emerald-400",
+  muted: "text-fd-foreground/60",
+  command: "text-emerald-700 dark:text-emerald-400",
+  warn: "text-amber-700 dark:text-amber-400",
+  ok: "text-emerald-700 dark:text-emerald-400",
 };
 
 export function AgentFlow() {
@@ -171,7 +176,7 @@ export function AgentFlow() {
                 </p>
                 <div className="mt-2 flex h-10 min-w-0 items-center rounded-md border border-fd-border bg-fd-accent/50 px-3 text-fd-foreground">
                   <span className="flex min-w-0 flex-1 items-center overflow-x-auto">
-                    <span className="select-none text-emerald-500 dark:text-emerald-400">
+                    <span className="select-none text-emerald-700 dark:text-emerald-400">
                       ~&nbsp;
                     </span>
                     <span className="whitespace-nowrap">{INIT_COMMAND}</span>
@@ -190,24 +195,17 @@ export function AgentFlow() {
                   Ask your coding agent
                 </p>
                 {/* Prompt — typed character by character */}
-                <div className="mt-2 flex min-h-10 items-center rounded-md border border-fd-border bg-fd-accent/50 px-3">
+                <div className="mt-2 flex min-h-10 min-w-0 items-center rounded-md border border-fd-border bg-fd-accent/50 px-3">
                   <span
                     aria-hidden="true"
-                    className="animate-char-in mr-3 text-emerald-500 select-none dark:text-emerald-400"
+                    className="mr-3 text-emerald-700 select-none dark:text-emerald-400"
                   >
                     &gt;
                   </span>
-                  <p className="whitespace-pre-wrap text-fd-foreground">
-                    {Array.from(PROMPT).map((char, i) => (
-                      <span
-                        // biome-ignore lint/suspicious/noArrayIndexKey: fixed string, index is the identity
-                        key={`${char}-${i}`}
-                        className="animate-char-in"
-                        style={{ animationDelay: `${i * CHAR_MS}ms` }}
-                      >
-                        {char}
-                      </span>
-                    ))}
+                  <p className="min-w-0 flex-1 whitespace-pre-wrap text-fd-foreground">
+                    <span className="animate-prompt" style={promptStyle}>
+                      {PROMPT}
+                    </span>
                     <span
                       aria-hidden="true"
                       style={{ animationDelay: `${CARET_DELAY_MS}ms` }}
@@ -239,7 +237,7 @@ export function AgentFlow() {
                 <p className={`break-words ${toneClass[line.tone]}`}>
                   {line.text}
                   {line.status && (
-                    <span className="ml-1 text-emerald-600 dark:text-emerald-400">
+                    <span className="ml-1 text-emerald-700 dark:text-emerald-400">
                       {line.status}
                     </span>
                   )}

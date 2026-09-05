@@ -1,10 +1,17 @@
-import { useMemo } from "react";
+import type { CSSProperties } from "react";
+
+type RedactedStyle = CSSProperties & {
+  "--redacted-size": string;
+  "--redacted-accent": string;
+  "--redacted-accent-x": string;
+  "--redacted-accent-y": string;
+};
 
 /**
  * Renders a block of pixelated / censored squares in place of text.
  *
- * Rows of small squares with randomized opacity, giving a
- * "name not yet revealed" feel. Pure CSS, no animation.
+ * A CSS-masked field of small squares with a deterministic accent, giving a
+ * "name not yet revealed" feel without one DOM node per pixel.
  */
 export function RedactedText({
   children,
@@ -21,52 +28,31 @@ export function RedactedText({
   cols?: number;
   /** Pixel size in px (default 4) */
   size?: number;
-  /** Optional CSS color for sporadic accent pixels */
+  /** Optional CSS color for one deterministic accent pixel */
   accentColor?: string;
   className?: string;
 }) {
   const numCols = cols ?? children.length;
 
-  // Deterministic pseudo-random opacities and accent flags so they don't shift on re-render
-  const pixels = useMemo(() => {
-    const seed = Array.from(children).reduce((s, c) => s + c.charCodeAt(0), 0);
-    const values: { opacity: number; accent: boolean }[] = [];
-    let v = seed;
-    for (let i = 0; i < rows * numCols; i++) {
-      v = (v * 9301 + 49297) % 233280;
-      const opacity = 0.15 + (v / 233280) * 0.4;
-      // ~8% chance of accent color
-      v = (v * 9301 + 49297) % 233280;
-      const accent = accentColor != null && v / 233280 < 0.08;
-      values.push({ opacity, accent });
-    }
-    return values;
-  }, [children, rows, numCols, accentColor]);
+  const seed = Array.from(children).reduce(
+    (sum, character) => sum + character.charCodeAt(0),
+    0,
+  );
+  const accentIndex = seed % (rows * numCols);
+  const style: RedactedStyle = {
+    width: numCols * size + numCols - 1,
+    height: rows * size + rows - 1,
+    "--redacted-size": `${size}px`,
+    "--redacted-accent": accentColor ?? "transparent",
+    "--redacted-accent-x": `${(accentIndex % numCols) * (size + 1)}px`,
+    "--redacted-accent-y": `${Math.floor(accentIndex / numCols) * (size + 1)}px`,
+  };
 
   return (
-    <span className={`relative inline-flex items-center ${className ?? ""}`}>
-      <span
-        className="inline-grid gap-px"
-        style={{
-          gridTemplateColumns: `repeat(${numCols}, ${size}px)`,
-          gridTemplateRows: `repeat(${rows}, ${size}px)`,
-        }}
-        aria-hidden="true"
-      >
-        {pixels.map((px, i) => {
-          const key = `px-${i}`;
-          return (
-            <span
-              key={key}
-              className="rounded-[0.5px]"
-              style={{
-                opacity: px.accent ? px.opacity + 0.2 : px.opacity,
-                backgroundColor: px.accent ? accentColor : "currentColor",
-              }}
-            />
-          );
-        })}
-      </span>
+    <span
+      className={`redacted-pixels relative inline-block ${className ?? ""}`}
+      style={style}
+    >
       <span className="sr-only">{children}</span>
     </span>
   );

@@ -66,7 +66,7 @@ The examples use `rosette` for readability. In a project managed by uv, prefix
 commands with `uv run`; an activated virtual environment or global tool installation
 can use them as shown. Run `rosette --help` for the complete CLI. Other installation
 options are covered in the
-[installation guide](https://rosette.dev/docs/getting-started/installation).
+[installation guide](https://www.rosette.dev/docs/getting-started/installation).
 
 ## What's included
 
@@ -83,10 +83,10 @@ options are covered in the
 
 ## Documentation
 
-- [Getting started](https://rosette.dev/docs/getting-started)
-- [Guides](https://rosette.dev/docs/guides)
-- [Python API reference](https://rosette.dev/docs/api-reference)
-- [Agent workflows](https://rosette.dev/docs/guides/agent-workflows)
+- [Getting started](https://www.rosette.dev/docs/getting-started)
+- [Guides](https://www.rosette.dev/docs/guides)
+- [Python API reference](https://www.rosette.dev/docs/api-reference)
+- [Agent workflows](https://www.rosette.dev/docs/guides/agent-workflows)
 - [Example designs](https://github.com/PreFab-Photonics/rosette/tree/main/designs)
 
 ## License

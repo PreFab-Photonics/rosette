@@ -6,6 +6,6 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: "*",
       allow: "/",
     },
-    sitemap: "https://rosette.dev/sitemap.xml",
+    sitemap: "https://www.rosette.dev/sitemap.xml",
   };
 }

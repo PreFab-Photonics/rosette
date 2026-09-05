@@ -43,30 +43,27 @@
 
 @keyframes rosette-line-in {
   from {
-    opacity: 0;
+    clip-path: inset(0 100% 0 0);
     transform: translateY(4px);
   }
   to {
-    opacity: 1;
+    clip-path: inset(0);
     transform: none;
   }
 }
 
-@keyframes rosette-char-in {
+@keyframes rosette-prompt-type {
   from {
-    opacity: 0;
+    width: 0;
   }
   to {
-    opacity: 1;
+    width: var(--prompt-width);
   }
 }
 
-/* The caret is a sibling after the prompt's character spans, so it always sits
-   at the end of the full string. Blinking it from frame 0 would park a cursor
-   past text that has not been typed yet, so the element is hidden by default and
-   the blink is delayed until typing finishes (see `CARET_DELAY_MS`). Explicit
-   `from`/`to` stops are required: with the element's own `opacity: 0` supplying
-   the implicit stops, a lone `50%` frame would never make it visible. */
+/* The caret is hidden until the prompt finishes typing, then begins blinking.
+   Explicit `from`/`to` stops are required: with the element's own `opacity: 0`
+   supplying the implicit stops, a lone `50%` frame would never make it visible. */
 @keyframes rosette-caret {
   from {
     opacity: 1;
@@ -89,20 +86,86 @@
   }
 }
 
-@utility animate-char-in {
-  @media (prefers-reduced-motion: no-preference) {
-    animation: rosette-char-in 1ms linear both;
+@utility animate-prompt {
+  @media (prefers-reduced-motion: no-preference) and (min-width: 390px) {
+    display: inline-block;
+    width: var(--prompt-width);
+    overflow: hidden;
+    vertical-align: bottom;
+    white-space: nowrap;
+    animation: rosette-prompt-type var(--prompt-duration)
+      steps(var(--prompt-characters), end) both;
   }
 }
 
 @utility animate-caret {
   opacity: 0;
 
-  @media (prefers-reduced-motion: no-preference) {
+  @media (prefers-reduced-motion: no-preference) and (min-width: 390px) {
     /* No fill mode: during `animation-delay` the element's own `opacity: 0`
        applies, so the caret stays hidden until typing is done. */
     animation: rosette-caret 1s step-end infinite;
   }
+}
+
+/* A two-axis mask turns one element into a compact pixel field. */
+.redacted-pixels {
+  background-color: currentColor;
+  opacity: 0.38;
+}
+
+@supports (background-color: color-mix(in srgb, black, transparent)) {
+  .redacted-pixels {
+    opacity: 1;
+    background-color: color-mix(in srgb, currentColor 38%, transparent);
+  }
+}
+
+.redacted-pixels {
+  -webkit-mask-image:
+    linear-gradient(
+      to right,
+      #000 var(--redacted-size),
+      transparent var(--redacted-size)
+    ),
+    linear-gradient(
+      to bottom,
+      #000 var(--redacted-size),
+      transparent var(--redacted-size)
+    );
+  -webkit-mask-position: 0 0;
+  -webkit-mask-repeat: repeat;
+  -webkit-mask-size:
+    calc(var(--redacted-size) + 1px) 100%,
+    100% calc(var(--redacted-size) + 1px);
+  mask-image:
+    linear-gradient(
+      to right,
+      #000 var(--redacted-size),
+      transparent var(--redacted-size)
+    ),
+    linear-gradient(
+      to bottom,
+      #000 var(--redacted-size),
+      transparent var(--redacted-size)
+    );
+  mask-position: 0 0;
+  mask-repeat: repeat;
+  mask-size:
+    calc(var(--redacted-size) + 1px) 100%,
+    100% calc(var(--redacted-size) + 1px);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+
+.redacted-pixels::after {
+  position: absolute;
+  top: var(--redacted-accent-y);
+  left: var(--redacted-accent-x);
+  width: var(--redacted-size);
+  height: var(--redacted-size);
+  background-color: var(--redacted-accent);
+  content: "";
 }
 
 /* ── Sidebar: match main content background ─────────────────────────────── */

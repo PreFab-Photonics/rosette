@@ -28,7 +28,7 @@ function expectedDocuments(
     if (entry.startsWith("---")) return [];
     if (entry === "index" || entry === "...index") {
       return [
-        `https://rosette.dev/docs${segments.length ? `/${segments.join("/")}` : ""}`,
+        `https://www.rosette.dev/docs${segments.length ? `/${segments.join("/")}` : ""}`,
       ];
     }
 
@@ -37,7 +37,7 @@ function expectedDocuments(
       return expectedDocuments(childDirectory, [...segments, entry]);
     }
 
-    return [`https://rosette.dev/docs/${[...segments, entry].join("/")}`];
+    return [`https://www.rosette.dev/docs/${[...segments, entry].join("/")}`];
   });
 }
 
