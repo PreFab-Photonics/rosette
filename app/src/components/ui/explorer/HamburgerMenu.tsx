@@ -29,6 +29,7 @@ import {
 import { useArrayDialogStore } from "@/stores/array-dialog";
 import { useGoToDialogStore } from "@/stores/goto-dialog";
 import { MenuItem, MenuSeparator, MenuShortcut, MenuSurface, type MenuShortcutSpec } from "../Menu";
+import { useDocumentStore } from "@/stores/document";
 
 interface SubMenuItem {
   id: string;
@@ -87,7 +88,7 @@ export function FlyoutSubmenu({
     <MenuSurface
       ref={menuRef}
       className={cn(
-        "absolute -top-px z-50 min-w-[170px]",
+        "absolute -top-px z-50 min-w-[190px]",
         openLeft ? "right-full mr-1" : "left-full ml-1",
       )}
     >
@@ -114,7 +115,7 @@ export function FlyoutSubmenu({
               }
             }}
           >
-            <span>{entry.label}</span>
+            <span className="whitespace-nowrap">{entry.label}</span>
             {entry.shortcut && <MenuShortcut shortcut={entry.shortcut} />}
           </MenuItem>
         );
@@ -133,6 +134,7 @@ export function HamburgerMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
 
   useKeyboardFocus("explorer-menu", isOpen);
 
@@ -197,24 +199,46 @@ export function HamburgerMenu() {
         },
         {
           id: "file-save",
-          label: "Save",
+          label: sourceBacked ? "Export GDS..." : "Save GDS",
           shortcut: { modifiers: [keys.mod], key: "S" },
           action: async () => {
-            const { handleSave } = await import("@/lib/file-ops");
-            await handleSave(false);
+            if (sourceBacked) {
+              const { handleExportGds } = await import("@/lib/file-ops");
+              await handleExportGds();
+            } else {
+              const { handleSave } = await import("@/lib/file-ops");
+              await handleSave(false);
+            }
           },
-          disabled: !isTauri,
+          disabled: !sourceBacked && !isTauri,
         },
-        {
-          id: "file-save-as",
-          label: "Save As...",
-          shortcut: { modifiers: [keys.mod, keys.shift], key: "S" },
-          action: async () => {
-            const { handleSave } = await import("@/lib/file-ops");
-            await handleSave(true);
-          },
-          disabled: !isTauri,
-        },
+        ...(!sourceBacked
+          ? [
+              {
+                id: "file-save-as",
+                label: "Save GDS As...",
+                shortcut: { modifiers: [keys.mod, keys.shift], key: "S" },
+                action: async () => {
+                  const { handleSave } = await import("@/lib/file-ops");
+                  await handleSave(true);
+                },
+                disabled: !isTauri,
+              },
+            ]
+          : []),
+        ...(sourceBacked
+          ? [
+              {
+                id: "source-edit-copy",
+                label: "Edit a Copy",
+                action: async () => {
+                  const { handleEditCopy } = await import("@/lib/file-ops");
+                  handleEditCopy();
+                },
+                disabled: false,
+              },
+            ]
+          : []),
         { id: "sep-file-1", separator: true as const },
         {
           id: "file-screenshot",
@@ -296,7 +320,7 @@ export function HamburgerMenu() {
               const canvas = document.querySelector("canvas");
               if (canvas) centerViewOnSelection(library, canvas);
             },
-            disabled: !hasClipboardContent,
+            disabled: sourceBacked || !hasClipboardContent,
           },
           {
             id: "duplicate",
@@ -311,7 +335,7 @@ export function HamburgerMenu() {
               const canvas = document.querySelector("canvas");
               if (canvas) centerViewOnSelection(library, canvas);
             },
-            disabled: !hasSelection,
+            disabled: sourceBacked || !hasSelection,
           },
           {
             id: "create-array",
@@ -321,7 +345,7 @@ export function HamburgerMenu() {
               if (ids.size === 0) return;
               useArrayDialogStore.getState().open([...ids]);
             },
-            disabled: !hasSelection,
+            disabled: sourceBacked || !hasSelection,
           },
           { id: "sep-edit-2", separator: true as const },
           {
@@ -343,7 +367,7 @@ export function HamburgerMenu() {
               const command = new DeleteElementsCommand([...ids]);
               useHistoryStore.getState().execute(command, { library, renderer });
             },
-            disabled: !hasSelection && !hasRulerSelection,
+            disabled: (!hasSelection && !hasRulerSelection) || (sourceBacked && !hasRulerSelection),
           },
           { id: "sep-edit-3", separator: true as const },
           {

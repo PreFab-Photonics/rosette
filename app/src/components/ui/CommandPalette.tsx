@@ -4,6 +4,7 @@ import { useCommandPaletteStore } from "@/stores/command-palette";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { getCommands, type CommandItem, type CommandShortcut } from "@/lib/palette-commands";
 import { cn } from "@/lib/utils";
+import { useDocumentStore } from "@/stores/document";
 
 // =============================================================================
 // Sub-Components
@@ -42,9 +43,11 @@ function CommandRow({ item }: { item: CommandItem }) {
     <Command.Item
       value={item.searchableText}
       onSelect={item.action}
+      disabled={item.disabled}
       className={cn(
         "flex cursor-pointer items-center justify-between rounded-lg px-3 py-2",
         "text-foreground-secondary aria-selected:bg-interactive aria-selected:text-foreground",
+        item.disabled && "cursor-not-allowed opacity-35",
       )}
     >
       <span className="text-sm">{item.name}</span>
@@ -73,6 +76,7 @@ export function CommandPalette() {
   const isOpen = useCommandPaletteStore((s) => s.isOpen);
   const initialSearch = useCommandPaletteStore((s) => s.initialSearch);
   const close = useCommandPaletteStore((s) => s.close);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
   const isInstancePalette = initialSearch === "add instance ";
 
   // Claim keyboard focus to disable canvas shortcuts while palette is open
@@ -85,11 +89,12 @@ export function CommandPalette() {
   const commands = useMemo(() => {
     if (!isOpen) return [];
 
+    void sourceBacked;
     const availableCommands = getCommands();
     return availableCommands.filter(
       (command) => command.id.startsWith("cell-instance-") === isInstancePalette,
     );
-  }, [isOpen, isInstancePalette]);
+  }, [isOpen, isInstancePalette, sourceBacked]);
   const filteredCommands = useMemo(() => {
     const searchLower = search.toLowerCase();
     return commands.filter((cmd) => cmd.searchableText.toLowerCase().includes(searchLower));

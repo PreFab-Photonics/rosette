@@ -18,6 +18,7 @@ import { findRulerAtScreenPoint } from "@/lib/ruler-hittest";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 import { hitTestLayout } from "@/lib/layout-hit-test";
 import { parseSyntheticRefId } from "@/lib/element-id";
+import { isSourceBacked } from "@/stores/document";
 
 /**
  * A point in world coordinates.
@@ -99,6 +100,10 @@ export function useMove(
         setIsMoving(true);
         return;
       }
+
+      // Rulers are local measurements; layout and annotation moves require an
+      // app-owned document so they cannot be lost on the next source reload.
+      if (isSourceBacked()) return;
 
       // Hit test: WASM elements first, then images
       let hitId: string | undefined;

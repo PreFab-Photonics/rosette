@@ -35,6 +35,7 @@ import { useUIStore } from "@/stores/ui";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
 import { useLayerStore } from "@/stores/layer";
 import { useTextStore } from "@/stores/text";
+import { isSourceBacked } from "@/stores/document";
 import {
   centerViewOnSelection,
   getAllImageIds,
@@ -584,7 +585,7 @@ export function useKeyboardShortcuts(
         case "c": {
           // Create a new cell, switch to it, and start inline rename
           e.preventDefault();
-          if (!library || !renderer) break;
+          if (!library || !renderer || isSourceBacked()) break;
           const cellName = generateUniqueCellName();
           const addCmd = new AddCellCommand(cellName);
           useHistoryStore.getState().execute(addCmd, { library, renderer });

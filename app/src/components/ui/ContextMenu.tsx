@@ -24,6 +24,7 @@ import {
 } from "@/lib/commands";
 import { isImageId, imageIdToKey } from "@/stores/image";
 import { useExplorerStore, generateUniqueCellName } from "@/stores/explorer";
+import { useDocumentStore } from "@/stores/document";
 import type { WasmLibrary, WasmRenderer } from "@/wasm/rosette_wasm";
 import {
   MenuItem as MenuItemButton,
@@ -82,6 +83,7 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
   const { isOpen, position, variant, targetId, close } = useContextMenuStore();
   const { selectedIds } = useSelectionStore();
   const { hasContent: hasClipboardContent } = useClipboardStore();
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
 
   // Claim keyboard focus to disable canvas shortcuts while menu is open
   useKeyboardFocus("context-menu", isOpen);
@@ -654,7 +656,20 @@ export function ContextMenu({ library, renderer, canvasRef }: ContextMenuProps) 
     targetId,
   ]);
 
-  const menuItems = buildMenuItems();
+  const menuItems = buildMenuItems().map((entry): MenuEntry => {
+    if (!sourceBacked || isSeparator(entry)) return entry;
+
+    const sourceSafe =
+      (variant === "element" && ["edit", "copy", "selectAll"].includes(entry.id)) ||
+      (variant === "ruler" && entry.id !== "paste") ||
+      (variant === "image" && ["edit", "copy"].includes(entry.id)) ||
+      (variant === "layer" && ["toggleVisibility", "showAll", "hideAll"].includes(entry.id)) ||
+      (variant === "cell" &&
+        ["toggleVisibility", "showAllCells", "hideAllCells", "viewFlat"].includes(entry.id)) ||
+      (variant === "canvas" && entry.id === "selectAll");
+
+    return sourceSafe ? entry : { ...entry, disabled: true };
+  });
 
   // Close on click outside
   useEffect(() => {

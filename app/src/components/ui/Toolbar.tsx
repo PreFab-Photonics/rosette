@@ -31,7 +31,8 @@ import {
 } from "iconoir-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useToolStore, type ToolType } from "@/stores/tool";
+import { useToolStore, isModelEditingTool, type ToolType } from "@/stores/tool";
+import { useDocumentStore } from "@/stores/document";
 import { useUIStore } from "@/stores/ui";
 import { useSelectionStore } from "@/stores/selection";
 import { useCommandPaletteStore } from "@/stores/command-palette";
@@ -118,10 +119,12 @@ function ToolButton({
   tool,
   isActive,
   onClick,
+  disabled = false,
 }: {
   tool: ToolDef;
   isActive: boolean;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   const Icon = tool.icon;
 
@@ -129,10 +132,12 @@ function ToolButton({
     <Tooltip label={tool.label} shortcut={{ key: tool.shortcut }}>
       <button
         onClick={onClick}
+        disabled={disabled}
         className={cn(
-          "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
-          "hover:bg-interactive",
-          isActive && "bg-interactive",
+          "rounded-lg p-1.5 transition-colors focus:outline-none",
+          !disabled && "hover:bg-interactive",
+          isActive && !disabled && "bg-interactive",
+          disabled ? "cursor-not-allowed opacity-30" : "cursor-pointer",
         )}
       >
         <div className="flex h-5 w-5 items-center justify-center">
@@ -173,6 +178,7 @@ function OverflowMenuButton({
   const lastRulerKind = useUIStore((s) => s.lastRulerKind);
   const open = useCommandPaletteStore((s) => s.open);
   const toggle = useCommandPaletteStore((s) => s.toggle);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
 
   // Highlight if any overflow tool is active
   const isOverflowActive = [
@@ -251,14 +257,18 @@ function OverflowMenuButton({
                   return (
                     <button
                       key={tool.id}
+                      disabled={sourceBacked && isModelEditingTool(tool.id)}
                       onClick={() => {
                         setTool(tool.id);
                         setMenuOpen(false);
                       }}
                       className={cn(
-                        "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
+                        "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
                         "hover:bg-interactive",
                         isActive && "bg-interactive",
+                        sourceBacked && isModelEditingTool(tool.id)
+                          ? "cursor-not-allowed opacity-30"
+                          : "cursor-pointer",
                       )}
                     >
                       <Icon className="h-4 w-4 text-foreground" />
@@ -283,14 +293,16 @@ function OverflowMenuButton({
                     return (
                       <button
                         key={tool.id}
+                        disabled={sourceBacked}
                         onClick={() => {
                           setTool(tool.id);
                           setMenuOpen(false);
                         }}
                         className={cn(
-                          "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
+                          "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
                           "hover:bg-interactive",
                           isActive && "bg-interactive",
+                          sourceBacked ? "cursor-not-allowed opacity-30" : "cursor-pointer",
                         )}
                       >
                         <Icon className="h-4 w-4 text-foreground" />
@@ -348,13 +360,15 @@ function OverflowMenuButton({
                 <div className="flex flex-col">
                   {showInstance && (
                     <button
+                      disabled={sourceBacked}
                       onClick={() => {
                         open("add instance ");
                         setMenuOpen(false);
                       }}
                       className={cn(
-                        "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
+                        "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors",
                         "hover:bg-interactive",
+                        sourceBacked ? "cursor-not-allowed opacity-30" : "cursor-pointer",
                       )}
                     >
                       <PlusSquare className="h-4 w-4 text-foreground" />
@@ -411,6 +425,7 @@ export function Toolbar({
   minimal?: boolean;
 }) {
   const { activeTool, setTool } = useToolStore();
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
 
   // Determine which tools to show inline vs overflow
   const inlineBaseTools = minimal ? MINIMAL_BASE_TOOLS : compact ? PRIMARY_BASE_TOOLS : BASE_TOOLS;
@@ -452,6 +467,7 @@ export function Toolbar({
           tool={tool}
           isActive={activeTool === tool.id}
           onClick={() => setTool(tool.id)}
+          disabled={sourceBacked && isModelEditingTool(tool.id)}
         />
       ))}
 
@@ -472,6 +488,7 @@ export function Toolbar({
               tool={tool}
               isActive={activeTool === tool.id}
               onClick={() => setTool(tool.id)}
+              disabled={sourceBacked}
             />
           ))}
         </>
@@ -572,6 +589,7 @@ function ShapeOpsButton() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
 
   const Icon = lastOp.icon;
 
@@ -668,9 +686,11 @@ function ShapeOpsButton() {
           onContextMenu={handleContextMenu}
           onMouseEnter={handleButtonEnter}
           onMouseLeave={handleButtonLeave}
+          disabled={sourceBacked}
           className={cn(
-            "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
+            "rounded-lg p-1.5 transition-colors focus:outline-none",
             "hover:bg-interactive",
+            sourceBacked ? "cursor-not-allowed opacity-30" : "cursor-pointer",
           )}
         >
           <div className="flex h-5 w-5 items-center justify-center">
@@ -680,6 +700,7 @@ function ShapeOpsButton() {
       </Tooltip>
 
       {menuOpen &&
+        !sourceBacked &&
         createPortal(
           <div
             ref={positionMenu}
@@ -900,6 +921,7 @@ function InstanceButton() {
   const open = useCommandPaletteStore((s) => s.open);
   const isOpen = useCommandPaletteStore((s) => s.isOpen);
   const initialSearch = useCommandPaletteStore((s) => s.initialSearch);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
 
   // Highlight when the palette is open and was triggered by this button
   const isActive = isOpen && !!initialSearch;
@@ -908,10 +930,12 @@ function InstanceButton() {
     <Tooltip label="Instance" shortcut={{ key: "I" }}>
       <button
         onClick={() => open("add instance ")}
+        disabled={sourceBacked}
         className={cn(
-          "cursor-pointer rounded-lg p-1.5 transition-colors focus:outline-none",
+          "rounded-lg p-1.5 transition-colors focus:outline-none",
           "hover:bg-interactive",
           isActive && "bg-interactive",
+          sourceBacked ? "cursor-not-allowed opacity-30" : "cursor-pointer",
         )}
       >
         <div className="flex h-5 w-5 items-center justify-center">

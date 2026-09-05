@@ -17,6 +17,7 @@ def reset_handler_state():
     RosetteHandler.design_cells = None
     RosetteHandler.design_layers = None
     RosetteHandler.design_filename = None
+    RosetteHandler.design_source = None
     RosetteHandler.design_drc = None
     RosetteHandler.design_version = 0
     RosetteHandler.webapp_dir = None
@@ -48,7 +49,7 @@ def server(webapp_dir):
 
     srv = RosetteServer(webapp_dir, port=free_port)
     _, actual_port = srv.start_background()
-    base_url = f"http://localhost:{actual_port}"
+    base_url = f"http://127.0.0.1:{actual_port}"
     # Give the server a moment to start accepting connections
     time.sleep(0.1)
     yield srv, base_url
@@ -93,8 +94,18 @@ class TestStaticFileServing:
 
     def test_cors_headers_present(self, server):
         _, base_url = server
-        _, _, headers = _get(base_url + "/")
-        assert headers.get("Access-Control-Allow-Origin") == "*"
+        req = Request(base_url + "/api/design", headers={"Origin": "tauri://localhost"})
+        resp = urlopen(req, timeout=5)
+        assert resp.headers.get("Access-Control-Allow-Origin") == "tauri://localhost"
+
+    def test_untrusted_origin_cannot_read_design_api(self, server):
+        from urllib.error import HTTPError
+
+        _, base_url = server
+        req = Request(base_url + "/api/design", headers={"Origin": "https://example.com"})
+        with pytest.raises(HTTPError) as exc_info:
+            urlopen(req, timeout=5)
+        assert exc_info.value.code == 403
 
 
 class TestDesignAPI:
@@ -105,19 +116,23 @@ class TestDesignAPI:
         status, body, _ = _get(base_url + "/api/design")
         assert status == 200
         data = json.loads(body)
+        assert data["viewerProtocol"] == 1
         assert data["version"] == 0
         assert data["json"] is None
+        assert data["source"] is None
 
     def test_design_after_set(self, server):
         srv, base_url = server
         design_json = '{"cells": []}'
         cells = {"name": "top", "children": []}
         layers = [{"id": 1, "name": "silicon"}]
+        source = {"kind": "python", "path": "test.py", "target": "design"}
         srv.set_design_json(
             design_json,
             cells=cells,
             layers=layers,
             filename="test.py",
+            source=source,
         )
 
         status, body, _ = _get(base_url + "/api/design")
@@ -128,6 +143,7 @@ class TestDesignAPI:
         assert data["cells"] == cells
         assert data["layers"] == layers
         assert data["filename"] == "test.py"
+        assert data["source"] == source
 
     def test_version_increments(self, server):
         srv, base_url = server
@@ -171,10 +187,11 @@ class TestSSE:
     def test_sse_initial_event(self, server):
         """SSE should send the current design state immediately on connect."""
         srv, base_url = server
-        srv.set_design_json('{"initial": true}', filename="sse_test.py")
+        source = {"kind": "python", "path": "sse_test.py", "target": "design"}
+        srv.set_design_json('{"initial": true}', filename="sse_test.py", source=source)
 
         # Open SSE connection manually
-        req = Request(base_url + "/api/design/events")
+        req = Request(base_url + "/api/design/events?viewerProtocol=1")
         resp = urlopen(req, timeout=5)
         assert resp.status == 200
         assert "text/event-stream" in resp.headers.get("Content-Type", "")
@@ -198,8 +215,10 @@ class TestSSE:
 
         assert event_type == "design"
         assert event_data is not None
+        assert event_data["viewerProtocol"] == 1
         assert event_data["json"] == '{"initial": true}'
         assert event_data["filename"] == "sse_test.py"
+        assert event_data["source"] == source
         resp.close()
 
     def test_sse_receives_update(self, server):
@@ -207,7 +226,7 @@ class TestSSE:
         srv, base_url = server
         srv.set_design_json('{"v": 0}')
 
-        req = Request(base_url + "/api/design/events")
+        req = Request(base_url + "/api/design/events?viewerProtocol=1")
         resp = urlopen(req, timeout=5)
 
         # Read initial event
@@ -243,16 +262,28 @@ class TestSSE:
         assert event_data["filename"] == "updated.py"
         resp.close()
 
+    def test_sse_rejects_incompatible_viewer(self, server):
+        from urllib.error import HTTPError
+
+        _, base_url = server
+        with pytest.raises(HTTPError) as exc_info:
+            _get(base_url + "/api/design/events?viewerProtocol=0")
+        assert exc_info.value.code == 409
+
 
 class TestCORSPreflight:
     """Test CORS OPTIONS handling."""
 
     def test_options_returns_200(self, server):
         _, base_url = server
-        req = Request(base_url + "/api/design", method="OPTIONS")
+        req = Request(
+            base_url + "/api/design",
+            method="OPTIONS",
+            headers={"Origin": "tauri://localhost"},
+        )
         resp = urlopen(req, timeout=5)
         assert resp.status == 200
-        assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+        assert resp.headers.get("Access-Control-Allow-Origin") == "tauri://localhost"
         assert "GET" in resp.headers.get("Access-Control-Allow-Methods", "")
 
 
@@ -275,11 +306,17 @@ class TestRosetteServer:
             cells={"name": "top", "children": []},
             layers=[{"id": 1}],
             filename="full.py",
+            source={"kind": "python", "path": "full.py", "target": "design"},
         )
 
         assert RosetteHandler.design_cells == {"name": "top", "children": []}
         assert RosetteHandler.design_layers == [{"id": 1}]
         assert RosetteHandler.design_filename == "full.py"
+        assert RosetteHandler.design_source == {
+            "kind": "python",
+            "path": "full.py",
+            "target": "design",
+        }
 
     def test_drc_defaults_to_none(self, webapp_dir):
         """DRC payload is None when not provided (e.g. GDS path, no [drc])."""

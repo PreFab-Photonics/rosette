@@ -20,7 +20,8 @@ import { useViolationsStore } from "@/stores/violations";
 import type { DrcPayload } from "@/stores/violations";
 import { useRulerStore } from "@/stores/ruler";
 import { useClipboardStore } from "@/stores/clipboard";
-import { useDocumentStore } from "@/stores/document";
+import { isSourceBacked, useDocumentStore, type DocumentSource } from "@/stores/document";
+import { useToolStore, isModelEditingTool } from "@/stores/tool";
 import { useStatusMessageStore } from "@/stores/status-message";
 import {
   useTabsStore,
@@ -44,12 +45,14 @@ const elemIdxCache = new Map<string, number>();
 
 /**
  * Check if running in design preview mode.
- * Design mode is activated by the `?design=true` URL parameter,
- * set by `rosette serve`.
+ * Design mode is activated by the `/preview` route used by `rosette serve`.
+ * The legacy `?design=true` parameter remains supported for old links.
  */
 export function isDesignMode(): boolean {
   const params = new URLSearchParams(window.location.search);
-  return params.get("design") === "true";
+  return (
+    window.location.pathname.replace(/\/$/, "") === "/preview" || params.get("design") === "true"
+  );
 }
 
 /**
@@ -139,13 +142,6 @@ export function getEmbedZoom(): number | null {
 }
 
 /**
- * Check if running in Tauri desktop mode.
- */
-function isTauriMode(): boolean {
-  return isTauri && !isDesignMode() && !isEmbedMode();
-}
-
-/**
  * Layer definition from rosette.toml (sent by the server).
  */
 interface ServerLayerDef {
@@ -163,6 +159,7 @@ interface ServerLayerDef {
  * Response from the /api/design SSE endpoint.
  */
 interface DesignResponse {
+  viewerProtocol?: number;
   version: number;
   json: string | null;
   /** Cell hierarchy tree (design mode) or flat list (legacy). */
@@ -171,8 +168,41 @@ interface DesignResponse {
   layers: ServerLayerDef[] | null;
   /** Source filename (e.g., "layout.py" or "mmi.gds"). */
   filename: string | null;
+  /** Authoritative external source, or null for an app-owned document. */
+  source?: DocumentSource | null;
   /** DRC result (violations + counts), or null when DRC is not configured. */
   drc: DrcPayload | null;
+}
+
+const VIEWER_PROTOCOL = 1;
+
+/** Resolve the design API against an explicitly configured native server. */
+export function designApiUrl(path: string): string {
+  const raw = new URLSearchParams(window.location.search).get("server");
+  if (!raw) {
+    const url = new URL(path, window.location.href);
+    url.searchParams.set("viewerProtocol", String(VIEWER_PROTOCOL));
+    return `${url.pathname}${url.search}`;
+  }
+
+  try {
+    const server = new URL(raw);
+    const isLoopback =
+      server.hostname === "localhost" ||
+      server.hostname === "127.0.0.1" ||
+      server.hostname === "[::1]";
+    if ((server.protocol === "http:" || server.protocol === "https:") && isLoopback) {
+      const url = new URL(path, server.origin);
+      url.searchParams.set("viewerProtocol", String(VIEWER_PROTOCOL));
+      return url.toString();
+    }
+  } catch {
+    // Ignore malformed query parameters and use the current origin.
+  }
+
+  const url = new URL(path, window.location.href);
+  url.searchParams.set("viewerProtocol", String(VIEWER_PROTOCOL));
+  return `${url.pathname}${url.search}`;
 }
 
 /** Type guard: is the cells payload a hierarchy tree? */
@@ -288,7 +318,7 @@ function applyServerLayersStandalone(serverLayers: ServerLayerDef[]): boolean {
  */
 async function seedProjectLayers(): Promise<void> {
   try {
-    const res = await fetch("/api/design");
+    const res = await fetch(designApiUrl("/api/design"));
     if (!res.ok) return;
     const data = (await res.json()) as Partial<DesignResponse>;
     // Only seed the empty canvas. If a design is loaded, the SSE path owns
@@ -344,6 +374,7 @@ function resetDocumentStores(): void {
   useSelectionStore.getState().clearSelection();
   useRulerStore.getState().clearAllRulers();
   useClipboardStore.getState().clear();
+  useDocumentStore.getState().setDocument();
   useDocumentStore.getState().markClean();
 }
 
@@ -371,7 +402,7 @@ function setupLibraryInStores(lib: WasmLibrary, projectName?: string): void {
  * Hook to manage the WasmLibrary instance.
  *
  * Creates a singleton library with a default cell and syncs layer colors.
- * In design mode (`?design=true`), connects to `/api/design/events` SSE
+ * In design mode (`/preview`), connects to `/api/design/events` SSE
  * for live updates from `rosette serve`. The full hierarchical library
  * is sent over SSE and loaded via `from_library_json`, giving design
  * mode the same instance handling as Tauri mode (cell navigation,
@@ -431,7 +462,23 @@ export function useLibrary(
   useEffect(() => {
     if (!wasm || !isWasmReady) return;
 
-    // In design mode or embed mode, don't create default library - wait for server/static data
+    // Check if we already have tabs (e.g., from a hot reload)
+    const { tabs } = useTabsStore.getState();
+    if (tabs.length > 0) {
+      // Re-attach to existing active tab's library
+      const activeTabId = useTabsStore.getState().activeTabId;
+      if (activeTabId) {
+        const existingLib = getTabLibrary(activeTabId);
+        if (existingLib) {
+          setLibrary(existingLib);
+          setIsReady(true);
+          return;
+        }
+      }
+    }
+
+    // In design mode or embed mode, don't create a default library. A detached
+    // document was restored above; otherwise wait for server/static data.
     if (isDesignMode() || isEmbedMode()) {
       return;
     }
@@ -447,21 +494,6 @@ export function useLibrary(
     // resolves. Only the no-server case (pure web/dev build) keeps
     // DEFAULT_LAYERS.
     void seedProjectLayers();
-
-    // Check if we already have tabs (e.g., from a hot reload)
-    const { tabs } = useTabsStore.getState();
-    if (tabs.length > 0) {
-      // Re-attach to existing active tab's library
-      const activeTabId = useTabsStore.getState().activeTabId;
-      if (activeTabId) {
-        const existingLib = getTabLibrary(activeTabId);
-        if (existingLib) {
-          setLibrary(existingLib);
-          setIsReady(true);
-          return;
-        }
-      }
-    }
 
     // Create the first tab with a fresh library
     const projectName = useExplorerStore.getState().projectName;
@@ -524,7 +556,7 @@ export function useLibrary(
 
   // ===== Tauri: listen for file-open events =====
   useEffect(() => {
-    if (!wasm || !isWasmReady || !isTauriMode()) return;
+    if (!wasm || !isWasmReady || !isTauri || isEmbedMode()) return;
 
     let cancelled = false;
 
@@ -631,6 +663,36 @@ export function useLibrary(
     };
   }, [wasm, isWasmReady, setLibrary]);
 
+  // ===== Detach a live source into an editable app document =====
+  useEffect(() => {
+    if (!wasm || !isWasmReady) return;
+
+    const handleEditCopy = () => {
+      const documentState = useDocumentStore.getState();
+      if (documentState.backing.kind !== "source" || !libraryInstance) return;
+
+      const sourceName = documentState.backing.source.path ?? "design";
+      const stem = sourceName.replace(/\.(py|gds|gdsii|gds2)$/i, "");
+      const title = `${stem} copy`;
+
+      documentState.setDocument();
+      documentState.markClean();
+      useViolationsStore.getState().setDrc(null);
+      useExplorerStore.getState().setProjectName(title);
+
+      const tabId = useTabsStore.getState().addTab({ title });
+      setTabLibrary(tabId, libraryInstance);
+      saveTabSnapshot(tabId);
+
+      useStatusMessageStore
+        .getState()
+        .show("Created an editable copy detached from the live source");
+    };
+
+    window.addEventListener("rosette-edit-copy", handleEditCopy);
+    return () => window.removeEventListener("rosette-edit-copy", handleEditCopy);
+  }, [wasm, isWasmReady]);
+
   // ===== Listen for "new file" events (Cmd+N) =====
   useEffect(() => {
     if (!wasm || !isWasmReady) return;
@@ -686,12 +748,36 @@ export function useLibrary(
   // ===== Design mode: SSE for live design updates from server =====
   useEffect(() => {
     if (!wasm || !isWasmReady || !isDesignMode()) return;
+    if (!useDocumentStore.getState().liveUpdatesEnabled) return;
 
-    const eventSource = new EventSource("/api/design/events");
+    // Fail closed while waiting for the first protocol event. Older servers
+    // without source metadata are still treated as source-backed.
+    useDocumentStore.getState().setSource({ kind: "server", path: null });
+    if (isModelEditingTool(useToolStore.getState().activeTool)) {
+      useToolStore.getState().setTool("select");
+    }
+
+    const eventSource = new EventSource(designApiUrl("/api/design/events"));
+    const unsubscribeDocument = useDocumentStore.subscribe((state, previous) => {
+      if (previous.backing.kind === "source" && state.backing.kind === "document") {
+        eventSource.close();
+      }
+    });
 
     eventSource.addEventListener("design", (event) => {
+      if (useDocumentStore.getState().backing.kind !== "source") return;
       try {
         const data: DesignResponse = JSON.parse(event.data);
+        const source = data.source;
+
+        if (source !== null) {
+          useDocumentStore.getState().setSource(
+            source ?? {
+              kind: "server",
+              path: data.filename,
+            },
+          );
+        }
 
         // Handle server restart (version reset)
         if (data.version < designVersionRef.current) {
@@ -726,9 +812,9 @@ export function useLibrary(
             setIsReady(true);
             designVersionRef.current = data.version;
 
-            // Clear undo/redo history — the library was rebuilt from source,
-            // so old commands reference stale UUIDs and would silently fail.
-            useHistoryStore.getState().clear();
+            // Model commands reference the replaced library. Measurements are
+            // local overlays and remain valid across source reloads.
+            useHistoryStore.getState().discardModelCommands();
 
             // Save selection state before clearing — we'll re-select equivalent
             // elements in the new library after it's ready.
@@ -802,6 +888,15 @@ export function useLibrary(
                 useSelectionStore.getState().setSelection(newIds);
               }
             }
+
+            if (source === null) {
+              const title = data.filename ?? "untitled";
+              const tabId = useTabsStore.getState().addTab({ title });
+              setTabLibrary(tabId, newLibrary);
+              useDocumentStore.getState().setDocument();
+              useDocumentStore.getState().markClean();
+              saveTabSnapshot(tabId);
+            }
           } catch (parseError) {
             console.error("Failed to parse design:", parseError);
           }
@@ -817,6 +912,7 @@ export function useLibrary(
     };
 
     return () => {
+      unsubscribeDocument();
       eventSource.close();
     };
   }, [wasm, isWasmReady, setLibrary]);
@@ -916,7 +1012,7 @@ export function useLibrary(
   // Add rectangle helper
   const addRectangle = useCallback(
     (x: number, y: number, width: number, height: number, layer: number) => {
-      if (!library) return null;
+      if (!library || isSourceBacked()) return null;
       const id = library.add_rectangle(x, y, width, height, layer, 0);
       return id ?? null;
     },
@@ -926,7 +1022,7 @@ export function useLibrary(
   // Add polygon helper
   const addPolygon = useCallback(
     (points: number[], layer: number) => {
-      if (!library) return null;
+      if (!library || isSourceBacked()) return null;
       const id = library.add_polygon(new Float64Array(points), layer, 0);
       return id ?? null;
     },
@@ -935,7 +1031,7 @@ export function useLibrary(
 
   // Clear active cell
   const clearCell = useCallback(() => {
-    if (!library) return;
+    if (!library || isSourceBacked()) return;
     library.clear_active_cell();
   }, [library]);
 

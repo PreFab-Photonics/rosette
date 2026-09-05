@@ -22,6 +22,11 @@ export async function emitOpenFile(path: string) {
  * File paths are now tracked per-tab in the tabs store.
  */
 export async function handleSave(forceDialog: boolean) {
+  if (useDocumentStore.getState().backing.kind === "source") {
+    await handleExportGds();
+    return;
+  }
+
   const library = useWasmContextStore.getState().library;
   if (!library) return;
 
@@ -70,6 +75,53 @@ export async function handleSave(forceDialog: boolean) {
     console.error("Failed to save GDS file:", err);
     useStatusMessageStore.getState().show(`Save failed: ${err}`, "error");
   }
+}
+
+/**
+ * Export the current geometry as GDS without implying that its backing source
+ * was saved. Works in both the browser and Tauri.
+ */
+export async function handleExportGds(): Promise<void> {
+  const library = useWasmContextStore.getState().library;
+  if (!library) return;
+
+  try {
+    const bytes = library.to_gds();
+
+    if (isTauri) {
+      let path = await pickSaveFile(undefined, "Export GDS");
+      if (!path) return;
+      if (!path.endsWith(".gds") && !path.endsWith(".gds2") && !path.endsWith(".gdsii")) {
+        path += ".gds";
+      }
+      await saveBytes(path, bytes);
+      useStatusMessageStore.getState().show(`Exported GDS to ${path.split("/").pop()}`);
+      return;
+    }
+
+    const source = useDocumentStore.getState().backing;
+    const sourceName = source.kind === "source" ? source.source.path : null;
+    const projectName = useTabsStore.getState().getActiveTab()?.title ?? sourceName ?? "design";
+    const filename = `${projectName.replace(/\.(py|gds|gdsii|gds2)$/i, "")}.gds`;
+    const blob = new Blob([bytes.slice().buffer], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    useStatusMessageStore.getState().show(`Exported ${filename}`);
+  } catch (err) {
+    console.error("Failed to export GDS file:", err);
+    useStatusMessageStore.getState().show(`GDS export failed: ${err}`, "error");
+  }
+}
+
+/** Detach the current live preview into an app-owned editable document. */
+export function handleEditCopy(): void {
+  window.dispatchEvent(new CustomEvent("rosette-edit-copy"));
 }
 
 /**

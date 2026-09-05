@@ -13,6 +13,8 @@ import { SCALE_BAR_TARGET_PIXELS, SCALE_BAR_MAX_WIDTH, NICE_NUMBERS } from "@/li
 import { cn, zoomToFitAll } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Position, SystemRestart } from "iconoir-react";
+import { useDocumentStore } from "@/stores/document";
+import { handleEditCopy } from "@/lib/file-ops";
 
 // =============================================================================
 // Scale calculation (from ScaleDisplay)
@@ -354,6 +356,45 @@ function ScaleBar({ widthInPixels, label }: { widthInPixels: number; label: stri
   );
 }
 
+/** Persistent authority indicator for live sources and app-owned documents. */
+function BackingBadge({ minimal }: { minimal: boolean }) {
+  const backing = useDocumentStore((state) => state.backing);
+
+  if (backing.kind === "document") {
+    return null;
+  }
+
+  const sourceLabel =
+    backing.source.kind === "python"
+      ? "Python source"
+      : backing.source.kind === "gds"
+        ? "GDS source"
+        : "Source";
+  return (
+    <div className="flex h-4 items-center gap-1.5 leading-none">
+      <Tooltip
+        label={
+          backing.source.path
+            ? `Read-only live preview from ${backing.source.path}`
+            : "Read-only live source preview"
+        }
+        position="top"
+      >
+        <span className="inline-flex h-4 items-center text-[10px] leading-none text-info select-none">
+          {sourceLabel}
+        </span>
+      </Tooltip>
+      <button
+        type="button"
+        onClick={handleEditCopy}
+        className="inline-flex h-4 items-center rounded border border-theme-border-strong px-1.5 text-[10px] leading-none text-foreground-secondary transition-colors hover:bg-interactive focus:outline-none"
+      >
+        {minimal ? "Edit copy" : "Edit a copy"}
+      </button>
+    </div>
+  );
+}
+
 /**
  * Status bar at the bottom of the application.
  *
@@ -457,6 +498,9 @@ export function StatusBar({
         <div className="flex flex-shrink-0 items-center gap-2">
           {/* Scale bar — inline on full width only */}
           {scaleBarInline && <ScaleBar widthInPixels={widthInPixels} label={scaleLabel} />}
+
+          {/* Keep document authority to the right of the variable-width scale bar. */}
+          <BackingBadge minimal={minimal} />
 
           {/* Zen mode toggle */}
           <Tooltip label="Zen Mode" position="top">

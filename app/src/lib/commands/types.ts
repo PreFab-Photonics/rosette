@@ -25,6 +25,9 @@ export interface Command {
   /** Human-readable description of the command. */
   readonly description: string;
 
+  /** Measurements remain local and are allowed over a source-backed preview. */
+  readonly scope?: "model" | "measurement";
+
   /** Execute the command (first time or redo). */
   execute(ctx: CommandContext): void;
 

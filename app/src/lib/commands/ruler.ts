@@ -12,6 +12,7 @@ import type { Command, CommandContext, RulerPropsPatch } from "./types";
 export class CreateRulerCommand implements Command {
   readonly type = "create-ruler";
   readonly description = "Create ruler";
+  readonly scope = "measurement";
 
   /** Ruler data for restoration. */
   private ruler: Ruler;
@@ -73,6 +74,7 @@ export class CreateRulerCommand implements Command {
  */
 export class DeleteRulersCommand implements Command {
   readonly type = "delete-rulers";
+  readonly scope = "measurement";
   readonly description: string;
 
   /** Snapshots of deleted rulers for restoration. */
@@ -127,6 +129,7 @@ export class DeleteRulersCommand implements Command {
  */
 export class MoveRulersCommand implements Command {
   readonly type = "move-rulers";
+  readonly scope = "measurement";
   readonly description: string;
 
   constructor(
@@ -168,6 +171,7 @@ export class MoveRulersCommand implements Command {
 export class MoveRulerEndpointCommand implements Command {
   readonly type = "move-ruler-endpoint";
   readonly description = "Move ruler endpoint";
+  readonly scope = "measurement";
 
   constructor(
     private readonly rulerId: string,
@@ -194,6 +198,7 @@ export class MoveRulerEndpointCommand implements Command {
 export class MoveRulerPointCommand implements Command {
   readonly type = "move-ruler-point";
   readonly description = "Move ruler vertex";
+  readonly scope = "measurement";
 
   constructor(
     private readonly rulerId: string,
@@ -222,6 +227,7 @@ export class MoveRulerPointCommand implements Command {
 export class UpdateRulerPropsCommand implements Command {
   readonly type = "update-ruler-props";
   readonly description = "Update ruler";
+  readonly scope = "measurement";
 
   constructor(
     private readonly rulerId: string,

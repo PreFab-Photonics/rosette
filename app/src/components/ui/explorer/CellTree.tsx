@@ -5,6 +5,7 @@ import { useCellDragStore } from "@/stores/cell-drag";
 import { useWasmContextStore } from "@/stores/wasm-context";
 import { useKeyboardFocusStore } from "@/stores/keyboard-focus";
 import { useInlineRename } from "@/hooks/use-inline-rename";
+import { useDocumentStore } from "@/stores/document";
 import { cn } from "@/lib/utils";
 import { panelRowStateClassName } from "@/components/ui/panel-row";
 import { VisibilityIcon } from "@/components/ui/VisibilityIcon";
@@ -167,6 +168,7 @@ export function CellRow({
   onContextMenuOpen?: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
   const rowRef = useRef<HTMLLIElement>(null);
   const visibilityStatusId = useId();
 
@@ -195,12 +197,12 @@ export function CellRow({
 
   // Enter edit mode when triggered externally (e.g., from context menu "Rename")
   useEffect(() => {
-    if (startEditing) {
+    if (startEditing && !sourceBacked) {
       setIsEditing(true);
       // Clear the editing signal
       useExplorerStore.getState().setEditingCellName(null);
     }
-  }, [startEditing]);
+  }, [sourceBacked, startEditing]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -289,7 +291,7 @@ export function CellRow({
         if (e.button === 2) e.preventDefault();
         return;
       }
-      if (!canDrag || isEditing) {
+      if (sourceBacked || !canDrag || isEditing) {
         return;
       }
 
@@ -328,7 +330,7 @@ export function CellRow({
       document.addEventListener("mousemove", handleGlobalMouseMove);
       document.addEventListener("mouseup", handleGlobalMouseUp);
     },
-    [canDrag, isEditing, name, onDragStart],
+    [canDrag, isEditing, name, onDragStart, sourceBacked],
   );
 
   return (
@@ -353,7 +355,7 @@ export function CellRow({
       onContextMenu={handleContextMenu}
       onDoubleClick={(event) => {
         event.stopPropagation();
-        setIsEditing(true);
+        if (!sourceBacked) setIsEditing(true);
       }}
       onFocus={handleRowFocus}
       onKeyDown={handleRowKeyDown}

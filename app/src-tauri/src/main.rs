@@ -14,20 +14,67 @@ fn is_gds_path(path: &str) -> bool {
     lower.ends_with(".gds") || lower.ends_with(".gds2") || lower.ends_with(".gdsii")
 }
 
-/// Parse `--url <URL>` from CLI arguments.
-///
-/// When `rosette serve --native` launches the desktop app, it passes
-/// the Python dev-server URL (e.g. `http://localhost:5173?design=true`)
-/// so the webview connects to the live-reload SSE endpoint instead of
-/// loading the bundled frontend.
-fn parse_url_arg() -> Option<String> {
-    let args: Vec<String> = std::env::args().collect();
+#[derive(Debug, PartialEq)]
+struct ServerLaunch {
+    url: String,
+    design_mode: bool,
+}
+
+/// Parse local design-server arguments passed by `rosette serve --native`.
+fn parse_server_launch_from(args: &[String]) -> Option<ServerLaunch> {
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--server-url" {
+            return args.get(i + 1).map(|url| ServerLaunch {
+                url: url.clone(),
+                design_mode: args.iter().any(|value| value == "--design-mode"),
+            });
+        }
+    }
+
+    // Compatibility with launchers predating the trusted-origin transport.
     for (i, arg) in args.iter().enumerate() {
         if arg == "--url" {
-            return args.get(i + 1).cloned();
+            let mut url: url::Url = args.get(i + 1)?.parse().ok()?;
+            let design_mode = url
+                .query_pairs()
+                .any(|(key, value)| key == "design" && value.eq_ignore_ascii_case("true"));
+            url.set_query(None);
+            return Some(ServerLaunch {
+                url: url.to_string(),
+                design_mode,
+            });
         }
     }
     None
+}
+
+fn parse_server_launch() -> Option<ServerLaunch> {
+    let args: Vec<String> = std::env::args().collect();
+    parse_server_launch_from(&args)
+}
+
+/// Keep the webview on its platform-specific bundled origin and add API context.
+fn server_viewer_url(mut app_url: url::Url, launch: &ServerLaunch) -> Result<url::Url, String> {
+    let server_url: url::Url = launch
+        .url
+        .parse()
+        .map_err(|error| format!("invalid --server-url value: {error}"))?;
+    let is_loopback = matches!(
+        server_url.host_str(),
+        Some("localhost" | "127.0.0.1" | "::1")
+    );
+    if server_url.scheme() != "http" || !is_loopback {
+        return Err("--server-url must be an HTTP loopback URL".into());
+    }
+
+    app_url.set_path(if launch.design_mode { "/preview" } else { "/" });
+    app_url.set_query(None);
+    app_url.set_fragment(None);
+    {
+        let mut query = app_url.query_pairs_mut();
+        query.append_pair("server", server_url.as_str());
+    }
+    Ok(app_url)
 }
 
 /// Minimal view of the persisted window state file (written by tauri-plugin-window-state).
@@ -52,7 +99,7 @@ fn read_saved_window_state(app: &tauri::App) -> Option<SavedWindowState> {
 }
 
 fn main() {
-    let url_override = parse_url_arg();
+    let server_launch = parse_server_launch();
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -79,24 +126,25 @@ fn main() {
             commands::get_pending_file,
         ])
         .setup(move |app| {
-            // If --url was passed, navigate the main window to that URL.
-            // This is used by `rosette serve --native` to point the webview
-            // at the Python dev server instead of the bundled frontend.
-            if let Some(ref url) = url_override {
+            // Preserve the trusted bundled origin while pointing API/SSE
+            // requests at the local Python design server.
+            if let Some(ref launch) = server_launch {
                 let window = app
                     .get_webview_window("main")
                     .expect("main window not found");
-                let parsed: url::Url = url
-                    .parse()
-                    .unwrap_or_else(|_| panic!("invalid --url value: {url}"));
+                let parsed = server_viewer_url(
+                    window.url().expect("failed to read bundled app URL"),
+                    launch,
+                )
+                .unwrap_or_else(|error| panic!("{error}"));
                 window
                     .navigate(parsed)
-                    .expect("failed to navigate to --url");
+                    .expect("failed to add design-server context");
             }
 
             // On Windows/Linux, file associations pass the path as a CLI arg.
             // (macOS uses Apple Events instead — handled in the run callback below.)
-            // Skip the value after --url so it isn't misidentified as a GDS path.
+            // Skip design-server arguments so they aren't misidentified as GDS paths.
             #[cfg(not(target_os = "macos"))]
             {
                 let args: Vec<String> = std::env::args().collect();
@@ -106,8 +154,11 @@ fn main() {
                         skip_next = false;
                         continue;
                     }
-                    if arg == "--url" {
+                    if arg == "--server-url" || arg == "--url" {
                         skip_next = true;
+                        continue;
+                    }
+                    if arg == "--design-mode" {
                         continue;
                     }
                     if is_gds_path(arg) {
@@ -190,4 +241,72 @@ fn main() {
         // Suppress unused variable warning on non-macOS platforms.
         let _ = (&app_handle, &event);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ServerLaunch, parse_server_launch_from, server_viewer_url};
+
+    #[test]
+    fn server_context_preserves_platform_app_origin() {
+        let launch = ServerLaunch {
+            url: "http://127.0.0.1:5173".into(),
+            design_mode: true,
+        };
+
+        let mac = server_viewer_url("tauri://localhost".parse().unwrap(), &launch).unwrap();
+        assert_eq!(
+            mac.as_str(),
+            "tauri://localhost/preview?server=http%3A%2F%2F127.0.0.1%3A5173%2F"
+        );
+
+        let windows =
+            server_viewer_url("http://tauri.localhost".parse().unwrap(), &launch).unwrap();
+        assert_eq!(
+            windows.as_str(),
+            "http://tauri.localhost/preview?server=http%3A%2F%2F127.0.0.1%3A5173%2F"
+        );
+    }
+
+    #[test]
+    fn server_context_rejects_non_loopback_urls() {
+        let launch = ServerLaunch {
+            url: "https://example.com".into(),
+            design_mode: false,
+        };
+        assert!(server_viewer_url("tauri://localhost".parse().unwrap(), &launch).is_err());
+    }
+
+    #[test]
+    fn legacy_remote_url_is_translated_to_server_context() {
+        let args = [
+            "rosette-desktop".into(),
+            "--url".into(),
+            "http://127.0.0.1:5173?design=true".into(),
+        ];
+        assert_eq!(
+            parse_server_launch_from(&args),
+            Some(ServerLaunch {
+                url: "http://127.0.0.1:5173/".into(),
+                design_mode: true,
+            })
+        );
+    }
+
+    #[test]
+    fn versioned_server_context_is_parsed() {
+        let args = [
+            "rosette-desktop".into(),
+            "--server-url".into(),
+            "http://127.0.0.1:5173".into(),
+            "--design-mode".into(),
+        ];
+        assert_eq!(
+            parse_server_launch_from(&args),
+            Some(ServerLaunch {
+                url: "http://127.0.0.1:5173".into(),
+                design_mode: true,
+            })
+        );
+    }
 }

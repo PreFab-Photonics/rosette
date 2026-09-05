@@ -3,6 +3,7 @@ import { type UnitInfo, formatCoordinate } from "@/lib/format";
 import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
 import { NumberField, SectionHeader } from "./fields";
+import { useDocumentStore } from "@/stores/document";
 
 /**
  * A single vertex group with a header (index + remove) and X/Y NumberField rows.
@@ -31,12 +32,14 @@ export function VertexRow({
   onRemove: () => void;
   readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   return (
     <div data-vertex-row>
       {/* Vertex header: index label + remove button */}
       <div className="flex items-center justify-between px-3 pt-1.5 pb-0">
         <span className="font-mono text-[10px] text-foreground-faint select-none">V{index}</span>
-        {!readOnly && (
+        {!isReadOnly && (
           <button
             type="button"
             aria-label="Remove vertex"
@@ -64,8 +67,8 @@ export function VertexRow({
         )}
       </div>
       {/* X / Y coordinate fields */}
-      <NumberField label="X" value={x} unit={unit} onChange={onChangeX} readOnly={readOnly} />
-      <NumberField label="Y" value={y} unit={unit} onChange={onChangeY} readOnly={readOnly} />
+      <NumberField label="X" value={x} unit={unit} onChange={onChangeX} readOnly={isReadOnly} />
+      <NumberField label="Y" value={y} unit={unit} onChange={onChangeY} readOnly={isReadOnly} />
     </div>
   );
 }
@@ -93,6 +96,8 @@ export function VerticesSection({
   readOnly?: boolean;
   label?: string;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const vertexCount = vertices.length / 2;
   const canRemove = vertexCount > 3;
 
@@ -172,7 +177,7 @@ export function VerticesSection({
         onChangeX={(v) => onChangeVertex(i, "x", v)}
         onChangeY={(v) => onChangeVertex(i, "y", v)}
         onRemove={() => onRemoveVertex(i)}
-        readOnly={readOnly}
+        readOnly={isReadOnly}
       />,
     );
   }
@@ -183,7 +188,7 @@ export function VerticesSection({
       <div ref={scrollRef} className="flex max-h-48 flex-col overflow-y-auto">
         {rows}
       </div>
-      {!readOnly && (
+      {!isReadOnly && (
         <div className="px-3 pt-1">
           <button
             type="button"

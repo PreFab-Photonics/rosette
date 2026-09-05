@@ -28,6 +28,7 @@ import { formatCoordinate, type UnitInfo } from "@/lib/format";
 import { computePathLength } from "@/lib/path";
 import { GRID_SIZE } from "@/stores/viewport";
 import { cn } from "@/lib/utils";
+import { useDocumentStore } from "@/stores/document";
 
 // =============================================================================
 // Types
@@ -232,6 +233,7 @@ export function InspectorPanel() {
   const data = useSelectedElementData();
   const library = useWasmContextStore((s) => s.library);
   const renderer = useWasmContextStore((s) => s.renderer);
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
 
   // Cell inspector data (shown when nothing is selected)
   const activeCell = useExplorerStore((s) => s.activeCell);
@@ -719,8 +721,10 @@ export function InspectorPanel() {
           <button
             type="button"
             onClick={handleToggleLockAspectRatio}
+            disabled={sourceBacked}
             className={cn(
               "flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-xs transition-colors",
+              sourceBacked && "cursor-not-allowed opacity-40",
               isLocked
                 ? "border-theme-border-strong bg-theme-border text-foreground"
                 : "border-theme-border text-foreground-subtle hover:text-foreground-secondary",
@@ -929,6 +933,7 @@ export function InspectorPanel() {
           <div className="px-3 pt-2">
             <button
               type="button"
+              disabled={sourceBacked}
               onClick={() => {
                 if (!renderer) return;
                 const cmd = new TextToPolygonsCommand([first.id]);
@@ -937,6 +942,7 @@ export function InspectorPanel() {
               className={cn(
                 "flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition-colors",
                 "border-theme-border text-foreground-secondary hover:bg-input hover:text-foreground",
+                sourceBacked && "cursor-not-allowed opacity-40",
               )}
             >
               Convert to Polygons
@@ -1072,10 +1078,12 @@ export function InspectorPanel() {
         <div className="px-3 pt-1">
           <button
             type="button"
+            disabled={sourceBacked}
             onClick={handlePathWaypointAdd}
             className={cn(
               "flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
               "border-theme-border text-foreground-muted hover:bg-input hover:text-foreground-secondary",
+              sourceBacked && "cursor-not-allowed opacity-40",
             )}
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor">

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useLayerStore } from "@/stores/layer";
 import { useKeyboardFocus } from "@/hooks/use-keyboard-focus";
 import { cn } from "@/lib/utils";
+import { useDocumentStore } from "@/stores/document";
 
 /**
  * Editable numeric field with label.
@@ -24,6 +25,8 @@ export function NumberField({
   onChange?: (value: number) => void;
   readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -90,13 +93,13 @@ export function NumberField({
       <span
         className={cn(
           "text-xs select-none",
-          readOnly ? "text-foreground-faint" : "text-foreground-muted",
+          isReadOnly ? "text-foreground-faint" : "text-foreground-muted",
         )}
       >
         {label}
       </span>
       <div className="flex items-center gap-1">
-        {editing && !readOnly ? (
+        {editing && !isReadOnly ? (
           <input
             ref={inputRef}
             type="text"
@@ -111,22 +114,22 @@ export function NumberField({
           <button
             type="button"
             onClick={() => {
-              if (!readOnly && onChange) {
+              if (!isReadOnly && onChange) {
                 setEditValue(value);
                 setEditing(true);
               }
             }}
             onFocus={() => {
-              if (!readOnly && onChange) {
+              if (!isReadOnly && onChange) {
                 setEditValue(value);
                 setEditing(true);
               }
             }}
             className={cn(
               "w-20 rounded border border-transparent px-1.5 py-0.5 text-right font-mono text-xs outline-none transition-colors",
-              readOnly ? "text-foreground-faint" : "cursor-text text-foreground hover:bg-input",
+              isReadOnly ? "text-foreground-faint" : "cursor-text text-foreground hover:bg-input",
             )}
-            tabIndex={readOnly ? -1 : 0}
+            tabIndex={isReadOnly ? -1 : 0}
           >
             {value}
           </button>
@@ -135,7 +138,7 @@ export function NumberField({
           <span
             className={cn(
               "w-6 text-xs select-none",
-              readOnly ? "text-foreground-ghost" : "text-foreground-subtle",
+              isReadOnly ? "text-foreground-ghost" : "text-foreground-subtle",
             )}
           >
             {unit}
@@ -155,11 +158,15 @@ export function TextField({
   label,
   value,
   onChange,
+  readOnly,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -219,7 +226,7 @@ export function TextField({
   return (
     <div className="flex items-center justify-between gap-2 px-3 py-1" data-field={label}>
       <span className="text-xs text-foreground-muted select-none">{label}</span>
-      {editing ? (
+      {editing && !isReadOnly ? (
         <input
           ref={inputRef}
           type="text"
@@ -233,13 +240,17 @@ export function TextField({
       ) : (
         <button
           type="button"
-          onClick={() => setEditing(true)}
-          onFocus={() => setEditing(true)}
+          onClick={() => {
+            if (!isReadOnly) setEditing(true);
+          }}
+          onFocus={() => {
+            if (!isReadOnly) setEditing(true);
+          }}
           className={cn(
             "w-32 truncate rounded border border-transparent px-1.5 py-0.5 text-right text-xs outline-none transition-colors",
-            "cursor-text text-foreground hover:bg-input",
+            isReadOnly ? "text-foreground-faint" : "cursor-text text-foreground hover:bg-input",
           )}
-          tabIndex={0}
+          tabIndex={isReadOnly ? -1 : 0}
         >
           {value}
         </button>
@@ -258,11 +269,15 @@ export function TextAreaField({
   label,
   value,
   onChange,
+  readOnly,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -328,7 +343,7 @@ export function TextAreaField({
       <div className="flex items-center justify-between gap-2 pb-1">
         <span className="text-xs text-foreground-muted select-none">{label}</span>
       </div>
-      {editing ? (
+      {editing && !isReadOnly ? (
         <textarea
           ref={textareaRef}
           value={editValue}
@@ -342,13 +357,17 @@ export function TextAreaField({
       ) : (
         <button
           type="button"
-          onClick={() => setEditing(true)}
-          onFocus={() => setEditing(true)}
+          onClick={() => {
+            if (!isReadOnly) setEditing(true);
+          }}
+          onFocus={() => {
+            if (!isReadOnly) setEditing(true);
+          }}
           className={cn(
             "w-full whitespace-pre-wrap rounded border border-transparent px-1.5 py-1 text-left font-mono text-xs leading-relaxed outline-none transition-colors",
-            "cursor-text text-foreground hover:bg-input",
+            isReadOnly ? "text-foreground-faint" : "cursor-text text-foreground hover:bg-input",
           )}
-          tabIndex={0}
+          tabIndex={isReadOnly ? -1 : 0}
         >
           {preview || <span className="text-foreground-faint">Empty</span>}
         </button>
@@ -372,11 +391,15 @@ export function LayerSelector({
   currentLayer,
   currentDatatype,
   onChange,
+  readOnly,
 }: {
   currentLayer: number;
   currentDatatype: number;
   onChange: (layer: number, datatype: number) => void;
+  readOnly?: boolean;
 }) {
+  const sourceBacked = useDocumentStore((s) => s.backing.kind === "source");
+  const isReadOnly = Boolean(readOnly || sourceBacked);
   const layers = useLayerStore((s) => s.getAllLayers)();
 
   const [localValue, setLocalValue] = useState(`${currentLayer}:${currentDatatype}`);
@@ -400,6 +423,7 @@ export function LayerSelector({
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0, width: 0 });
 
   const open = useCallback(() => {
+    if (isReadOnly) return;
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
     setDropdownPos({
@@ -410,7 +434,7 @@ export function LayerSelector({
     const idx = layers.findIndex((l) => `${l.layerNumber}:${l.datatype}` === localValue);
     setHighlightIndex(idx >= 0 ? idx : 0);
     setIsOpen(true);
-  }, [layers, localValue]);
+  }, [isReadOnly, layers, localValue]);
 
   const close = useCallback(() => {
     setIsOpen(false);
@@ -500,11 +524,13 @@ export function LayerSelector({
       <button
         ref={triggerRef}
         type="button"
+        disabled={isReadOnly}
         onClick={() => (isOpen ? close() : open())}
         onKeyDown={handleTriggerKeyDown}
         className={cn(
           "flex max-w-36 items-center gap-1.5 rounded-lg border px-1.5 py-0.5 text-xs outline-none transition-colors",
           "border-theme-border bg-input text-foreground hover:bg-theme-border focus-visible:border-focus-ring",
+          isReadOnly && "cursor-default opacity-50",
         )}
       >
         {selectedLayer && (

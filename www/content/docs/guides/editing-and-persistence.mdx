@@ -1,0 +1,67 @@
+---
+title: Editing and Persistence
+description: Understand which representation owns a layout and what Rosette saves or exports.
+---
+
+Rosette uses one authoritative representation at a time. The viewer shows the
+current mode in its status bar.
+
+| Workflow | Source of truth | Viewer behavior |
+| --- | --- | --- |
+| `rosette serve design.py` | Python source | Read-only live preview |
+| `rosette run layout.gds` | Watched GDS file | Read-only live preview |
+| Open or create a GDS document in the app | App document | Editable |
+| **Edit a copy** of a live preview | New app document | Editable and detached from Python |
+
+## Live Python previews
+
+`rosette serve` executes arbitrary Python and lowers components, routes, loops,
+helpers, and geometry operations into a layout. The resulting polygons do not
+contain enough information to identify which Python expression should change.
+Rosette therefore does not attempt unrestricted geometry-to-Python round trips.
+
+While the status bar says **Python source**, layout mutations are disabled.
+You can still:
+
+- inspect and select geometry;
+- navigate cells and control layer visibility;
+- pan, zoom, and use the minimap;
+- create and edit measurement rulers;
+- inspect DRC violations; and
+- export screenshots or the current geometry as GDS.
+
+Saving the Python file re-executes the design and replaces the preview. Because
+the preview cannot accumulate layout edits, a reload cannot silently discard
+them.
+
+## Edit a copy
+
+Choose **Edit a copy** to make the currently rendered layout an app-owned
+document. This closes the live-update connection before editing is enabled, so
+later Python saves cannot replace the copy.
+
+The transition is intentionally one-way. Changes to the detached document do
+not update the Python file. Run `rosette serve` again to return to the live
+source-backed design.
+
+## Save and export
+
+The artifact name in the action describes what Rosette writes:
+
+- **Save GDS** writes an app-owned GDS document in the desktop app.
+- **Export GDS** serializes the current geometry. It does not save Python,
+  measurement rulers, image annotations, or DRC state.
+- **Export Screenshot** writes the current visual viewport.
+- `rosette build design.py` executes Python and writes the resulting GDS.
+
+GDS is an interchange and fabrication format, not a lossless representation of
+Python design intent. Keep Python source under version control when it is the
+authoritative design.
+
+## Constrained source edits
+
+Future source editing may support operations that can be represented as an
+unambiguous semantic intent, such as changing a literal component argument or
+moving a top-level instance with known provenance. Such edits must detect source
+conflicts, preview the code diff, re-execute the design, and fail closed when the
+mapping is ambiguous.

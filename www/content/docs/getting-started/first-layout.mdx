@@ -82,10 +82,14 @@ librosette` or inside an activated `pip` venv, you can omit the `uv run` prefix.
 uv run rosette serve designs/hello.py
 ```
 
-The dev server opens `http://localhost:5173` in your browser with an
+The dev server opens `http://localhost:5173/preview` in your browser with an
 interactive WebGPU viewer. Every time you save `designs/hello.py` the
 viewer reloads automatically, so you can tweak the script and see the
-result immediately.
+result immediately. The Python file remains the source of truth, so the live
+viewer is read-only. Use **Edit a copy** when you intentionally want to detach
+the rendered layout into an editable app document. See
+[Editing and Persistence](/docs/guides/editing-and-persistence) for the full
+save and export contract.
 
 ### One-shot build
 

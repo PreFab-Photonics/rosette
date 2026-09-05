@@ -10,11 +10,38 @@ from rosette._core import DrcCache
 from rosette._serve import (
     _load_drc_rules_safe,
     _load_layer_map_safe,
+    _native_viewer_args,
     _prepare_design,
     _run_drc_safe,
+    _supports_server_context,
     _validate_webapp_bundle,
 )
 from rosette.drc import DrcRules
+
+
+def test_native_viewer_passes_local_server_context_to_desktop_app():
+    assert _native_viewer_args("http://127.0.0.1:5173", True) == [
+        "--rosette-server-context-v1",
+        "--server-url",
+        "http://127.0.0.1:5173",
+        "--design-mode",
+    ]
+    assert _native_viewer_args("http://127.0.0.1:5174", False) == [
+        "--rosette-server-context-v1",
+        "--server-url",
+        "http://127.0.0.1:5174",
+    ]
+
+
+def test_native_viewer_detects_trusted_server_transport(tmp_path: Path):
+    compatible = tmp_path / "compatible"
+    compatible.write_bytes(b"binary\0--server-url\0")
+    incompatible = tmp_path / "incompatible"
+    incompatible.write_bytes(b"binary")
+
+    assert _supports_server_context(compatible)
+    assert not _supports_server_context(incompatible)
+    assert not _supports_server_context(tmp_path / "missing")
 
 
 def test_prepare_design_collects_descendants_added_after_parent_placement():
