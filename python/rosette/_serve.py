@@ -1012,7 +1012,11 @@ def serve_design(
         drc_cache = DrcCache()
 
         cell, file_path, target_name = load_design(design)
-        source = {"kind": "python", "path": file_path.name, "target": target_name}
+        source: dict[str, object] = {
+            "kind": "python",
+            "path": file_path.name,
+            "target": target_name,
+        }
         config_path = find_design_config(file_path)
         json_str, cell_tree = _prepare_design(cell)
         with design_config_context(file_path):
@@ -1181,7 +1185,7 @@ def run_gds(file: str, port: int = 5173, no_open: bool = False, *, native: bool 
     json_str, cell_tree = _prepare_design_from_library(inner_lib)
     layer_defs = _load_layer_map_safe()
 
-    source = {"kind": "gds", "path": file_path.name}
+    source: dict[str, object] = {"kind": "gds", "path": file_path.name}
     server.set_design_json(
         json_str,
         cells=cell_tree,
