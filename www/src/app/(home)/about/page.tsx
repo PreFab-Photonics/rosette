@@ -25,10 +25,7 @@ export default function AboutPage() {
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-24">
       <div className="max-w-3xl">
-        <p className="font-[family-name:var(--font-geist-mono)] text-xs tracking-[0.2em] text-fd-muted-foreground uppercase">
-          Open source / beta
-        </p>
-        <h1 className="mt-5 font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl">
+        <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl">
           About Rosette
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-relaxed text-fd-muted-foreground">
@@ -45,9 +42,9 @@ export default function AboutPage() {
             Project status
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-fd-muted-foreground">
-            Rosette is MIT licensed and developed in public. It is beta
-            software: the API is unstable, breaking changes are expected, and it
-            is not suitable for production sign-off.
+            Rosette is MIT licensed beta software: the API is unstable, breaking
+            changes are expected, and it is not suitable for production
+            sign-off.
           </p>
         </section>
 
