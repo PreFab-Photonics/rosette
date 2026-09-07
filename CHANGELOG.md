@@ -7,42 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Source-backed editing and persistence for designs opened through `rosette serve`
+  and the desktop app, with read-only safeguards when changes cannot be written
+  back to their source.
+- Project component discovery in `rosette serve`, including a searchable,
+  parameterized component dialog for inserting local components into a design.
+- Agent-readable documentation, stronger API and link validation, a complete
+  project-configuration guide, and improved installation and discovery metadata.
+- Semantic viewer theming, MSAA and render diagnostics, layer visibility and
+  search controls, and more consistent keyboard navigation across panels.
+
 ### Changed
 
-- **Rust/Python breaking:** design checks now use explicit connectivity nodes,
-  detect shorted nets, apply configured angle and width tolerances, validate
-  configuration values, scale port widths under conformal transforms, and
-  report incomplete hierarchy, transform, bend, and annotation coverage.
-  Warning-only check results now pass and expose separate error/warning counts,
-  stable rule IDs, deterministic ordering, expanded coverage statistics, and
-  `rosette-layout` schema 2 route-annotation availability instead of synthetic
-  empty sidecars. CLI result JSON is now schema 2 for the new pass/fail contract.
-- **Rust breaking:** hierarchy-resolved bounds are now queried with
-  `rosette_core::hierarchy::cell_bbox()`, while recursive Python composition,
-  editor cascade deletion, and GDS dependency ordering are owned by their
-  respective feature layers instead of `Library`.
-- **Rust breaking:** fallible transforms, typed element iterators,
-  `Route::build()`, `rosette_geometry::Region`, and standard `From`
-  conversions are now the canonical forms; duplicate panic wrappers, count
-  helpers, convenience constructors, and crate-root feature aliases have been
-  removed.
-- **Rust breaking:** invariant-bearing `BBox`, `Polygon`, `Port`, `CellRef`,
-  `Repetition`, path, text, cell, and route data can now only be created or
-  mutated through validated `Result` APIs with typed errors. Their stored
-  fields are private and exposed through read-only accessors.
-- Path and text enum payloads now use validated `PathElement` and `TextElement`
-  types, preventing public `Element` construction from bypassing local model
-  invariants.
-- Geometry behavior, GDS output, and `rosette-layout` V1 remain unchanged while
-  Python and WASM adapters use the narrowed Rust surface.
-- Boolean and topological geometry now live in the `rosette-geometry` feature
-  crate. `rosette-core` retains atomic geometry and layout types without the
-  `geo` dependency, while Python polygon methods and viewer operations keep
-  their existing behavior.
-- **Rust/Python breaking:** format-neutral path APIs now use `PathCap` and
-  `cap` instead of `PathEndType` and `end_type`. The WASM editor contract uses
-  the same terminology. GDS `PATHTYPE` records and the `rosette-layout` V1
-  `"end_type"` field remain unchanged through explicit IO mappings.
+- **Rust/Python breaking:** design checks now detect shorted nets, honor angle
+  and width tolerances, validate configuration, and report incomplete hierarchy,
+  transform, bend, and annotation coverage. Warning-only results pass and expose
+  separate error and warning counts with stable, deterministic diagnostics.
+- `rosette-layout` and CLI check-result JSON now use schema 2. Route-annotation
+  availability is represented explicitly instead of by synthetic empty sidecars.
+- **Rust breaking:** core model values now use validated, typed `Result` APIs and
+  read-only accessors. Hierarchy bounds move to
+  `rosette_core::hierarchy::cell_bbox()`, route construction uses
+  `Route::build()`, and boolean geometry lives in `rosette-geometry`.
+- **Rust/Python breaking:** format-neutral path APIs use `PathCap` and `cap`
+  instead of `PathEndType` and `end_type`. GDS `PATHTYPE` records retain their
+  existing wire representation through explicit IO mappings.
+- High-vertex width checks, hierarchical viewer rendering, marquee selection,
+  and dense-layout interaction are faster.
+- `rosette.toml` loading now validates and documents the supported schema, and
+  explicit design configuration is honored consistently during loading.
 
 ### Fixed
 
@@ -50,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   re-exported, accepts Release 6 optional library headers, validates ASCII and
   structure names, rejects geometry collapsed by the 1 nm output grid, and
   reports lossy records through Rust, Python warnings, and the desktop viewer.
+- Photonic component generation now rejects invalid geometry and avoids unstable
+  behavior at edge-case parameter values.
+
+### Removed
+
+- **Rust breaking:** removed duplicate panic wrappers, count helpers, convenience
+  constructors, crate-root feature aliases, raw model mutation APIs, and direct
+  core Serde persistence. Use the validated APIs and `rosette-io::json` instead.
+
 ## [0.5.0] - 2026-08-13
 
 ### Added
