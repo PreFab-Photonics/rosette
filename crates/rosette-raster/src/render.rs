@@ -199,9 +199,13 @@ pub fn render_png(library: &Library, opts: &RenderOptions) -> Result<RenderResul
 }
 
 fn compute_extent(polys: &[&FlatPolygon]) -> Option<BBox> {
-    let mut iter = polys
-        .iter()
-        .flat_map(|p| p.vertices.chunks_exact(2).map(|c| Point::new(c[0], c[1])));
+    let mut iter = polys.iter().flat_map(|p| {
+        p.vertices
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| Point::new(c[0], c[1]))
+    });
     let first = iter.next()?;
     let mut bbox = BBox::from_point(first).ok()?;
     for pt in iter {
@@ -219,7 +223,7 @@ fn polygon_intersects(poly: &FlatPolygon, bbox: &BBox) -> bool {
     let mut max_x = v[0];
     let mut min_y = v[1];
     let mut max_y = v[1];
-    for c in v.chunks_exact(2).skip(1) {
+    for c in v.as_chunks::<2>().0.iter().skip(1) {
         if c[0] < min_x {
             min_x = c[0];
         }

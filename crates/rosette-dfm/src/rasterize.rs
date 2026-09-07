@@ -216,7 +216,7 @@ fn rasterize_polygon(raster: &mut LayerRaster, polygon: &Polygon) {
         // Sort intersections and fill spans
         intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-        for pair in intersections.chunks_exact(2) {
+        for pair in intersections.as_chunks::<2>().0 {
             let x_start = pair[0];
             let x_end = pair[1];
 
