@@ -25,7 +25,7 @@ export default function AboutPage() {
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-24">
       <div className="max-w-3xl">
-        <h1 className="font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl">
+        <h1 className="text-4xl tracking-tight text-fd-foreground sm:text-5xl">
           About Rosette
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-relaxed text-fd-muted-foreground">

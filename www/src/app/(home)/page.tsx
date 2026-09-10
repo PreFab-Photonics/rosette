@@ -36,8 +36,8 @@ function Hero() {
       <div className="mx-auto max-w-6xl px-6 pt-20 sm:pt-24">
         {/* Hero text */}
         <div className="mx-auto max-w-4xl text-center">
-          <h1 className="font-[family-name:var(--font-instrument-serif)] text-3xl tracking-tight text-fd-foreground uppercase sm:text-4xl lg:text-5xl">
-            Photonic design tools for agents + humans
+          <h1 className="text-3xl tracking-tight text-fd-foreground uppercase sm:text-4xl lg:text-5xl">
+            Photonic design tools for agents
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-fd-muted-foreground">
@@ -108,9 +108,6 @@ function WhyRosette() {
 function EditorPreview() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
-      {/* Subtle divider */}
-      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
-
       <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Inspect and modify layouts
       </h2>
@@ -196,9 +193,6 @@ const capabilities = [
 function WhatsInside() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
-      {/* Subtle divider */}
-      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
-
       <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         What&rsquo;s inside
       </h2>
@@ -298,8 +292,6 @@ const sourceAreas = [
 function OpenSource() {
   return (
     <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
-      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
-
       <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
         Fit Rosette to your process
       </h2>
@@ -463,11 +455,12 @@ function OpenSource() {
 
 function ClosingCTA() {
   return (
-    <section className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
-      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-fd-border to-transparent" />
-
+    <section className="relative mx-auto max-w-6xl px-6 pt-20 pb-40 sm:pt-24 sm:pb-48">
       <div className="mx-auto max-w-xl">
-        <div className="flex min-w-0 items-center border-fd-border border-b pb-3 font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
+        <h2 className="font-medium text-2xl tracking-tight text-fd-foreground">
+          Start designing
+        </h2>
+        <div className="mt-8 flex min-w-0 items-center border-fd-border border-b pb-3 font-[family-name:var(--font-geist-mono)] text-sm text-fd-foreground">
           <span className="select-none text-fd-muted-foreground">$</span>
           <code className="ml-3 min-w-0 flex-1 overflow-x-auto whitespace-nowrap">
             {INIT_COMMAND}
