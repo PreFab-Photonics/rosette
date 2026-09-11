@@ -44,11 +44,9 @@
 @keyframes rosette-line-in {
   from {
     clip-path: inset(0 100% 0 0);
-    transform: translateY(4px);
   }
   to {
     clip-path: inset(0);
-    transform: none;
   }
 }
 
