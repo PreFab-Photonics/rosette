@@ -1,0 +1,15 @@
+---
+title: The Layers of Agentic Photonic Design
+description: Reliable agentic photonic design depends on a complete stack of models, tools, and designer knowledge.
+date: 2026-09-11
+---
+
+Photonic chip design is becoming a form of software engineering. Layouts are written in code, constraints live in configuration, and verification runs from the command line. That makes the work a natural fit for coding agents, but the model is only one part of the system. We think of an agentic photonic design stack as four layers.
+
+<AgenticDesignLayersFigure />
+
+At the center is a frontier language model. It can reason about a design, understand instructions, and write code. On its own, though, it cannot inspect a project, produce a layout, or check whether that layout is correct. Around it, the agent harness gives the model hands. Tools for reading files, editing code, and running commands let it act on a design repository. More importantly, the harness runs these tools in a loop: make a change, inspect the result, fix the problem, and continue until the objective is met.
+
+Domain tools turn a general coding agent into a photonic design agent. Our approach to this layer is primitive-first: expose a small set of stable, composable capabilities that agents can combine into new workflows. This keeps the tool surface legible and lets new workflows emerge without adding a feature for each one. These primitives cover layout operations such as placing components and routing waveguides, along with DRC, connectivity, simulation, and DFM tools that test the agent's work against physical requirements. A script can run successfully and still describe an invalid chip, so the agent needs concrete diagnostics it can act on. The outer layer contains the designer knowledge that defines the design: PDK components, layer maps, design rules, documentation, measurement data, team instructions, and reusable workflows. Tools tell the agent what it can do. Context tells it what to do, and how to do it correctly for a particular process and team.
+
+Put together, these layers create a closed loop. The model proposes, the harness acts, the photonics tools verify, and the designer context keeps the work grounded. The human designer still sets the intent and judges the result, but much of the iteration in between can happen autonomously. Reliable engineering work depends on the entire stack giving the model enough context, capability, and feedback.

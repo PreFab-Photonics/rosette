@@ -3,6 +3,7 @@ import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AgenticDesignLayersFigure } from "@/components/blog/agentic-design-layers-figure";
 import { BlogHero, blogOgImages } from "@/components/blog/hero";
 import { blog, getBlogPostImage } from "@/lib/source";
 
@@ -64,6 +65,7 @@ export default async function BlogPost(props: Props) {
           <Mdx
             components={{
               ...defaultMdxComponents,
+              AgenticDesignLayersFigure,
               img: (props) => <ImageZoom {...(props as any)} />,
             }}
           />
