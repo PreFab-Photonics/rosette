@@ -10,10 +10,6 @@ interface Props {
   params: Promise<{ slug: string }>;
 }
 
-const blogOgImages: Record<string, string> = {
-  "ai-for-photonics": "/blog/ai-for-photonics/og.png",
-};
-
 export default async function BlogPost(props: Props) {
   const params = await props.params;
   const page = blog.getPage([params.slug]);
@@ -88,6 +84,9 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 
   if (!page) notFound();
 
+  const image = getBlogPostImage(page).url;
+  const imageAlt = `${page.data.title} | Rosette`;
+
   return {
     title: page.data.title,
     description: page.data.description,
@@ -95,9 +94,28 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       canonical: `/blog/${params.slug}`,
     },
     openGraph: {
+      title: page.data.title,
+      description: page.data.description,
+      url: page.url,
+      siteName: "Rosette",
+      locale: "en_US",
       type: "article",
       publishedTime: new Date(page.data.date).toISOString(),
-      images: blogOgImages[params.slug] ?? getBlogPostImage(page).url,
+      images: [
+        {
+          url: image,
+          width: 1200,
+          height: 630,
+          alt: imageAlt,
+          type: "image/png",
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: page.data.title,
+      description: page.data.description,
+      images: [{ url: image, alt: imageAlt }],
     },
   };
 }

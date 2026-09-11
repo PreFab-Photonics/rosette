@@ -1,3 +1,4 @@
+// biome-ignore-all lint/security/noDangerouslySetInnerHtml: Next.js requires this for static, escaped JSON-LD.
 import { RootProvider } from "fumadocs-ui/provider/next";
 import "./global.css";
 import type { Metadata } from "next";
@@ -56,7 +57,10 @@ export default function Layout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="flex flex-col min-h-screen font-[family-name:var(--font-geist-sans)]">
-        <script type="application/ld+json">{structuredData}</script>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: structuredData }}
+        />
         <RootProvider
           theme={{
             // The `d` hotkey can override the OS preference. SystemThemeSync

@@ -3,11 +3,11 @@ import Link from "next/link";
 export function NotFoundContent() {
   return (
     <div className="mx-auto flex min-h-[60vh] w-full max-w-6xl items-center px-6 py-20 sm:py-28">
-      <div className="max-w-2xl border-fd-border border-l pl-6 sm:pl-10">
-        <p className="font-[family-name:var(--font-geist-mono)] text-xs tracking-[0.2em] text-fd-muted-foreground uppercase">
+      <div className="max-w-3xl border-fd-border border-l pl-6 sm:pl-10">
+        <p className="text-xs tracking-[0.2em] text-fd-muted-foreground uppercase">
           404 / route not found
         </p>
-        <h1 className="mt-5 font-[family-name:var(--font-instrument-serif)] text-4xl tracking-tight text-fd-foreground sm:text-5xl">
+        <h1 className="mt-5 text-4xl tracking-tight text-fd-foreground sm:text-5xl">
           This page is outside the layout.
         </h1>
         <p className="mt-5 max-w-xl text-base leading-relaxed text-fd-muted-foreground">
