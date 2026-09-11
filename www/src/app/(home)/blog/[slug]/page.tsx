@@ -4,12 +4,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AgenticDesignLayersFigure } from "@/components/blog/agentic-design-layers-figure";
-import { BlogHero, blogOgImages } from "@/components/blog/hero";
 import { blog, getBlogPostImage } from "@/lib/source";
 
 interface Props {
   params: Promise<{ slug: string }>;
 }
+
+const blogOgImages: Record<string, string> = {
+  "ai-for-photonics": "/blog/ai-for-photonics/og.png",
+};
 
 export default async function BlogPost(props: Props) {
   const params = await props.params;
@@ -42,8 +45,6 @@ export default async function BlogPost(props: Props) {
       </Link>
 
       <article className="mt-8">
-        <BlogHero slug={params.slug} />
-
         <time className="font-[family-name:var(--font-geist-mono)] text-xs text-fd-muted-foreground">
           {new Date(page.data.date).toLocaleDateString("en-US", {
             year: "numeric",
